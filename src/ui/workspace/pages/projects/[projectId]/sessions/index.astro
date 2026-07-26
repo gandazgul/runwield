@@ -1,0 +1,14 @@
+---
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import SessionSurface from "../../../../islands/SessionSurface.jsx";
+
+const projectId = Astro.params.projectId ?? "";
+---
+<WorkspaceLayout title="Project Sessions" selectedTab="projects" url={Astro.url.href}>
+    <section class="page-header">
+        <a class="detail-back-link" href="/">← Projects</a>
+        <h1>Project Sessions</h1>
+        <p>Open an idle Ideator Session, inspect its committed timeline, and continue it from a phone when activation allows.</p>
+    </section>
+    <SessionSurface projectId={projectId} mode="list" client:load />
+</WorkspaceLayout>

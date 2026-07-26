@@ -1,6 +1,7 @@
 /* @module ui/workspace/routes/owner-session-api */
 
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
+import { requireOwnerProjectRoot } from "../server/owner-projects.js";
 
 const MAX_JSON_BYTES = 64 * 1024;
 
@@ -36,11 +37,24 @@ function safeEvent(value) {
     return safe;
 }
 
+/** @param {unknown} value */
+function safeDiagnostic(value) {
+    if (!value || typeof value !== "object") return { code: "catalog_diagnostic", message: String(value || "") };
+    const source = /** @type {Record<string, unknown>} */ (value);
+    return {
+        code: typeof source.code === "string" ? source.code : "catalog_diagnostic",
+        message: typeof source.message === "string"
+            ? source.message.replaceAll(/(?:[A-Za-z]:)?[/\\][^\s,)]+/g, "[local path]")
+            : "Catalog diagnostic recorded.",
+    };
+}
+
 /** @param {any} ctx */
 export async function ownerProjectSessionsApi(ctx) {
     try {
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId);
-        return ownerJson(result);
+        return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
     } catch (error) {
         return ownerErrorJson(error, 400);
     }
@@ -53,6 +67,7 @@ export async function ownerSessionTimelineApi(ctx) {
         const cursorEventId = cursor ? requireBoundedString(cursor, "cursorEventId", 200) : undefined;
         const rawLimit = ctx.url.searchParams.get("limit");
         const limit = rawLimit ? Math.max(1, Math.min(500, Number(rawLimit) || 200)) : undefined;
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const result = await ctx.state.sessionContinuation.timeline(ctx.params.runwieldSessionId, {
             projectId: ctx.params.projectId,
             cursorEventId,
@@ -69,6 +84,7 @@ export async function ownerSessionTimelineApi(ctx) {
 export async function ownerSessionBootstrapApi(ctx) {
     try {
         const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const result = await ctx.state.sessionContinuation.bootstrap({
             deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,
@@ -86,6 +102,7 @@ export async function ownerSessionBootstrapApi(ctx) {
 export async function ownerSessionContinuationStartApi(ctx) {
     try {
         const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const result = await ctx.state.sessionContinuation.startContinuation({
             deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,

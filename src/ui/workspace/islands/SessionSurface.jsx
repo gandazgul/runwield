@@ -1,0 +1,442 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { SessionList } from "../components/SessionList.jsx";
+import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
+import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
+
+const TIMELINE_PAGE_LIMIT = 200;
+export const TIMELINE_MAX_PAGES = 10;
+export const TIMELINE_MAX_EVENTS = 1500;
+const POLL_INTERVAL_MS = 1500;
+const MAX_POLL_ATTEMPTS = 240;
+
+/** @param {string} projectId @param {string} sessionId */
+export function sessionDraftKey(projectId, sessionId) {
+    return `runwield:owner:project:${projectId}:session:${sessionId}:draft`;
+}
+
+/** @param {string} projectId @param {string} sessionId */
+export function sessionRequestKey(projectId, sessionId) {
+    return `runwield:owner:project:${projectId}:session:${sessionId}:request`;
+}
+
+/** @param {unknown} value */
+function asRecord(value) {
+    return value && typeof value === "object" ? /** @type {Record<string, any>} */ (value) : {};
+}
+
+/** @param {string} name */
+function ownerCookie(name) {
+    return document.cookie.split("; ").find((value) => value.startsWith(`${name}=`))?.split("=").slice(1).join("=") ||
+        "";
+}
+
+/** @param {string} url @param {RequestInit} [options] */
+async function ownerFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    headers.set("x-runwield-csrf", decodeURIComponent(ownerCookie("rw_owner_csrf")));
+    const response = await fetch(url, { ...options, headers });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(payload.error || `Request failed with ${response.status}`);
+        Reflect.set(error, "status", response.status);
+        Reflect.set(error, "payload", payload);
+        throw error;
+    }
+    return payload;
+}
+
+/** @param {string} key */
+function readStored(key) {
+    try {
+        return JSON.parse(localStorage.getItem(key) || "null");
+    } catch {
+        return null;
+    }
+}
+
+/** @param {unknown} error */
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {{ status?: string, responseAccepted?: boolean }} input
+ * @returns {"idle" | "retry-same-envelope" | "poll-operation" | "manual-resubmit"}
+ */
+export function draftRecoveryDecision(input) {
+    if (input.status === "running" || input.status === "accepted" || input.responseAccepted) return "poll-operation";
+    if (input.status === "network-error") return "retry-same-envelope";
+    if (input.status === "conflict" || input.status === "unavailable") return "manual-resubmit";
+    return "idle";
+}
+
+/** @param {{ projectId: string, mode?: "list" | "detail", runwieldSessionId?: string }} props */
+export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
+    const [listData, setListData] = useState(/** @type {any} */ (null));
+    const [listError, setListError] = useState("");
+    const [loadingList, setLoadingList] = useState(mode === "list");
+    const [timeline, setTimeline] = useState(/** @type {any} */ (null));
+    const [timelineItems, setTimelineItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
+    const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
+    const [detailError, setDetailError] = useState("");
+    const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
+    const [draft, setDraft] = useState("");
+    const [message, setMessage] = useState("");
+    const [operation, setOperation] = useState(
+        /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
+    );
+    const [submitting, setSubmitting] = useState(false);
+    const operationRef = useRef(operation);
+    operationRef.current = operation;
+
+    const draftKey = runwieldSessionId ? sessionDraftKey(projectId, runwieldSessionId) : "";
+    const requestKey = runwieldSessionId ? sessionRequestKey(projectId, runwieldSessionId) : "";
+
+    async function loadList() {
+        setLoadingList(true);
+        setListError("");
+        try {
+            const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
+                method: "GET",
+            });
+            setListData(payload);
+        } catch (error) {
+            setListError(errorMessage(error));
+        } finally {
+            setLoadingList(false);
+        }
+    }
+
+    async function loadTimeline() {
+        if (!runwieldSessionId) return;
+        setLoadingDetail(true);
+        setDetailError("");
+        setMessage("");
+        try {
+            let cursor = "";
+            /** @type {Array<Record<string, any>>} */
+            const events = [];
+            let pageCount = 0;
+            let payload = null;
+            while (pageCount < TIMELINE_MAX_PAGES && events.length <= TIMELINE_MAX_EVENTS) {
+                const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
+                if (cursor) qs.set("cursorEventId", cursor);
+                payload = await ownerFetch(
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                        encodeURIComponent(runwieldSessionId)
+                    }/timeline?${qs}`,
+                    { method: "GET" },
+                );
+                events.push(...(Array.isArray(payload.events) ? payload.events : []));
+                pageCount += 1;
+                if (payload.complete !== false) break;
+                if (!payload.nextCursor || payload.nextCursor === cursor) {
+                    throw new Error("Timeline cursor did not advance.");
+                }
+                cursor = payload.nextCursor;
+            }
+            const truncated = Boolean(
+                payload?.complete === false || pageCount >= TIMELINE_MAX_PAGES || events.length > TIMELINE_MAX_EVENTS,
+            );
+            const nextTimeline = {
+                ...(payload || {}),
+                events,
+                complete: !truncated && payload?.complete !== false,
+                truncated,
+            };
+            setTimeline(nextTimeline);
+            setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
+            setTransientItems([]);
+            if (truncated) {
+                setMessage(
+                    "Timeline budget exceeded. This Session is read-only until the complete Session UX is available.",
+                );
+            }
+        } catch (error) {
+            setDetailError(errorMessage(error));
+        } finally {
+            setLoadingDetail(false);
+        }
+    }
+
+    useEffect(() => {
+        if (mode === "list") loadList();
+        if (mode === "detail") loadTimeline();
+    }, [mode, projectId, runwieldSessionId]);
+
+    useEffect(() => {
+        if (!draftKey) return;
+        const storedDraft = localStorage.getItem(draftKey) || "";
+        setDraft(storedDraft);
+        const storedRequest = asRecord(readStored(requestKey));
+        if (storedRequest.operationId) {
+            setOperation({
+                operationId: String(storedRequest.operationId),
+                status: "running",
+                observed: 0,
+                attempts: 0,
+            });
+            setMessage("Reconnected to an accepted Session operation. Polling without replaying the request.");
+        } else if (storedRequest.requestId && storedRequest.status === "network-error") {
+            setMessage("Previous response was lost. Send will retry the exact same request envelope.");
+        }
+    }, [draftKey, requestKey]);
+
+    useEffect(() => {
+        if (!draftKey) return;
+        if (draft) localStorage.setItem(draftKey, draft);
+        else localStorage.removeItem(draftKey);
+    }, [draft, draftKey]);
+
+    const availability = useMemo(() =>
+        deriveSessionAvailability({
+            protocol: listData?.protocol || timeline?.protocol,
+            state: timeline?.state,
+            activeSurface: timeline?.activeSurface,
+            bootstrapRequired: timeline?.bootstrapRequired,
+            generation: timeline?.generation,
+            snapshot: timeline?.snapshot,
+            timelineComplete: timeline?.complete !== false,
+            truncated: timeline?.truncated,
+            localOperationActive: Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status)),
+        }), [listData, timeline, operation]);
+
+    async function prepareSession() {
+        if (!availability.canPrepare || submitting) return;
+        setSubmitting(true);
+        setMessage("");
+        try {
+            const requestId = crypto.randomUUID();
+            const payload = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/bootstrap`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ requestId }),
+                },
+            );
+            setMessage(payload.status === "completed" ? "Session prepared." : "Preparation accepted.");
+            await loadTimeline();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function sendRequest() {
+        const text = draft;
+        if (!text.trim() || !availability.canContinue || submitting || !timeline) return;
+        setSubmitting(true);
+        setMessage("");
+        const existing = asRecord(readStored(requestKey));
+        const envelope = existing.requestId && existing.status === "network-error" ? existing : {
+            requestId: crypto.randomUUID(),
+            expectedGeneration: timeline.generation,
+            text,
+            status: "pending",
+            createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(requestKey, JSON.stringify(envelope));
+        try {
+            const payload = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/continue`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestId: envelope.requestId,
+                        expectedGeneration: envelope.expectedGeneration,
+                        text: envelope.text,
+                    }),
+                },
+            );
+            setDraft("");
+            const stored = {
+                ...envelope,
+                status: payload.status || "running",
+                operationId: payload.operationId,
+                responseAccepted: true,
+            };
+            localStorage.setItem(requestKey, JSON.stringify(stored));
+            setOperation({
+                operationId: payload.operationId,
+                status: payload.status || "running",
+                observed: 0,
+                attempts: 0,
+            });
+            setMessage("Request accepted. Watching progress without replaying on refresh.");
+        } catch (error) {
+            const errorRecord = asRecord(error);
+            const status = Number(errorRecord.status || 0);
+            const nextStatus = status === 409 ? "conflict" : status === 503 ? "unavailable" : "network-error";
+            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
+            setMessage(
+                status === 409
+                    ? `${errorMessage(error)} Refreshing; resubmit explicitly when ready.`
+                    : errorMessage(error),
+            );
+            if (status === 409 || status === 503) await loadTimeline();
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    useEffect(() => {
+        if (!operation?.operationId) return undefined;
+        let cancelled = false;
+        const tick = async () => {
+            const current = operationRef.current;
+            if (!current || cancelled || current.attempts >= MAX_POLL_ATTEMPTS) return;
+            try {
+                const payload = await ownerFetch(
+                    `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
+                    { method: "GET" },
+                );
+                const events = Array.isArray(payload.events) ? payload.events : [];
+                const nextEvents = events.slice(current.observed);
+                if (nextEvents.length) {
+                    setTransientItems((
+                        items,
+                    ) => [
+                        ...items,
+                        ...reduceSessionEvents(nextEvents, { source: "transient", startIndex: current.observed }),
+                    ]);
+                }
+                const next = {
+                    operationId: current.operationId,
+                    status: payload.status || "unknown",
+                    observed: events.length,
+                    attempts: current.attempts + 1,
+                };
+                setOperation(next);
+                if (["completed", "failed", "unknown"].includes(next.status)) {
+                    if (next.status === "completed") {
+                        localStorage.removeItem(requestKey);
+                        setMessage("Operation completed. Reconciled committed timeline.");
+                    } else {
+                        setMessage(
+                            next.status === "unknown"
+                                ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
+                                : payload.error || "Operation failed. Committed state reloaded.",
+                        );
+                    }
+                    await loadTimeline();
+                    return;
+                }
+            } catch (error) {
+                setMessage(
+                    `Observation interrupted: ${errorMessage(error)}. The server-owned operation was not canceled.`,
+                );
+            }
+        };
+        const id = setInterval(tick, POLL_INTERVAL_MS);
+        tick();
+        return () => {
+            cancelled = true;
+            clearInterval(id);
+        };
+    }, [operation?.operationId, requestKey]);
+
+    if (mode === "list") {
+        return (
+            <SessionList
+                projectId={projectId}
+                data={listData}
+                loading={loadingList}
+                error={listError}
+                onRetry={loadList}
+            />
+        );
+    }
+
+    const allItems = [...timelineItems, ...transientItems];
+    return (
+        <section className="session-surface">
+            <div className="session-surface-status" aria-live="polite">{message}</div>
+            {loadingDetail
+                ? <p className="session-list-state" aria-busy="true">Loading committed Session timeline…</p>
+                : null}
+            {detailError
+                ? (
+                    <section className="error-panel" role="alert">
+                        <h2>Session failed to load</h2>
+                        <p>{detailError}</p>
+                        <RunWieldButton type="button" onClick={loadTimeline}>Retry</RunWieldButton>
+                    </section>
+                )
+                : null}
+            {timeline
+                ? (
+                    <>
+                        <section className="owner-card session-summary-card">
+                            <p className="kicker">Session</p>
+                            <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
+                            <p>
+                                Generation {timeline.generation ?? "not prepared"} · Agent{" "}
+                                {timeline.snapshot?.activeAgent || "unknown"}
+                            </p>
+                            <SessionActivationStatus availability={availability} />
+                            {availability.canPrepare
+                                ? (
+                                    <RunWieldButton
+                                        type="button"
+                                        variant="primary"
+                                        disabled={submitting}
+                                        onClick={prepareSession}
+                                    >
+                                        {submitting ? "Preparing…" : "Prepare Session"}
+                                    </RunWieldButton>
+                                )
+                                : null}
+                        </section>
+                        <SessionTimeline items={allItems} />
+                        <form
+                            className="session-composer"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                sendRequest();
+                            }}
+                        >
+                            <label htmlFor="session-request-text">User Request</label>
+                            <textarea
+                                id="session-request-text"
+                                value={draft}
+                                rows={5}
+                                disabled={!availability.canContinue || submitting}
+                                onChange={(event) => setDraft(event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                        event.preventDefault();
+                                        sendRequest();
+                                    }
+                                }}
+                                placeholder="Type the exact request to send to Ideator…"
+                            />
+                            <div className="session-composer-actions">
+                                <RunWieldButton
+                                    type="submit"
+                                    variant="primary"
+                                    disabled={!availability.canContinue || submitting || !draft.trim()}
+                                >
+                                    {submitting ? "Sending…" : "Send"}
+                                </RunWieldButton>
+                                <span>
+                                    {availability.canContinue
+                                        ? "Enter adds a newline. Command/Ctrl+Enter sends."
+                                        : availability.explanation}
+                                </span>
+                            </div>
+                        </form>
+                    </>
+                )
+                : null}
+        </section>
+    );
+}
+
+export default SessionSurface;
