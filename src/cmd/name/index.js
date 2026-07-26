@@ -40,7 +40,11 @@ export async function runNameCommand(argv, options = {}) {
         return;
     }
 
-    sessionRuntime.renameSession(sessionId, name);
+    const result = sessionRuntime.renameSession(sessionId, name);
+    if (!result.ok) {
+        uiAPI.appendSystemMessage(theme.fg("dim", `Session name not changed: ${result.error || "unsupported"}`));
+        return;
+    }
     setTitle(name);
     uiAPI.appendSystemMessage(theme.fg("dim", `Session name set: ${name}`));
 }

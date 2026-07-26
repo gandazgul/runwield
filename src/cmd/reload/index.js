@@ -25,7 +25,11 @@ export async function runReloadCommand(_argv, options = {}) {
             await discoverAndRegisterThemes();
             const persistedTheme = settings.getTheme();
             if (persistedTheme) setTheme(persistedTheme);
-            options.uiAPI.appendSystemMessage("Successfully reloaded configs, themes, and agent context.");
+            options.uiAPI.appendSystemMessage(
+                result.deferred
+                    ? "Successfully reloaded configs and themes. Agent context will rebuild on the next managed turn."
+                    : "Successfully reloaded configs, themes, and agent context.",
+            );
         } else {
             options.uiAPI.appendSystemMessage("Reload skipped (no active root session found).");
         }

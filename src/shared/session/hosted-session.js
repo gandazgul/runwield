@@ -114,6 +114,9 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
 /**
  * @typedef {Object} PendingManagedTurnIntent
  * @property {string} [agentName]
+ * @property {string} [model]
+ * @property {string} [provider]
+ * @property {ThinkingLevel} [thinkingLevel]
  */
 
 /** @param {unknown} value */

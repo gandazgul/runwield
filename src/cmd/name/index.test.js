@@ -54,6 +54,36 @@ Deno.test("runNameCommand sets session name and terminal title", async () => {
     assertEquals(messages[0].includes("Session name set: build coverage"), true);
 });
 
+Deno.test("runNameCommand reports Runtime rejection without changing terminal title", async () => {
+    /** @type {string[]} */
+    const messages = [];
+    /** @type {string[]} */
+    const titles = [];
+
+    await runNameCommand(
+        ["managed", "name"],
+        /** @type {any} */ ({
+            uiAPI: {
+                appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
+            },
+            sessionId: "runtime-name",
+            sessionRuntime: {
+                renameSession: () => ({ ok: false, error: "managed_unsupported" }),
+            },
+            __testDeps: {
+                setTerminalTitleForName: (/** @type {string} */ name) => {
+                    titles.push(name);
+                    return `wld - ${name}`;
+                },
+            },
+        }),
+    );
+
+    assertEquals(titles, []);
+    assertEquals(messages.length, 1);
+    assertEquals(messages[0].includes("Session name not changed: managed_unsupported"), true);
+});
+
 Deno.test("runNameCommand shows current session name", async () => {
     /** @type {string[]} */
     const messages = [];
