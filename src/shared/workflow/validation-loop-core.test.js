@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { runValidationLoop } from "./validation.js";
+import { runValidationLoop, shouldContinueParentEpicAfterValidation } from "./validation.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 
@@ -15,6 +15,18 @@ function makeValidationUi() {
     const uiAPI = makeUi();
     return { uiAPI, hostedSession: makeRecordedSession("validation-test", uiAPI) };
 }
+
+Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE plans", () => {
+    assertEquals(shouldContinueParentEpicAfterValidation({ classification: "FEATURE" }), false);
+    assertEquals(
+        shouldContinueParentEpicAfterValidation(/** @type {any} */ ({ classification: "FEATURE", parentPlan: "" })),
+        false,
+    );
+    assertEquals(
+        shouldContinueParentEpicAfterValidation(/** @type {any} */ ({ classification: "FEATURE", parentPlan: "epic" })),
+        true,
+    );
+});
 
 Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in-place execution", async () => {
     const { uiAPI } = makeValidationUi();
