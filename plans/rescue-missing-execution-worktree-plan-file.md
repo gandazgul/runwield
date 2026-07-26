@@ -1,4 +1,5 @@
 ---
+planId: "d98d1426-5ee8-4a0d-bd7d-acfff8044ee6"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Materialize canonical Plan files in execution worktrees and safely restore a missing Plan file so Workflow Validation can continue."
