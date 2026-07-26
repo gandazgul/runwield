@@ -207,6 +207,7 @@ export class HostedSession {
         );
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
+        this.suppressAgentStoppedAttention = false;
         /** @type {string | null} */
         this.activeTurnId = null;
         /** @type {ManagedSessionMetadata | null} */
@@ -436,6 +437,16 @@ export class HostedSession {
 
     getRootAgentName() {
         return this.rootAgentName;
+    }
+
+    suppressNextAgentStoppedAttention() {
+        this.suppressAgentStoppedAttention = true;
+    }
+
+    consumeSuppressedAgentStoppedAttention() {
+        if (!this.suppressAgentStoppedAttention) return false;
+        this.suppressAgentStoppedAttention = false;
+        return true;
     }
 
     /** @param {DisposableLike} session */

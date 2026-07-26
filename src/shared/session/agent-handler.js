@@ -166,6 +166,7 @@ export function createAgentHandler(agentName, __deps) {
         let agentStoppedAttentionRequested = false;
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
+            if (hostedSession.consumeSuppressedAgentStoppedAttention()) return;
             agentStoppedAttentionRequested = true;
             requestAttention(hostedSession, "agentStopped", hostedSession.getRootAgentName() || agentName);
         };
