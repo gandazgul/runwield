@@ -41,22 +41,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-26T14:38:14.572Z"
-status: "in_progress"
+updatedAt: "2026-07-26T21:08:48.832Z"
+status: "implemented"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "06-read-only-transcript-projection-and-idle-tui-sync"
-humanReviewMode: null
-humanReviewDecision: null
-executionMode: "worktree"
-executionBaselineTree: "06d074a9ef05bbb0982ff88a8438a65c7d255288"
-worktreeId: "b4d36514"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-personal-remote-workspace-v1-07-activation-enfor-b4d36514"
-worktreeBranch: "runwield/worktree/personal-remote-workspace-v1-07-activation-enfor-b4d36514"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+failureReason: "CI validation failed after 3 repair attempts."
+worktreeStatus: "validation_failed"
 ---
 
 # Activation Enforcement Hardening Across Adapters
