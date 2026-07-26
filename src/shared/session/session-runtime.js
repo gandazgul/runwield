@@ -402,6 +402,16 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {import('./hosted-session.js').HostedSession | null | undefined} hostedSession
+     * @param {string} operation
+     */
+    #rejectManagedPublicMutation(hostedSession, operation) {
+        if (!hostedSession?.getManagedMetadata?.()) return null;
+        if (hostedSession.getRootSessionManager?.()) return null;
+        return { ok: false, error: "managed_unsupported", operation };
+    }
+
+    /**
      * @param {import('./hosted-session.js').HostedSession} hostedSession
      * @param {import('@earendil-works/pi-coding-agent').AgentSession} sourceSession
      */
@@ -487,6 +497,8 @@ export class SessionRuntime {
     async steerSession(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession");
+        if (managedRejection) return { ...managedRejection, queued: false };
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         if (!rootSession?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
 
@@ -526,6 +538,8 @@ export class SessionRuntime {
     queueNextTurnMessage(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "queueNextTurnMessage");
+        if (managedRejection) return { ...managedRejection, queued: false };
         const message = /** @type {RuntimeQueuedMessageState} */ ({
             id: crypto.randomUUID(),
             text,
@@ -547,6 +561,8 @@ export class SessionRuntime {
     takeNextTurnMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage");
+        if (managedRejection) return { ...managedRejection, message: null };
         const selected = (this.#queuedMessages.get(hostedSession.id) || [])
             .find((message) => message.delivery === "next_turn");
         if (!selected) return { ok: true, message: null };
@@ -659,6 +675,8 @@ export class SessionRuntime {
     clearQueuedMessages(sessionId, reason = "cleared") {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, cleared: 0, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "clearQueuedMessages");
+        if (managedRejection) return { ...managedRejection, cleared: 0 };
         const messages = [...(this.#queuedMessages.get(hostedSession.id) || [])];
         const sources = new Set(messages.map((message) => message.sourceSession).filter(Boolean));
         const clearedSources = new Set();
@@ -689,6 +707,8 @@ export class SessionRuntime {
     renameSession(sessionId, name) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(session, "renameSession");
+        if (managedRejection) return managedRejection;
         const normalizedName = String(name || "").trim();
         if (!normalizedName) return { ok: false, error: "invalid_name" };
         session.getRootSessionManager()?.appendSessionInfo?.(normalizedName);
@@ -705,6 +725,8 @@ export class SessionRuntime {
     setSessionModel(sessionId, model, provider = "", userOverride = true) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(session, "setSessionModel");
+        if (managedRejection) return managedRejection;
         session.setActiveModelState(model, provider, userOverride);
         this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
         return { ok: true, model, provider };
@@ -721,6 +743,8 @@ export class SessionRuntime {
     async reconfigureSessionModel(sessionId, model, provider = "") {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(session, "reconfigureSessionModel");
+        if (managedRejection) return managedRejection;
         session.setActiveModelState(model, provider, true);
         const agentName = session.getRootAgentName();
         if (agentName) {
@@ -762,6 +786,8 @@ export class SessionRuntime {
     async runIsolatedAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "runIsolatedAgent");
+        if (managedRejection) throw new Error(managedRejection.error);
         return await this.#runBusyOperation(session.id, () =>
             runIsolatedAgentSession({
                 hostedSession: session,
@@ -780,6 +806,8 @@ export class SessionRuntime {
     setActiveExecutionWorkflow(sessionId, workflow) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(session, "setActiveExecutionWorkflow");
+        if (managedRejection) return managedRejection;
         session.setActiveExecutionWorkflow(/** @type {any} */ (workflow));
         return { ok: true };
     }
@@ -788,6 +816,8 @@ export class SessionRuntime {
     clearActiveExecutionWorkflow(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(session, "clearActiveExecutionWorkflow");
+        if (managedRejection) return managedRejection;
         session.clearActiveExecutionWorkflow();
         return { ok: true };
     }
@@ -796,6 +826,8 @@ export class SessionRuntime {
     async executePlan(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.executePlan: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "executePlan");
+        if (managedRejection) throw new Error(managedRejection.error);
         return await this.#runBusyOperation(session.id, async () => {
             const { executePlan } = await import("../workflow/workflow.js");
             return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
@@ -806,6 +838,8 @@ export class SessionRuntime {
     async runPlanningAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runPlanningAgent: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "runPlanningAgent");
+        if (managedRejection) throw new Error(managedRejection.error);
         return await this.#runBusyOperation(session.id, async () => {
             const { runPlanningAgent } = await import("../workflow/workflow.js");
             return await runPlanningAgent(
@@ -822,6 +856,8 @@ export class SessionRuntime {
     async runSlicerAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runSlicerAgent: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "runSlicerAgent");
+        if (managedRejection) throw new Error(managedRejection.error);
         return await this.#runBusyOperation(session.id, async () => {
             const { runSlicerAgent } = await import("../workflow/workflow-slicer.js");
             return await runSlicerAgent(
@@ -838,6 +874,8 @@ export class SessionRuntime {
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "runValidation");
+        if (managedRejection) throw new Error(managedRejection.error);
         const result = await this.#runBusyOperation(session.id, async () => {
             const { runValidationLoop } = await import("../workflow/validation.js");
             return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
@@ -849,6 +887,8 @@ export class SessionRuntime {
     /** @param {string} sessionId @param {boolean} enabled */
     async setSessionAutoCompaction(sessionId, enabled) {
         const session = this.#sessionHost.getSession(sessionId);
+        const managedRejection = this.#rejectManagedPublicMutation(session, "setSessionAutoCompaction");
+        if (managedRejection) return managedRejection;
         const rootAgentSession = /** @type {any} */ (session?.getRootAgentSession());
         if (!rootAgentSession?.setAutoCompactionEnabled) return { ok: false, error: "unsupported" };
         rootAgentSession.setAutoCompactionEnabled(enabled);
@@ -873,6 +913,8 @@ export class SessionRuntime {
     async persistSessionImage(sessionId, image) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.persistSessionImage: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "persistSessionImage");
+        if (managedRejection) throw new Error(managedRejection.error);
         return await persistImageAttachment(
             image,
             /** @type {any} */ (session.getRootSessionManager() || undefined),
@@ -1643,6 +1685,18 @@ export class SessionRuntime {
             phase: "preparing",
         });
         let activeProof = proof;
+        let hydrated = false;
+        /** @type {ReturnType<typeof setInterval> | null} */
+        let heartbeatTimer = null;
+        this.#beginBusyOperation(sessionId);
+        const heartbeat = () => {
+            try {
+                this.#ownerCoordinationStore?.heartbeatSessionActivation(activeProof);
+            } catch {
+                // The next fenced phase/publish operation will fail closed and mark uncertainty.
+            }
+        };
+        heartbeatTimer = setInterval(heartbeat, 10_000);
         try {
             if (state.generation) {
                 const currentEvidence = await captureTranscriptEvidence({
@@ -1670,6 +1724,7 @@ export class SessionRuntime {
                 }
             }
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            hydrated = true;
             const { sessionManager } = await this.#openPersistedRootSession({
                 cwd: hostedSession.cwd,
                 sessionId: managed.piSessionId,
@@ -1701,10 +1756,23 @@ export class SessionRuntime {
             return result;
         } catch (error) {
             hostedSession.dehydrateManagedSession();
-            this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
-                reason: error instanceof Error ? error.message : String(error),
-            });
+            if (!hydrated) {
+                try {
+                    this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                } catch {
+                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                        reason: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            } else {
+                this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                    reason: error instanceof Error ? error.message : String(error),
+                });
+            }
             throw error;
+        } finally {
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            this.#endBusyOperation(sessionId);
         }
     }
 
@@ -1771,6 +1839,34 @@ export class SessionRuntime {
         }
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
+        }
+        if (this.#ownerCoordinationStore && options.sessionPath) {
+            const managedSession = this.#ownerCoordinationStore.findSessionByLocator({
+                transcriptPath: options.sessionPath,
+            });
+            if (managedSession) {
+                this.#ownerCoordinationStore.requireActivationProtocolEnabled();
+                const inspected = this.#ownerCoordinationStore.inspectSessionActivation(
+                    managedSession.runwieldSessionId,
+                );
+                if (!inspected.generation) throw new Error("Managed Session requires bootstrap before load.");
+                const adopted = this.adoptManagedSession({
+                    session: managedSession,
+                    generation: inspected.generation.generation,
+                });
+                const sync = await this.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
+                return {
+                    sessionId: adopted.sessionId,
+                    cwd: adopted.cwd,
+                    replayEvents: sync.ok
+                        ? (sync.events || []).map((event) =>
+                            createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
+                        )
+                        : [],
+                    sessionManagerId: managedSession.piSessionId,
+                    sessionPath: managedSession.transcriptPath,
+                };
+            }
         }
         const { sessionManager, resolved } = await this.#openPersistedRootSession({
             cwd: options.cwd,
