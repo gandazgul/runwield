@@ -409,6 +409,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     const createdSession = await sessionRuntime.createInteractiveSession({
         cwd: Deno.cwd(),
         mode: options.sessionStartMode || "new",
+        deferManagedActivationUntilAgentReady: (options.sessionStartMode || "new") === "new",
     });
     let sessionId = createdSession.sessionId;
     function getRuntimeSnapshot() {

@@ -45,6 +45,19 @@ Deno.test("managed session sync can read processing state before startup awaits"
     assertEquals(syncControllerIndex < modelWelcomeIndex, true);
 });
 
+Deno.test("new TUI Sessions defer managed activation until after model onboarding", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const createSessionIndex = source.indexOf("const createdSession = await sessionRuntime.createInteractiveSession({");
+    const deferOptionIndex = source.indexOf("deferManagedActivationUntilAgentReady:");
+    const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
+    const switchAgentIndex = source.indexOf("await sessionRuntime.switchAgent(sessionId, {");
+
+    assertEquals(createSessionIndex >= 0, true);
+    assertEquals(deferOptionIndex > createSessionIndex, true);
+    assertEquals(deferOptionIndex < modelWelcomeIndex, true);
+    assertEquals(modelWelcomeIndex < switchAgentIndex, true);
+});
+
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);

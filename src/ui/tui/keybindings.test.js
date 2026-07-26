@@ -365,3 +365,46 @@ Deno.test("installKeybindings does not mutate previews when handleImagePaste blo
         __setClipboardDepsForTest();
     }
 });
+
+Deno.test("installKeybindings reports pasted image handler failures instead of throwing", async () => {
+    const enc = new TextEncoder();
+    const outputs = [
+        { success: true, stdout: "image\n" },
+        { success: true, stdout: "" },
+        { success: true, stdout: "YQ==\n" },
+    ];
+    class FakeCommand {
+        /** @param {string} _command @param {{ args?: string[] }} _opts */
+        constructor(_command, _opts) {}
+        output() {
+            const next = outputs.shift();
+            if (!next) throw new Error("missing fake output");
+            return Promise.resolve({ success: next.success, stdout: enc.encode(next.stdout), stderr: enc.encode("") });
+        }
+    }
+    __setClipboardDepsForTest(
+        /** @type {any} */ ({
+            os: "darwin",
+            Command: FakeCommand,
+            makeTempFile: () => Promise.resolve("/tmp/runwield-clip.png"),
+            remove: () => Promise.resolve(),
+        }),
+    );
+    try {
+        const ctx = makeContext({
+            handleImagePaste: () => Promise.reject(new Error("managed_unsupported")),
+        });
+        installKeybindings(ctx);
+
+        await ctx.editor.handleInput(RAW_KEY.ctrlV);
+
+        assertEquals(ctx.pastedImages, []);
+        assertEquals(ctx.previewImages.children, []);
+        assertEquals(ctx.stats.systemMessages, [
+            "Cannot attach pasted image: managed_unsupported",
+        ]);
+        assertEquals(ctx.stats.renderCount, 1);
+    } finally {
+        __setClipboardDepsForTest();
+    }
+});
