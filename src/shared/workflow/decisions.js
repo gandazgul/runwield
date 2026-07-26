@@ -5,7 +5,7 @@
  */
 
 /**
- * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"stay_with_agent"|"halt"} WorkflowDecisionKind
+ * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"complete_session"|"stay_with_agent"|"halt"} WorkflowDecisionKind
  */
 
 /**
@@ -145,6 +145,15 @@ export function decidePostExecution(executionResult, { planName, triageMeta, exe
 
     if (executionResult.executionComplete) {
         return decision("run_validation", { planName, triageMeta });
+    }
+
+    if (executionResult.intentionalComplete) {
+        return decision("complete_session", {
+            planName,
+            triageMeta,
+            reason: executionResult.intentionalCompleteReason,
+            message: executionResult.message,
+        });
     }
 
     if (executionResult.canceled) {

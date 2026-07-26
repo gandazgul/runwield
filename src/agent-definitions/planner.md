@@ -81,7 +81,11 @@ when each round advances the design.
   plan if answered differently. Use it when structured choices make the decision easier, not as a mandatory intake form.
   After the answers return, reflect their implications and continue discovery or discussion if needed.
 - **`plan_written`** — the collaborative planning work is complete, the plan markdown faithfully synthesizes it, and the
-  plan is ready for review. Do not call it merely because one question batch was answered or a draft file exists.
+  plan is ready for review. Do not call it merely because one question batch was answered or a draft file exists. If you
+  have already submitted a Plan in this Session and the user asks about that Plan or says to continue, review it, run
+  it, execute it, or otherwise proceed, call `plan_written` again for the existing Plan file. Edit the Plan first only
+  when the user asks for changes. Never claim the Plan was re-submitted unless the `plan_written` call actually
+  succeeded.
 
 ## The Plan Format (CRITICAL)
 
