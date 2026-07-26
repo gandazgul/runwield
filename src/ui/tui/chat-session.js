@@ -732,6 +732,12 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         validationPanelContainer,
         activeInteractionContainer,
     );
+    const baseSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
+    uiAPI.setManagedSyncStatus = (state) => {
+        baseSetManagedSyncStatus?.(state);
+        editor.disableSubmit = state.status === "blocked" || state.status === "degraded" ||
+            state.status === "active_elsewhere";
+    };
 
     let isProcessingSubmission = false;
 
@@ -855,6 +861,20 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             return false;
         }
         return true;
+    }
+
+    function getManagedInputBlockMessage() {
+        const syncState = getRuntimeSnapshot().managed?.syncState;
+        if (!syncState) return null;
+        if (syncState.status === "active_elsewhere") {
+            return `This managed Session is active in ${
+                syncState.owningSurfaceKind || "another surface"
+            }. Wait for it to finish before sending from this TUI.`;
+        }
+        if (syncState.status === "blocked" || syncState.status === "degraded") {
+            return syncState.message || "This managed Session needs recovery before accepting new TUI input.";
+        }
+        return null;
     }
 
     /** @type {Set<string>} */
@@ -1112,7 +1132,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         const managed = snapshot.managed;
 
         try {
-            managedSyncController.pause();
+            await managedSyncController.pause();
             const result = managed
                 ? await sessionRuntime.promptManagedSession(sessionId, {
                     initialRequest: userRequest,
@@ -1206,6 +1226,15 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                 true,
                 "RunWield",
             );
+            editor.disableSubmit = false;
+            tui.setFocus(editor);
+            tui.requestRender();
+            return;
+        }
+
+        const managedBlockMessage = getManagedInputBlockMessage();
+        if (managedBlockMessage && !(userRequest.startsWith("/") && isModelSetupRecoveryCommand(userRequest))) {
+            uiAPI.appendSystemMessage(managedBlockMessage, true, "RunWield");
             editor.disableSubmit = false;
             tui.setFocus(editor);
             tui.requestRender();
@@ -1328,7 +1357,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     // A new session contains initialization metadata but no conversation to
     // hydrate. Only continuing sessions replay persisted history.
     if (shouldReplaySessionHistory(options.sessionStartMode)) {
-        sessionRuntime.replaySession(sessionId);
+        if (getRuntimeSnapshot().managed?.dormant) {
+            await sessionRuntime.synchronizeManagedSession(sessionId, { replayFromStart: true });
+        } else {
+            sessionRuntime.replaySession(sessionId);
+        }
     }
 
     // Trigger initial user request

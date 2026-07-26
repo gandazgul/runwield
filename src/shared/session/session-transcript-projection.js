@@ -357,28 +357,44 @@ export async function captureTranscriptEvidence(options) {
 }
 
 /**
- * @param {{ sessionPath: string, sessionDir: string, cwd: string, generation: number, byteLength: number, digestHex: string, terminalEntryId: string | null, runtimeSessionId?: string, cursorEventId?: string, limit?: number }} options
+ * @param {{ sessionPath: string, sessionDir: string, cwd: string, generation: number, byteLength: number, digestHex: string, terminalEntryId: string | null, runtimeSessionId?: string, cursorEventId?: string, cursorEventOrdinal?: number | null, limit?: number }} options
  */
 /**
- * @param {{ events: Array<Record<string, any> & { eventId: string }>, cursorEventId?: string | null, limit?: number }} options
+ * @param {{ events: Array<Record<string, any> & { eventId: string }>, cursorEventId?: string | null, cursorEventOrdinal?: number | null, limit?: number }} options
  */
 export function selectProjectedEventsAfterCursor(options) {
     const events = Array.isArray(options.events) ? options.events : [];
     let startIndex = 0;
     if (options.cursorEventId) {
-        const cursorIndex = events.findIndex((event) => event.eventId === options.cursorEventId);
-        if (cursorIndex === -1) {
-            const error = new Error("Timeline cursor is not present in the requested generation");
-            error.name = "ProjectionContinuityError";
-            throw error;
+        const cursorEventOrdinal = Number.isInteger(options.cursorEventOrdinal)
+            ? Number(options.cursorEventOrdinal)
+            : null;
+        const expectedIndex = cursorEventOrdinal !== null && cursorEventOrdinal >= 0 ? cursorEventOrdinal : null;
+        if (expectedIndex !== null) {
+            if (events[expectedIndex]?.eventId !== options.cursorEventId) {
+                const error = new Error(
+                    "Timeline cursor is not a prefix-continuous ancestor of the requested generation",
+                );
+                error.name = "ProjectionContinuityError";
+                throw error;
+            }
+            startIndex = expectedIndex + 1;
+        } else {
+            const cursorIndex = events.findIndex((event) => event.eventId === options.cursorEventId);
+            if (cursorIndex === -1) {
+                const error = new Error("Timeline cursor is not present in the requested generation");
+                error.name = "ProjectionContinuityError";
+                throw error;
+            }
+            startIndex = cursorIndex + 1;
         }
-        startIndex = cursorIndex + 1;
     }
     const limit = Math.max(1, Math.min(500, options.limit || 200));
     const selected = events.slice(startIndex, startIndex + limit);
     return {
         events: selected,
         nextCursor: selected.length > 0 ? selected[selected.length - 1].eventId : options.cursorEventId || null,
+        nextCursorOrdinal: selected.length > 0 ? startIndex + selected.length - 1 : options.cursorEventOrdinal ?? null,
         complete: startIndex + selected.length >= events.length,
     };
 }
@@ -401,7 +417,7 @@ export function toProjectionFailure(error) {
 }
 
 /**
- * @param {{ cwd: string, sessionDir: string, sessionPath: string, runtimeSessionId?: string, generation: number, byteLength: number, terminalEntryId: string | null, digestHex: string, cursorEventId?: string | null, limit?: number }} options
+ * @param {{ cwd: string, sessionDir: string, sessionPath: string, runtimeSessionId?: string, generation: number, byteLength: number, terminalEntryId: string | null, digestHex: string, cursorEventId?: string | null, cursorEventOrdinal?: number | null, limit?: number }} options
  */
 export async function projectCommittedTranscript(options) {
     const sessionPath = resolve(options.sessionPath);
@@ -424,12 +440,14 @@ export async function projectCommittedTranscript(options) {
     const selected = selectProjectedEventsAfterCursor({
         events: allEvents,
         cursorEventId: options.cursorEventId,
+        cursorEventOrdinal: options.cursorEventOrdinal,
         limit: options.limit,
     });
     return {
         generation: options.generation,
         events: selected.events,
         nextCursor: selected.nextCursor,
+        nextCursorOrdinal: selected.nextCursorOrdinal,
         complete: selected.complete,
         snapshot: summarizeProjectedEntries(evidence.entries),
     };

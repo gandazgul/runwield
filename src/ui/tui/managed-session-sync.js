@@ -30,6 +30,8 @@ export function createManagedSessionSyncController(options) {
     let disposed = false;
     let paused = false;
     let inFlight = false;
+    /** @type {Promise<void> | null} */
+    let inFlightPromise = null;
     /** @type {unknown} */
     let timer = null;
 
@@ -56,15 +58,19 @@ export function createManagedSessionSyncController(options) {
         const snapshot = options.runtime.getSessionSnapshot(sessionId);
         if (!snapshot?.managed?.dormant) return;
         inFlight = true;
-        try {
-            await options.runtime.synchronizeManagedSession(sessionId);
-            schedule(pollIntervalMs);
-        } catch (error) {
-            options.onError?.(error);
-            schedule(retryDelayMs);
-        } finally {
-            inFlight = false;
-        }
+        inFlightPromise = (async () => {
+            try {
+                await options.runtime.synchronizeManagedSession(sessionId);
+                schedule(pollIntervalMs);
+            } catch (error) {
+                options.onError?.(error);
+                schedule(retryDelayMs);
+            } finally {
+                inFlight = false;
+                inFlightPromise = null;
+            }
+        })();
+        await inFlightPromise;
     }
 
     return {
@@ -72,9 +78,10 @@ export function createManagedSessionSyncController(options) {
             if (disposed || paused) return;
             schedule(0);
         },
-        pause() {
+        async pause() {
             paused = true;
             clearScheduled();
+            if (inFlightPromise) await inFlightPromise;
         },
         resume() {
             if (disposed) return;
@@ -84,9 +91,10 @@ export function createManagedSessionSyncController(options) {
         async refreshNow() {
             await inspect();
         },
-        dispose() {
+        async dispose() {
             disposed = true;
             clearScheduled();
+            if (inFlightPromise) await inFlightPromise;
         },
         isInFlight() {
             return inFlight;
