@@ -4,7 +4,11 @@
 
 - [x] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
       memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
-- [ ] CONTEXT-FORMAT file is not extracted on a fresh install.
+- [x] CONTEXT-FORMAT file is not extracted on a fresh install.
+- [ ] The footer CWD and branch needs to be updates when working in a worktree. Currently it shows the main branch and
+      the main CWD even when in a worktree.
+- [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
+      general problem with the verification loop.
 - [ ] Implement auto update and wld update
 - [ ] During init guess the probable ci command, maybe more than 1 choice, when asking the user that the ci command is
       offer the ones found by init plus None which will not do mechanical validation (with a warning) and Other to let
