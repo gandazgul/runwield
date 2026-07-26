@@ -1476,6 +1476,14 @@ export async function runValidationLoop({
         }
         return { kind: "failed", planName, projectRoot: initialProjectRoot, reason: resolution.message };
     }
+    if (resolution.restoredPlanFile) {
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `Restored missing execution worktree Plan file from the canonical Project Plan: ${resolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+            false,
+            progress,
+        );
+    }
     const resolvedExecutionContext = resolution.context;
     const baselineTree = resolvedExecutionContext.executionMode === "worktree"
         ? resolvedExecutionContext.baselineTree

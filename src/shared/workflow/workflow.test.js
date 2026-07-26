@@ -80,6 +80,8 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
                     }),
                 );
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "restored", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree1"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -94,6 +96,149 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
     );
     assertEquals(/** @type {{ baseRef: string, baseBranch: string }} */ (createCalls[0]).baseBranch, "feature-base");
     assertEquals(result.worktreeBaseBranch, "feature-base");
+});
+
+Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan preparation and records metric", async () => {
+    const hostedSession = makeHostedSession("baseline-after-plan-restore");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        baselineTree: "stale-tree-without-plan",
+        projectRoot: hostedSession.cwd,
+        executionCwd: "/tmp/wt-existing",
+        worktreeId: "wt-existing",
+        worktreeBranch: "runwield/worktree/p-wt",
+        worktreeBaseBranch: "main",
+    });
+    /** @type {string[]} */
+    const order = [];
+    /** @type {any[]} */
+    const metrics = [];
+
+    const result = await startActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: {},
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+            resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+            prepareExecutionPlanFile: () => {
+                order.push("prepare-plan");
+                return Promise.resolve({ kind: "restored", relativePath: "plans/p.md" });
+            },
+            captureWorktreeTree: () => {
+                order.push("capture-tree");
+                return Promise.resolve("tree-with-plan");
+            },
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            recordWorkflowMetric: (metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(order, ["prepare-plan", "capture-tree"]);
+    assertEquals(result.baselineTree, "tree-with-plan");
+    assertEquals(metrics.at(-1)?.details.planFileMaterialized, true);
+});
+
+Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan preparation blocks", async () => {
+    const hostedSession = makeHostedSession("reused-plan-block");
+    let removed = false;
+    let eventRecorded = false;
+
+    await assertRejects(
+        () =>
+            startActiveExecutionWorkflow({
+                planName: "p",
+                triageMeta: { worktreeId: "wt-reuse" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                __deps: {
+                    probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                    findReusableWorktree: () =>
+                        Promise.resolve(
+                            /** @type {any} */ ({
+                                id: "wt-reuse",
+                                path: "/tmp/wt-reuse",
+                                branch: "runwield/worktree/p-wt",
+                                baseBranch: "main",
+                            }),
+                        ),
+                    resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                    prepareExecutionPlanFile: () =>
+                        Promise.resolve({
+                            kind: "identity_conflict",
+                            relativePath: "plans/p.md",
+                            reason: "conflicting Plan ID",
+                        }),
+                    removeExecutionWorktree: () => {
+                        removed = true;
+                        return Promise.resolve();
+                    },
+                    recordPlanEvent: () => {
+                        eventRecorded = true;
+                        return Promise.resolve(/** @type {any} */ ({}));
+                    },
+                },
+            }),
+        Error,
+        "plans/p.md",
+    );
+
+    assertEquals(removed, false);
+    assertEquals(eventRecorded, false);
+});
+
+Deno.test("startActiveExecutionWorkflow reports cleanup failure and keeps registry evidence", async () => {
+    const hostedSession = makeHostedSession("fresh-cleanup-failure");
+    const worktreePath = await Deno.makeTempDir();
+    let registryRemoved = false;
+    try {
+        await assertRejects(
+            () =>
+                startActiveExecutionWorkflow({
+                    planName: "p",
+                    triageMeta: {},
+                    currentStatus: "ready_for_work",
+                    hostedSession,
+                    __deps: {
+                        probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                        findReusableWorktree: () => Promise.resolve(null),
+                        createExecutionWorktree: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    id: "wt-fresh",
+                                    path: worktreePath,
+                                    branch: "runwield/worktree/p-wt",
+                                    baseBranch: "HEAD",
+                                }),
+                            ),
+                        prepareExecutionPlanFile: () =>
+                            Promise.resolve({
+                                kind: "restore_failed",
+                                relativePath: "plans/p.md",
+                                reason: "disk full",
+                            }),
+                        removeExecutionWorktree: () => Promise.reject(new Error("remove failed")),
+                        removeWorktreeRegistryEntry: () => {
+                            registryRemoved = true;
+                            return Promise.resolve();
+                        },
+                    },
+                }),
+            Error,
+            "cleanup failed: remove failed",
+        );
+        assertEquals(registryRemoved, false);
+    } finally {
+        await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans", async () => {
@@ -128,6 +273,8 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
                     }),
                 );
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "restored", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree2"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -171,6 +318,8 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
                 createCalls++;
                 return Promise.reject(new Error("should reuse recorded worktree"));
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "present", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree-main"),
             updateWorktreeRegistryEntry: (projectRoot, id, updates) => {
                 registryUpdates.push({ projectRoot, id, updates });
@@ -257,6 +406,8 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
                 createCalls++;
                 return Promise.reject(new Error("should not create"));
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "present", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree4"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),

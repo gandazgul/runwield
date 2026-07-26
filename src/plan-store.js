@@ -83,6 +83,17 @@ function getStoredPlanLocation(cwd, planName) {
     return { name, segments, filePath: join(getPlansDir(cwd), ...segments) + ".md" };
 }
 
+/**
+ * Resolve the canonical stored path for a Project Plan without reading it.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @returns {string}
+ */
+export function getStoredPlanPath(cwd, planName) {
+    return getStoredPlanLocation(cwd, planName).filePath;
+}
+
 // ─── Front Matter ─────────────────────────────────────────────────────
 
 /**
