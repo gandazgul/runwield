@@ -1,9 +1,5 @@
 ---
 description: Generates a changelog and publishes a release on GitHub or GitLab, automatically handling versioning.
-tools:
-    - bash
-    - ls
-    - user_interview
 ---
 
 # Release
