@@ -488,7 +488,11 @@ Deno.test("targeted Work Record auto-generation skips non-terminal child parent 
             order: 1,
         });
 
-        const skipped = await autoGenerateWorkRecordForCompletedPlan({ cwd, planName: "epic/01-child" });
+        const skipped = await autoGenerateWorkRecordForCompletedPlan({
+            cwd,
+            planName: "epic/01-child",
+            __deps: { shouldAutoGenerate: () => true },
+        });
         assertEquals(skipped.status, "skipped");
         assertEquals(skipped.reason, "parent_not_terminal");
 
