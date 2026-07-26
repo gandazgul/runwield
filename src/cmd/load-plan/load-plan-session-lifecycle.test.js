@@ -157,6 +157,44 @@ Deno.test("runLoadPlanCommand starts interactive session and captures session wh
     assertEquals(callbackProvided, true);
 });
 
+Deno.test("runLoadPlanCommand explains managed session unsupported plan actions", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("resume");
+    let planningCalled = false;
+
+    await runLoadPlanCommand(["managed-plan"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["managed-plan"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "managed-plan",
+                    path: "plans/managed-plan.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanningAgent: () => {
+                planningCalled = true;
+                return Promise.reject(new Error("managed_unsupported"));
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(planningCalled, true);
+    assertEquals(messages.some((message) => message.includes("managed session could not be activated")), true);
+    assertEquals(messages.some((message) => message.includes("managed_unsupported")), true);
+    assertEquals(messages.some((message) => message.startsWith("Error: managed_unsupported")), false);
+});
+
 Deno.test("runLoadPlanCommand keeps planner active when lifecycle canceled", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("resume");
