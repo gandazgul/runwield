@@ -308,7 +308,7 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
                 assertEquals(snapshot?.managed?.generation, 0);
             } finally {
-                runtime.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
             store.close();
@@ -350,7 +350,7 @@ Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projec
                 assertEquals(snapshot?.managed, null);
                 assertEquals(snapshot?.sessionManagerId, sessionId);
             } finally {
-                runtime.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
             store.close();
@@ -426,7 +426,7 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
                 assertEquals(inspected.activation?.state, "idle");
                 assertEquals(inspected.generation?.generation, 0);
             } finally {
-                runtime.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
             store.close();
@@ -516,7 +516,7 @@ Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan work
                 assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
                 assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
             } finally {
-                runtime.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
             store.close();
@@ -1202,6 +1202,22 @@ Deno.test("SessionRuntime cancellation emits cancellation and dequeues pending m
     );
 });
 
+Deno.test("SessionRuntime marks aborted agent turns to suppress agent-stopped attention", async () => {
+    let canceledSession = /** @type {import('./hosted-session.js').HostedSession | null} */ (null);
+    const runtime = makeRuntime({
+        agentSession: makeSteeringAgentSession(),
+        abortActiveSession: (session) => {
+            canceledSession = session;
+            return true;
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+
+    assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
+    assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), true);
+    assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), false);
+});
+
 Deno.test("SessionRuntime cancellation owns active compaction and publishes one operation event", async () => {
     const agentSession = makeSteeringAgentSession();
     agentSession.isStreaming = false;
@@ -1359,7 +1375,7 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
                 });
                 assertEquals(compactCalled, true);
             } finally {
-                runtime.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
             store.close();
