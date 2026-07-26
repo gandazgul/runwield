@@ -861,6 +861,7 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
 Deno.test("agent-handler validates task_completed against hosted workflow", async () => {
     /** @type {unknown} */
     let validationWorkflow = null;
+    const cwd = Deno.cwd();
     const hostedSession = makeHostedSession();
     hostedSession.setActiveExecutionWorkflow({
         planName: "hosted-plan",
@@ -868,8 +869,8 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
         executionAgent: "engineer",
         executionMode: "non_git_in_place",
         baselineTree: "hosted-tree",
-        projectRoot: Deno.cwd(),
-        executionCwd: Deno.cwd(),
+        projectRoot: cwd,
+        executionCwd: cwd,
         nonGitInPlace: true,
     });
     const handler = createAgentHandler("engineer", {
@@ -901,8 +902,8 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
             executionAgent: "engineer",
             executionMode: "non_git_in_place",
             baselineTree: "hosted-tree",
-            projectRoot: Deno.cwd(),
-            executionCwd: Deno.cwd(),
+            projectRoot: cwd,
+            executionCwd: cwd,
             nonGitInPlace: true,
         });
     } finally {

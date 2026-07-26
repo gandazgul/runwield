@@ -134,6 +134,7 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {string} sessionId
  * @property {string} [sessionPath]
  * @property {string} [modelOverride]
+ * @property {boolean} [enableManagedActivation]
  */
 
 /**
@@ -860,13 +861,131 @@ export class SessionRuntime {
         return { ok: true };
     }
 
+    /**
+     * @template T
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {string} operationName
+     * @param {Record<string, any>} options
+     * @param {() => Promise<T>} operation
+     * @returns {Promise<T>}
+     */
+    async #runWorkflowOperation(session, operationName, options, operation) {
+        const managed = session.getManagedMetadata?.();
+        if (!managed || session.getRootSessionManager?.()) {
+            return await this.#runBusyOperation(session.id, operation);
+        }
+        if (!this.#ownerCoordinationStore) throw new Error("managed_unsupported");
+        this.#ownerCoordinationStore.requireActivationProtocolEnabled();
+        const state = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+        const expectedGeneration = managed.generation;
+        const latestGeneration = state.generation?.generation ?? null;
+        if (latestGeneration !== expectedGeneration) throw new Error("refresh_required");
+        let activeProof = this.#ownerCoordinationStore.acquireSessionActivation({
+            runwieldSessionId: managed.runwieldSessionId,
+            projectId: managed.projectId,
+            ownerInstanceId: this.#ownerInstanceId,
+            ownerProcessKind: this.#ownerProcessKind,
+            expectedGeneration,
+            phase: "preparing",
+        });
+        let hydrated = false;
+        /** @type {ReturnType<typeof setInterval> | null} */
+        let heartbeatTimer = null;
+        this.#beginBusyOperation(session.id);
+        const heartbeat = () => {
+            try {
+                this.#ownerCoordinationStore?.heartbeatSessionActivation(activeProof);
+            } catch {
+                // The next fenced phase or publication will fail closed.
+            }
+        };
+        heartbeatTimer = setInterval(heartbeat, 10_000);
+        try {
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            hydrated = true;
+            const { sessionManager } = await this.#openPersistedRootSession({
+                cwd: session.cwd,
+                sessionId: managed.piSessionId,
+                sessionPath: managed.transcriptPath,
+            });
+            session.setRootSessionManager(sessionManager);
+            const pendingIntent = session.getPendingManagedTurnIntent?.() || {};
+            if (pendingIntent.model || pendingIntent.provider) {
+                session.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
+            }
+            if (pendingIntent.thinkingLevel) session.setThinkingLevel(pendingIntent.thinkingLevel);
+            const agentName = options.agentName || pendingIntent.agentName || managed.activeAgent ||
+                await this.#resolveResumeAgentName(sessionManager);
+            const pendingModel = pendingIntent.model || pendingIntent.provider
+                ? pendingIntent.provider && pendingIntent.model
+                    ? `${pendingIntent.provider}/${pendingIntent.model}`
+                    : pendingIntent.model || undefined
+                : undefined;
+            await this.#activateSessionAgent(session, {
+                agentName,
+                model: pendingModel,
+                toolNames: options.toolNames,
+                customTools: options.customTools,
+                allowReturnToRouter: options.allowReturnToRouter,
+                includeEditFallback: options.includeEditFallback,
+            });
+            session.consumePendingManagedTurnIntent?.();
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "turning");
+            const result = await operation();
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+            const nextManaged = {
+                ...managed,
+                activeAgent: session.getRootAgentName?.() || agentName || managed.activeAgent || null,
+                workflowContext: session.getWorkflowContext?.() || managed.workflowContext || null,
+            };
+            session.dehydrateManagedSession();
+            await syncTranscriptFileAndParent(managed.transcriptPath);
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath: managed.transcriptPath,
+                transcriptCwd: session.cwd,
+            });
+            const nextGeneration = (expectedGeneration ?? -1) + 1;
+            this.#ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+                generation: nextGeneration,
+                byteLength: evidence.byteLength,
+                terminalEntryId: evidence.terminalEntryId,
+                digestHex: evidence.digestHex,
+            });
+            session.setManagedMetadata({
+                ...nextManaged,
+                generation: nextGeneration,
+                acknowledgedGeneration: nextGeneration,
+            });
+            await this.synchronizeManagedSession(session.id, { emitEvents: false });
+            return result;
+        } catch (error) {
+            session.dehydrateManagedSession();
+            if (!hydrated) {
+                try {
+                    this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                } catch {
+                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                        reason: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            } else {
+                const reason = error instanceof Error ? error.message : String(error);
+                this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                    reason: `${operationName}: ${reason}`,
+                });
+            }
+            throw error;
+        } finally {
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            this.#endBusyOperation(session.id);
+        }
+    }
+
     /** @param {string} sessionId @param {Record<string, any>} options */
     async executePlan(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.executePlan: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "executePlan");
-        if (managedRejection) throw new Error(managedRejection.error);
-        return await this.#runBusyOperation(session.id, async () => {
+        return await this.#runWorkflowOperation(session, "executePlan", options, async () => {
             const { executePlan } = await import("../workflow/workflow.js");
             return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
         });
@@ -876,9 +995,7 @@ export class SessionRuntime {
     async runPlanningAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runPlanningAgent: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "runPlanningAgent");
-        if (managedRejection) throw new Error(managedRejection.error);
-        return await this.#runBusyOperation(session.id, async () => {
+        return await this.#runWorkflowOperation(session, "runPlanningAgent", options, async () => {
             const { runPlanningAgent } = await import("../workflow/workflow.js");
             return await runPlanningAgent(
                 /** @type {any} */ ({
@@ -894,9 +1011,7 @@ export class SessionRuntime {
     async runSlicerAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runSlicerAgent: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "runSlicerAgent");
-        if (managedRejection) throw new Error(managedRejection.error);
-        return await this.#runBusyOperation(session.id, async () => {
+        return await this.#runWorkflowOperation(session, "runSlicerAgent", options, async () => {
             const { runSlicerAgent } = await import("../workflow/workflow-slicer.js");
             return await runSlicerAgent(
                 /** @type {any} */ ({
@@ -912,9 +1027,7 @@ export class SessionRuntime {
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "runValidation");
-        if (managedRejection) throw new Error(managedRejection.error);
-        const result = await this.#runBusyOperation(session.id, async () => {
+        const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
             const { runValidationLoop } = await import("../workflow/validation.js");
             return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
         });
@@ -1648,6 +1761,21 @@ export class SessionRuntime {
         return null;
     }
 
+    /**
+     * Managed activation is an explicit Runtime operation mode, not an ambient
+     * consequence of having an owner-coordination database or a cataloged
+     * transcript. Normal interactive consumers may run inside registered
+     * Projects and may resume cataloged transcripts; those flows must remain
+     * ordinary live sessions unless their caller explicitly opts into managed
+     * fencing.
+     *
+     * @param {{ enableManagedActivation?: boolean }} options
+     * @returns {boolean}
+     */
+    #shouldUseManagedActivation(options) {
+        return options.enableManagedActivation === true;
+    }
+
     /** @param {any} sessionManager @param {string} transcriptPath */
     async #ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath) {
         try {
@@ -2095,7 +2223,7 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue", deferManagedActivationUntilAgentReady?: boolean }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
@@ -2118,7 +2246,7 @@ export class SessionRuntime {
                 };
             }
         }
-        const managedProject = (options.mode || "new") === "new"
+        const managedProject = this.#shouldUseManagedActivation(options) && (options.mode || "new") === "new"
             ? this.#findEnabledManagedProjectForCwd(options.cwd)
             : null;
         const ownerCoordinationStore = this.#ownerCoordinationStore;
@@ -2235,7 +2363,7 @@ export class SessionRuntime {
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
         }
-        if (this.#ownerCoordinationStore && options.sessionPath) {
+        if (this.#ownerCoordinationStore && this.#shouldUseManagedActivation(options) && options.sessionPath) {
             const managedSession = this.#ownerCoordinationStore.findSessionByLocator({
                 transcriptPath: options.sessionPath,
             });
