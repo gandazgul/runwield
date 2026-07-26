@@ -635,6 +635,44 @@ Deno.test("Work Record generation discloses skipped verification reason fallback
     }
 });
 
+Deno.test("Work Record generation preserves User Verification attribution and note", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "user-verified", "# User Verified\n\n## Plan\n\nBody", {
+            planId: "plan-user-verified",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "User accepted work.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "user_verified",
+            userVerifiedAt: "2026-07-15T00:00:00.000Z",
+            userVerificationNote: "Checked in staging with Alice.",
+        });
+        const result = await runWorkRecordBackfill(cwd, {
+            idGenerator: () => "66666666-6666-4666-8666-666666666666",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            generateSections: () => ({ title: "User Verified", summary: "Implemented feature." }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
+        });
+
+        assertEquals(result.outcomes[0].status, "generated");
+        const record = await findWorkRecordById(cwd, "66666666-6666-4666-8666-666666666666");
+        assertEquals(record?.attrs.completionMode, "user_verified");
+        assertStringIncludes(record?.summary || "", "The user attested verification");
+        assertStringIncludes(record?.summary || "", "Checked in staging with Alice.");
+        assertEquals(
+            formatHydratedWorkRecord(/** @type {any} */ (record)).notices.includes(
+                "NOTICE: verification was attested by the user, not RunWield Workflow Validation.",
+            ),
+            true,
+        );
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
 Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
     const cwd = await Deno.makeTempDir();
     try {

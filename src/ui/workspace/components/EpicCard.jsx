@@ -12,7 +12,8 @@ function holdMetadata(plan) {
 
 /** @param {{ epic: any, url: URL | string, draggableCard?: boolean }} props */
 export function EpicCard({ epic, url, draggableCard = false }) {
-    const progress = epic.childProgress || { verified: 0, total: 0, active: 0, remaining: 0, failed: 0, byStatus: {} };
+    const progress = epic.childProgress ||
+        { verified: 0, userVerified: 0, total: 0, active: 0, remaining: 0, failed: 0, byStatus: {} };
     const held = epic.childHealth?.held?.length || 0;
     const failed = epic.childHealth?.failed?.length || progress.failed || 0;
     const blocked = epic.childHealth?.blocked?.length || 0;
@@ -59,7 +60,9 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             <p>{epic.summary || "No Epic summary provided."}</p>
             {epic.status === "on_hold" ? <p className="hold-summary">{holdMetadata(epic)}</p> : null}
             <div className="progress-meter" aria-label="Epic child progress">
-                <span>{progress.verified}/{progress.total} verified</span>
+                <span>
+                    {progress.verified} RunWield / {progress.userVerified || 0} user / {progress.total} complete
+                </span>
                 {progress.active ? <span>{progress.active} active</span> : null}
                 {implemented ? <span>{implemented} implemented</span> : null}
                 {progress.remaining ? <span>{progress.remaining} remaining</span> : null}

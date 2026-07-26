@@ -10,6 +10,7 @@
 import { dirname, join } from "@std/path";
 import {
     findPlansByParent,
+    isPlanDependencySatisfiedStatus,
     loadPlan,
     normalizeDeliveryEvidence,
     normalizeExecutionMode,
@@ -18,11 +19,11 @@ import {
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 
 /**
- * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} PlanStatus
+ * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
  */
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
 
 /**
@@ -47,6 +48,7 @@ import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/l
  * @property {PlanStatus} [manualTargetStatus]
  * @property {string} [holdReason]
  * @property {string} [closedWithoutVerificationReason]
+ * @property {string} [userVerificationNote]
  * @property {string} [holdStalenessBaseline]
  * @property {PlanStatus} [heldFromStatus]
  * @property {() => Date} [now]
@@ -73,6 +75,7 @@ export const PLAN_STATUSES = [
     "failed",
     "implemented",
     "verified",
+    "user_verified",
     "closed_without_verification",
     "on_hold",
 ];
@@ -90,10 +93,35 @@ export const ACTIVE_PLAN_STATUSES = [
 ];
 
 /** @type {PlanStatus[]} */
-export const CLOSED_PLAN_STATUSES = ["verified", "closed_without_verification"];
+export const CLOSED_PLAN_STATUSES = ["verified", "user_verified", "closed_without_verification"];
 
 /** @type {PlanStatus[]} */
 export const ON_HOLD_PLAN_STATUSES = ["on_hold"];
+
+/** @param {string | undefined | null} status */
+export function isRunWieldVerifiedPlanStatus(status) {
+    return status === "verified";
+}
+
+/** @param {string | undefined | null} status */
+export function isUserVerifiedPlanStatus(status) {
+    return status === "user_verified";
+}
+
+/** @param {string | undefined | null} status */
+export function isTerminalPlanStatus(status) {
+    return CLOSED_PLAN_STATUSES.includes(/** @type {any} */ (status));
+}
+
+/** @param {string | undefined | null} status */
+export function isArchiveEligiblePlanStatus(status) {
+    return isTerminalPlanStatus(status);
+}
+
+/** @param {string | undefined | null} status */
+export function isDependencySatisfiedPlanStatus(status) {
+    return status === "verified" || status === "user_verified";
+}
 
 const ALL_KNOWN_STATUSES = PLAN_STATUSES;
 
@@ -112,10 +140,19 @@ const ALLOWED_FROM = {
     worktree_merge_failed: ["implemented"],
     recovery_continue: ["in_progress", "failed"],
     recovery_reset: ["in_progress", "failed", "implemented"],
-    review_reopened: ["ready_for_decomposition", "ready_for_work", "in_progress", "failed", "implemented", "verified"],
+    review_reopened: [
+        "ready_for_decomposition",
+        "ready_for_work",
+        "in_progress",
+        "failed",
+        "implemented",
+        "verified",
+        "user_verified",
+    ],
     epic_done_enough: ["ready_for_work", "verified"],
     manual_status_change: ALL_KNOWN_STATUSES,
     manual_closed_without_verification: ALL_KNOWN_STATUSES,
+    manual_user_verified: ALL_KNOWN_STATUSES,
     plan_held: ALL_KNOWN_STATUSES,
     hold_resumed: ["on_hold"],
     hold_reset_to_draft: ["on_hold"],
@@ -140,6 +177,7 @@ const EVENT_STATUS = {
     epic_done_enough: "verified",
     manual_status_change: "draft",
     manual_closed_without_verification: "closed_without_verification",
+    manual_user_verified: "user_verified",
     plan_held: "on_hold",
     hold_resumed: "draft",
     hold_reset_to_draft: "draft",
@@ -174,7 +212,10 @@ function isManualBoardStatus(status, attrs) {
  * @param {PlanStatus} event
  */
 function assertKnownHoldResumeStatus(event) {
-    if (event === "on_hold" || event === "verified" || event === "closed_without_verification") {
+    if (
+        event === "on_hold" || event === "verified" || event === "user_verified" ||
+        event === "closed_without_verification"
+    ) {
         throw new Error(
             `Invalid Plan Lifecycle transition: hold_resumed cannot restore terminal/protected status "${event}".`,
         );
@@ -218,7 +259,7 @@ export function isManualBoardStatusChangeAllowed(currentStatus, targetStatus, at
 /**
  * @param {PlanStatus} currentStatus
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
- * @returns {{ canCloseWithoutVerification: boolean, canPutOnHold: boolean, canResumeFromHold: boolean, canResetToDraft: boolean, allowedManualTargetStatuses: PlanStatus[], blockedReasons: Record<string, string> }}
+ * @returns {{ canCloseWithoutVerification: boolean, canUserVerify: boolean, canPutOnHold: boolean, canResumeFromHold: boolean, canResetToDraft: boolean, allowedManualTargetStatuses: PlanStatus[], blockedReasons: Record<string, string> }}
  */
 export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
     /** @type {Record<string, string>} */
@@ -227,7 +268,9 @@ export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
         status !== currentStatus
     );
     const canCloseWithoutVerification = isManualBoardStatus(currentStatus, attrs);
-    const canPutOnHold = currentStatus !== "verified" && currentStatus !== "closed_without_verification" &&
+    const canUserVerify = isManualBoardStatus(currentStatus, attrs);
+    const canPutOnHold = currentStatus !== "verified" && currentStatus !== "user_verified" &&
+        currentStatus !== "closed_without_verification" &&
         currentStatus !== "on_hold";
     const canResumeFromHold = currentStatus === "on_hold" && Boolean(attrs?.heldFromStatus);
     const canResetToDraft = currentStatus === "on_hold";
@@ -240,6 +283,9 @@ export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
     if (!canCloseWithoutVerification) {
         blockedReasons.close_without_verification =
             "Only active manual board statuses can be closed without Workflow Validation.";
+    }
+    if (!canUserVerify) {
+        blockedReasons.user_verify = "Only active manual board statuses can be marked User Verified.";
     }
     if (!canPutOnHold) {
         blockedReasons.put_on_hold = "Verified, closed, and already held Plans cannot be put on hold.";
@@ -254,6 +300,7 @@ export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
     return {
         allowedManualTargetStatuses,
         canCloseWithoutVerification,
+        canUserVerify,
         canPutOnHold,
         canResumeFromHold,
         canResetToDraft,
@@ -323,9 +370,25 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.closedWithoutVerificationReason = reason;
     }
 
+    if (event === "manual_user_verified") {
+        if (!isManualBoardStatus(currentStatus, details.triageMeta)) {
+            throw new Error(
+                `Invalid Plan Lifecycle transition: manual_user_verified cannot apply to status "${currentStatus}".`,
+            );
+        }
+        const note = typeof details.userVerificationNote === "string" ? details.userVerificationNote.trim() : "";
+        if (!note) {
+            throw new Error("Invalid Plan Lifecycle transition: manual_user_verified requires userVerificationNote.");
+        }
+        updates.status = "user_verified";
+        updates.userVerifiedAt = now;
+        updates.userVerificationNote = note;
+    }
+
     if (event === "plan_held") {
         if (
-            currentStatus === "verified" || currentStatus === "closed_without_verification" ||
+            currentStatus === "verified" || currentStatus === "user_verified" ||
+            currentStatus === "closed_without_verification" ||
             currentStatus === "on_hold"
         ) {
             throw new Error(`Invalid Plan Lifecycle transition: plan_held cannot apply to status "${currentStatus}".`);
@@ -369,6 +432,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -378,6 +443,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         if (targetStatus !== "implemented") {
             updates.implementedAt = null;
             updates.verifiedAt = null;
+            updates.userVerifiedAt = null;
+            updates.userVerificationNote = null;
             updates.deliveryEvidence = null;
             updates.humanReviewMode = null;
             updates.humanReviewDecision = null;
@@ -406,6 +473,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
     }
 
     if (event === "execution_started") {
@@ -430,6 +499,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.executionReport = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
@@ -474,6 +545,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 
     if (event === "epic_done_enough") {
         updates.verifiedAt = now;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.epicCompletionMode = "done_enough";
         updates.epicDoneEnoughAt = now;
         updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
@@ -516,6 +589,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeStatus = null;
         }
         updates.verifiedAt = now;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         if (Object.hasOwn(details, "humanReviewMode")) updates.humanReviewMode = details.humanReviewMode;
         if (Object.hasOwn(details, "humanReviewDecision")) updates.humanReviewDecision = details.humanReviewDecision;
         if (Object.hasOwn(details, "humanReviewedAt")) updates.humanReviewedAt = details.humanReviewedAt ?? null;
@@ -536,6 +611,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -546,6 +623,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
@@ -557,6 +636,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
         updates.executionMode = null;
         updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
@@ -594,7 +675,7 @@ function hasModeAppropriateDeliveryEvidence(attrs) {
  * @returns {Promise<void>}
  */
 async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, updatedAttrs, details = {} }) {
-    if (event !== "validation_passed") return;
+    if (event !== "validation_passed" && event !== "manual_user_verified") return;
     if (isEpicPlan(updatedAttrs)) return;
 
     const parentPlanName = typeof updatedAttrs.parentPlan === "string" ? updatedAttrs.parentPlan : "";
@@ -602,13 +683,16 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
 
     const parent = await loadPlan(cwd, parentPlanName);
     if (!parent || !isEpicPlan(parent.attrs)) return;
-    if (parent.attrs.status === "verified") return;
+    if (isPlanDependencySatisfiedStatus(parent.attrs.status)) return;
     if (parent.attrs.status !== "ready_for_work") return;
 
     const children = await findPlansByParent(cwd, parentPlanName);
     if (!children.length) return;
     if (
-        children.some((child) => child.attrs.status !== "verified" || !hasModeAppropriateDeliveryEvidence(child.attrs))
+        children.some((child) =>
+            !isPlanDependencySatisfiedStatus(child.attrs.status) ||
+            (child.attrs.status === "verified" && !hasModeAppropriateDeliveryEvidence(child.attrs))
+        )
     ) return;
 
     await recordPlanEvent({
@@ -618,7 +702,7 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
         currentStatus: "ready_for_work",
         details: {
             triageMeta: parent.attrs,
-            epicDoneEnoughSummary: `All ${children.length} child FEATURE plans are verified after ${planName}.`,
+            epicDoneEnoughSummary: `All ${children.length} child FEATURE plans are completed after ${planName}.`,
             now: details.now,
         },
     });

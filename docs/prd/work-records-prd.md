@@ -107,10 +107,12 @@ Rules:
 Every Work Record has required `completionMode`:
 
 ```yaml
-completionMode: verified | closed_without_verification | done_enough
+completionMode: verified | user_verified | closed_without_verification | done_enough
 ```
 
 - `verified`: RunWield Workflow Validation passed.
+- `user_verified`: the user attested verification outside RunWield Workflow Validation; the source note must be
+  preserved and summaries/notices must attribute authority to the user.
 - `closed_without_verification`: work was manually closed or externally constructed without RunWield verification.
 - `done_enough`: PROJECT Epic was marked done enough.
 
@@ -264,10 +266,10 @@ Recorder is the future Agent responsible for Work Record generation.
 Automatic generation targets:
 
 - standalone top-level FEATURE Plan reaching `verified`
-- top-level FEATURE Plan reaching `closed_without_verification`
+- top-level FEATURE Plan reaching `user_verified` or `closed_without_verification`
 - PROJECT Epic reaching `verified`
 - PROJECT Epic marked `done_enough`
-- PROJECT Epic reaching `closed_without_verification`
+- PROJECT Epic reaching `user_verified` or `closed_without_verification`
 
 Automatic generation does not target:
 
@@ -300,8 +302,8 @@ Plan, execution report, completion metadata, and Epic child context when needed.
 
 ### Best-Effort and Timing
 
-Work Record generation is best-effort and must not block Plans from reaching `verified`, `closed_without_verification`,
-or `done_enough`.
+Work Record generation is best-effort and must not block Plans from reaching `verified`, `user_verified`,
+`closed_without_verification`, or `done_enough`.
 
 V1 generation is completion-driven, not session-boundary driven. Automatic hooks run after the terminal event is already
 durable:
@@ -352,7 +354,7 @@ No explicit `missing` status is needed.
 
 Backfill should include archived completed top-level Plans/Epics by default when the user explicitly runs broad
 backfill. For backfill eligibility, completed means top-level Plans/Epics with `status: verified`,
-`status: closed_without_verification`, or PROJECT Epics with `epicCompletionMode: done_enough`.
+`status: user_verified`, `status: closed_without_verification`, or PROJECT Epics with `epicCompletionMode: done_enough`.
 
 ### Closed Without Verification
 
@@ -482,6 +484,8 @@ Default human search should show current usable records only:
 When a human explicitly asks for historical, stale, superseded, archived, draft, or pending records, the UI may include
 those records with prominent notices:
 
+- `user_verified` records display a prominent notice that verification was attested by the user, not RunWield Workflow
+  Validation, and preserve the user note.
 - `closed_without_verification` records display a verification-skipped warning and closure reason.
 - `superseded` records display a replaced-by notice and the superseding Work Record ID when available.
 - archived records display `archivedAt` and remain visually de-emphasized.

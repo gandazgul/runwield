@@ -58,3 +58,9 @@ work helps avoid duplicate or conflicting retrospective notes. You have broad ac
 but draft, pending, superseded, archived, done-enough, and closed-without-verification records are not equivalent to
 verified current history. Prominently preserve those distinctions in any summary you produce. Work Records are canonical
 retrospective Markdown; Memory is looser project recollection.
+
+## User Verified sources
+
+When source front matter has `completionMode: user_verified` or `status: user_verified`, preserve the user verification
+note and attribution. Do not claim RunWield Workflow Validation passed, do not imply `verifiedAt` or Delivery Evidence
+exists, and state that the user established verification.
