@@ -435,7 +435,7 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
     runtime.closeSession(created.sessionId);
 });
 
-Deno.test("SessionRuntime records dormant managed agent switches as pending turn intent", async () => {
+Deno.test("SessionRuntime records dormant managed local changes as pending turn intent", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-pending-agent",
@@ -461,16 +461,58 @@ Deno.test("SessionRuntime records dormant managed agent switches as pending turn
     });
 
     const result = await runtime.switchAgent(session.id, { agentName: "engineer" });
+    const modelResult = await runtime.reconfigureSessionModel(session.id, "gpt-next", "test-provider");
+    const thinkingResult = runtime.setSessionThinkingLevel(session.id, "high");
     session.setManagedMetadata({
         .../** @type {NonNullable<ReturnType<typeof session.getManagedMetadata>>} */ (session.getManagedMetadata()),
         activeAgent: "router",
+        model: "old-model",
+        provider: "old-provider",
+        thinkingLevel: "low",
     });
     const snapshot = runtime.getSessionSnapshot(session.id);
 
     assertEquals(result, { ok: true, agentName: "engineer", model: undefined, changed: true });
+    assertEquals(modelResult, { ok: true, model: "gpt-next", provider: "test-provider" });
+    assertEquals(thinkingResult, { ok: true, thinkingLevel: "high" });
     assertEquals(changedAgents, ["engineer"]);
-    assertEquals(session.getPendingManagedTurnIntent(), { agentName: "engineer" });
+    assertEquals(session.getPendingManagedTurnIntent(), {
+        agentName: "engineer",
+        model: "gpt-next",
+        provider: "test-provider",
+        thinkingLevel: "high",
+    });
     assertEquals(snapshot?.activeAgent, "engineer");
+    assertEquals(snapshot?.activeModel, { model: "gpt-next", provider: "test-provider" });
+    assertEquals(snapshot?.thinkingLevel, "high");
+});
+
+Deno.test("SessionRuntime defers reload and rejects compaction for dormant managed Sessions", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({
+        id: "managed-reload-compact",
+        cwd: Deno.cwd(),
+        sessionManager: null,
+        managed: {
+            runwieldSessionId: "rw-reload-compact",
+            projectId: "project-reload-compact",
+            piSessionId: "pi-reload-compact",
+            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            generation: 3,
+            acknowledgedGeneration: 3,
+            name: "Managed Reload Compact",
+            activeAgent: "router",
+            workflowContext: null,
+        },
+    });
+    const runtime = makeRuntime({ sessionHost });
+
+    assertEquals(await runtime.reloadSession(session.id), { ok: true, deferred: true });
+    await assertRejects(
+        () => runtime.compactSession(session.id),
+        Error,
+        "managed_unsupported",
+    );
 });
 
 Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
