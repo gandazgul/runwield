@@ -130,12 +130,13 @@ Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
 **Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
 Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
 
-**Direct Delivery**: A RunWield delivery mode that merges validated work into the local target branch without a Forge
-Change Request. _Avoid_: Local review, unreviewed delivery
+**Direct Delivery**: The default RunWield delivery mode that stages verified Plan metadata with validated implementation
+work and merges both into the local target branch without a Forge Change Request. _Avoid_: Local review, unreviewed
+delivery
 
-**Change Request Delivery**: A RunWield delivery mode that publishes validated work through a Forge Change Request and
-waits for a proven remote merge before claiming delivery completion. _Avoid_: PR mode, remote merge-back, Direct
-Delivery
+**Change Request Delivery**: An explicitly selected RunWield delivery mode that publishes a validated implementation
+candidate without terminal Plan metadata and waits for a proven Forge Change Request merge before verifying the
+canonical Plan. _Avoid_: PR mode, remote merge-back, Direct Delivery
 
 **Dual Review**: A Change Request Delivery policy that requires both RunWield's local human code review and review on
 the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
@@ -539,8 +540,9 @@ command definition, prompt command
   covered by RunWield Workflow Validation.
 - **Change Request Finalization** follows the proven Forge merge and updates the canonical repository without requiring
   the contributor's source branch or fork to receive terminal Plan state.
-- **Direct Delivery** may combine implementation and verified Plan metadata in one merge, while **Change Request
-  Delivery** truthfully records terminal Plan and Work Record evidence after the Forge merge.
+- **Direct Delivery** remains the default and combines implementation with staged verified Plan metadata in one merge;
+  only explicitly selected **Change Request Delivery** omits terminal Plan metadata from the published branch and
+  records terminal Plan and Work Record evidence after the Forge merge.
 - **Dual Review** adds **Local Human Code Review** to Forge review; ordinary Change Request Delivery retains **Semantic
   Code Review** without requiring the local human review gate.
 - A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.

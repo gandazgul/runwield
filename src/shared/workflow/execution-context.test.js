@@ -87,7 +87,7 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
         assertEquals(result.kind, "ok");
         if (result.kind === "ok") {
             assertEquals(result.context.executionMode, "worktree");
-            assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.persistedLegacyExecutionMode, false);
         }
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -95,7 +95,69 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
     }
 });
 
-Deno.test("resolveValidationExecutionContext blocks a persisted retry-baseline mismatch", async () => {
+Deno.test("resolveValidationExecutionContext recovers missing worktree metadata from registry by plan name", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const parent = await Deno.makeTempDir();
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "test@example.com"]);
+        await git(projectRoot, ["config", "user.name", "Test"]);
+        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "init"]);
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const worktreePath = `${parent}/wt`;
+        await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
+        await Deno.writeTextFile(`${worktreePath}/file.txt`, "base\nimplemented\n");
+        await git(worktreePath, ["add", "file.txt"]);
+        await git(worktreePath, ["commit", "-m", "implement p"]);
+        await savePlan(projectRoot, "p", "# Plan", {
+            classification: "FEATURE",
+            status: "implemented",
+            failureReason: "CI validation failed.",
+        });
+        await addEntry(projectRoot, {
+            id: "wt-1",
+            planName: "p",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: baselineTree,
+            executionBaselineTree: baselineTree,
+            branch: "runwield/worktree/p-wt",
+            path: worktreePath,
+            status: "validation_failed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") {
+            assertEquals(result.context.executionMode, "worktree");
+            assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
+            if (result.context.executionMode === "worktree") {
+                assertEquals(result.context.baselineTree, baselineTree);
+                assertEquals(result.context.worktreeId, "wt-1");
+                assertEquals(result.context.worktreeBranch, "runwield/worktree/p-wt");
+                assertEquals(result.context.worktreeBaseBranch, "main");
+            }
+            assertEquals(result.persistedLegacyExecutionMode, true);
+        }
+        const persistedPlan = await loadPlan(projectRoot, "p");
+        assertEquals(persistedPlan?.attrs.worktreeId, "wt-1");
+        assertEquals(persistedPlan?.attrs.executionMode, undefined);
+        assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);
+        assertEquals(persistedPlan?.attrs.worktreePath, undefined);
+        assertEquals(persistedPlan?.attrs.worktreeBranch, undefined);
+        assertEquals(persistedPlan?.attrs.worktreeBaseBranch, undefined);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(parent, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("resolveValidationExecutionContext prefers registry baseline over duplicated Plan metadata", async () => {
     const result = await resolveValidationExecutionContext({
         projectRoot: "/project",
         planName: "p",
@@ -131,11 +193,24 @@ Deno.test("resolveValidationExecutionContext blocks a persisted retry-baseline m
                         status: "completed",
                     }),
                 ),
+            realPath: (value) => Promise.resolve(String(value)),
+            runGit: (_cwd, args) => {
+                if (args[0] === "branch") return Promise.resolve("runwield/worktree/p-wt");
+                if (args[0] === "rev-parse" && args[1] === "--git-common-dir") return Promise.resolve("/git/common");
+                if (args[0] === "rev-parse" && args[1] === "refs/heads/main") return Promise.resolve("main-head");
+                if (args[0] === "rev-parse" && args[1] === "different-attempt-tree^{tree}") {
+                    return Promise.resolve("different-attempt-tree");
+                }
+                return Promise.resolve("");
+            },
+            prepareExecutionPlanFile: () => Promise.resolve(/** @type {any} */ ({ kind: "present" })),
         },
     });
 
-    assertEquals(result.kind, "blocked");
-    if (result.kind === "blocked") assertEquals(result.reason, "registry_base_tree_mismatch");
+    assertEquals(result.kind, "ok");
+    if (result.kind === "ok" && result.context.executionMode === "worktree") {
+        assertEquals(result.context.baselineTree, "different-attempt-tree");
+    }
 });
 
 Deno.test("resolveValidationExecutionContext blocks contradictory explicit and active workflow context", async () => {
@@ -241,14 +316,14 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
                 assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
                 assertEquals(result.context.baselineTree, baselineTree);
             }
-            assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.persistedLegacyExecutionMode, false);
             assertEquals(result.restoredPlanFile, { relativePath: "plans/p.md" });
         }
         assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalMarkdownBeforeResolution);
         assertEquals(metrics.at(-1)?.details.planFileRestored, true);
         const persistedPlan = await loadPlan(projectRoot, "p");
-        assertEquals(persistedPlan?.attrs.executionMode, "worktree");
-        assertEquals(persistedPlan?.attrs.executionBaselineTree, baselineTree);
+        assertEquals(persistedPlan?.attrs.executionMode, undefined);
+        assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});
