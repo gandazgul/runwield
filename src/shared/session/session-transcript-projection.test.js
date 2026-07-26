@@ -6,6 +6,7 @@ import {
     captureTranscriptEvidence,
     projectCommittedTranscript,
     selectProjectedEventsAfterCursor,
+    summarizeProjectedEntries,
 } from "./session-transcript-projection.js";
 
 /** @param {(home: string) => Promise<void>} callback */
@@ -117,6 +118,34 @@ Deno.test("projection cursor selection returns only later events and advances su
     const summaryOnly = selectProjectedEventsAfterCursor({ events: [], cursorEventId: null });
     assertEquals(summaryOnly.events, []);
     assertEquals(summaryOnly.nextCursor, null);
+});
+
+Deno.test("projection summary preserves stable attention event identity", () => {
+    const first = summarizeProjectedEntries([
+        { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
+        {
+            type: "custom",
+            id: "attention-entry",
+            customType: "runwield.attention",
+            data: { reason: "agentStopped", agentName: "Ideator" },
+        },
+    ]);
+    const second = summarizeProjectedEntries([
+        { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
+        {
+            type: "custom",
+            id: "attention-entry",
+            customType: "runwield.attention",
+            data: { reason: "agentStopped", agentName: "Ideator" },
+        },
+    ]);
+
+    assertEquals(first.attention, {
+        eventId: "attention-entry:attention_requested:0",
+        reason: "agentStopped",
+        agentName: "Ideator",
+    });
+    assertEquals(second.attention?.eventId, first.attention?.eventId);
 });
 
 Deno.test("projection cursor selection fails closed when the prior cursor is absent", () => {

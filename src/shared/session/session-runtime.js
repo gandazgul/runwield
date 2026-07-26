@@ -23,7 +23,9 @@ import {
     exportRootSessionToHtml,
     exportRootSessionToJsonl,
     getRootSessionBranchEntries,
+    getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listPersistedRootSessions,
     openPersistedRootSession,
 } from "./root-session.js";
@@ -54,7 +56,7 @@ import { getModelRegistry } from "../models/model-registry.js";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
-import { dirname, isAbsolute } from "@std/path";
+import { basename, dirname, isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
     "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
@@ -117,6 +119,11 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {string} initialRequest
  * @property {import('./types.js').ImageAttachment[]} [initialImages]
  * @property {(context: PromptTurnContext) => void | (() => void)} [onTurnStarted]
+ * @property {string} [agentName]
+ * @property {string[]} [toolNames]
+ * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
+ * @property {boolean} [allowReturnToRouter]
+ * @property {boolean} [includeEditFallback]
  */
 
 /**
@@ -252,6 +259,10 @@ export class SessionRuntime {
     #queueSourceSubscriptions;
     /** @type {Map<string, number>} */
     #busyOperationDepths;
+    /** @type {Map<string, import('../owner-coordination/session-activations.js').ActivationProof>} */
+    #pendingManagedCreations;
+    /** @type {Map<string, { projectId: string }>} */
+    #pendingManagedCreationProjects;
     /** @type {import('../owner-coordination/index.js').OwnerCoordinationStore | null} */
     #ownerCoordinationStore;
     /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
@@ -273,6 +284,8 @@ export class SessionRuntime {
         this.#queuedMessages = new Map();
         this.#queueSourceSubscriptions = new Map();
         this.#busyOperationDepths = new Map();
+        this.#pendingManagedCreations = new Map();
+        this.#pendingManagedCreationProjects = new Map();
         this.#ownerCoordinationStore = options.ownerCoordinationStore || null;
         this.#ownerProcessKind = options.ownerProcessKind || "test";
         this.#ownerInstanceId = options.ownerInstanceId || crypto.randomUUID();
@@ -916,11 +929,13 @@ export class SessionRuntime {
     async persistSessionImage(sessionId, image) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.persistSessionImage: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "persistSessionImage");
-        if (managedRejection) throw new Error(managedRejection.error);
+        const managed = session.getManagedMetadata?.();
+        const managedPiSessionId = typeof managed?.piSessionId === "string" ? managed.piSessionId.trim() : "";
+        const managedImageSessionManager = managedPiSessionId ? { getSessionId: () => managedPiSessionId } : undefined;
+        const sessionManager = session.getRootSessionManager() || managedImageSessionManager;
         return await persistImageAttachment(
             image,
-            /** @type {any} */ (session.getRootSessionManager() || undefined),
+            /** @type {any} */ (sessionManager),
             session.cwd,
         );
     }
@@ -933,11 +948,16 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, message: "Runtime session not found." };
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
-        const activeModel = rootAgentSession?.model;
+        const modelState = session.getActiveModelState();
+        const managed = session.getManagedMetadata?.();
+        const modelProvider = modelState.provider || managed?.provider || "";
+        const modelId = modelState.model || managed?.model || "";
+        const modelRegistry = rootAgentSession?.modelRegistry || getModelRegistry();
+        const activeModel = rootAgentSession?.model ||
+            (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
         let fallbackModelRef;
         if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            fallbackModelRef = (await resolveVisionFallbackModel(rootAgentSession?.modelRegistry || getModelRegistry()))
-                ?.modelRef;
+            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry))?.modelRef;
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
     }
@@ -1345,6 +1365,8 @@ export class SessionRuntime {
             this.#queueSourceSubscriptions.delete(id);
             this.#queuedMessages.delete(id);
             this.#busyOperationDepths.delete(id);
+            this.#pendingManagedCreations.delete(id);
+            this.#pendingManagedCreationProjects.delete(id);
         }
         return { ok: true, closed };
     }
@@ -1451,7 +1473,164 @@ export class SessionRuntime {
      * @param {import('./agent-switching.js').AgentSwitchOptions} options
      */
     async #activateSessionAgent(hostedSession, options) {
-        return await this.#switchActiveAgent(hostedSession, options);
+        let pendingCreation = this.#pendingManagedCreations.get(hostedSession.id);
+        const pendingProject = this.#pendingManagedCreationProjects.get(hostedSession.id);
+        if (!pendingCreation && pendingProject) {
+            if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+            let sessionManager = hostedSession.getRootSessionManager();
+            let createdSessionManager = false;
+            try {
+                if (!sessionManager) {
+                    sessionManager = await this.#createRootSessionManager("new", hostedSession.cwd);
+                    hostedSession.setRootSessionManager(sessionManager);
+                    createdSessionManager = true;
+                }
+                if (!sessionManager) throw new Error("Managed Session root manager was not created");
+                const activeSessionManager = sessionManager;
+                const piSessionId = activeSessionManager.getSessionId?.();
+                if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+                const transcriptPath = await this.#resolveCreatedSessionPath(hostedSession.cwd, activeSessionManager);
+                const managedSession = await this.#ownerCoordinationStore.ensureSessionCatalogRecord({
+                    projectId: pendingProject.projectId,
+                    piSessionId,
+                    transcriptPath,
+                    transcriptCwd: hostedSession.cwd,
+                    source: "created",
+                });
+                pendingCreation = this.#ownerCoordinationStore.acquireSessionActivation({
+                    runwieldSessionId: managedSession.runwieldSessionId,
+                    projectId: managedSession.projectId,
+                    ownerInstanceId: this.#ownerInstanceId,
+                    ownerProcessKind: this.#ownerProcessKind,
+                    expectedGeneration: null,
+                    phase: "preparing",
+                });
+                hostedSession.setManagedMetadata({
+                    runwieldSessionId: managedSession.runwieldSessionId,
+                    projectId: managedSession.projectId,
+                    piSessionId: managedSession.piSessionId,
+                    transcriptPath: managedSession.transcriptPath,
+                    generation: null,
+                    acknowledgedGeneration: null,
+                    acknowledgedEventId: null,
+                    name: managedSession.displayName,
+                    activeAgent: null,
+                    workflowContext: null,
+                    syncState: {
+                        type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                        status: "syncing",
+                        localGeneration: null,
+                        latestGeneration: null,
+                    },
+                });
+                this.#pendingManagedCreationProjects.delete(hostedSession.id);
+                this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
+            } catch (error) {
+                this.#pendingManagedCreationProjects.delete(hostedSession.id);
+                if (createdSessionManager) {
+                    sessionManager?.dispose?.();
+                    hostedSession.setRootSessionManager(null);
+                }
+                throw error;
+            }
+        }
+        if (!pendingCreation) return await this.#switchActiveAgent(hostedSession, options);
+        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        let activeProof = pendingCreation;
+        let hydrated = false;
+        try {
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            hydrated = true;
+            const result = await this.#switchActiveAgent(hostedSession, options);
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+            const managed = hostedSession.getManagedMetadata?.();
+            if (!managed) throw new Error("Managed Session metadata disappeared during creation");
+            await syncTranscriptFileAndParent(managed.transcriptPath);
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath: managed.transcriptPath,
+                transcriptCwd: hostedSession.cwd,
+            });
+            this.#ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+                generation: 0,
+                byteLength: evidence.byteLength,
+                terminalEntryId: evidence.terminalEntryId,
+                digestHex: evidence.digestHex,
+            });
+            hostedSession.setManagedMetadata({ ...managed, generation: 0, acknowledgedGeneration: 0 });
+            this.#pendingManagedCreations.delete(hostedSession.id);
+            this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            hostedSession.dehydrateManagedSession();
+            await this.synchronizeManagedSession(hostedSession.id, { emitEvents: false, replayFromStart: true });
+            return result;
+        } catch (error) {
+            this.#pendingManagedCreations.delete(hostedSession.id);
+            this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            try {
+                if (hydrated) {
+                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                        reason: error instanceof Error ? error.message : String(error),
+                    });
+                } else {
+                    this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                }
+            } catch {
+                // Preserve the original creation/setup failure.
+            }
+            throw error;
+        }
+    }
+
+    /** @param {string} cwd */
+    #findEnabledManagedProjectForCwd(cwd) {
+        if (!this.#ownerCoordinationStore) return null;
+        let realCwd = "";
+        try {
+            realCwd = Deno.realPathSync(cwd);
+        } catch {
+            return null;
+        }
+        for (const project of this.#ownerCoordinationStore.listProjects()) {
+            if (project.lifecycle !== "enabled" || project.currentRoot !== realCwd) continue;
+            this.#ownerCoordinationStore.requireEnabledProjectRoot(project.projectId);
+            return project;
+        }
+        return null;
+    }
+
+    /** @param {any} sessionManager @param {string} transcriptPath */
+    async #ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath) {
+        try {
+            const stat = await Deno.stat(transcriptPath);
+            if (stat.isFile) return;
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+        if (typeof sessionManager?._rewriteFile !== "function") {
+            throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
+        }
+        sessionManager._rewriteFile();
+        if ("flushed" in sessionManager) sessionManager.flushed = true;
+        const stat = await Deno.stat(transcriptPath);
+        if (!stat.isFile) throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
+    }
+
+    /** @param {string} cwd @param {any} sessionManager */
+    async #resolveCreatedSessionPath(cwd, sessionManager) {
+        const piSessionId = sessionManager.getSessionId?.();
+        if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+        const sessions = await listPersistedRootSessions(cwd);
+        const match = sessions.find((session) => session.id === piSessionId);
+        if (match?.path) return match.path;
+        const transcriptPath = sessionManager.getSessionFile?.();
+        const sessionDir = getRunWieldSessionDir(cwd);
+        if (
+            !transcriptPath || typeof transcriptPath !== "string" || !isAbsolute(transcriptPath) ||
+            !isPathInside(transcriptPath, sessionDir) || !basename(transcriptPath).includes(piSessionId)
+        ) {
+            throw new Error(`Created Session transcript was not found: ${piSessionId}`);
+        }
+        await this.#ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath);
+        return transcriptPath;
     }
 
     /**
@@ -1643,6 +1822,7 @@ export class SessionRuntime {
                 if (summary.attention) {
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                        eventId: summary.attention.eventId,
                         reason: summary.attention.reason || "agentStopped",
                         agentName: summary.attention.agentName || undefined,
                     });
@@ -1780,8 +1960,14 @@ export class SessionRuntime {
                 sessionPath: managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(sessionManager);
-            const agentName = await this.#resolveResumeAgentName(sessionManager);
-            await this.#activateSessionAgent(hostedSession, { agentName });
+            const agentName = options.agentName || await this.#resolveResumeAgentName(sessionManager);
+            await this.#activateSessionAgent(hostedSession, {
+                agentName,
+                toolNames: options.toolNames,
+                customTools: options.customTools,
+                allowReturnToRouter: options.allowReturnToRouter,
+                includeEditFallback: options.includeEditFallback,
+            });
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "turning");
             const result = await this.promptSession(sessionId, options);
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
@@ -1827,7 +2013,7 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue" }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
@@ -1850,12 +2036,76 @@ export class SessionRuntime {
                 };
             }
         }
-        const sessionManager = await this.#createRootSessionManager(options.mode || "new", options.cwd);
+        const managedProject = (options.mode || "new") === "new"
+            ? this.#findEnabledManagedProjectForCwd(options.cwd)
+            : null;
+        const ownerCoordinationStore = this.#ownerCoordinationStore;
+        if (managedProject) ownerCoordinationStore?.requireActivationProtocolEnabled();
+        const deferManagedCreation = Boolean(
+            managedProject && ownerCoordinationStore && options.deferManagedActivationUntilAgentReady,
+        );
+        const sessionManager = deferManagedCreation
+            ? null
+            : await this.#createRootSessionManager(options.mode || "new", options.cwd);
+        let managedSession = null;
+        let managedProof = null;
+        if (managedProject && ownerCoordinationStore && !deferManagedCreation) {
+            try {
+                const piSessionId = sessionManager?.getSessionId?.();
+                if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+                const transcriptPath = await this.#resolveCreatedSessionPath(options.cwd, sessionManager);
+                managedSession = await ownerCoordinationStore.ensureSessionCatalogRecord({
+                    projectId: managedProject.projectId,
+                    piSessionId,
+                    transcriptPath,
+                    transcriptCwd: options.cwd,
+                    source: "created",
+                });
+                managedProof = ownerCoordinationStore.acquireSessionActivation({
+                    runwieldSessionId: managedSession.runwieldSessionId,
+                    projectId: managedSession.projectId,
+                    ownerInstanceId: this.#ownerInstanceId,
+                    ownerProcessKind: this.#ownerProcessKind,
+                    expectedGeneration: null,
+                    phase: "preparing",
+                });
+            } catch (error) {
+                sessionManager?.dispose?.();
+                throw error;
+            }
+        }
         const hostedSession = this.#sessionHost.createSession({
             id: crypto.randomUUID(),
             sessionManager,
             cwd: options.cwd,
+            managed: managedSession
+                ? {
+                    runwieldSessionId: managedSession.runwieldSessionId,
+                    projectId: managedSession.projectId,
+                    piSessionId: managedSession.piSessionId,
+                    transcriptPath: managedSession.transcriptPath,
+                    generation: null,
+                    acknowledgedGeneration: null,
+                    acknowledgedEventId: null,
+                    name: managedSession.displayName,
+                    activeAgent: null,
+                    workflowContext: null,
+                    syncState: {
+                        type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                        status: "syncing",
+                        localGeneration: null,
+                        latestGeneration: null,
+                    },
+                }
+                : null,
         });
+        if (managedProof) this.#pendingManagedCreations.set(hostedSession.id, managedProof);
+        if (deferManagedCreation && managedProject) {
+            this.#pendingManagedCreationProjects.set(
+                hostedSession.id,
+                /** @type {{ projectId: string }} */ (managedProject),
+            );
+        }
         this.#attachRuntimeEventSink(hostedSession);
         this.#emitSessionEvent(hostedSession.id, {
             type: RuntimeEventTypes.SESSION_CREATED,
@@ -1864,8 +2114,8 @@ export class SessionRuntime {
         return {
             sessionId: hostedSession.id,
             cwd: hostedSession.cwd,
-            sessionManagerId: sessionManager.getSessionId?.() || hostedSession.id,
-            startedAt: sessionManager.getHeader?.()?.timestamp || new Date().toISOString(),
+            sessionManagerId: sessionManager?.getSessionId?.() || hostedSession.id,
+            startedAt: sessionManager?.getHeader?.()?.timestamp || new Date().toISOString(),
         };
     }
 

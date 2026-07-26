@@ -1136,7 +1136,8 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
 });
 
 Deno.test("executePlan keeps Engineer active when the implementation turn is interrupted", async () => {
-    const hostedSession = makeHostedSession("interrupted-feature-execution");
+    const executionCwd = Deno.cwd();
+    const hostedSession = makeHostedSession("interrupted-feature-execution", executionCwd);
     const plannerHandler = () => Promise.resolve({ kind: "complete" });
     const engineerHandler = () => Promise.resolve({ kind: "complete" });
     const order = /** @type {string[]} */ ([]);
@@ -1172,7 +1173,7 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
                     ) => {
                         order.push("switch");
                         assertEquals(switchOptions.agentName, "engineer");
-                        assertEquals(switchOptions.cwd, Deno.cwd());
+                        assertEquals(switchOptions.cwd, executionCwd);
                         session.setRootAgentName("engineer");
                         session.setRootAgentSession(
                             /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
@@ -1193,7 +1194,7 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
     assertEquals(result.executionComplete, false);
     assertEquals(result.error, "interrupted by user question");
     assertEquals(result.executionContext?.executionMode, "non_git_in_place");
-    assertEquals(result.executionContext?.executionCwd, Deno.cwd());
+    assertEquals(result.executionContext?.executionCwd, executionCwd);
     assertEquals(order, ["switch", "turn"]);
     assertEquals(hostedSession.getRootAgentName(), "engineer");
     assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
