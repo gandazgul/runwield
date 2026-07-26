@@ -1,10 +1,13 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 
+import { loadPlan, savePlan } from "../../plan-store.js";
+import { addEntry } from "../worktree-registry.js";
 import { runValidationLoop } from "./validation.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 
 import {
+    git,
     makeRecordedSession,
     makeUi,
     noOpRecordPlanEvent,
@@ -15,6 +18,137 @@ function makeValidationUi() {
     const uiAPI = makeUi();
     return { uiAPI, hostedSession: makeRecordedSession("validation-test", uiAPI) };
 }
+
+Deno.test("runValidationLoop restores a real missing worktree Plan and continues validation in the same call", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const worktreeRoot = await Deno.makeTempDir();
+    const { uiAPI, hostedSession } = makeValidationUi();
+    const worktreePath = `${worktreeRoot}/wt`;
+    const worktreeBranch = "runwield/worktree/p-wt";
+    /** @type {string[]} */
+    const events = [];
+    let ciRan = false;
+
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "test@example.com"]);
+        await git(projectRoot, ["config", "user.name", "Test"]);
+        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "init"]);
+        const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        await git(projectRoot, ["worktree", "add", "-b", worktreeBranch, worktreePath, "HEAD"]);
+        const canonicalWorktreePath = await Deno.realPath(worktreePath);
+
+        await savePlan(projectRoot, "p", "# Plan", {
+            classification: "FEATURE",
+            status: "implemented",
+            executionMode: "worktree",
+            executionBaselineTree: baselineTree,
+            worktreeId: "wt-1",
+            worktreePath,
+            worktreeBranch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "validation_failed",
+        });
+        await addEntry(projectRoot, {
+            id: "wt-1",
+            planName: "p",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit,
+            baseTree: baselineTree,
+            executionBaselineTree: baselineTree,
+            branch: worktreeBranch,
+            path: worktreePath,
+            status: "validation_failed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const canonicalPlan = await loadPlan(projectRoot, "p");
+        if (!canonicalPlan) throw new Error("canonical Plan fixture was not created");
+        await assertRejects(() => Deno.lstat(`${worktreePath}/plans/p.md`), Deno.errors.NotFound);
+
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "p",
+            triageMeta: canonicalPlan.attrs,
+            executionAgent: "engineer",
+            executionMode: "worktree",
+            baselineTree,
+            projectRoot,
+            executionCwd: worktreePath,
+            worktreeId: "wt-1",
+            worktreeBranch,
+            worktreeBaseBranch: "main",
+        });
+
+        /**
+         * @param {{ cwd: string }} options
+         */
+        const runPassingCI = ({ cwd }) => {
+            ciRan = true;
+            assertEquals(cwd, canonicalWorktreePath);
+            return Promise.resolve({ exitCode: 0, output: "" });
+        };
+
+        /**
+         * @param {{ event: string }} event
+         */
+        const recordEvent = (event) => {
+            events.push(event.event);
+            return Promise.resolve({});
+        };
+
+        /**
+         * @param {string} message
+         */
+        const isRestorationMessage = (message) => message.includes("Restored missing execution worktree Plan file");
+
+        const result = await runValidationLoop({
+            hostedSession,
+            planName: "p",
+            planContent: canonicalPlan.markdown,
+            triageMeta: canonicalPlan.attrs,
+            sessionManager: undefined,
+            __deps: /** @type {any} */ ({
+                ...noOpWorktreePlanHandoffDeps(),
+                resolveValidationExecutionContext: undefined,
+                runLocalCI: runPassingCI,
+                getDiffText: () => Promise.resolve("diff --git a/file.txt b/file.txt\n+implemented\n"),
+                runIsolatedAgentSession: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "assistant",
+                            content: [{ type: "text", text: "The implementation matches the plan." }],
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: { outcome: "approved", approved: true, feedback: "" },
+                        }]),
+                    ),
+                mergeExecutionWorktree: () => Promise.resolve(),
+                verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+                updateWorktreeRegistryEntry: () => Promise.resolve({}),
+                recordPlanEvent: recordEvent,
+                recordWorkflowMetric: () => Promise.resolve(null),
+                getCodeReviewMode: () => "none",
+                shouldCleanupMergedWorktrees: () => false,
+                autoGenerateWorkRecordForCompletedPlan: () =>
+                    Promise.resolve({ status: "disabled", planName: "p", message: "disabled" }),
+            }),
+        });
+
+        assertEquals(result.kind, "verified");
+        assertEquals(ciRan, true);
+        assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalPlan.markdown);
+        assertEquals(uiAPI.messages.filter(isRestorationMessage).length, 1);
+        assertEquals(events.includes("validation_failed"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
 
 Deno.test("runValidationLoop reports restored Plan file once and continues CI without spurious validation_failed", async () => {
     const { uiAPI, hostedSession } = makeValidationUi();
