@@ -1,32 +1,23 @@
-# Build a clean first-run / new-user UX image through the checked-in installer.
+# Build clean first-run / new-user UX images through the checked-in installer.
 #
-# This image intentionally installs the latest published RunWield release and
-# runtime helpers via ./install.sh. It validates real onboarding, not uncompiled
-# source changes from this checkout.
+# Targets:
+#   wld-ux-latest  - runs the latest published RunWield release installed by ./install.sh
+#   wld-ux-current - provisions helpers with ./install.sh, then runs ./bin/wld compiled from this checkout
 #
-# Build:
-#   podman build --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local .
+# Build latest release:
+#   podman build --target wld-ux-latest --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local .
+#
+# Build current checkout binary:
+#   deno task compile --target aarch64-unknown-linux-gnu
+#   podman build --target wld-ux-current --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux-current:local .
 #
 # Start wld in a fresh disposable project:
 #   podman run --rm -it \
 #     -e ANTHROPIC_API_KEY \
 #     -e OPENAI_API_KEY \
 #     runwield-wld-ux:local
-#
-# Test against a host checkout while keeping container HOME clean:
-#   podman run --rm -it \
-#     -v "$PWD:/workspace/project:Z" \
-#     -w /workspace/project \
-#     -e ANTHROPIC_API_KEY \
-#     runwield-wld-ux:local
-#
-# Preserve first-run state across restarts:
-#   podman volume create runwield-wld-home
-#   podman run --rm -it \
-#     -v runwield-wld-home:/home/deno/.wld:Z \
-#     runwield-wld-ux:local
 
-FROM denoland/deno:2.9.3
+FROM denoland/deno:2.9.3 AS wld-ux-base
 
 USER root
 RUN apt-get update \
@@ -38,6 +29,7 @@ RUN apt-get update \
         gzip \
         less \
         libsqlite3-0 \
+        npm \
         openssh-client \
         tar \
     && rm -rf /var/lib/apt/lists/*
@@ -59,13 +51,31 @@ WORKDIR /workspace/project
 
 ARG WLD_INSTALL_REFRESH=manual
 RUN echo "[wld-ux] install refresh: ${WLD_INSTALL_REFRESH}" \
-    && bash /tmp/install.sh \
-    && command -v wld mnemosyne cymbal snip \
+    && bash /tmp/install.sh
+
+VOLUME ["/workspace/project", "/home/deno/.wld"]
+
+FROM wld-ux-base AS wld-ux-latest
+
+RUN command -v wld mnemosyne cymbal agent-browser snip \
     && wld --version \
     && mnemosyne version \
     && cymbal version \
+    && agent-browser --version \
     && snip --version
 
-VOLUME ["/workspace/project", "/home/deno/.wld"]
+ENTRYPOINT ["wld"]
+
+FROM wld-ux-base AS wld-ux-current
+
+COPY --chown=deno:deno bin/wld /tmp/wld-current
+
+RUN install -m 755 /tmp/wld-current "$WLD_INSTALL_DIR/wld" \
+    && command -v wld mnemosyne cymbal agent-browser snip \
+    && wld --version \
+    && mnemosyne version \
+    && cymbal version \
+    && agent-browser --version \
+    && snip --version
 
 ENTRYPOINT ["wld"]
