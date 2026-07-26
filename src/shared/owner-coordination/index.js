@@ -49,6 +49,7 @@ import {
     acquireSessionActivation,
     changeSessionActivationPhase,
     createOrGetOperationReceipt,
+    findOperationReceiptByRequest,
     getOperationReceipt,
     heartbeatSessionActivation,
     inspectSessionActivation,
@@ -101,6 +102,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
  * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
  * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
+ * @property {(options: Parameters<typeof findOperationReceiptByRequest>[1]) => ReturnType<typeof findOperationReceiptByRequest>} findOperationReceiptByRequest
  * @property {(options: Parameters<typeof createOrGetOperationReceipt>[1]) => ReturnType<typeof createOrGetOperationReceipt>} createOrGetOperationReceipt
  * @property {(operationId: string, updates: Parameters<typeof updateOperationReceipt>[2]) => ReturnType<typeof updateOperationReceipt>} updateOperationReceipt
  * @property {(operationId: string) => ReturnType<typeof getOperationReceipt>} getOperationReceipt
@@ -162,6 +164,7 @@ export function openOwnerCoordinationStore(options = {}) {
         markSessionReconcileRequired: (session, activationOptions) =>
             markSessionReconcileRequired(database, session, activationOptions),
         markSessionUncertain: (proof, activationOptions) => markSessionUncertain(database, proof, activationOptions),
+        findOperationReceiptByRequest: (operationOptions) => findOperationReceiptByRequest(database, operationOptions),
         createOrGetOperationReceipt: (operationOptions) => createOrGetOperationReceipt(database, operationOptions),
         updateOperationReceipt: (operationId, updates) => updateOperationReceipt(database, operationId, updates),
         getOperationReceipt: (operationId) => getOperationReceipt(database, operationId),
