@@ -237,20 +237,27 @@ export async function runInstallerInPseudoTty(fixture, input, options = {}) {
     const scriptPath = new URL("../install.sh", import.meta.url).pathname;
     const command = `PATH=${quoteShell(`${fixture.binDir}:/usr/bin:/bin`)} HOME=${
         quoteShell(fixture.root)
-    } WLD_INSTALL_DIR=${quoteShell(fixture.installDir)} WLD_TEST_UNAME_S=${quoteShell(fixture.os)} WLD_TEST_UNAME_M=${
-        quoteShell(fixture.arch)
-    } ${
+    } WLD_INSTALL_DIR=${quoteShell(fixture.installDir)} WLD_NONINTERACTIVE=0 WLD_TEST_UNAME_S=${
+        quoteShell(fixture.os)
+    } WLD_TEST_UNAME_M=${quoteShell(fixture.arch)} ${
         Object.entries(options.extraEnv ?? {}).map(([key, value]) => `${key}=${quoteShell(value)}`).join(" ")
     } /bin/bash ${quoteShell(scriptPath)} ${quoteShell(VERSIONS.runwield)}`;
+    const scriptArgs = Deno.build.os === "linux"
+        ? ["-q", "-c", command, "/dev/null"]
+        : ["-q", "/dev/null", "/bin/bash", "-lc", command];
     const proc = new Deno.Command("script", {
-        args: ["-q", "/dev/null", "/bin/bash", "-lc", command],
+        args: scriptArgs,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",
     }).spawn();
     const writer = proc.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(input));
-    await writer.close();
+    try {
+        await writer.write(new TextEncoder().encode(input));
+        await writer.close();
+    } catch (error) {
+        if (!(error instanceof Deno.errors.BrokenPipe)) throw error;
+    }
     const output = await proc.output();
     return {
         code: output.code,

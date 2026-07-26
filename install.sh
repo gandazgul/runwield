@@ -444,14 +444,19 @@ prompt_install_snip_filters() {
   [[ -x "$wld_bin" ]] || return 0
   [[ -x "$snip_bin" ]] || return 0
   [[ "${WLD_NONINTERACTIVE:-}" != "1" ]] || return 0
-  ( : <>/dev/tty ) 2>/dev/null || return 0
-
-  exec 3<>/dev/tty
-  printf "[wld installer] Install RunWield Deno Snip filters into ~/.config/snip/filters for plain snip commands? [Y/n] " >&3
-  if ! IFS= read -r answer <&3; then
-    answer=
+  if ( : <>/dev/tty ) 2>/dev/null; then
+    exec 3<>/dev/tty
+    printf "[wld installer] Install RunWield Deno Snip filters into ~/.config/snip/filters for plain snip commands? [Y/n] " >&3
+    if ! IFS= read -r answer <&3; then
+      answer=
+    fi
+    exec 3>&-
+  else
+    printf "[wld installer] Install RunWield Deno Snip filters into ~/.config/snip/filters for plain snip commands? [Y/n] "
+    if ! IFS= read -r answer; then
+      answer=
+    fi
   fi
-  exec 3>&-
 
   case "$answer" in
     n|N|no|NO)
