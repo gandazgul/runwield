@@ -15,6 +15,35 @@ import { setTerminalTitleForName } from "./terminal-title.js";
 
 const OPERATOR_AGENT = "operator";
 
+/** @type {ReadonlySet<string>} */
+const IMMEDIATE_BUILTIN_SLASH_COMMANDS_WHILE_STREAMING = new Set([
+    "context",
+    "copy",
+    "exit",
+    "export",
+    "help",
+    "name",
+    "quit",
+    "session",
+    "share",
+    "version",
+]);
+
+/**
+ * Built-in slash commands that only inspect or mutate local TUI/runtime state can
+ * execute while an agent turn is streaming. Other slash forms remain queued as
+ * steering/next-turn input so model-affecting commands do not race the turn.
+ *
+ * @param {string} userRequest
+ * @returns {boolean}
+ */
+export function isImmediateBuiltinSlashCommandWhileStreaming(userRequest) {
+    if (!userRequest.startsWith("/")) return false;
+    const [rawCommand] = userRequest.slice(1).split(" ");
+    const command = rawCommand.trim();
+    return IMMEDIATE_BUILTIN_SLASH_COMMANDS_WHILE_STREAMING.has(command);
+}
+
 /**
  * If the current session has no display name, update the terminal title to
  * `wld - {folder} - {displayName}` so it reflects the active slash command

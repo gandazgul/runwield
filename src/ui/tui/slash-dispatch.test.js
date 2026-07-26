@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { handleSlashCommand } from "./slash-dispatch.js";
+import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.js";
 
 /**
  * @param {Partial<any>} [overrides]
@@ -95,6 +95,22 @@ function makeContext(overrides = {}) {
     };
     return Object.assign(ctx, overrides);
 }
+
+Deno.test("isImmediateBuiltinSlashCommandWhileStreaming recognizes safe one-shot built-ins only", () => {
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/name Project Session"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/context"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/session"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/copy"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/help"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/version"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/export"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/share"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/quit"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/exit"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/model"), false);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/agent router"), false);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("hello"), false);
+});
 
 Deno.test("handleSlashCommand ignores non-slash input", async () => {
     const ctx = makeContext({ userRequest: "hello" });
