@@ -1206,13 +1206,19 @@ async function readGlobalInstructionFile(homeDir) {
 }
 
 /**
+ * @typedef {Object} SystemPromptContextProjectionOptions
+ * @property {string} [homeDir]
+ */
+
+/**
  * Assemble the final system prompt and resident-context projection by resolving placeholders.
  *
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string[]} tools
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
- * @param {string} [cwd]
+ * @param {string | undefined} cwd
  * @param {string} [projectStateContext]
+ * @param {SystemPromptContextProjectionOptions} [options]
  * @returns {Promise<{ prompt: string, projection: import('./session-context-report.js').SessionContextProjection }>}
  */
 export async function assembleFinalSystemPromptWithContextProjection(
@@ -1221,6 +1227,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     finalCustomTools,
     cwd,
     projectStateContext = "",
+    options = {},
 ) {
     if (!cwd) throw new Error("assembleFinalSystemPrompt: cwd is required");
     const piTools = [
@@ -1279,7 +1286,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
     const instructionItems = [];
     let globalAgentsMd = "";
-    const homeDir = Deno.env.get("HOME") || "";
+    const homeDir = options.homeDir || Deno.env.get("HOME") || "";
     if (hasGlobalAgentsPlaceholder && homeDir) {
         const globalFile = await readGlobalInstructionFile(homeDir);
         if (globalFile) {

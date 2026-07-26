@@ -143,6 +143,27 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  */
 
 /**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isManagedUnsupportedError(error) {
+    return error instanceof Error ? error.message === "managed_unsupported" : String(error) === "managed_unsupported";
+}
+
+/**
+ * @param {string | null} planName
+ * @returns {string}
+ */
+function buildManagedUnsupportedLoadPlanMessage(planName) {
+    const command = planName ? `${CLI_BIN} load-plan ${planName}` : `${CLI_BIN} load-plan <plan-name>`;
+    return [
+        "Cannot continue this Plan because the managed session could not be activated (managed_unsupported).",
+        "The Plan was loaded for viewing, but RunWield could not attach the underlying agent session needed for Plan lifecycle actions such as resume planning, execution, validation, or workflow state updates.",
+        `Try again from a fresh RunWield TUI or Workspace session with: ${command}`,
+    ].join("\n");
+}
+
+/**
  * Build the command-local view of the public SessionRuntime surface. No core
  * session object or persistence manager crosses this boundary.
  *
@@ -3048,8 +3069,12 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const initialAgentName = session.getActiveAgentName() || AGENTS.ROUTER;
     let restoreAgentName = initialAgentName;
 
+    /** @type {string | null} */
+    let loadedPlanName = null;
+
     try {
         const plan = await resolvePlan(projectRoot, planArg);
+        loadedPlanName = plan.planName;
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(
             `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
@@ -3576,6 +3601,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
         if (shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;
         }
+    } catch (error) {
+        if (!isManagedUnsupportedError(error)) throw error;
+        uiAPI.appendSystemMessage(buildManagedUnsupportedLoadPlanMessage(loadedPlanName), true, "RunWield");
     } finally {
         if (!skipRouterRestore && sessionRuntime.getSessionSnapshot(session.id)) {
             await restorePreviousAgentFlow(uiAPI, restoreAgentName, session);
