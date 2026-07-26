@@ -65,7 +65,7 @@
         },
         "notifications": {
             "$ref": "#/$defs/notifications",
-            "description": "Desktop attention notifications for agent stops, plan review, and user interview prompts."
+            "description": "Terminal bell and desktop attention notifications for agent stops, plan review, and user interview prompts."
         },
         "workflowMetrics": {
             "description": "Opt-in local-only workflow metrics recording. When disabled or unset, no metrics are written. Records are stored under ~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl.",
@@ -417,7 +417,12 @@
                 "enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable desktop attention notifications when the host platform has a supported notifier."
+                    "description": "Enable terminal bell and desktop attention notifications for supported events."
+                },
+                "terminalBell": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Emit one terminal BEL byte for enabled TUI attention notifications so the terminal can apply its configured bell behavior."
                 },
                 "activation": {
                     "type": "string",
