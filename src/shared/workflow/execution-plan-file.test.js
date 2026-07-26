@@ -79,6 +79,74 @@ Deno.test("loadCanonicalExecutionPlanSource classifies absent and malformed cano
     assertEquals(malformed.kind, "malformed");
 });
 
+Deno.test("prepareExecutionPlanFile classifies canonical symlink and non-regular sources", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    const outside = await Deno.makeTempFile();
+    await Deno.symlink(outside, join(projectRoot, "plans", "linked.md"));
+    const linked = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "linked" });
+    assertEquals(linked.kind, "symlink");
+
+    await Deno.mkdir(join(projectRoot, "plans", "directory.md"));
+    const directory = await prepareExecutionPlanFile({
+        projectRoot,
+        executionCwd: executionRoot,
+        planName: "directory",
+    });
+    assertEquals(directory.kind, "non_regular");
+});
+
+Deno.test("prepareExecutionPlanFile blocks target symlink directory and malformed target evidence", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    await Deno.writeTextFile(join(projectRoot, "plans", "demo.md"), injectFrontMatter("# Canonical", {}));
+
+    await Deno.symlink(await Deno.makeTempFile(), join(executionRoot, "plans", "demo.md"));
+    const symlink = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+    assertEquals(symlink.kind, "symlink");
+
+    await Deno.remove(join(executionRoot, "plans", "demo.md"));
+    await Deno.mkdir(join(executionRoot, "plans", "demo.md"));
+    const directory = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+    assertEquals(directory.kind, "non_regular");
+
+    await Deno.remove(join(executionRoot, "plans", "demo.md"));
+    await Deno.writeTextFile(join(executionRoot, "plans", "demo.md"), "---\n: bad\n---\n# Bad");
+    const malformed = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+    assertEquals(malformed.kind, "malformed");
+});
+
+Deno.test("prepareExecutionPlanFile reports restore failure when plans parent cannot be created", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await Deno.makeTempDir();
+    await Deno.writeTextFile(join(projectRoot, "plans", "demo.md"), injectFrontMatter("# Canonical", {}));
+    await Deno.writeTextFile(join(executionRoot, "plans"), "not a directory");
+
+    const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+
+    assertEquals(result.kind, "non_regular");
+    assertEquals(await Deno.readTextFile(join(executionRoot, "plans")), "not a directory");
+});
+
+Deno.test("ensureExecutionPlanFile handles real concurrent publication without overwriting", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    const canonicalMarkdown = injectFrontMatter("# Canonical", { planId: "plan-1" });
+    await Deno.writeTextFile(join(projectRoot, "plans", "demo.md"), canonicalMarkdown);
+    const source = await loadCanonicalExecutionPlanSource(projectRoot, "demo");
+    if (source.kind !== "loaded") throw new Error("source did not load");
+    await Deno.remove(join(executionRoot, "plans", "demo.md")).catch(() => {});
+
+    const results = await Promise.all([
+        ensureExecutionPlanFile({ executionCwd: executionRoot, planName: "demo", canonicalSource: source }),
+        ensureExecutionPlanFile({ executionCwd: executionRoot, planName: "demo", canonicalSource: source }),
+    ]);
+
+    assertEquals(results.every((result) => result.kind === "restored" || result.kind === "present"), true);
+    assertEquals(results.some((result) => result.kind === "restored"), true);
+    assertEquals(await Deno.readTextFile(join(executionRoot, "plans", "demo.md")), canonicalMarkdown);
+});
+
 Deno.test("ensureExecutionPlanFile preserves concurrently created target and cleans temporary file", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
