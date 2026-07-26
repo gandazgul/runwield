@@ -2404,7 +2404,6 @@ export class SessionRuntime {
         if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
         if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
             session.mergePendingManagedTurnIntent?.({ agentName: options.agentName });
-            session.setRootAgentName(options.agentName);
             this.#emitSessionEvent(session.id, {
                 type: RuntimeEventTypes.AGENT_CHANGED,
                 agentName: options.agentName,

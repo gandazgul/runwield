@@ -33,10 +33,22 @@ Generate a changelog and publish a new release for this repository.
 
 3. Generate the Changelog
 
-   - Generate a markdown changelog based on the commits since the last tag. Format strictly into these sections:
+   - Generate a markdown changelog based on the commits since the last tag, but write it for people deciding whether to
+     install or upgrade `wld`, not for maintainers reviewing every commit.
+   - Start with a short **What's New** section:
+     - Include only the most important user-facing changes.
+     - Describe outcomes and workflows in plain language, e.g. "RunWield can now recover interrupted plan worktrees"
+       instead of listing internal files, refactors, or implementation details.
+     - Group related commits into one meaningful capability when possible.
+     - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
+       behavior.
+   - Then include a **Detailed Changelog** section for maintainers who want the fuller history. Keep it concise, and
+     organize it into these subsections when relevant:
      - **New Features**
      - **Bug Fixes and Improvements**
      - **Breaking Changes**
+   - If there are no meaningful user-facing changes, say that plainly in **What's New** and put the technical commit
+     summary in **Detailed Changelog**.
 
 4. Tag and Push
 
