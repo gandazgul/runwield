@@ -8,6 +8,7 @@
 
 import { assertEquals, assertExists, assertObjectMatch } from "@std/assert";
 import { join } from "@std/path";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { _setTestStatePath } from "./init-state.js";
 import {
     getCwdHash,
@@ -137,31 +138,33 @@ Deno.test("isInitOffered returns true after recordInitDone (implicit offer)", as
 });
 
 Deno.test("state file is isolated per CWD hash", async () => {
-    await cleanupState();
+    await withProcessGlobalTestLock(async () => {
+        await cleanupState();
 
-    const cwdHash = await getCwdHash();
-    await recordInitDone();
+        const cwdHash = await getCwdHash();
+        await recordInitDone();
 
-    // Simulate a different project by manually writing another hash
-    const state = await getInitState();
-    state["0000000000000000000000000000000000000000000000000000000000000000"] = {
-        path: "/tmp/other-project",
-        initOffered: false,
-        initDone: true,
-        offeredAt: null,
-        doneAt: new Date().toISOString(),
-    };
-    await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
+        // Simulate a different project by manually writing another hash
+        const state = await getInitState();
+        state["0000000000000000000000000000000000000000000000000000000000000000"] = {
+            path: "/tmp/other-project",
+            initOffered: false,
+            initDone: true,
+            offeredAt: null,
+            doneAt: new Date().toISOString(),
+        };
+        await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
 
-    // Reading the full state should contain both entries
-    const updated = await getInitState();
-    assertExists(updated[cwdHash]);
-    assertExists(updated["0000000000000000000000000000000000000000000000000000000000000000"]);
+        // Reading the full state should contain both entries
+        const updated = await getInitState();
+        assertExists(updated[cwdHash]);
+        assertExists(updated["0000000000000000000000000000000000000000000000000000000000000000"]);
 
-    // isInitDone for our CWD should still be true
-    assertEquals(await isInitDone(), true);
+        // isInitDone for our CWD should still be true
+        assertEquals(await isInitDone(), true);
 
-    await cleanupState();
+        await cleanupState();
+    });
 });
 
 Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () => {

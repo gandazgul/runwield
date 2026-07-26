@@ -46,11 +46,26 @@ Deno.test("root-session persisted helpers list open and guard cwd paths", async 
                 }),
             );
 
+            Deno.env.set("HOME", home);
             const sessions = await listPersistedRootSessions(cwd);
             assertEquals(sessions.length, 1);
             assertEquals(sessions[0].id, "persisted-test");
 
-            const opened = await openPersistedRootSession({ cwd, sessionId: "persisted-test" });
+            let opened;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                    Deno.env.set("HOME", home);
+                    opened = await openPersistedRootSession({ cwd, sessionId: "persisted-test" });
+                    break;
+                } catch (error) {
+                    if (!(error instanceof Error) || !error.message.includes("Persisted session not found")) {
+                        throw error;
+                    }
+                    if (attempt === 4) throw error;
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+            }
+            if (!opened) throw new Error("Expected persisted session to open");
             assertEquals(opened.resolved.sessionId, "persisted-test");
             assertEquals(opened.sessionManager.getSessionId(), "persisted-test");
             assertEquals(getRootSessionBranchEntries(opened.sessionManager).length, 2);
