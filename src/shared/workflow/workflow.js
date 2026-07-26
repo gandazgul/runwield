@@ -21,11 +21,16 @@ import {
     createExecutionWorktree,
     findReusableWorktree,
     prepareTargetBranchRef,
+    removeExecutionWorktree,
     resolveCurrentCheckoutBranch,
     resolveTargetBranchName,
 } from "../worktree.js";
-import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
+import {
+    removeEntry as removeWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
+import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import {
@@ -994,6 +999,9 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
  *     resolveTargetBranchName?: typeof resolveTargetBranchName,
  *     captureWorktreeTree?: typeof captureWorktreeTree,
+ *     prepareExecutionPlanFile?: typeof prepareExecutionPlanFile,
+ *     removeExecutionWorktree?: typeof removeExecutionWorktree,
+ *     removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *     recordPlanEvent?: typeof recordPlanEvent,
  *     recordWorkflowMetric?: typeof recordWorkflowMetric,
@@ -1024,6 +1032,9 @@ export async function startActiveExecutionWorkflow(
     const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
     const resolveTarget = __deps?.resolveTargetBranchName || resolveTargetBranchName;
     const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
+    const preparePlanFile = __deps?.prepareExecutionPlanFile || prepareExecutionPlanFile;
+    const removeWorktree = __deps?.removeExecutionWorktree || removeExecutionWorktree;
+    const removeRegistryEntry = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const recordWorkflowMetricFn = __deps?.recordWorkflowMetric || recordWorkflowMetric;
@@ -1114,8 +1125,32 @@ export async function startActiveExecutionWorkflow(
         ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
     });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
+    const planFile = await preparePlanFile({ projectRoot, executionCwd: worktree.path, planName });
+    if (planFile.kind !== "present" && planFile.kind !== "restored") {
+        const preparationError = new Error(
+            `Cannot prepare execution worktree Plan file ${planFile.relativePath}: ${planFile.reason || planFile.kind}`,
+        );
+        if (!reusedWorktree) {
+            try {
+                await removeWorktree({ projectRoot, path: worktree.path, branch: worktree.branch, force: true });
+                if (worktree.id) await removeRegistryEntry(projectRoot, worktree.id);
+            } catch (cleanupError) {
+                let worktreeStillExists = true;
+                try {
+                    await Deno.lstat(worktree.path);
+                } catch (pathError) {
+                    if (pathError instanceof Deno.errors.NotFound) worktreeStillExists = false;
+                }
+                if (!worktreeStillExists && worktree.id) await removeRegistryEntry(projectRoot, worktree.id);
+                const cleanupReason = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+                throw new Error(`${preparationError.message}; cleanup failed: ${cleanupReason}`);
+            }
+        }
+        throw preparationError;
+    }
     const baselineTree =
-        existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
+        existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree &&
+            planFile.kind !== "restored"
             ? existing.baselineTree
             : await captureTree(worktree.path);
     const workflow = {
@@ -1170,6 +1205,7 @@ export async function startActiveExecutionWorkflow(
             hasBranch: Boolean(worktree.branch),
             hasBaseBranch: Boolean(worktreeBaseBranch),
             hasBaselineTree: Boolean(baselineTree),
+            planFileMaterialized: planFile.kind === "restored",
         },
     }, { cwd: projectRoot });
     return activeWorkflow;

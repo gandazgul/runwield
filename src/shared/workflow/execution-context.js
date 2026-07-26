@@ -4,6 +4,7 @@
 
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
+import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
 
 const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "validation_failed", "merge_conflict"]);
@@ -46,6 +47,7 @@ const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "v
  * @property {"ok"} kind
  * @property {ResolvedValidationContext} context
  * @property {boolean} [persistedLegacyExecutionMode]
+ * @property {{ relativePath: string }} [restoredPlanFile]
  */
 
 /** @typedef {ValidationContextResolutionOk|BlockedValidationContext} ValidationContextResolution */
@@ -114,19 +116,26 @@ function selectCandidateContext({ explicitContext, activeWorkflow }) {
 }
 
 /**
- * @param {{ cwd: string, planName: string, reason: string, recovered?: boolean }} opts
+ * @param {{ cwd: string, planName: string, reason: string, recovered?: boolean, planFileRestored?: boolean, recordWorkflowMetric?: typeof recordWorkflowMetric }} opts
  */
-async function recordResolutionMetric({ cwd, planName, reason, recovered = false }) {
-    await recordWorkflowMetric({
+async function recordResolutionMetric({
+    cwd,
+    planName,
+    reason,
+    recovered = false,
+    planFileRestored = false,
+    recordWorkflowMetric: recordMetric = recordWorkflowMetric,
+}) {
+    await recordMetric({
         category: "validation",
         event: "execution_context_resolution",
         planName,
-        details: { reason, recovered },
+        details: { reason, recovered, planFileRestored },
     }, { cwd }).catch(() => {});
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
+ * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
  * @returns {Promise<ValidationContextResolution>}
  */
 export async function resolveValidationExecutionContext({
@@ -137,7 +146,9 @@ export async function resolveValidationExecutionContext({
     activeWorkflow,
     __deps = {},
 }) {
-    const loadPlanFn = __deps.loadPlan || loadPlan;
+    const loadPlanFn = __deps.canonicalLoadPlan || __deps.loadPlan || loadPlan;
+    const prepareExecutionPlanFileFn = __deps.prepareExecutionPlanFile || prepareExecutionPlanFile;
+    const recordMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
     const findByIdFn = __deps.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
     const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
     const runGitFn = __deps.runGit || runGit;
@@ -145,7 +156,12 @@ export async function resolveValidationExecutionContext({
     const plan = await loadPlanFn(projectRoot, planName);
     const attrs = plan?.attrs || triageMeta || {};
     if (!plan && attrs.classification === "FEATURE") {
-        await recordResolutionMetric({ cwd: projectRoot, planName, reason: "missing_plan" });
+        await recordResolutionMetric({
+            recordWorkflowMetric: recordMetricFn,
+            cwd: projectRoot,
+            planName,
+            reason: "missing_plan",
+        });
         return blocked(
             "missing_plan",
             `Plan ${planName} could not be loaded; Workflow Validation requires a canonical implemented FEATURE Plan.`,
@@ -234,7 +250,12 @@ export async function resolveValidationExecutionContext({
     if (!executionMode) {
         const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;
         if (!hasCompleteLegacyWorktree) {
-            await recordResolutionMetric({ cwd: projectRoot, planName, reason: "unknown_execution_mode" });
+            await recordResolutionMetric({
+                recordWorkflowMetric: recordMetricFn,
+                cwd: projectRoot,
+                planName,
+                reason: "unknown_execution_mode",
+            });
             return blocked(
                 "unknown_execution_mode",
                 `Plan ${planName} has no execution mode. Run Plan Recovery; RunWield will not infer in-place execution from missing worktree state.`,
@@ -250,6 +271,7 @@ export async function resolveValidationExecutionContext({
             }, attrs);
         }
         await recordResolutionMetric({
+            recordWorkflowMetric: recordMetricFn,
             cwd: projectRoot,
             planName,
             reason: selected.source,
@@ -278,7 +300,12 @@ export async function resolveValidationExecutionContext({
     const worktreeBaseBranch = asString(candidate.worktreeBaseBranch) || asString(attrs.worktreeBaseBranch);
     let baselineTree = asString(candidate.baselineTree) || asString(attrs.executionBaselineTree);
     if (!worktreeId || !worktreePath || !worktreeBranch || !worktreeBaseBranch) {
-        await recordResolutionMetric({ cwd: projectRoot, planName, reason: "incomplete_worktree_identity" });
+        await recordResolutionMetric({
+            recordWorkflowMetric: recordMetricFn,
+            cwd: projectRoot,
+            planName,
+            reason: "incomplete_worktree_identity",
+        });
         return blocked(
             "incomplete_worktree_identity",
             `Plan ${planName} is missing worktree delivery identity; run Plan Recovery.`,
@@ -368,7 +395,12 @@ export async function resolveValidationExecutionContext({
         }
     }
     if (!baselineTree) {
-        await recordResolutionMetric({ cwd: projectRoot, planName, reason: "incomplete_worktree_identity" });
+        await recordResolutionMetric({
+            recordWorkflowMetric: recordMetricFn,
+            cwd: projectRoot,
+            planName,
+            reason: "incomplete_worktree_identity",
+        });
         return blocked(
             "incomplete_worktree_identity",
             `Plan ${planName} is missing worktree delivery identity; run Plan Recovery.`,
@@ -380,13 +412,6 @@ export async function resolveValidationExecutionContext({
         return blocked(
             "worktree_path_mismatch",
             `Recorded worktree path for ${worktreeId} is unavailable or inconsistent.`,
-        );
-    }
-    const executionPlan = await loadPlanFn(canonicalWorktreePath, planName);
-    if (executionPlan && attrs.planId && executionPlan.attrs.planId && attrs.planId !== executionPlan.attrs.planId) {
-        return blocked(
-            "execution_plan_id_mismatch",
-            `Execution worktree Plan ID does not match canonical Plan ${planName}.`,
         );
     }
     const projectCommonDir = await runGitFn(projectRoot, ["rev-parse", "--git-common-dir"]);
@@ -420,6 +445,18 @@ export async function resolveValidationExecutionContext({
     }
     baselineTree = actualBaselineTree;
 
+    const planFile = await prepareExecutionPlanFileFn({ projectRoot, executionCwd: canonicalWorktreePath, planName });
+    if (planFile.kind !== "present" && planFile.kind !== "restored") {
+        const reason = planFile.kind === "identity_conflict"
+            ? "execution_plan_id_mismatch"
+            : `execution_plan_${planFile.kind}`;
+        return blocked(
+            reason,
+            `Execution worktree Plan file ${planFile.relativePath} is not usable: ${planFile.reason || planFile.kind}`,
+        );
+    }
+    const restoredPlanFile = planFile.kind === "restored" ? { relativePath: planFile.relativePath } : undefined;
+
     let persistedLegacyExecutionMode = false;
     if (plan && (attrs.executionMode !== "worktree" || !attrs.executionBaselineTree)) {
         await updatePlanFrontMatterFn(
@@ -434,10 +471,12 @@ export async function resolveValidationExecutionContext({
         persistedLegacyExecutionMode = attrs.executionMode !== "worktree";
     }
     await recordResolutionMetric({
+        recordWorkflowMetric: recordMetricFn,
         cwd: projectRoot,
         planName,
         reason: selected.source,
         recovered: selected.source === "durable_recovery",
+        planFileRestored: Boolean(restoredPlanFile),
     });
     return {
         kind: "ok",
@@ -455,5 +494,6 @@ export async function resolveValidationExecutionContext({
             source: selected.source,
         },
         persistedLegacyExecutionMode,
+        restoredPlanFile,
     };
 }
