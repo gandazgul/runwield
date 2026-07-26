@@ -21,10 +21,10 @@ Deno.test("read wrapper exposes expected metadata", () => {
     assertEquals(tool.name, "read");
     assertEquals(tool.label, "read");
     assertEquals(typeof tool.execute, "function");
-    assertStringIncludes(tool.description || "", "Blocks binary/control-byte files");
+    assertStringIncludes(tool.description || "", "Suppresses binary/control-byte text");
 });
 
-Deno.test("read wrapper blocks binary git index before bytes reach output", async () => {
+Deno.test("read wrapper still returns binary git index content to the model", async () => {
     const dir = await Deno.makeTempDir();
     try {
         await Deno.mkdir(join(dir, ".git"), { recursive: true });
@@ -34,34 +34,15 @@ Deno.test("read wrapper blocks binary git index before bytes reach output", asyn
         const result = await executeRead(tool, { path: ".git/index" });
 
         assertEquals(result.isError, undefined);
-        assertEquals(result.details?.blocked, true);
-        assertEquals(result.details?.reason, "binary-content");
-        assertStringIncludes(result.content[0].text || "", "does not appear to be safe UTF-8 text");
-        assertEquals((result.content[0].text || "").includes("\u0007"), false);
+        assertEquals(result.details?.blocked, undefined);
+        assertStringIncludes(result.content[0].text || "", "DIRC");
+        assertEquals((result.content[0].text || "").includes("\u0007"), true);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
 });
 
-Deno.test("read wrapper blocks non-image binary/control-byte files", async () => {
-    const dir = await Deno.makeTempDir();
-    try {
-        await Deno.writeFile(join(dir, "blob.bin"), new Uint8Array([97, 108, 112, 104, 97, 7, 98, 101, 116, 97]));
-
-        const tool = createRunWieldReadToolDefinition(dir);
-        const result = await executeRead(tool, { path: "blob.bin" });
-
-        assertEquals(result.isError, undefined);
-        assertEquals(result.details?.blocked, true);
-        assertEquals(result.details?.reason, "binary-content");
-        assertStringIncludes(result.content[0].text || "", "does not appear to be safe UTF-8 text");
-        assertEquals((result.content[0].text || "").includes("\u0007"), false);
-    } finally {
-        await Deno.remove(dir, { recursive: true });
-    }
-});
-
-Deno.test("read wrapper renders blocked binary results as header-only output", async () => {
+Deno.test("read wrapper renders binary/control-byte results as header-only output", async () => {
     const dir = await Deno.makeTempDir();
     try {
         await Deno.writeFile(join(dir, "blob.bin"), new Uint8Array([97, 7, 98]));
@@ -81,24 +62,54 @@ Deno.test("read wrapper renders blocked binary results as header-only output", a
     }
 });
 
-Deno.test("read wrapper allows normal text files", async () => {
+Deno.test("read wrapper delegates image rendering to terminal capability handling", () => {
+    const tool = createRunWieldReadToolDefinition("/tmp");
+    const component = /** @type {Text} */ (tool.renderResult?.(
+        /** @type {any} */ ({
+            content: [
+                { type: "text", text: "Read image file [image/png]" },
+                { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+            ],
+        }),
+        /** @type {any} */ ({ expanded: true }),
+        /** @type {any} */ ({ fg: (/** @type {string} */ _name, /** @type {string} */ text) => text }),
+        /** @type {any} */ ({
+            lastComponent: new Text("", 0, 0),
+            args: { path: "image.png" },
+            showImages: false,
+        }),
+    ));
+
+    const rendered = component.render(80).join("\n");
+    assertStringIncludes(rendered, "Read image file [image/png]");
+    assertStringIncludes(rendered, "image/png");
+});
+
+Deno.test("read wrapper allows normal text files to render normally", async () => {
     const dir = await Deno.makeTempDir();
     try {
         await Deno.writeTextFile(join(dir, "README.md"), "# Hello\n\nSafe text.\n");
 
         const tool = createRunWieldReadToolDefinition(dir);
         const result = await executeRead(tool, { path: "README.md" });
+        const component = /** @type {Text} */ (tool.renderResult?.(
+            /** @type {any} */ (result),
+            /** @type {any} */ ({ expanded: true }),
+            /** @type {any} */ ({ fg: (/** @type {string} */ _name, /** @type {string} */ text) => text }),
+            /** @type {any} */ ({ lastComponent: new Text("", 0, 0), args: { path: "README.md" } }),
+        ));
 
         assertEquals(result.isError, undefined);
         assertStringIncludes(result.content[0].text || "", "# Hello");
-        assertStringIncludes(result.content[0].text || "", "Safe text.");
+        assertEquals(component.render(80).join("\n").includes("# Hello"), true);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
 });
 
-Deno.test("read wrapper unsafe-byte detection catches bell and nul bytes", () => {
-    assertEquals(__test.containsUnsafeTextBytes(new Uint8Array([65, 9, 10, 13, 66])), false);
-    assertEquals(__test.containsUnsafeTextBytes(new Uint8Array([65, 7, 66])), true);
-    assertEquals(__test.containsUnsafeTextBytes(new Uint8Array([65, 0, 66])), true);
+Deno.test("read wrapper unsafe display detection catches bell, nul, and replacement chars", () => {
+    assertEquals(__test.containsUnsafeDisplayText("A\t\n\rB"), false);
+    assertEquals(__test.containsUnsafeDisplayText("A\u0007B"), true);
+    assertEquals(__test.containsUnsafeDisplayText("A\u0000B"), true);
+    assertEquals(__test.containsUnsafeDisplayText("A\ufffdB"), true);
 });
