@@ -40,6 +40,10 @@ HostedSession, Task, Work Item
 it is not shared project knowledge or a source for cross-Session Agent retrieval. _Avoid_: Work Record, planning memory,
 shared conversation
 
+**Session Transcript Segment**: An ordered durable portion of a Session Transcript that supplies one isolated
+model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
+Session, Agent Session, JSONL file
+
 **Session Control**: The right of one attached client to submit user messages or answer pending interactions for a live
 Session; observation does not require control. _Avoid_: Plan Workflow Lease, Session ownership, Agent ownership
 
@@ -595,6 +599,8 @@ command definition, prompt command
 - A **Session** may remain standalone or become associated with one or more durable artifacts and Plans.
 - A **Session** may contain multiple sequential or delegated **Agent Sessions** while preserving one user-facing history
   across Agent handoffs.
+- A **Session Transcript** consists of one or more ordered **Session Transcript Segments** projected as one continuous
+  user-visible history, while a root **Agent Session** receives model context only from the active segment.
 - A live **Session** may have multiple observing clients but only one holder of **Session Control** at a time; an idle
   or waiting Session can transfer control between Workspace and TUI without creating a new Session.
 - A **Session Transcript** is visible and searchable by its owner and is available when that same Session is resumed,
@@ -609,6 +615,14 @@ command definition, prompt command
   rather than blind replay of uncertain side effects.
 - When a **Session** produces a Plan, the Plan becomes the primary durable workflow anchor while the Session retains its
   own name and history.
+- **Approve & Run** activates a fresh execution **Session Transcript Segment** only after the **Readiness Gate** and
+  execution preparation succeed, immediately before the Engineer's first turn; **Approve for Later** does not create an
+  execution segment.
+- The execution **Session Transcript Segment** receives the approved Plan, approval annotations and images, and current
+  execution state without inheriting messages from the planning segment; the **Plan Workflow Lease** remains owned by
+  the same **Session**.
+- The Engineer remains the active execution owner through **Workflow Validation**, repair turns, interruption recovery,
+  and successful validation; isolated Reviewer work does not replace or inherit the Engineer's active segment.
 - Once a Plan exists, its detail, associated Session activity, review, changes, validation, recovery, and related
   artifacts appear in one unified Plan-centered workflow surface rather than separate Plan and chat destinations.
 - An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
@@ -686,6 +700,10 @@ command definition, prompt command
 > tables and DAG execution are not part of the model."
 
 ## Flagged ambiguities
+
+- "new session" at the planning-to-execution handoff was ambiguous between a new user-facing **Session** and isolated
+  model history — resolved: retain the same **Session** and visible history while activating a fresh execution **Session
+  Transcript Segment**.
 
 - "host" can mean the external coding agent or RunWield's live-session runtime; resolved: use **External Agent Host**
   for Claude Code, Codex, OpenCode, or Pi, and **Session Host** for RunWield's runtime boundary.
