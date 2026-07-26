@@ -759,6 +759,26 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
 
+    let builtinSlashInvocationNames = new Set();
+    /** @type {typeof promptTemplates} */
+    let invokablePromptTemplates = promptTemplates;
+    /** @type {typeof promptTemplates} */
+    let blockedPromptTemplates = [];
+    /** @type {Map<string, (typeof promptTemplates)[number]>} */
+    let promptTemplateByName = new Map();
+
+    function refreshPromptTemplateCommandGroups() {
+        builtinSlashInvocationNames = new Set(
+            Array.from(CHAT_BUILTIN_SLASH_NAMES).flatMap((name) => getCommandInvocationNames(commandRegistry[name])),
+        );
+        invokablePromptTemplates = promptTemplates.filter((template) =>
+            !builtinSlashInvocationNames.has(template.name)
+        );
+        blockedPromptTemplates = promptTemplates.filter((template) => builtinSlashInvocationNames.has(template.name));
+        promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
+    }
+    refreshPromptTemplateCommandGroups();
+
     /**
      * @param {string} nextSessionId
      * @param {{ oldRetired?: boolean }} [options]
@@ -804,6 +824,18 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         getActiveModelState: () => getRuntimeSnapshot().activeModel,
         __deps: { getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd) },
     });
+
+    if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
+        await renderBootBanner({
+            uiAPI,
+            sessionRuntime,
+            sessionId,
+            invokablePromptTemplates,
+            blockedPromptTemplates,
+            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+            projectRoot: getRuntimeSnapshot().cwd,
+        });
+    }
 
     const modelWelcomeResult = await maybeShowModelWelcome({
         uiAPI,
@@ -899,17 +931,23 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
      * @returns {Promise<import('../../shared/session/types.js').ImageAttachment | null>}
      */
     async function handleImagePaste(image) {
-        const persisted = await sessionRuntime.persistSessionImage(sessionId, image);
-        const preflight = await preflightCurrentImages([persisted]);
+        let attachment = image;
+        try {
+            attachment = await sessionRuntime.persistSessionImage(sessionId, image);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.includes("no active session is available")) throw error;
+        }
+        const preflight = await preflightCurrentImages([attachment]);
         if (!preflight.ok) {
             uiAPI.appendSystemMessage(preflight.message);
             return null;
         }
         if (preflight.warning) {
             uiAPI.appendSystemMessage(preflight.warning);
-            warnedImageRefs.add(imageWarningKey(persisted));
+            warnedImageRefs.add(imageWarningKey(attachment));
         }
-        return persisted;
+        return attachment;
     }
 
     // ── Init auto-offer: conditionally offer /init on first TUI visit ──
@@ -944,15 +982,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     }
 
     // ── Build autocomplete AFTER auto-offer (so /init removal is reflected) ──
-    const builtinSlashInvocationNames = new Set(
-        Array.from(CHAT_BUILTIN_SLASH_NAMES).flatMap((name) => getCommandInvocationNames(commandRegistry[name])),
-    );
-    const invokablePromptTemplates = promptTemplates.filter((template) =>
-        !builtinSlashInvocationNames.has(template.name)
-    );
-    const blockedPromptTemplates = promptTemplates.filter((template) => builtinSlashInvocationNames.has(template.name));
-    /** @type {Map<string, (typeof invokablePromptTemplates)[number]>} */
-    const promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
+    refreshPromptTemplateCommandGroups();
 
     const autocompleteProvider = new CombinedAutocompleteProvider(
         [
@@ -1343,16 +1373,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             EMPTY_PROJECT_DIRECTORY_HEADER,
             { headingColor: "success", bodyColor: "accent" },
         );
-    } else if (!suppressStartupHeader && !modelWelcomeResult.suppressBootBanner) {
-        await renderBootBanner({
-            uiAPI,
-            sessionRuntime,
-            sessionId,
-            invokablePromptTemplates,
-            blockedPromptTemplates,
-            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
-            projectRoot: getRuntimeSnapshot().cwd,
-        });
     }
 
     // A new session contains initialization metadata but no conversation to

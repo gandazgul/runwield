@@ -124,6 +124,8 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {boolean} [allowReturnToRouter]
  * @property {boolean} [includeEditFallback]
+ * @property {string} [turnId]
+ * @property {boolean} [emitInitialEvents]
  */
 
 /**
@@ -306,6 +308,8 @@ export class SessionRuntime {
         if (!session) return null;
         const sessionManager = session.getRootSessionManager();
         const managed = session.getManagedMetadata?.() || null;
+        const pendingManagedIntent = session.getPendingManagedTurnIntent?.() || {};
+        const pendingAgentName = pendingManagedIntent.agentName || "";
         const rawSessionManagerId = sessionManager?.getSessionId?.();
         const sessionManagerId = managed
             ? null
@@ -342,8 +346,9 @@ export class SessionRuntime {
                     dormant: !sessionManager,
                 }
                 : null,
-            activeAgent: session.getRootAgentName() || managed?.activeAgent || null,
-            activeAgentInfo: session.getActiveAgentInfo(),
+            activeAgent: pendingAgentName || session.getRootAgentName() || managed?.activeAgent || null,
+            activeAgentInfo: pendingAgentName ? { displayName: pendingAgentName, agentName: pendingAgentName } : session
+                .getActiveAgentInfo(),
             activeModel: session.getActiveModelState(),
             thinkingLevel: session.getThinkingLevel(),
             busy: session.isTurnActive() || (this.#busyOperationDepths.get(session.id) || 0) > 0,
@@ -929,10 +934,7 @@ export class SessionRuntime {
     async persistSessionImage(sessionId, image) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.persistSessionImage: session not found");
-        const managed = session.getManagedMetadata?.();
-        const managedPiSessionId = typeof managed?.piSessionId === "string" ? managed.piSessionId.trim() : "";
-        const managedImageSessionManager = managedPiSessionId ? { getSessionId: () => managedPiSessionId } : undefined;
-        const sessionManager = session.getRootSessionManager() || managedImageSessionManager;
+        const sessionManager = session.getRootSessionManager();
         return await persistImageAttachment(
             image,
             /** @type {any} */ (sessionManager),
@@ -960,6 +962,26 @@ export class SessionRuntime {
             fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry))?.modelRef;
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @returns {Promise<import('./types.js').ImageAttachment[]>}
+     */
+    async #persistPendingPromptImages(hostedSession, images) {
+        if (images.length === 0) return images;
+        const sessionManager = hostedSession.getRootSessionManager();
+        if (!sessionManager) throw new Error("Cannot persist image attachment: no active session is available.");
+        const persisted = [];
+        for (const image of images) {
+            if (image.path || image.ref) {
+                persisted.push(image);
+                continue;
+            }
+            persisted.push(await persistImageAttachment(image, /** @type {any} */ (sessionManager), hostedSession.cwd));
+        }
+        return persisted;
     }
 
     /** @param {string} sessionId */
@@ -1927,6 +1949,7 @@ export class SessionRuntime {
         };
         heartbeatTimer = setInterval(heartbeat, 10_000);
         try {
+            const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
                 const currentEvidence = await captureTranscriptEvidence({
                     transcriptPath: managed.transcriptPath,
@@ -1952,6 +1975,20 @@ export class SessionRuntime {
                     };
                 }
             }
+            const acceptedTurnId = options.turnId || crypto.randomUUID();
+            const hasPendingImages = (options.initialImages || []).some((image) => !image.path && !image.ref);
+            if (!hasPendingImages) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId: acceptedTurnId,
+                    text: options.initialRequest,
+                    images: (options.initialImages || []).map((image) => ({ ...image })),
+                });
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.TURN_START,
+                    turnId: acceptedTurnId,
+                });
+            }
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
             hydrated = true;
             const { sessionManager } = await this.#openPersistedRootSession({
@@ -1960,7 +1997,8 @@ export class SessionRuntime {
                 sessionPath: managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(sessionManager);
-            const agentName = options.agentName || await this.#resolveResumeAgentName(sessionManager);
+            const agentName = options.agentName || pendingIntent.agentName ||
+                await this.#resolveResumeAgentName(sessionManager);
             await this.#activateSessionAgent(hostedSession, {
                 agentName,
                 toolNames: options.toolNames,
@@ -1968,8 +2006,13 @@ export class SessionRuntime {
                 allowReturnToRouter: options.allowReturnToRouter,
                 includeEditFallback: options.includeEditFallback,
             });
+            hostedSession.consumePendingManagedTurnIntent?.();
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "turning");
-            const result = await this.promptSession(sessionId, options);
+            const result = await this.promptSession(sessionId, {
+                ...options,
+                turnId: acceptedTurnId,
+                emitInitialEvents: hasPendingImages,
+            });
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
             hostedSession.dehydrateManagedSession();
             await syncTranscriptFileAndParent(managed.transcriptPath);
@@ -2320,6 +2363,16 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            session.mergePendingManagedTurnIntent?.({ agentName: options.agentName });
+            session.setRootAgentName(options.agentName);
+            this.#emitSessionEvent(session.id, {
+                type: RuntimeEventTypes.AGENT_CHANGED,
+                agentName: options.agentName,
+                model: options.model,
+            });
+            return { ok: true, agentName: options.agentName, model: options.model, changed: true };
+        }
         return await this.#activateSessionAgent(session, options);
     }
 
@@ -2364,7 +2417,8 @@ export class SessionRuntime {
     async promptSession(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptSession: session not found");
-        const turnId = crypto.randomUUID();
+        const turnId = options.turnId || crypto.randomUUID();
+        const emitInitialEvents = options.emitInitialEvents !== false;
         if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
         /** @type {() => void} */
         let cleanupTurn = () => {};
@@ -2388,13 +2442,16 @@ export class SessionRuntime {
         try {
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.USER_MESSAGE,
-                turnId,
-                text: request,
-                images: images.map((image) => ({ ...image })),
-            });
-            this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.TURN_START, turnId });
+            images = await this.#persistPendingPromptImages(hostedSession, images);
+            if (emitInitialEvents) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId,
+                    text: request,
+                    images: images.map((image) => ({ ...image })),
+                });
+                this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.TURN_START, turnId });
+            }
             this.#beginBusyOperation(hostedSession.id, turnId);
             busyStarted = true;
 
