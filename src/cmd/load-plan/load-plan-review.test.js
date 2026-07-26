@@ -586,7 +586,13 @@ Deno.test("runLoadPlanCommand legacy in-progress PROJECT Epic opens Slicer inste
     });
 
     const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
-    assertEquals(epicPrompt?.options.map((option) => option.value), ["slicer", "hold", "view", "cancel"]);
+    assertEquals(epicPrompt?.options.map((option) => option.value), [
+        "slicer",
+        "user_verify",
+        "hold",
+        "view",
+        "cancel",
+    ]);
     assertEquals(slicerOpened, true);
     assertEquals(executed, false);
 });

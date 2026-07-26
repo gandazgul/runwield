@@ -100,11 +100,11 @@ Child FEATURE plans are ordinary FEATURE plans with `parentPlan: <epic-name>` an
 carry their own lifecycle, worktree, review, validation, and merge history. The parent Epic can later be marked "done
 enough for now" without pretending it produced an implementation diff.
 
-Epic continuation is strict and enabled by default. RunWield skips only terminal child plans (`verified` and
-`closed_without_verification`), examines the earliest remaining child, and stops there if it is on hold, needs recovery,
-has unmet dependencies, or has an unsupported status. A `draft` or `feedback` child opens Planner in the fresh Session;
-an `approved` child records readiness and executes; a `ready_for_work` child executes immediately. Explicit planning
-outcomes such as "approve for later" stop the chain instead of being converted into execution.
+Epic continuation is strict and enabled by default. RunWield skips terminal child plans (`verified`, `user_verified`,
+and `closed_without_verification`), examines the earliest remaining child, and stops there if it is on hold, needs
+recovery, has unmet dependencies, or has an unsupported status. A `draft` or `feedback` child opens Planner in the fresh
+Session; an `approved` child records readiness and executes; a `ready_for_work` child executes immediately. Explicit
+planning outcomes such as "approve for later" stop the chain instead of being converted into execution.
 
 Project decomposition is described in [Project Decomposition PRD](prd/project-decomposition-PRD.md).
 
@@ -134,8 +134,8 @@ wld load-plan <name-or-path>
 `wld plans` groups child FEATURE plans beneath their Epic when the parent exists. `wld load-plan` is Epic-aware: loading
 an Epic opens or resumes Slicer decomposition, offers child FEATURE selection once decomposition is finalized, or lets
 the user mark the Epic done enough for now. Loading a child FEATURE follows the normal FEATURE workflow and warns about
-unverified sibling dependencies when present. Once a child FEATURE verifies, the automatic Epic continuation flow uses
-the same canonical child ordering and dependency checks without a manual "proceed anyway" escape hatch.
+unverified sibling dependencies when present. Once a child FEATURE is RunWield Verified, the automatic Epic continuation
+flow uses the same canonical child ordering and dependency checks without a manual "proceed anyway" escape hatch.
 
 For the durable state machine, see [Plan Lifecycle](plan-lifecycle.md).
 
@@ -186,7 +186,20 @@ Plan is terminal. Manual QA uses the hosted session prompt; Recorder uses a sepa
 handoffs can overlap safely. RunWield waits for both before printing the Work Record result.
 
 Automatic generation is best-effort and non-authoritative. A Recorder, Markdown, backlink, or index failure is reported
-on the calling surface but does not undo `verified`, `done_enough`, or `closed_without_verification`. Successful
-Markdown writes with index warnings remain successful and can be repaired with `wld wr index rebuild`; missing or failed
-records can be retried with `wld wr backfill`. Automatic hooks target only the Plan that just completed and its needed
-Epic-child context; broad active+archived discovery belongs to explicit backfill.
+on the calling surface but does not undo `verified`, `done_enough`, or `closed_without_verification`, or
+`user_verified`. Successful Markdown writes with index warnings remain successful and can be repaired with
+`wld wr index rebuild`; missing or failed records can be retried with `wld wr backfill`. Automatic hooks target only the
+Plan that just completed and its needed Epic-child context; broad active+archived discovery belongs to explicit
+backfill.
+
+### User Verified completion
+
+`wld load-plan` and Workspace Plan detail can mark board-safe FEATURE Plans or PROJECT Epics as **User Verified** after
+collecting a required user verification note. This records `manual_user_verified`, sets `status: user_verified`,
+`userVerifiedAt`, and `userVerificationNote`, and explicitly does not claim RunWield Workflow Validation, `verifiedAt`,
+or new Delivery Evidence. Existing failure, worktree, execution, validation, and human-review metadata remains
+historical evidence.
+
+User Verified children satisfy dependencies and count toward Epic completion, but summaries split RunWield Verified and
+User Verified counts. The manual action may complete a ready parent Epic when every child is RunWield Verified with
+appropriate Delivery Evidence or User Verified, but it does not automatically execute another child.

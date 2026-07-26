@@ -258,6 +258,7 @@ When enabled, RunWield automatically generates or reconciles an approved interna
 Plan outcomes are durably recorded:
 
 - verified standalone FEATURE plans after Workflow Validation and merge-back;
+- user_verified top-level FEATURE Plans and PROJECT Epics after user attestation;
 - PROJECT Epics marked done enough through `wld load-plan`;
 - eligible top-level Plans closed without Workflow Validation through Workspace;
 - a parent Epic that becomes `done_enough` after its final child FEATURE verifies.
