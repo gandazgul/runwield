@@ -42,6 +42,7 @@ import {
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../../shared/session/agents.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
     isInitDone as isInitDoneFn,
@@ -400,7 +401,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         getSlashCommandDefinitions().map((command) => command.name),
     );
 
-    const sessionRuntime = new SessionRuntime();
+    const ownerCoordinationStore = openOwnerCoordinationStore();
+    const sessionRuntime = new SessionRuntime({
+        ownerCoordinationStore,
+        ownerProcessKind: "tui",
+    });
     const createdSession = await sessionRuntime.createInteractiveSession({
         cwd: Deno.cwd(),
         mode: options.sessionStartMode || "new",

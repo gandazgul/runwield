@@ -7,8 +7,23 @@ const MAX_JSON_BYTES = 64 * 1024;
 /** @param {Request} request */
 async function readJson(request) {
     const text = await request.text();
-    if (text.length > MAX_JSON_BYTES) throw new Error("Request body is too large.");
+    if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) throw new Error("Request body is too large.");
     return text ? JSON.parse(text) : {};
+}
+
+/** @param {unknown} value @param {string} field @param {number} max */
+function requireBoundedString(value, field, max) {
+    if (typeof value !== "string" || value.length < 1 || value.length > max) {
+        throw new Error(`${field} is invalid.`);
+    }
+    return value;
+}
+
+/** @param {unknown} value */
+function requireExpectedGeneration(value) {
+    const generation = Number(value);
+    if (!Number.isInteger(generation) || generation < 0) throw new Error("expectedGeneration is invalid.");
+    return generation;
 }
 
 /** @param {unknown} value */
@@ -34,9 +49,12 @@ export async function ownerProjectSessionsApi(ctx) {
 /** @param {any} ctx */
 export async function ownerSessionTimelineApi(ctx) {
     try {
-        const cursorEventId = ctx.url.searchParams.get("cursorEventId") || undefined;
-        const limit = Number(ctx.url.searchParams.get("limit") || 0) || undefined;
+        const cursor = ctx.url.searchParams.get("cursorEventId") || undefined;
+        const cursorEventId = cursor ? requireBoundedString(cursor, "cursorEventId", 200) : undefined;
+        const rawLimit = ctx.url.searchParams.get("limit");
+        const limit = rawLimit ? Math.max(1, Math.min(500, Number(rawLimit) || 200)) : undefined;
         const result = await ctx.state.sessionContinuation.timeline(ctx.params.runwieldSessionId, {
+            projectId: ctx.params.projectId,
             cursorEventId,
             limit,
         });
@@ -55,7 +73,7 @@ export async function ownerSessionBootstrapApi(ctx) {
             deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,
             runwieldSessionId: ctx.params.runwieldSessionId,
-            requestId: String(body.requestId || ""),
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
         });
         return ownerJson(result, 202);
     } catch (error) {
@@ -72,9 +90,9 @@ export async function ownerSessionContinuationStartApi(ctx) {
             deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,
             runwieldSessionId: ctx.params.runwieldSessionId,
-            requestId: String(body.requestId || ""),
-            expectedGeneration: Number(body.expectedGeneration),
-            text: String(body.text || ""),
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
+            expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
+            text: requireBoundedString(body.text, "text", 32_000),
         });
         return ownerJson(result, 202);
     } catch (error) {

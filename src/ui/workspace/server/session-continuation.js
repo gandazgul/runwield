@@ -1,6 +1,7 @@
 /* @module ui/workspace/server/session-continuation */
 
 import { createHash } from "node:crypto";
+import { AGENTS } from "../../../constants.js";
 import { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import {
@@ -20,6 +21,12 @@ function codeFromError(error) {
     if (message.includes("reconcile")) return "reconcile_required";
     if (message.includes("activation")) return "activation_unavailable";
     return "invalid_state";
+}
+
+/** @template T @param {T | null} receipt @returns {T} */
+function requireReceipt(receipt) {
+    if (!receipt) throw new Error("Operation receipt was not created.");
+    return receipt;
 }
 
 export class WorkspaceSessionContinuationService {
@@ -68,11 +75,13 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} runwieldSessionId
-     * @param {{ cursorEventId?: string, limit?: number }} [options]
+     * @param {{ projectId?: string, cursorEventId?: string, limit?: number }} [options]
      */
     async timeline(runwieldSessionId, options = {}) {
         const session = this.store.getSessionById(runwieldSessionId);
-        if (!session) throw new Error("Session not found.");
+        if (!session || (options.projectId && session.projectId !== options.projectId)) {
+            throw new Error("Session not found.");
+        }
         const inspected = this.store.inspectSessionActivation(runwieldSessionId);
         if (!inspected.generation) {
             return { state: inspected.activation?.state || "uninitialized", bootstrapRequired: true, events: [] };
@@ -98,7 +107,7 @@ export class WorkspaceSessionContinuationService {
         this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
-        const receipt = this.store.createOrGetOperationReceipt({
+        const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
             requestHash: stableHash({ kind: "bootstrap", session: options.runwieldSessionId }),
@@ -106,7 +115,7 @@ export class WorkspaceSessionContinuationService {
             projectId: options.projectId,
             expectedGeneration: null,
             kind: "bootstrap",
-        });
+        }));
         const existing = this.store.inspectSessionActivation(options.runwieldSessionId);
         if (existing.generation) {
             return {
@@ -129,18 +138,26 @@ export class WorkspaceSessionContinuationService {
                 transcriptPath: session.transcriptPath,
                 transcriptCwd: session.transcriptCwd,
             });
-            this.store.publishGenerationAndRelease(proof, {
+            const checkpointProof = this.store.changeSessionActivationPhase(proof, "checkpointing");
+            this.store.publishGenerationAndRelease(checkpointProof, {
                 generation: 0,
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
                 digestHex: evidence.digestHex,
             });
+            this.store.updateOperationReceipt(receipt.operationId, { status: "completed", resultGeneration: 0 });
             return { operationId: receipt.operationId, generation: 0, status: "completed" };
         } catch (error) {
+            const errorCode = codeFromError(error);
             this.store.markSessionReconcileRequired({
                 runwieldSessionId: options.runwieldSessionId,
                 projectId: options.projectId,
-            }, { reason: codeFromError(error) });
+            }, { reason: errorCode });
+            this.store.updateOperationReceipt(receipt.operationId, {
+                status: "failed",
+                errorCode,
+                errorMessage: error instanceof Error ? error.message : String(error),
+            });
             throw error;
         }
     }
@@ -148,18 +165,38 @@ export class WorkspaceSessionContinuationService {
     /**
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string }} options
      */
-    startContinuation(options) {
+    async startContinuation(options) {
         this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
         if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
+        const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (inspected.activation?.state !== "idle") {
+            throw new Error("Continuation requires an idle managed Session.");
+        }
+        if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
+            throw new Error("Continuation requires the exact committed generation.");
+        }
+        const projection = await projectCommittedTranscript({
+            cwd: session.transcriptCwd,
+            sessionDir: getRunWieldSessionDir(session.transcriptCwd),
+            sessionPath: session.transcriptPath,
+            generation: inspected.generation.generation,
+            byteLength: inspected.generation.byteLength,
+            terminalEntryId: inspected.generation.terminalEntryId,
+            digestHex: inspected.generation.digestHex,
+            limit: 1,
+        });
+        if (projection.snapshot.activeAgent !== AGENTS.IDEATOR || projection.snapshot.workflowContext) {
+            throw new Error("Workspace continuation is only supported for idle Ideator conversation Sessions.");
+        }
         const requestHash = stableHash({
             kind: "continuation",
             session: options.runwieldSessionId,
             expectedGeneration: options.expectedGeneration,
             text: options.text,
         });
-        const receipt = this.store.createOrGetOperationReceipt({
+        const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
             requestHash,
@@ -167,13 +204,17 @@ export class WorkspaceSessionContinuationService {
             projectId: options.projectId,
             expectedGeneration: options.expectedGeneration,
             kind: "continuation",
-        });
+        }));
         if (this.operations.has(receipt.operationId)) {
             return {
                 operationId: receipt.operationId,
                 status: this.operations.get(receipt.operationId)?.status || "running",
             };
         }
+        if (receipt.status !== "accepted") {
+            return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
+        }
+        this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
         this.operations.set(receipt.operationId, { status: "running", events: [] });
         const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
         const unsubscribe = this.runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
@@ -188,17 +229,29 @@ export class WorkspaceSessionContinuationService {
                     expectedGeneration: options.expectedGeneration,
                 });
                 const generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
+                const status = result.ok ? "completed" : "failed";
+                this.store.updateOperationReceipt(receipt.operationId, {
+                    status,
+                    resultGeneration: generation,
+                    errorCode: result.error || null,
+                });
                 this.operations.set(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { events: [] }),
-                    status: result.ok ? "completed" : "failed",
+                    status,
                     generation,
                     error: result.error,
                 });
             } catch (error) {
+                const errorCode = codeFromError(error);
+                this.store.updateOperationReceipt(receipt.operationId, {
+                    status: "failed",
+                    errorCode,
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                });
                 this.operations.set(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { events: [] }),
                     status: "failed",
-                    error: codeFromError(error),
+                    error: errorCode,
                 });
             } finally {
                 unsubscribe();
@@ -210,7 +263,16 @@ export class WorkspaceSessionContinuationService {
 
     /** @param {string} operationId */
     getOperation(operationId) {
-        return this.operations.get(operationId) || { status: "unknown", events: [] };
+        const live = this.operations.get(operationId);
+        const durable = this.store.getOperationReceipt(operationId);
+        if (!durable) return live || { status: "unknown", events: [] };
+        return {
+            operationId,
+            status: durable.status,
+            generation: durable.resultGeneration,
+            error: durable.errorCode,
+            events: live?.events || [],
+        };
     }
 }
 
