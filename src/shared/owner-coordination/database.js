@@ -114,7 +114,11 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
         }
         db.exec("COMMIT");
     } catch (error) {
-        db.exec("ROLLBACK");
+        try {
+            db.exec("ROLLBACK");
+        } catch {
+            // SQLite can auto-clear a failed migration transaction; preserve the original migration error.
+        }
         throw error;
     }
 }

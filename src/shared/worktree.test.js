@@ -112,6 +112,40 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
     }
 });
 
+Deno.test("getWorktreeStatus reports committed changes since a base commit", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    let worktree;
+    try {
+        const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Committed Diff", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nimplemented\n");
+        await git(worktree.path, ["add", "README.md"]);
+        await git(worktree.path, ["commit", "-m", "implement committed diff"]);
+
+        const status = await getWorktreeStatus({
+            projectRoot,
+            path: worktree.path,
+            branch: worktree.branch,
+            baseTree: baseCommit,
+        });
+
+        assertEquals(status.clean, true);
+        assertStringIncludes(status.diff, "implemented");
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("createExecutionWorktree initializes submodules", async () => {
     const projectRoot = await makeRepo();
     const submoduleRoot = await makeRepo();
