@@ -49,12 +49,14 @@ import {
     acquireSessionActivation,
     changeSessionActivationPhase,
     createOrGetOperationReceipt,
+    getOperationReceipt,
     heartbeatSessionActivation,
     inspectSessionActivation,
     markSessionReconcileRequired,
     markSessionUncertain,
     publishGenerationAndRelease,
     releaseUnchangedActivation,
+    updateOperationReceipt,
 } from "./session-activations.js";
 
 export { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME, OWNER_COORDINATION_SCHEMA_VERSION };
@@ -100,6 +102,8 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
  * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
  * @property {(options: Parameters<typeof createOrGetOperationReceipt>[1]) => ReturnType<typeof createOrGetOperationReceipt>} createOrGetOperationReceipt
+ * @property {(operationId: string, updates: Parameters<typeof updateOperationReceipt>[2]) => ReturnType<typeof updateOperationReceipt>} updateOperationReceipt
+ * @property {(operationId: string) => ReturnType<typeof getOperationReceipt>} getOperationReceipt
  */
 
 /**
@@ -159,5 +163,7 @@ export function openOwnerCoordinationStore(options = {}) {
             markSessionReconcileRequired(database, session, activationOptions),
         markSessionUncertain: (proof, activationOptions) => markSessionUncertain(database, proof, activationOptions),
         createOrGetOperationReceipt: (operationOptions) => createOrGetOperationReceipt(database, operationOptions),
+        updateOperationReceipt: (operationId, updates) => updateOperationReceipt(database, operationId, updates),
+        getOperationReceipt: (operationId) => getOperationReceipt(database, operationId),
     };
 }

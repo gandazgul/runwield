@@ -3,6 +3,7 @@ import { openOwnerCoordinationDatabase } from "./database.js";
 import { acknowledgeActivationProtocol, getActivationProtocolStatus } from "./activation-protocol.js";
 import {
     acquireSessionActivation,
+    changeSessionActivationPhase,
     heartbeatSessionActivation,
     inspectSessionActivation,
     markSessionReconcileRequired,
@@ -55,7 +56,10 @@ Deno.test("activation state backfills and publishes generation zero through a fe
                 phase: "bootstrap",
                 now: () => "2026-01-01T00:00:00.000Z",
             });
-            publishGenerationAndRelease(database, proof, {
+            const checkpointProof = changeSessionActivationPhase(database, proof, "checkpointing", {
+                now: () => "2026-01-01T00:00:00.500Z",
+            });
+            publishGenerationAndRelease(database, checkpointProof, {
                 generation: 0,
                 byteLength: 42,
                 terminalEntryId: "entry-1",
@@ -106,6 +110,57 @@ Deno.test("stale or expired activation proofs cannot publish or revive a session
             );
             markSessionReconcileRequired(database, { runwieldSessionId: "session-1", projectId: "project-1" });
             assertEquals(inspectSessionActivation(database, "session-1").activation?.state, "reconcile_required");
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("activation state enforces phase graph, exact proof, and no-change release boundaries", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-activation-graph-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSession(database);
+            const proof = acquireSessionActivation(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                ownerInstanceId: "owner-1",
+                ownerProcessKind: "test",
+                operationId: "op-1",
+                expectedGeneration: null,
+                phase: "preparing",
+                now: () => "2026-01-01T00:00:00.000Z",
+            });
+            assertThrows(
+                () =>
+                    changeSessionActivationPhase(database, proof, "turning", {
+                        now: () => "2026-01-01T00:00:00.250Z",
+                    }),
+                Error,
+                "Illegal activation phase transition",
+            );
+            const hydrated = changeSessionActivationPhase(database, proof, "hydrated", {
+                now: () => "2026-01-01T00:00:01.000Z",
+            });
+            assertThrows(
+                () => changeSessionActivationPhase(database, { ...hydrated, expectedGeneration: 0 }, "turning"),
+                Error,
+                "proof",
+            );
+            assertThrows(
+                () =>
+                    publishGenerationAndRelease(database, hydrated, {
+                        generation: 0,
+                        byteLength: 0,
+                        terminalEntryId: null,
+                        digestHex: "b".repeat(64),
+                    }, { now: () => "2026-01-01T00:00:02.000Z" }),
+                Error,
+                "checkpointing",
+            );
         } finally {
             database.close();
         }

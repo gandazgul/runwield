@@ -11,6 +11,7 @@ import {
     OWNER_COORDINATION_SCHEMA_V2_SQL,
     OWNER_COORDINATION_SCHEMA_V3_SQL,
     OWNER_COORDINATION_SCHEMA_V4_SQL,
+    OWNER_COORDINATION_SCHEMA_V5_SQL,
     OWNER_COORDINATION_SCHEMA_VERSION,
 } from "./schema.js";
 
@@ -106,6 +107,10 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
             assertSessionLocatorProjectConsistency(db);
             db.exec(OWNER_COORDINATION_SCHEMA_V4_SQL);
             recordMigration(db, 4, options.now);
+        }
+        if (versionAtLock < 5) {
+            db.exec(OWNER_COORDINATION_SCHEMA_V5_SQL);
+            recordMigration(db, 5, options.now);
         }
         db.exec("COMMIT");
     } catch (error) {
