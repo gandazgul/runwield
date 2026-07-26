@@ -121,6 +121,15 @@ repository policy, and remote merge outcomes. _Avoid_: External Work Source, Tic
 **Forge Change Request**: A provider-owned proposal to merge a published branch into a target branch, called a pull
 request by GitHub and a merge request by GitLab. _Avoid_: FEATURE, Plan, Ticket, change request
 
+**Repository Participation Declaration**: An upstream-authored, version-controlled policy that explicitly permits
+contributed RunWield artifacts. _Avoid_: RunWield installation detection, inferred consent, contributor preference
+
+**Publication Candidate**: The exact locally validated revision RunWield intends to publish through a Forge Change
+Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
+
+**Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
+Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
+
 **Direct Delivery**: A RunWield delivery mode that merges validated work into the local target branch without a Forge
 Change Request. _Avoid_: Local review, unreviewed delivery
 
@@ -522,8 +531,16 @@ command definition, prompt command
 - **FEATURE** and **QUICK_FIX** work may use either **Direct Delivery** or **Change Request Delivery**.
 - A **Forge Change Request** supplies delivery evidence for **Change Request Delivery**, while its **Forge** remains
   authoritative for repository review policy and the remote merge fact.
+- A contributed Plan requires a **Repository Participation Declaration** from the upstream target; without one, the
+  **Publication Candidate** excludes RunWield artifacts.
+- A **Publication Candidate** excludes transient Plan Lifecycle and worktree metadata even when the upstream accepts an
+  adoptable approved Plan.
 - A **Verified Plan** delivered through **Change Request Delivery** requires a proven merge corresponding to a revision
   covered by RunWield Workflow Validation.
+- **Change Request Finalization** follows the proven Forge merge and updates the canonical repository without requiring
+  the contributor's source branch or fork to receive terminal Plan state.
+- **Direct Delivery** may combine implementation and verified Plan metadata in one merge, while **Change Request
+  Delivery** truthfully records terminal Plan and Work Record evidence after the Forge merge.
 - **Dual Review** adds **Local Human Code Review** to Forge review; ordinary Change Request Delivery retains **Semantic
   Code Review** without requiring the local human review gate.
 - A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.
