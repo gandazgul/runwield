@@ -32,7 +32,7 @@ import { createManagedSessionSyncController } from "./managed-session-sync.js";
 import { SpinnerBlock } from "./blocks.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
-import { AGENTS } from "../../constants.js";
+import { AGENTS, RUNWIELD_DIR_NAME } from "../../constants.js";
 import {
     EMPTY_PROJECT_DIRECTORY_HEADER,
     EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
@@ -297,11 +297,51 @@ function readGitBranchSync(cwd) {
 }
 
 /**
- * @param {string} cwd
- * @param {string} home
+ * @param {string} path
  * @returns {string}
  */
-function formatFooterCwd(cwd, home) {
+function lastPathSegment(path) {
+    return path.split(/[\\/]+/).filter(Boolean).at(-1) || "";
+}
+
+/**
+ * @param {string} encodedProjectCwd
+ * @returns {string}
+ */
+function projectLabelFromEncodedWorktreeParent(encodedProjectCwd) {
+    const trimmed = encodedProjectCwd.replace(/^--/, "").replace(/--$/, "");
+    return trimmed.split("-").filter(Boolean).at(-1) || "";
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} home
+ * @param {string | null | undefined} projectCwd
+ * @returns {string | null}
+ */
+function formatManagedWorktreeCwd(cwd, home, projectCwd) {
+    if (!home) return null;
+    const worktreesPrefix = `${home}/${RUNWIELD_DIR_NAME}/worktrees/`;
+    if (!cwd.startsWith(worktreesPrefix)) return null;
+
+    const parts = cwd.slice(worktreesPrefix.length).split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+
+    const projectLabel = lastPathSegment(projectCwd || "") || projectLabelFromEncodedWorktreeParent(parts[0]);
+    if (!projectLabel) return null;
+
+    return `${projectLabel}/${parts.slice(1).join("/")}`;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} home
+ * @param {string | null | undefined} [projectCwd]
+ * @returns {string}
+ */
+function formatFooterCwd(cwd, home, projectCwd) {
+    const managedWorktreeCwd = formatManagedWorktreeCwd(cwd, home, projectCwd);
+    if (managedWorktreeCwd) return managedWorktreeCwd;
     if (!home) return cwd;
     if (cwd === home) return "~";
     return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
@@ -317,7 +357,7 @@ export function buildFooterLocationText(snapshot, options = {}) {
     const executionWorkflow = snapshot.activeExecutionWorkflow;
     const footerCwd = executionWorkflow?.executionCwd || snapshot.cwd || Deno.cwd();
     const branch = executionWorkflow?.worktreeBranch || options.resolveBranch?.(footerCwd) || "unknown";
-    return `${formatFooterCwd(footerCwd, home)} (${branch})`;
+    return `${formatFooterCwd(footerCwd, home, executionWorkflow?.executionCwd ? snapshot.cwd : null)} (${branch})`;
 }
 
 /**
