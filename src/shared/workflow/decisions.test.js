@@ -160,6 +160,30 @@ Deno.test("decidePostExecution returns run_validation when execution completed",
     );
 });
 
+Deno.test("decidePostExecution returns complete_session for intentional workflow completion", () => {
+    assertEquals(
+        decidePostExecution(
+            {
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: true,
+                intentionalCompleteReason: "saved_for_later",
+                message: "done",
+            },
+            { planName: "plan-b", triageMeta: fallbackTriageMeta, executionAgentName: "engineer" },
+        ),
+        {
+            kind: "complete_session",
+            payload: {
+                planName: "plan-b",
+                triageMeta: fallbackTriageMeta,
+                reason: "saved_for_later",
+                message: "done",
+            },
+        },
+    );
+});
+
 Deno.test("decidePostExecution returns stay_with_agent when execution is incomplete", () => {
     assertEquals(
         decidePostExecution(

@@ -11,6 +11,7 @@ import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 
 // Browser opening lives in review-launcher.js and is imported here for dependency injection types.
@@ -21,6 +22,7 @@ import { startPlanReviewSurface } from "./review-launcher.js";
  * @typedef {Object} PlanReviewResult
  * @property {boolean} approved - Whether the plan was approved
  * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
+ * @property {string} [cancellationReason] - Machine-readable reason for an unanswered review.
  * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
  * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
  * @property {import('../../plan-store.js').PlanFrontMatter} [planAttrs] - Canonical post-review Plan attributes.
@@ -180,7 +182,6 @@ export async function submitPlanForReview({
 
     const trustedClassification = fmOverrides.classification;
     const planWithFm = injectFrontMatter(body, fmOverrides);
-    await Deno.writeTextFile(planPath, planWithFm);
 
     // 4. Start the review surface through an adapter seam.
     const server = await startPlanReviewSurfaceImpl({
@@ -200,12 +201,29 @@ export async function submitPlanForReview({
         });
         const decision = await (signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision());
 
-        // Handle cancellation triggered from the TUI
+        // Handle cancellation triggered from the TUI or review timeout/exit before
+        // writing edited review content or recording Plan Review lifecycle events.
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
             return {
                 approved: false,
                 canceled: true,
                 feedback: "Cancelled by user (Esc)",
+                cancellationReason: "abort_signal",
+            };
+        }
+        if (decision?.canceled || decision?.exit) {
+            return {
+                approved: false,
+                canceled: true,
+                feedback: typeof decision.feedback === "string" ? decision.feedback : "",
+                cancellationReason: decision.exit ? "review_exit" : "review_canceled",
+            };
+        }
+        if (!isAnsweredPlanReview(decision)) {
+            return {
+                approved: false,
+                feedback: typeof decision?.feedback === "string" ? decision.feedback : "",
+                cancellationReason: "malformed_review_response",
             };
         }
 
@@ -229,9 +247,7 @@ export async function submitPlanForReview({
         }
         reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
         const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
-        if (typeof decision.plan === "string" || decision.approved && approvedPolicy) {
-            await Deno.writeTextFile(planPath, reviewedPlan);
-        }
+        await Deno.writeTextFile(planPath, reviewedPlan);
 
         // 6. Update status
         // If the plan is in a terminal/completed status (e.g. verified, implemented),

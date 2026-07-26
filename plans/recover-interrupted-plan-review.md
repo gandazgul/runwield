@@ -23,17 +23,19 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-25T17:04:00-04:00"
-updatedAt: "2026-07-26T03:55:07.841Z"
-status: "implemented"
+updatedAt: "2026-07-26T05:15:25.713Z"
+status: "verified"
 origin: "internal"
-failureReason: "Semantic validation did not approve after 3 cycles."
+verifiedAt: "2026-07-26T05:15:25.713Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "412a5de3d7d5f8090036de1ba37a72990f022390"
-worktreeId: "fc9b87ef"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-recover-interrupted-plan-review-fc9b87ef"
-worktreeBranch: "runwield/worktree/recover-interrupted-plan-review-fc9b87ef"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "5d4a4d5b570665e99024e892d1a7ebce37ac5191"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "38538fd74d3f91964a7882ee321aff9937db3e28"
 ---
 
 # Recover Interrupted Plan Review
