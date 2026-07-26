@@ -62,10 +62,12 @@ import { deriveSessionAvailability } from "./components/SessionActivationStatus.
 import { reduceSessionEvents, SessionTimeline } from "./components/SessionTimeline.jsx";
 import {
     draftRecoveryDecision,
+    reduceOperationTransientItems,
     sessionDraftKey,
     sessionRequestKey,
     TIMELINE_MAX_PAGES,
 } from "./islands/SessionSurface.jsx";
+import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 /**
  * @param {Record<string, string | undefined>} values
@@ -233,6 +235,28 @@ Deno.test("Session reducer groups semantic runtime events and ignores unknowns",
     assertStringIncludes(html, "hi there");
 });
 
+Deno.test("Session operation transient reducer preserves message and tool identity across polls", () => {
+    const items = reduceOperationTransientItems([
+        { type: "assistant_text_delta", eventId: "a1", messageId: "assistant-1", agentName: "Ideator", delta: "hel" },
+        { type: "tool_start", eventId: "tool1", toolCallId: "tool-1", toolName: "read", title: "Read file" },
+        { type: "assistant_text_delta", eventId: "a2", messageId: "assistant-1", agentName: "Ideator", delta: "lo" },
+        {
+            type: "tool_end",
+            eventId: "tool2",
+            toolCallId: "tool-1",
+            toolName: "read",
+            title: "Read file",
+            output: "ok",
+        },
+    ]);
+
+    assertEquals(items.length, 2);
+    assertEquals(items[0].kind, "message");
+    assertEquals(items[0].text, "hello");
+    assertEquals(items[1].kind, "tool");
+    assertEquals(items[1].status, "completed");
+});
+
 Deno.test("Session draft and recovery helpers are Project and Session scoped", () => {
     assertEquals(sessionDraftKey("project-a", "session-a").includes("project-a:session:session-a"), true);
     assertEquals(sessionRequestKey("project-a", "session-a").includes("request"), true);
@@ -240,6 +264,75 @@ Deno.test("Session draft and recovery helpers are Project and Session scoped", (
     assertEquals(draftRecoveryDecision({ status: "running" }), "poll-operation");
     assertEquals(draftRecoveryDecision({ status: "conflict" }), "manual-resubmit");
     assertEquals(TIMELINE_MAX_PAGES > 0, true);
+});
+
+Deno.test("Workspace continuation returns same-envelope receipts before activation checks", async () => {
+    let activationGateCalls = 0;
+    let inspectionCalls = 0;
+    const service = new WorkspaceSessionContinuationService({
+        store: /** @type {any} */ ({
+            requireActivationProtocolEnabled() {
+                activationGateCalls += 1;
+                throw new Error("activation gate should not run for an existing receipt");
+            },
+            findOperationReceiptByRequest() {
+                return {
+                    operationId: "operation-1",
+                    status: "running",
+                    resultGeneration: null,
+                    projectId: "project-1",
+                };
+            },
+            inspectSessionActivation() {
+                inspectionCalls += 1;
+                throw new Error("activation inspection should not run for an existing receipt");
+            },
+        }),
+    });
+
+    try {
+        const result = await service.startContinuation({
+            deviceId: "device-1",
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            requestId: "request-1",
+            expectedGeneration: 7,
+            text: "continue",
+        });
+
+        assertEquals(result, { operationId: "operation-1", status: "running", generation: null });
+        assertEquals(activationGateCalls, 0);
+        assertEquals(inspectionCalls, 0);
+    } finally {
+        service.close();
+    }
+});
+
+Deno.test("Workspace continuation reports unknown when durable operation is no longer live", () => {
+    const service = new WorkspaceSessionContinuationService({
+        store: /** @type {any} */ ({
+            getOperationReceipt() {
+                return {
+                    operationId: "operation-1",
+                    status: "running",
+                    resultGeneration: null,
+                    errorCode: null,
+                };
+            },
+        }),
+    });
+
+    try {
+        assertEquals(service.getOperation("operation-1"), {
+            operationId: "operation-1",
+            status: "unknown",
+            generation: null,
+            error: "operation_not_running",
+            events: [],
+        });
+    } finally {
+        service.close();
+    }
 });
 
 Deno.test("review request forwarding does not inherit Deno.serve's legacy abort signal", async () => {

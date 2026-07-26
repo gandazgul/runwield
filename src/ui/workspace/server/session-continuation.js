@@ -9,6 +9,18 @@ import {
     projectCommittedTranscript,
 } from "../../../shared/session/session-transcript-projection.js";
 
+const WORKSPACE_IDEATOR_CONVERSATION_TOOLS = [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "code_search",
+    "code_show",
+    "code_outline",
+    "code_refs",
+    "code_structure",
+];
+
 /** @param {unknown} value */
 function stableHash(value) {
     return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -168,10 +180,29 @@ export class WorkspaceSessionContinuationService {
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string }} options
      */
     async startContinuation(options) {
+        if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
+        const requestHash = stableHash({
+            kind: "continuation",
+            session: options.runwieldSessionId,
+            expectedGeneration: options.expectedGeneration,
+            text: options.text,
+        });
+        const existingReceipt = this.store.findOperationReceiptByRequest({
+            deviceId: options.deviceId || null,
+            requestId: options.requestId,
+            requestHash,
+            runwieldSessionId: options.runwieldSessionId,
+        });
+        if (existingReceipt && existingReceipt.projectId === options.projectId) {
+            return {
+                operationId: existingReceipt.operationId,
+                status: this.operations.get(existingReceipt.operationId)?.status || existingReceipt.status,
+                generation: existingReceipt.resultGeneration,
+            };
+        }
         this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
-        if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
         const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
         if (inspected.activation?.state !== "idle") {
             throw new Error("Continuation requires an idle managed Session.");
@@ -192,12 +223,6 @@ export class WorkspaceSessionContinuationService {
         if (projection.snapshot.activeAgent !== AGENTS.IDEATOR || projection.snapshot.workflowContext) {
             throw new Error("Workspace continuation is only supported for idle Ideator conversation Sessions.");
         }
-        const requestHash = stableHash({
-            kind: "continuation",
-            session: options.runwieldSessionId,
-            expectedGeneration: options.expectedGeneration,
-            text: options.text,
-        });
         const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
@@ -229,6 +254,11 @@ export class WorkspaceSessionContinuationService {
                     initialRequest: options.text,
                     initialImages: [],
                     expectedGeneration: options.expectedGeneration,
+                    agentName: AGENTS.IDEATOR,
+                    toolNames: WORKSPACE_IDEATOR_CONVERSATION_TOOLS,
+                    customTools: [],
+                    allowReturnToRouter: false,
+                    includeEditFallback: false,
                 });
                 const generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
                 const status = result.ok ? "completed" : "failed";
@@ -268,6 +298,15 @@ export class WorkspaceSessionContinuationService {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
         if (!durable) return live || { status: "unknown", events: [] };
+        if (!live && (durable.status === "accepted" || durable.status === "running")) {
+            return {
+                operationId,
+                status: "unknown",
+                generation: durable.resultGeneration,
+                error: "operation_not_running",
+                events: [],
+            };
+        }
         return {
             operationId,
             status: durable.status,

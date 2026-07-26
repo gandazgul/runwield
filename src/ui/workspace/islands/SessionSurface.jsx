@@ -72,6 +72,11 @@ export function draftRecoveryDecision(input) {
     return "idle";
 }
 
+/** @param {unknown} events */
+export function reduceOperationTransientItems(events) {
+    return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
+}
+
 /** @param {{ projectId: string, mode?: "list" | "detail", runwieldSessionId?: string }} props */
 export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
@@ -300,12 +305,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 const events = Array.isArray(payload.events) ? payload.events : [];
                 const nextEvents = events.slice(current.observed);
                 if (nextEvents.length) {
-                    setTransientItems((
-                        items,
-                    ) => [
-                        ...items,
-                        ...reduceSessionEvents(nextEvents, { source: "transient", startIndex: current.observed }),
-                    ]);
+                    setTransientItems(reduceOperationTransientItems(events));
                 }
                 const next = {
                     operationId: current.operationId,
