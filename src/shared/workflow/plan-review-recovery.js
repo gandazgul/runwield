@@ -37,6 +37,10 @@ export function planReviewPayload(response) {
  */
 export function isAnsweredPlanReview(response) {
     const payload = planReviewPayload(response);
+    if (payload.exit === true) return false;
+    if (payload.canceled === true || response?.outcome === RuntimeInteractionOutcomes.CANCELED) return false;
+    if (response?.outcome === RuntimeInteractionOutcomes.BLOCKED) return false;
+    if (response?.outcome === RuntimeInteractionOutcomes.UNSUPPORTED) return false;
     if (payload.remoteReview === true) return true;
     if (payload.approved === true) return true;
     if (typeof payload.feedback === "string" && payload.feedback.trim()) return true;
@@ -96,7 +100,18 @@ export async function requestRecoverablePlanReview({ requestReview, requestRetry
 
         const reason = planReviewUnansweredReason(response);
         await onUnanswered?.({ attempt, reason, response });
-        const retryResponse = await requestRetry({ attempt, reason, response });
+        /** @type {any} */
+        let retryResponse;
+        try {
+            retryResponse = await requestRetry({ attempt, reason, response });
+        } catch (_error) {
+            return {
+                kind: "complete",
+                response,
+                reason: "retry_canceled",
+                message: SESSION_COMPLETE_GUIDANCE,
+            };
+        }
         if (isRetryAccepted(retryResponse)) continue;
         return { kind: "complete", response, reason, message: SESSION_COMPLETE_GUIDANCE };
     }
