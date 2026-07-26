@@ -11,6 +11,7 @@ import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 
 // Browser opening lives in review-launcher.js and is imported here for dependency injection types.
@@ -181,7 +182,6 @@ export async function submitPlanForReview({
 
     const trustedClassification = fmOverrides.classification;
     const planWithFm = injectFrontMatter(body, fmOverrides);
-    await Deno.writeTextFile(planPath, planWithFm);
 
     // 4. Start the review surface through an adapter seam.
     const server = await startPlanReviewSurfaceImpl({
@@ -219,6 +219,13 @@ export async function submitPlanForReview({
                 cancellationReason: decision.exit ? "review_exit" : "review_canceled",
             };
         }
+        if (!isAnsweredPlanReview(decision)) {
+            return {
+                approved: false,
+                feedback: typeof decision?.feedback === "string" ? decision.feedback : "",
+                cancellationReason: "malformed_review_response",
+            };
+        }
 
         let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFm;
         const approvedPolicy = readApprovedExecutionPolicy(decision);
@@ -240,9 +247,7 @@ export async function submitPlanForReview({
         }
         reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
         const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
-        if (typeof decision.plan === "string" || decision.approved && approvedPolicy) {
-            await Deno.writeTextFile(planPath, reviewedPlan);
-        }
+        await Deno.writeTextFile(planPath, reviewedPlan);
 
         // 6. Update status
         // If the plan is in a terminal/completed status (e.g. verified, implemented),

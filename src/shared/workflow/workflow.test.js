@@ -557,15 +557,70 @@ Deno.test("executePlan asks to reopen review when approved Plan cannot be loaded
         },
     });
 
-    assertEquals(requests, ["plan_review", "approval"]);
+    assertEquals(requests, ["approval"]);
     assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "plan_not_found");
     assertEquals(result.message, SESSION_COMPLETE_GUIDANCE);
 });
 
-Deno.test("executePlan retries execution after missing Plan recovery is approved", async () => {
+Deno.test("executePlan recovers unreadable Plan load errors with review retry prompt", async () => {
+    const hostedSession = makeHostedSession("unreadable-plan-recovery");
+    const requests = /** @type {string[]} */ ([]);
+    const result = await executePlan({
+        planName: "broken-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => Promise.reject(new Error("front matter malformed")),
+            requestPlanReview: (_session, request) => {
+                requests.push(request.type);
+                if (request.type === "approval") return Promise.resolve({ outcome: "canceled", value: false });
+                return Promise.resolve({ outcome: "canceled" });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(requests, ["approval"]);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "plan_load_failed");
+});
+
+Deno.test("executePlan returns to review recovery when approved recovery still cannot load Plan", async () => {
+    const hostedSession = makeHostedSession("post-review-load-failure-loop");
+    const requests = /** @type {string[]} */ ([]);
+    const result = await executePlan({
+        planName: "still-missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => Promise.resolve(null),
+            requestPlanReview: (_session, request) => {
+                requests.push(request.type);
+                if (request.type === "approval") {
+                    const approvalCount = requests.filter((type) => type === "approval").length;
+                    return Promise.resolve({
+                        outcome: approvalCount === 1 ? "accepted" : "canceled",
+                        value: approvalCount === 1,
+                    });
+                }
+                return Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(requests, ["approval", "plan_review", "approval"]);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "plan_not_found");
+    assertEquals(result.message, SESSION_COMPLETE_GUIDANCE);
+});
+
+Deno.test("executePlan routes recovered Approve & Run through readiness before execution", async () => {
     const hostedSession = makeHostedSession("missing-plan-reapproved");
     let loadCount = 0;
     let executed = false;
+    const events = /** @type {string[]} */ ([]);
     const result = await executePlan({
         planName: "missing-plan",
         triageMeta: { classification: "FEATURE" },
@@ -579,7 +634,7 @@ Deno.test("executePlan retries execution after missing Plan recovery is approved
                         path: "/repo/plans/missing-plan.md",
                         markdown: "# Plan",
                         body: "# Plan",
-                        attrs: { classification: "FEATURE", status: "ready_for_work" },
+                        attrs: { classification: "FEATURE", status: "approved" },
                     }),
                 );
             },
@@ -587,7 +642,8 @@ Deno.test("executePlan retries execution after missing Plan recovery is approved
                 if (request.type === "approval") return Promise.resolve({ outcome: "accepted", value: true });
                 return Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } });
             },
-            executeSingleEngineerPlan: () => {
+            executeSingleEngineerPlan: (/** @type {any} */ options) => {
+                events.push(`execute:${options.triageMeta.status}`);
                 executed = true;
                 return Promise.resolve({
                     repairRequired: false,
@@ -605,13 +661,206 @@ Deno.test("executePlan retries execution after missing Plan recovery is approved
             },
             markActiveWorktreeStatus: () => Promise.resolve(),
             checkpointExecutionWorktree: () => Promise.resolve({ executionCommit: "commit" }),
-            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                events.push(event.event);
+                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
+            },
             recordWorkflowMetric: () => Promise.resolve(null),
         },
     });
 
+    assertEquals(events.slice(0, 2), ["readiness_passed", "execute:ready_for_work"]);
     assertEquals(executed, true);
     assertEquals(result.executionComplete, true);
+});
+
+Deno.test("executePlan forwards recovered approval feedback images to Engineer after load failure", async () => {
+    const hostedSession = makeHostedSession("missing-plan-approved-images");
+    let loadCount = 0;
+    const reviewImages = [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }];
+    /** @type {any} */
+    let executionRequest = null;
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => {
+                loadCount++;
+                if (loadCount === 1) return Promise.resolve(null);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        path: "/repo/plans/missing-plan.md",
+                        markdown: "# Plan",
+                        body: "# Plan",
+                        attrs: { classification: "FEATURE", status: "approved" },
+                    }),
+                );
+            },
+            requestPlanReview: (_session, request) => {
+                if (request.type === "approval") return Promise.resolve({ outcome: "accepted", value: true });
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "run",
+                        feedback: "Use these approved notes.",
+                        images: reviewImages,
+                    },
+                });
+            },
+            executeSingleEngineerPlan: (/** @type {any} */ request) => {
+                executionRequest = request;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(executionRequest.reviewFeedback, "Use these approved notes.");
+    assertEquals(executionRequest.reviewImages, reviewImages);
+    assertEquals(result.executionComplete, false);
+});
+
+Deno.test("executePlan preserves remote review outcome during load-failure recovery", async () => {
+    const hostedSession = makeHostedSession("missing-plan-remote-review");
+    const requests = /** @type {string[]} */ ([]);
+    const messages = /** @type {string[]} */ ([]);
+    hostedSession.setEventSink((/** @type {{ message?: string }} */ event) => {
+        if (event.message) messages.push(event.message);
+    });
+    let plannerCalled = false;
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => Promise.resolve(null),
+            requestPlanReview: (_session, request) => {
+                requests.push(request.type);
+                if (request.type === "approval") return Promise.resolve({ outcome: "accepted", value: true });
+                return Promise.resolve({
+                    outcome: "accepted",
+                    message: "Plan saved for remote review.",
+                    _meta: { remoteReview: true, approved: false, reviewerUrl: "https://review.example/plan" },
+                });
+            },
+            runActiveAgentTurn: () => {
+                plannerCalled = true;
+                return Promise.resolve([]);
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(requests, ["approval", "plan_review"]);
+    assertEquals(plannerCalled, false);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "remote_review");
+    assertEquals(result.message, "Plan saved for remote review.");
+    assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), false);
+});
+
+Deno.test("executePlan forwards recovered Feedback images to Planner after load failure", async () => {
+    const hostedSession = makeHostedSession("missing-plan-feedback-images");
+    const reviewImages = [{ base64: "aW1hZ2U=", mimeType: "image/png" }];
+    let plannerImages;
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => Promise.resolve(null),
+            requestPlanReview: () =>
+                Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: false, feedback: "Revise with this screenshot.", images: reviewImages },
+                }),
+            runActiveAgentTurn: (/** @type {any} */ options) => {
+                plannerImages = options.images;
+                return Promise.resolve([]);
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(plannerImages, reviewImages);
+    assertEquals(result.executionComplete, false);
+});
+
+Deno.test("executePlan loops through repeated unanswered recovered reviews until answered", async () => {
+    const hostedSession = makeHostedSession("missing-plan-review-loop");
+    let loadCount = 0;
+    const reviewResponses = /** @type {any[]} */ ([
+        { outcome: "canceled" },
+        { outcome: "canceled" },
+        { outcome: "accepted", _meta: { approved: true, approvalAction: "later" } },
+    ]);
+    const requests = /** @type {string[]} */ ([]);
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => {
+                loadCount++;
+                if (loadCount === 1) return Promise.resolve(null);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        path: "/repo/plans/missing-plan.md",
+                        markdown: "# Plan",
+                        body: "# Plan",
+                        attrs: { classification: "FEATURE", status: "approved" },
+                    }),
+                );
+            },
+            requestPlanReview: (_session, request) => {
+                requests.push(request.type);
+                if (request.type === "approval") return Promise.resolve({ outcome: "accepted", value: true });
+                return Promise.resolve(reviewResponses.shift());
+            },
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(requests, ["approval", "plan_review", "approval", "plan_review", "approval", "plan_review"]);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "saved_for_later");
+});
+
+Deno.test("executePlan treats recovered Approve for Later as session complete", async () => {
+    const hostedSession = makeHostedSession("missing-plan-save-later");
+    let loadCount = 0;
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => {
+                loadCount++;
+                if (loadCount === 1) return Promise.resolve(null);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        path: "/repo/plans/missing-plan.md",
+                        markdown: "# Plan",
+                        body: "# Plan",
+                        attrs: { classification: "FEATURE", status: "approved" },
+                    }),
+                );
+            },
+            requestPlanReview: () =>
+                Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "later" } }),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.intentionalCompleteReason, "saved_for_later");
+    assertEquals(result.message, SESSION_COMPLETE_GUIDANCE);
 });
 
 Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecycle completion", async () => {

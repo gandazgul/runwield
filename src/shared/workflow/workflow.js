@@ -12,6 +12,7 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import {
     requestHostedSessionInteraction,
+    RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
     supportsHostedSessionInteraction,
 } from "../session/session-runtime-interactions.js";
@@ -140,6 +141,15 @@ function selectRuntimeCollaborationStyle(hostedSession, policy) {
         };
     }
     return { style: CollaborationStyles.PAIR, recommendation, pairCapable, resolutionReason: "canonical_pair_capable" };
+}
+
+/** @param {any} response */
+function isPlanReviewRetryAccepted(response) {
+    if (!response || typeof response !== "object") return false;
+    if (response.outcome === RuntimeInteractionOutcomes.ACCEPTED) return true;
+    if (response.value === true) return true;
+    const value = String(response.value || "").trim().toLowerCase();
+    return value === "yes" || value === "review_again" || value === "review";
 }
 
 /**
@@ -275,11 +285,12 @@ export async function finalizePlanImplementation({
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../session/hosted-session.js').HostedSession} [opts.hostedSession]
+ * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [opts.__deps]
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta: _triageMeta, sessionManager, hostedSession, __deps },
+    { agentName, initialRequest, triageMeta: _triageMeta, sessionManager, hostedSession, images, __deps },
 ) {
     const runActiveAgentTurn = __deps?.runActiveAgentTurn ||
         (await import("../session/agent-switching.js")).runActiveAgentTurn;
@@ -289,6 +300,7 @@ export async function runPlanningAgent(
         hostedSession,
         agentName,
         userRequest: initialRequest,
+        images,
         sessionManager,
         allowReturnToRouter: false,
     });
@@ -340,8 +352,19 @@ export async function executePlan({
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
+    let effectiveReviewFeedback = reviewFeedback;
+    let effectiveReviewImages = reviewImages;
 
-    let plan = await loadPlanFn(projectRoot, planName);
+    async function tryLoadPlanForExecution() {
+        try {
+            return { plan: await loadPlanFn(projectRoot, planName), error: null };
+        } catch (error) {
+            return { plan: null, error };
+        }
+    }
+
+    const initialLoad = await tryLoadPlanForExecution();
+    let plan = initialLoad.plan;
     if (!plan) {
         emitSystemStatus(hostedSession, `ERROR: Could not load plan ${planName}`, {
             level: "error",
@@ -351,112 +374,194 @@ export async function executePlan({
             category: "execution",
             event: "plan_execution_rejected",
             planName,
-            details: { reason: "plan_not_found" },
+            details: { reason: initialLoad.error ? "plan_load_failed" : "plan_not_found" },
         }, { cwd: projectRoot });
 
         const requestPlanReview = __deps.requestPlanReview || requestHostedSessionInteraction;
         const planPath = join(projectRoot, PLANS_DIR_NAME, `${planName}.md`);
-        const recoverableReview = await requestRecoverablePlanReview({
-            requestReview: () =>
-                requestPlanReview(hostedSession, {
-                    type: RuntimeInteractionTypes.PLAN_REVIEW,
-                    prompt: `Review plan "${planName}"`,
-                    _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
-                }),
-            requestRetry: (details) => requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
-            onUnanswered: ({ reason }) => {
-                emitSystemStatus(
-                    hostedSession,
-                    `Plan review ended without an answer (${reason}).`,
-                    { header: "RunWield" },
-                );
-            },
-        });
-        if (recoverableReview.kind === "complete") {
-            emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                intentionalComplete: true,
-                intentionalCompleteReason: recoverableReview.reason,
-                message: SESSION_COMPLETE_GUIDANCE,
-            };
-        }
+        let recoveryAttempt = 0;
+        let recoveryReason = initialLoad.error ? "plan_load_failed" : "plan_not_found";
+        let recoveryResponse = { outcome: RuntimeInteractionOutcomes.UNSUPPORTED, message: recoveryReason };
+        while (!plan) {
+            recoveryAttempt += 1;
+            const retryResponse = await requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, {
+                attempt: recoveryAttempt,
+                reason: recoveryReason,
+                response: recoveryResponse,
+            }).catch(() => ({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false }));
+            if (!isPlanReviewRetryAccepted(retryResponse)) {
+                emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
+                return {
+                    repairRequired: false,
+                    executionComplete: false,
+                    intentionalComplete: true,
+                    intentionalCompleteReason: recoveryReason,
+                    message: SESSION_COMPLETE_GUIDANCE,
+                };
+            }
 
-        const reviewResponse = recoverableReview.response || {};
-        const reviewMeta = /** @type {any} */ (reviewResponse._meta || reviewResponse || {});
-        if (!reviewMeta.approved) {
-            const planningAgentName = _triageMeta?.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
-            const revisionOutcome = await runPlanningAgent({
-                agentName: planningAgentName,
-                initialRequest: [
-                    `## Plan Review Re-opened: ${planName}`,
-                    "",
-                    "The user provided feedback while recovering a Plan that could not be loaded for execution:",
-                    "",
-                    reviewMeta.feedback || "(no specific feedback provided)",
-                    "",
-                    `Revise plans/${planName}.md based on this feedback, then call plan_written again.`,
-                ].join("\n"),
-                triageMeta: _triageMeta,
-                sessionManager,
-                hostedSession,
-                __deps: { runActiveAgentTurn: __deps.runActiveAgentTurn },
+            const recoverableReview = await requestRecoverablePlanReview({
+                requestReview: () =>
+                    requestPlanReview(hostedSession, {
+                        type: RuntimeInteractionTypes.PLAN_REVIEW,
+                        prompt: `Review plan "${planName}"`,
+                        _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
+                    }),
+                requestRetry: (details) =>
+                    requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
+                onUnanswered: ({ reason }) => {
+                    emitSystemStatus(
+                        hostedSession,
+                        `Plan review ended without an answer (${reason}).`,
+                        { header: "RunWield" },
+                    );
+                },
             });
-            if (revisionOutcome.outcome === "approved_execute") {
-                return await executePlan({
-                    planName: revisionOutcome.planName || planName,
-                    triageMeta: revisionOutcome.triageMeta || _triageMeta,
+            if (recoverableReview.kind === "complete") {
+                emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
+                return {
+                    repairRequired: false,
+                    executionComplete: false,
+                    intentionalComplete: true,
+                    intentionalCompleteReason: recoverableReview.reason,
+                    message: SESSION_COMPLETE_GUIDANCE,
+                };
+            }
+
+            const reviewResponse = recoverableReview.response || {};
+            const reviewMeta = /** @type {any} */ (reviewResponse._meta || reviewResponse || {});
+            if (reviewMeta.remoteReview === true) {
+                const message = reviewResponse.message || `Plan "${planName}" saved for remote review.`;
+                emitSystemStatus(hostedSession, message, { header: "RunWield" });
+                return {
+                    repairRequired: false,
+                    executionComplete: false,
+                    intentionalComplete: true,
+                    intentionalCompleteReason: "remote_review",
+                    message,
+                };
+            }
+            if (!reviewMeta.approved) {
+                const planningAgentName = _triageMeta?.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+                const revisionOutcome = await runPlanningAgent({
+                    agentName: planningAgentName,
+                    initialRequest: [
+                        `## Plan Review Re-opened: ${planName}`,
+                        "",
+                        "The user provided feedback while recovering a Plan that could not be loaded for execution:",
+                        "",
+                        reviewMeta.feedback || "(no specific feedback provided)",
+                        "",
+                        `Revise plans/${planName}.md based on this feedback, then call plan_written again.`,
+                    ].join("\n"),
+                    triageMeta: _triageMeta,
+                    images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
                     sessionManager,
                     hostedSession,
-                    reviewFeedback: revisionOutcome.feedback,
-                    reviewImages: revisionOutcome.images,
-                    __deps,
+                    __deps: { runActiveAgentTurn: __deps.runActiveAgentTurn },
                 });
+                if (revisionOutcome.outcome === "approved_execute") {
+                    return await executePlan({
+                        planName: revisionOutcome.planName || planName,
+                        triageMeta: revisionOutcome.triageMeta || _triageMeta,
+                        sessionManager,
+                        hostedSession,
+                        reviewFeedback: revisionOutcome.feedback,
+                        reviewImages: revisionOutcome.images,
+                        __deps,
+                    });
+                }
+                return {
+                    repairRequired: false,
+                    executionComplete: false,
+                    intentionalComplete: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled",
+                    intentionalCompleteReason: `review_${revisionOutcome.outcome}`,
+                    message: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled"
+                        ? SESSION_COMPLETE_GUIDANCE
+                        : undefined,
+                };
             }
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                intentionalComplete: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled",
-                intentionalCompleteReason: `review_${revisionOutcome.outcome}`,
-                message: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled"
-                    ? SESSION_COMPLETE_GUIDANCE
-                    : undefined,
-            };
-        }
 
-        const approvedMeta = /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ (
-            reviewMeta.planAttrs || _triageMeta || {}
-        );
-        const approvalAction = normalizePlanApprovalAction({
-            classification: approvedMeta.classification,
-            action: reviewMeta.approvalAction,
-        });
-        plan = await loadPlanFn(projectRoot, planName);
-        if (approvalAction !== PLAN_APPROVAL_ACTIONS.RUN) {
-            const currentStatus = plan?.attrs?.status || "approved";
-            await recordPlanEventFn({
-                cwd: projectRoot,
-                planName,
-                event: approvedMeta.classification === "PROJECT" ? "epic_readiness_passed" : "readiness_passed",
-                currentStatus,
-                details: { triageMeta: approvedMeta },
-            });
-            emitSystemStatus(
-                hostedSession,
-                appendSessionCompleteGuidance(`Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`),
-                { header: "RunWield" },
+            if (typeof reviewMeta.feedback === "string" && reviewMeta.feedback.trim()) {
+                effectiveReviewFeedback = reviewMeta.feedback;
+            }
+            if (Array.isArray(reviewMeta.images) && reviewMeta.images.length > 0) {
+                effectiveReviewImages = reviewMeta.images;
+            }
+            const approvedMeta = /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ (
+                reviewMeta.planAttrs || _triageMeta || {}
             );
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                intentionalComplete: true,
-                intentionalCompleteReason: "saved_for_later",
-                message: SESSION_COMPLETE_GUIDANCE,
-            };
-        }
-        if (!plan) {
-            return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
+            const approvalAction = normalizePlanApprovalAction({
+                classification: approvedMeta.classification,
+                action: reviewMeta.approvalAction,
+            });
+            const recoveredLoad = await tryLoadPlanForExecution();
+            plan = recoveredLoad.plan;
+            if (!plan) {
+                emitSystemStatus(
+                    hostedSession,
+                    `Plan could not be loaded after recovered review (${
+                        recoveredLoad.error ? "load_failed" : "not_found"
+                    }).`,
+                    { header: "RunWield" },
+                );
+                recoveryReason = recoveredLoad.error ? "plan_load_failed" : "plan_not_found";
+                recoveryResponse = reviewResponse;
+                continue;
+            }
+
+            const currentStatus = plan.attrs?.status || "approved";
+            if (currentStatus !== "ready_for_work" && currentStatus !== "ready_for_decomposition") {
+                const readinessEvent = approvedMeta.classification === "PROJECT"
+                    ? "epic_readiness_passed"
+                    : "readiness_passed";
+                const readinessMeta = await recordPlanEventFn({
+                    cwd: projectRoot,
+                    planName,
+                    event: readinessEvent,
+                    currentStatus,
+                    details: { triageMeta: { ...plan.attrs, ...approvedMeta } },
+                });
+                const latestLoad = await tryLoadPlanForExecution();
+                const latestPlan = latestLoad.plan;
+                if (latestPlan) {
+                    plan = latestPlan;
+                    if (readinessMeta) {
+                        plan.attrs = { ...plan.attrs, ...readinessMeta };
+                    } else if (plan.attrs.status === currentStatus) {
+                        plan.attrs = {
+                            ...plan.attrs,
+                            status: readinessEvent === "epic_readiness_passed"
+                                ? "ready_for_decomposition"
+                                : "ready_for_work",
+                        };
+                    }
+                } else if (readinessMeta) {
+                    plan.attrs = { ...plan.attrs, ...readinessMeta };
+                } else {
+                    plan.attrs = {
+                        ...plan.attrs,
+                        status: readinessEvent === "epic_readiness_passed"
+                            ? "ready_for_decomposition"
+                            : "ready_for_work",
+                    };
+                }
+            }
+
+            if (approvalAction !== PLAN_APPROVAL_ACTIONS.RUN) {
+                emitSystemStatus(
+                    hostedSession,
+                    appendSessionCompleteGuidance(`Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`),
+                    { header: "RunWield" },
+                );
+                return {
+                    repairRequired: false,
+                    executionComplete: false,
+                    intentionalComplete: true,
+                    intentionalCompleteReason: "saved_for_later",
+                    message: SESSION_COMPLETE_GUIDANCE,
+                };
+            }
         }
     }
 
@@ -538,8 +643,8 @@ export async function executePlan({
         sessionManager,
         currentStatus: plan.attrs.status,
         hostedSession,
-        reviewFeedback,
-        reviewImages,
+        reviewFeedback: effectiveReviewFeedback,
+        reviewImages: effectiveReviewImages,
         collaborationStyle: collaboration.style,
         collaborationRecommendation: collaboration.recommendation,
         __deps: { ...__deps, recordWorkflowMetric: recordWorkflowMetricFn },
