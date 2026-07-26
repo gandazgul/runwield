@@ -15,7 +15,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   submodules: recursive
 
@@ -54,7 +54,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   submodules: recursive
 
@@ -96,7 +96,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   submodules: recursive
 
@@ -127,7 +127,7 @@ jobs:
                   sha256sum "${ASSET_BASE}.tar.zst" > "${ASSET_BASE}.tar.zst.sha256"
 
             - name: Upload build artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v5
               with:
                   name: wld-${{ matrix.asset_suffix }}
                   path: |
@@ -141,10 +141,10 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
 
             - name: Download matrix artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v5
               with:
                   path: release-artifacts
                   pattern: wld-*
@@ -155,7 +155,7 @@ jobs:
                   find release-artifacts -name "*.sha256" -exec cat {} \; > release-artifacts/SHA256SUMS
 
             - name: Publish release assets
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@v3
               with:
                   files: |
                       release-artifacts/**/*.tar.gz
