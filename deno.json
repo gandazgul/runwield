@@ -36,7 +36,7 @@
         "@base-ui/react": "npm:@base-ui/react@^1.6.0",
         "dockview-react": "npm:dockview-react@^7.0.2",
         "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
-        "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.7.0",
+        "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.8.0",
         "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.3.2",
         "@plannotator/markdown-editor/themes/plannotator.css": "npm:@plannotator/markdown-editor@^0.3.2/themes/plannotator.css",
         "@plannotator/ui/": "./third_party/plannotator/packages/ui/",
