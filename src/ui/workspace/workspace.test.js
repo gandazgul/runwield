@@ -58,6 +58,14 @@ import {
     remoteCommentToPlannotatorAnnotation,
 } from "./react/remote-review-payload.js";
 import { RemoteCommentStateList } from "./react/RemoteCommentStateList.jsx";
+import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
+import { reduceSessionEvents, SessionTimeline } from "./components/SessionTimeline.jsx";
+import {
+    draftRecoveryDecision,
+    sessionDraftKey,
+    sessionRequestKey,
+    TIMELINE_MAX_PAGES,
+} from "./islands/SessionSurface.jsx";
 
 /**
  * @param {Record<string, string | undefined>} values
@@ -151,6 +159,87 @@ Deno.test("workspace static assets bypass token checks for tokenized pages", asy
         const response = await app(new Request(`http://localhost${path}`));
         assertEquals(response.status, 200);
     }
+});
+
+Deno.test("Session availability maps continuation and recovery states", () => {
+    assertEquals(deriveSessionAvailability({ protocol: { enabled: false } }).label, "Continuation disabled");
+    assertEquals(deriveSessionAvailability({ bootstrapRequired: true, timelineComplete: true }).canPrepare, true);
+    assertEquals(
+        deriveSessionAvailability({ state: "active", activeSurface: "tui", generation: 1, timelineComplete: true })
+            .label,
+        "In use in TUI",
+    );
+    assertEquals(
+        deriveSessionAvailability({ state: "reconcile_required", generation: 1, timelineComplete: true }).label,
+        "Recovery needed",
+    );
+    assertEquals(
+        deriveSessionAvailability({
+            state: "idle",
+            generation: 2,
+            timelineComplete: false,
+            snapshot: { activeAgent: "Ideator" },
+        }).canContinue,
+        false,
+    );
+    assertEquals(
+        deriveSessionAvailability({
+            state: "idle",
+            generation: 2,
+            timelineComplete: true,
+            snapshot: { activeAgent: "Planner" },
+        }).canContinue,
+        false,
+    );
+    assertEquals(
+        deriveSessionAvailability({
+            state: "idle",
+            generation: 2,
+            timelineComplete: true,
+            snapshot: { activeAgent: "Ideator", workflowContext: { plan: "x" } },
+        }).canContinue,
+        false,
+    );
+    assertEquals(
+        deriveSessionAvailability({
+            state: "idle",
+            generation: 2,
+            timelineComplete: true,
+            snapshot: { activeAgent: "Ideator" },
+        }).canContinue,
+        true,
+    );
+});
+
+Deno.test("Session reducer groups semantic runtime events and ignores unknowns", () => {
+    const items = reduceSessionEvents([
+        { type: "user_message", eventId: "u1", messageId: "u", text: "hello" },
+        { type: "assistant_text_delta", eventId: "a1", messageId: "a", agentName: "Ideator", delta: "hi" },
+        { type: "assistant_text_delta", eventId: "a2", messageId: "a", agentName: "Ideator", delta: " there" },
+        { type: "assistant_thinking_delta", eventId: "t1", messageId: "t", agentName: "Ideator", delta: "thinking" },
+        { type: "assistant_thinking_end", eventId: "t2", messageId: "t", agentName: "Ideator" },
+        { type: "tool_start", eventId: "tool1", toolCallId: "call", toolName: "read", title: "Read" },
+        { type: "tool_end", eventId: "tool2", toolCallId: "call", toolName: "read", title: "Read", output: "ok" },
+        { type: "system_status", eventId: "s1", messageId: "s", message: "done", level: "success" },
+        { type: "usage", eventId: "usage", messageId: "usage", usage: { inputTokens: 1, outputTokens: 2 } },
+        { type: "future_event", eventId: "future" },
+    ]);
+    assertEquals(items.map((item) => item.kind), ["message", "message", "thinking", "tool", "status", "usage"]);
+    assertEquals(items[1].text, "hi there");
+    assertEquals(items[2].done, true);
+    assertEquals(items[3].status, "completed");
+    const html = renderToStaticMarkup(React.createElement(SessionTimeline, { items }));
+    assertStringIncludes(html, "hello");
+    assertStringIncludes(html, "hi there");
+});
+
+Deno.test("Session draft and recovery helpers are Project and Session scoped", () => {
+    assertEquals(sessionDraftKey("project-a", "session-a").includes("project-a:session:session-a"), true);
+    assertEquals(sessionRequestKey("project-a", "session-a").includes("request"), true);
+    assertEquals(draftRecoveryDecision({ status: "network-error" }), "retry-same-envelope");
+    assertEquals(draftRecoveryDecision({ status: "running" }), "poll-operation");
+    assertEquals(draftRecoveryDecision({ status: "conflict" }), "manual-resubmit");
+    assertEquals(TIMELINE_MAX_PAGES > 0, true);
 });
 
 Deno.test("review request forwarding does not inherit Deno.serve's legacy abort signal", async () => {

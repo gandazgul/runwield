@@ -83,8 +83,10 @@ export class WorkspaceSessionContinuationService {
             throw new Error("Session not found.");
         }
         const inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        const state = inspected.activation?.state || "uninitialized";
+        const activeSurface = state === "active" ? inspected.activation?.ownerProcessKind || null : null;
         if (!inspected.generation) {
-            return { state: inspected.activation?.state || "uninitialized", bootstrapRequired: true, events: [] };
+            return { state, activeSurface, bootstrapRequired: true, generation: null, complete: true, events: [] };
         }
         const projection = await projectCommittedTranscript({
             cwd: session.transcriptCwd,
@@ -97,7 +99,7 @@ export class WorkspaceSessionContinuationService {
             cursorEventId: options.cursorEventId,
             limit: options.limit,
         });
-        return { state: inspected.activation?.state || "idle", bootstrapRequired: false, ...projection };
+        return { state: state || "idle", activeSurface, bootstrapRequired: false, ...projection };
     }
 
     /**

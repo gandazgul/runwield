@@ -326,10 +326,11 @@ button.danger-action {
 }
 
 .primary-action,
-button.primary-action {
+button.primary-action,
+.card-actions a.primary-action {
     background: var(--rw-accent);
     border: 1px solid var(--rw-accent);
-    color: var(--rw-page-bg);
+    color: #fff;
 }
 
 .secondary-action,

@@ -241,6 +241,44 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const homeHtml = await home.text();
         assertStringIncludes(homeHtml, "Relink Project root");
         assertStringIncludes(homeHtml, "Full Session rescan");
+        assertStringIncludes(homeHtml, "Open Sessions");
+
+        /** @type {any} */ (store).listProjectSessions = () =>
+            Promise.resolve({
+                sessions: [{
+                    runwieldSessionId: "session-owned",
+                    projectId: project.projectId,
+                    displayName: "Phone Ideation",
+                }],
+                diagnostics: [{
+                    code: "path_leak_regression",
+                    sessionPath: `${projectRoot}/.runwield/sessions/session.json`,
+                    message: `Transcript cwd ${projectRoot}/worktree does not match registered Project root`,
+                }],
+            });
+        /** @type {any} */ (store).inspectSessionActivation = () => ({
+            activation: { state: "idle", ownerProcessKind: null },
+            generation: { generation: 1 },
+        });
+        const sessionsApi = await app(
+            new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/sessions`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(sessionsApi.status, 200);
+        const sessionsText = JSON.stringify(await sessionsApi.json());
+        assertStringIncludes(sessionsText, "Phone Ideation");
+        assertStringIncludes(sessionsText, "[local path]");
+        assertEquals(sessionsText.includes(projectRoot), false);
+        assertEquals(sessionsText.includes("sessionPath"), false);
+
+        const sessionsPage = await app(
+            new Request(`http://127.0.0.1:8787/projects/${project.projectId}/sessions`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals([200, 503].includes(sessionsPage.status), true);
+        assertStringIncludes(await sessionsPage.text(), "Project Sessions");
 
         store.catalogProjectSessions = () =>
             Promise.resolve({
