@@ -34,7 +34,7 @@
         "@std/cli/parse-args": "jsr:@std/cli@^1.0.32/parse-args",
         "@agentclientprotocol/sdk": "npm:@agentclientprotocol/sdk@^1.2.1",
         "@base-ui/react": "npm:@base-ui/react@^1.6.0",
-        "dockview-react": "npm:dockview-react@^5.2.0",
+        "dockview-react": "npm:dockview-react@^7.0.2",
         "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
         "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.7.0",
         "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.3.2",

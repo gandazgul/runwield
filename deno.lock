@@ -83,7 +83,7 @@
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
     "npm:diff@9": "9.0.0",
-    "npm:dockview-react@^5.2.0": "5.2.0_react@19.2.7",
+    "npm:dockview-react@^7.0.2": "7.0.4_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
     "npm:dompurify@^3.4.11": "3.4.11",
     "npm:esbuild@~0.28.1": "0.28.1",
@@ -4254,20 +4254,21 @@
     "diff@9.0.0": {
       "integrity": "sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw=="
     },
-    "dockview-core@5.2.0": {
-      "integrity": "sha512-Gib8yhK2Ng7w47ASvbUZ7GdhBYbeXEflbIDxf/vobdQBMrN/QXmPaouSsSSkEx5YH0N8ap8GYljfvqjug7h5Fg=="
+    "dockview-core@7.0.4": {
+      "integrity": "sha512-AiIzD6ov153L/VuhqVBg5KD5oSAgJGH7L1xvzV/X+ghIEOTFfEQYEBGNd/ys+ZjQfdGRogHSeQ0v9JF/L6JrPg=="
     },
-    "dockview-react@5.2.0_react@19.2.7": {
-      "integrity": "sha512-xJU5EiViiYYoP0ez5KxN8I+5CWSiPC27KVgVJBpRYRYJN6wKjMUpUqqSHwTlN1PGw5OzCu7UGQlUl1RQew74ag==",
+    "dockview-react@7.0.4_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
+      "integrity": "sha512-eUhR3J3prpuFcaPJwQ4rzcRAghO3p4JVXlj5zfdQTlb3Qwa8VUpy3KvyV6BCsIjNk1toTdd8/NyADcZXMvpmtA==",
       "dependencies": [
-        "dockview"
+        "dockview",
+        "react",
+        "react-dom"
       ]
     },
-    "dockview@5.2.0_react@19.2.7": {
-      "integrity": "sha512-Eh+SWt+AydcyeVmYkwP+Yxax0XpYSQfXsc4Rad9k+6QEddkSCn4hcjsdxp9lLsw/CaMy39jHawbDVxPMC4kvTg==",
+    "dockview@7.0.4": {
+      "integrity": "sha512-n6n9WpYZgp/WY8SgvP4hr9qh01ZXhSGIRmlhoJXxRU3f34bwxCbFyOhBArV4W8quolX8OQe1yPfAUwUUjdnZPA==",
       "dependencies": [
-        "dockview-core",
-        "react"
+        "dockview-core"
       ]
     },
     "dom-serializer@2.0.0": {
@@ -6441,7 +6442,7 @@
       "npm:clsx@^2.1.1",
       "npm:codemirror@^6.0.2",
       "npm:diff@9",
-      "npm:dockview-react@^5.2.0",
+      "npm:dockview-react@^7.0.2",
       "npm:dompurify@^3.4.11",
       "npm:esbuild@~0.28.1",
       "npm:fuse.js@^7.4.2",
