@@ -49,7 +49,7 @@
         "preact": "npm:preact@^10.29.7",
         "preact/jsx-runtime": "npm:preact@^10.29.7/jsx-runtime",
         "preact/jsx-dev-runtime": "npm:preact@^10.29.7/jsx-dev-runtime",
-        "@preact/signals": "npm:@preact/signals@^2.9.3",
+        "@preact/signals": "npm:@preact/signals@^2.9.4",
         "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.3.2",
         "tailwindcss": "npm:tailwindcss@^4.3.3",
         "react": "npm:react@^19.2.7",
