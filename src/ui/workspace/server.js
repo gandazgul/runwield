@@ -247,6 +247,8 @@ export function createOwnerWorkspaceApp(options) {
         "/projects/:projectId/plans/:planId",
         async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
     );
+    app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
+    app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
     app.post("/api/owner/pairing/request", pairingRequestApi);
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);
@@ -647,7 +649,9 @@ function renderOwnerHome(ctx) {
                 project.enabled
                     ? `<a class="action-primary" href="/projects/${
                         encodeURIComponent(project.projectId)
-                    }/plans">Open Plan Board</a>`
+                    }/plans">Open Plan Board</a><a class="action-secondary" href="/projects/${
+                        encodeURIComponent(project.projectId)
+                    }/sessions">Open Sessions</a>`
                     : ""
             }<button class="action-secondary" data-project-action="${escapeHtml(project.projectId)}" data-action="${
                 project.lifecycle === "disabled" ? "enable" : "disable"
@@ -788,6 +792,40 @@ async function renderOwnerPlanDetail(ctx) {
         staticRender: true,
     });
     return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Lifecycle and body editing are intentionally disabled in this slice so later Plan Workflow Lease enforcement can cover consequential actions.</p></aside>`;
+}
+
+/** @param {any} ctx */
+async function renderOwnerProjectSessionsPage(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const response = await renderAstroPage(ctx.req, root);
+    if (response) return response;
+    return ownerHtmlResponse(
+        "Project Sessions",
+        `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Sessions</h1><p>Build the Workspace frontend to enable the interactive phone Session list.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen Sessions.</p></section>`,
+        503,
+    );
+}
+
+/** @param {any} ctx */
+async function renderOwnerProjectSessionDetailPage(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const session = ctx.state.store.getSessionById(ctx.params.runwieldSessionId);
+    if (!session || session.projectId !== ctx.params.projectId) {
+        return ownerHtmlResponse(
+            "Session not found",
+            `<section class="error-panel"><h2>Session not found</h2><p>The requested Session is not cataloged under this Project.</p></section>`,
+            404,
+        );
+    }
+    const response = await renderAstroPage(ctx.req, root);
+    if (response) return response;
+    return ownerHtmlResponse(
+        "Project Session",
+        `<section class="page-header"><a class="detail-back-link" href="/projects/${
+            encodeURIComponent(ctx.params.projectId)
+        }/sessions">← Sessions</a><h1>Session Continuation</h1><p>Build the Workspace frontend to enable interactive Session continuation.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen this Session.</p></section>`,
+        503,
+    );
 }
 
 /** @param {Request} request @param {string} cwd */

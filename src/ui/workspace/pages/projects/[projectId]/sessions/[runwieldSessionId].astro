@@ -1,0 +1,15 @@
+---
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import SessionSurface from "../../../../islands/SessionSurface.jsx";
+
+const projectId = Astro.params.projectId ?? "";
+const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
+---
+<WorkspaceLayout title="Project Session" selectedTab="projects" url={Astro.url.href}>
+    <section class="page-header session-page-header">
+        <a class="detail-back-link" href={`/projects/${encodeURIComponent(projectId)}/sessions`}>← Sessions</a>
+        <h1>Session Continuation</h1>
+        <p>Committed transcript history is canonical. Live Workspace progress is temporary and reconciles after settlement.</p>
+    </section>
+    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:load />
+</WorkspaceLayout>
