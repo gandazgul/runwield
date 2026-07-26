@@ -45,10 +45,10 @@
     "npm:@codemirror/state@^6.7.1": "6.7.1",
     "npm:@codemirror/view@^6.43.6": "6.43.6",
     "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.1.1",
-    "npm:@earendil-works/pi-agent-core@~0.80.10": "0.80.10_zod@4.4.3",
+    "npm:@earendil-works/pi-agent-core@0.80.5": "0.80.5",
     "npm:@earendil-works/pi-ai@0.80.5": "0.80.5",
-    "npm:@earendil-works/pi-coding-agent@~0.80.5": "0.80.5_zod@4.4.3",
-    "npm:@earendil-works/pi-tui@~0.80.10": "0.80.10",
+    "npm:@earendil-works/pi-coding-agent@0.80.5": "0.80.5",
+    "npm:@earendil-works/pi-tui@0.80.5": "0.80.5",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1070,31 +1070,14 @@
         "astro"
       ]
     },
-    "@earendil-works/pi-agent-core@0.80.10_zod@4.4.3": {
-      "integrity": "sha512-nwnOR3SuLYGRFfyQm8ri4Nj5VGVAvAM9GuqQd3u7BUQj0d6hmD2F8w7OHAAjThE3CuySIdM+v8E22QJG6/RfCg==",
+    "@earendil-works/pi-agent-core@0.80.5": {
+      "integrity": "sha512-413NZ5BEwSdL+BAtoBlk7hcA3UGvltcdAPtFoMZ1uqLZRNIoFU0WhNXGwv5Sp1SPBmMR6MAc3neoA+MdOlWJ2w==",
       "dependencies": [
-        "@earendil-works/pi-ai@0.80.10_zod@4.4.3",
+        "@earendil-works/pi-ai",
         "ignore",
         "typebox",
         "yaml@2.9.0"
       ]
-    },
-    "@earendil-works/pi-ai@0.80.10_zod@4.4.3": {
-      "integrity": "sha512-Moe/H8c87yacDGK9dPbWphZNjVsrb3nTrIHycOQJAkFEnY9PYxOOd74+ny44kATfPU9Dm7aTHefar3pZF+UKUA==",
-      "dependencies": [
-        "@anthropic-ai/sdk",
-        "@aws-sdk/client-bedrock-runtime",
-        "@google/genai",
-        "@mistralai/mistralai",
-        "@opentelemetry/api",
-        "@smithy/node-http-handler@4.7.3",
-        "http-proxy-agent",
-        "https-proxy-agent",
-        "openai",
-        "partial-json",
-        "typebox"
-      ],
-      "bin": true
     },
     "@earendil-works/pi-ai@0.80.5": {
       "integrity": "sha512-+7UODYKu4o/X8sxTHG8HEV3+O+dOYKg5MeO3MJIFQ+wu65pIWDhjZGc759uWsRr79AhV7MSJEe4GWnFn4l68gw==",
@@ -1113,11 +1096,11 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-coding-agent@0.80.5_zod@4.4.3": {
+    "@earendil-works/pi-coding-agent@0.80.5": {
       "integrity": "sha512-GPYFuHw1BN+3m5Gzw1HGH41WdFDzbplLauS0zYSf1ZOkgKFd6wtEAcjchB/vmz9YtTGbQOwECbsVj6GxZxungA==",
       "dependencies": [
         "@earendil-works/pi-agent-core",
-        "@earendil-works/pi-ai@0.80.10_zod@4.4.3",
+        "@earendil-works/pi-ai",
         "@earendil-works/pi-tui",
         "@silvia-odwyer/photon-node",
         "chalk",
@@ -1140,8 +1123,8 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-tui@0.80.10": {
-      "integrity": "sha512-c2JO29PbhKPEQ6fgHQKAl0WhwuFqzWfzspMmP+8B5tpDuP+0mvarRbKKg8gq4b+pQx/QX+6aVS4ko7deoyjQjg==",
+    "@earendil-works/pi-tui@0.80.5": {
+      "integrity": "sha512-raxEUD2CvCDNJuOWEAI+xD7vmxCrGH0NYb31+GQDdL1q9WXn5+uNLgP1vkJfOsTvf9k5zU5sNFA06oBIcWSYtQ==",
       "dependencies": [
         "get-east-asian-width",
         "marked@18.0.5"
@@ -3780,8 +3763,8 @@
     "bowser@2.14.1": {
       "integrity": "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg=="
     },
-    "brace-expansion@5.0.7": {
-      "integrity": "sha512-7oFy703dxfY3/NLxC1fh2SUCQ0H9rmAY+5EpDVfXjUTTs+HEwR2nYaqLv+GWcTsumwxPfiz6CzCNkwXwBUwqCA==",
+    "brace-expansion@5.0.8": {
+      "integrity": "sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==",
       "dependencies": [
         "balanced-match"
       ]
@@ -6463,10 +6446,10 @@
       "npm:@codemirror/state@^6.7.1",
       "npm:@codemirror/view@^6.43.6",
       "npm:@deno/astro-adapter@0.6",
-      "npm:@earendil-works/pi-agent-core@~0.80.10",
+      "npm:@earendil-works/pi-agent-core@0.80.5",
       "npm:@earendil-works/pi-ai@0.80.5",
-      "npm:@earendil-works/pi-coding-agent@~0.80.5",
-      "npm:@earendil-works/pi-tui@~0.80.10",
+      "npm:@earendil-works/pi-coding-agent@0.80.5",
+      "npm:@earendil-works/pi-tui@0.80.5",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
