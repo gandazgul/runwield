@@ -25,8 +25,8 @@ Discover the design system before visual invention:
 - Extend incomplete systems minimally with project-native reusable tokens, primitives, utilities, or component variants.
 - Use the creative visual branch only when no coherent system exists, or when the User Request explicitly authorizes a
   redesign. For redesigns, inspect the existing system and treat it as a compatibility and migration input.
-- In RunWield browser UI, start from `docs/design-system.md` and `src/ui/design-system/` before changing Workspace or
-  other browser surfaces.
+- In RunWield browser UI, start from the canonical `docs/design-system.md`; follow its implementation pointers before
+  changing Workspace or other browser surfaces.
 
 ## Read this when...
 
