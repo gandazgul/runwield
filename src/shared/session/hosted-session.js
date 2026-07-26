@@ -100,6 +100,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {number | null} generation
  * @property {number | null} [acknowledgedGeneration]
  * @property {string | null} [acknowledgedEventId]
+ * @property {number | null} [acknowledgedEventOrdinal]
  * @property {Object} [committedSummary]
  * @property {{ type: "managed_sync_state_changed", status: import('./session-runtime-events.js').RuntimeManagedSyncStatus, localGeneration: number | null, latestGeneration: number | null, owningSurfaceKind?: "workspace" | "tui" | "acp" | "unknown", message?: string } | null} [syncState]
  * @property {string | null} name

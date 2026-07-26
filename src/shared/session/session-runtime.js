@@ -167,6 +167,7 @@ export const HANDOFF_LIMIT_MESSAGE =
 /**
  * @typedef {Object} ManagedSyncOptions
  * @property {boolean} [emitEvents]
+ * @property {boolean} [replayFromStart]
  * @property {number} [limit]
  */
 
@@ -293,9 +294,11 @@ export class SessionRuntime {
         const sessionManager = session.getRootSessionManager();
         const managed = session.getManagedMetadata?.() || null;
         const rawSessionManagerId = sessionManager?.getSessionId?.();
-        const sessionManagerId = typeof rawSessionManagerId === "string" && rawSessionManagerId
+        const sessionManagerId = managed
+            ? null
+            : typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
-            : managed?.piSessionId || null;
+            : null;
         const workflowContext = session.getWorkflowContext() || managed?.workflowContext || null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
         const contextCapacity = getRuntimeContextCapacity(session);
@@ -1493,8 +1496,27 @@ export class SessionRuntime {
         const latestGeneration = activationState.generation?.generation ?? null;
         const currentLocalGeneration = managed.acknowledgedGeneration ?? managed.generation ?? null;
         const activeOwnerKind = activationState.activation?.ownerProcessKind || null;
-        const activeElsewhere = Boolean(activeOwnerKind && activeOwnerKind !== this.#ownerProcessKind);
+        const activeOwnerInstanceId = activationState.activation?.ownerInstanceId || null;
+        const activeElsewhere = Boolean(
+            activationState.activation?.state === "active" && activeOwnerInstanceId &&
+                activeOwnerInstanceId !== this.#ownerInstanceId,
+        );
         const owningSurfaceKind = activeElsewhere ? sanitizedSurface(activeOwnerKind) : undefined;
+        if (
+            activationState.activation?.state === "uncertain" ||
+            activationState.activation?.state === "reconcile_required"
+        ) {
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
+            const state = {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: "blocked",
+                localGeneration: currentLocalGeneration,
+                latestGeneration,
+                message: activationState.activation.blockedReason || activationState.activation.state,
+            };
+            emitSyncState(state);
+            return { ok: false, error: activationState.activation.state, state };
+        }
         if (!activationState.generation) {
             /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
             const state = {
@@ -1507,7 +1529,10 @@ export class SessionRuntime {
             emitSyncState(state);
             return { ok: true, events: [], state };
         }
-        if (latestGeneration === currentLocalGeneration && (managed.acknowledgedEventId || latestGeneration === null)) {
+        if (
+            !options.replayFromStart && latestGeneration === currentLocalGeneration &&
+            (managed.acknowledgedEventId || latestGeneration === null)
+        ) {
             /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
             const state = {
                 type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
@@ -1529,18 +1554,35 @@ export class SessionRuntime {
             }),
         );
         try {
-            const projected = await projectCommittedTranscript({
-                cwd: hostedSession.cwd,
-                sessionDir: dirname(managed.transcriptPath),
-                sessionPath: managed.transcriptPath,
-                runtimeSessionId: sessionId,
-                generation: activationState.generation.generation,
-                byteLength: activationState.generation.byteLength,
-                terminalEntryId: activationState.generation.terminalEntryId,
-                digestHex: activationState.generation.digestHex,
-                cursorEventId: managed.acknowledgedEventId || null,
-                limit: options.limit,
-            });
+            /** @type {any[]} */
+            const events = [];
+            let projected;
+            let cursorEventId = options.replayFromStart ? null : managed.acknowledgedEventId || null;
+            let cursorEventOrdinal = options.replayFromStart
+                ? null
+                : Number.isInteger(managed.acknowledgedEventOrdinal)
+                ? managed.acknowledgedEventOrdinal
+                : null;
+            do {
+                projected = await projectCommittedTranscript({
+                    cwd: hostedSession.cwd,
+                    sessionDir: dirname(managed.transcriptPath),
+                    sessionPath: managed.transcriptPath,
+                    runtimeSessionId: sessionId,
+                    generation: activationState.generation.generation,
+                    byteLength: activationState.generation.byteLength,
+                    terminalEntryId: activationState.generation.terminalEntryId,
+                    digestHex: activationState.generation.digestHex,
+                    cursorEventId,
+                    cursorEventOrdinal,
+                    limit: options.limit,
+                });
+                events.push(...(projected.events || []));
+                cursorEventId = projected.nextCursor || cursorEventId;
+                cursorEventOrdinal = Number.isInteger(projected.nextCursorOrdinal)
+                    ? projected.nextCursorOrdinal
+                    : cursorEventOrdinal;
+            } while (!projected.complete);
             const summary = projected.snapshot || {};
             /** @type {import('./hosted-session.js').ManagedSessionMetadata} */
             const nextMetadata = {
@@ -1548,6 +1590,7 @@ export class SessionRuntime {
                 generation: projected.generation,
                 acknowledgedGeneration: projected.generation,
                 acknowledgedEventId: projected.nextCursor,
+                acknowledgedEventOrdinal: projected.nextCursorOrdinal,
                 committedSummary: summary,
                 name: summary.name ?? managed.name ?? null,
                 activeAgent: summary.activeAgent ?? managed.activeAgent ?? null,
@@ -1565,7 +1608,6 @@ export class SessionRuntime {
             };
             hostedSession.setManagedMetadata(nextMetadata);
             managed = hostedSession.getManagedMetadata?.() || nextMetadata;
-            const events = projected.events || [];
             if (emitEvents) {
                 for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
                 if (summary.name) {
@@ -1596,6 +1638,13 @@ export class SessionRuntime {
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
                         workflowContext: summary.workflowContext,
+                    });
+                }
+                if (summary.attention) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                        reason: summary.attention.reason || "agentStopped",
+                        agentName: summary.attention.agentName || undefined,
                     });
                 }
             }
@@ -1749,10 +1798,7 @@ export class SessionRuntime {
                 digestHex: evidence.digestHex,
             });
             hostedSession.setManagedMetadata({ ...managed, generation: options.expectedGeneration + 1 });
-            const parity = await this.synchronizeManagedSession(sessionId, { emitEvents: false });
-            if (!parity.ok) {
-                return { ...result, error: parity.error || "projection_degraded_after_commit" };
-            }
+            await this.synchronizeManagedSession(sessionId, { emitEvents: false });
             return result;
         } catch (error) {
             hostedSession.dehydrateManagedSession();
@@ -1786,6 +1832,23 @@ export class SessionRuntime {
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
             throw new Error("SessionRuntime.createInteractiveSession requires an absolute cwd");
+        }
+        if (this.#ownerCoordinationStore && (options.mode || "new") === "continue") {
+            const persistedSessions = await listPersistedRootSessions(options.cwd);
+            const latestSession = persistedSessions[0] || null;
+            if (latestSession?.id && latestSession?.path) {
+                const loaded = await this.loadSession({
+                    cwd: options.cwd,
+                    sessionId: latestSession.id,
+                    sessionPath: latestSession.path,
+                });
+                return {
+                    sessionId: loaded.sessionId,
+                    cwd: loaded.cwd,
+                    sessionManagerId: loaded.sessionManagerId,
+                    startedAt: new Date().toISOString(),
+                };
+            }
         }
         const sessionManager = await this.#createRootSessionManager(options.mode || "new", options.cwd);
         const hostedSession = this.#sessionHost.createSession({

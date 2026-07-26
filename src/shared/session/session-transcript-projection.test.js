@@ -127,3 +127,19 @@ Deno.test("projection cursor selection fails closed when the prior cursor is abs
         "Timeline cursor",
     );
 });
+
+Deno.test("projection cursor selection validates prefix ordinal continuity", () => {
+    const events = [
+        { type: "user_message", eventId: "one" },
+        { type: "assistant_text_delta", eventId: "inserted" },
+        { type: "assistant_text_delta", eventId: "two" },
+    ];
+    assertThrows(
+        () => selectProjectedEventsAfterCursor({ events, cursorEventId: "two", cursorEventOrdinal: 1 }),
+        Error,
+        "prefix-continuous",
+    );
+    const selected = selectProjectedEventsAfterCursor({ events, cursorEventId: "two", cursorEventOrdinal: 2 });
+    assertEquals(selected.events, []);
+    assertEquals(selected.nextCursorOrdinal, 2);
+});
