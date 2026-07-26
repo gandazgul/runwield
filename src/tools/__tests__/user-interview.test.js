@@ -83,6 +83,56 @@ Deno.test("userInterviewTool completes a single yes/no question", async () => {
     assertMatch(firstText(result), /"answers"\s*:\s*\[/);
 });
 
+Deno.test("userInterviewTool returns to choices when multiple-choice Other text is canceled", async () => {
+    const selectedValues = ["other", "high"];
+    const textValues = [null];
+
+    const tool = createUserInterviewTool(makeUi({
+        promptSelect: () => Promise.resolve(selectedValues.shift() ?? null),
+        promptText: () => Promise.resolve(textValues.shift() ?? null),
+    }));
+
+    const result = await executeTool(tool, {
+        question: {
+            id: "priority",
+            type: "multiple_choice",
+            prompt: "What priority should we assign?",
+            choices: [
+                { value: "low", label: "Low" },
+                { value: "high", label: "High" },
+            ],
+        },
+    });
+
+    assertEquals(result.details.status, "completed");
+    assertEquals(result.details.answers[0]?.value, "high");
+    assertEquals(selectedValues, []);
+    assertEquals(textValues, []);
+});
+
+Deno.test("userInterviewTool returns to yes/no choices when Other text is canceled", async () => {
+    const selectedValues = ["other", "no"];
+    const textValues = [null];
+
+    const tool = createUserInterviewTool(makeUi({
+        promptSelect: () => Promise.resolve(selectedValues.shift() ?? null),
+        promptText: () => Promise.resolve(textValues.shift() ?? null),
+    }));
+
+    const result = await executeTool(tool, {
+        question: {
+            id: "confirm_scope",
+            type: "yes_no",
+            prompt: "Proceed with the scoped feature?",
+        },
+    });
+
+    assertEquals(result.details.status, "completed");
+    assertEquals(result.details.answers[0]?.value, false);
+    assertEquals(selectedValues, []);
+    assertEquals(textValues, []);
+});
+
 Deno.test("userInterviewTool completes a mixed 3-question batch", async () => {
     const selectedValues = ["high", "frontend"];
     const textValues = ["Use design tokens."];
