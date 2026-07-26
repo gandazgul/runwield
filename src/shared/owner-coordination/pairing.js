@@ -51,9 +51,35 @@ function requestFromRow(row) {
     };
 }
 
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function stripTerminalControlCharacters(value) {
+    const text = String(value || "");
+    let sanitized = "";
+    for (let index = 0; index < text.length; index += 1) {
+        const code = text.charCodeAt(index);
+        if (code === 27) {
+            index += 1;
+            if (text[index] === "[") {
+                while (index + 1 < text.length) {
+                    index += 1;
+                    const sequenceCode = text.charCodeAt(index);
+                    if (sequenceCode >= 64 && sequenceCode <= 126) break;
+                }
+            }
+            continue;
+        }
+        if (code < 32 || code === 127 || (code >= 128 && code <= 159)) continue;
+        sanitized += text[index];
+    }
+    return sanitized;
+}
+
 /** @param {string} label */
 function normalizeLabel(label) {
-    const normalized = String(label || "").replace(/\s+/g, " ").trim();
+    const normalized = stripTerminalControlCharacters(label).replace(/\s+/g, " ").trim();
     return normalized.slice(0, 80) || "Browser device";
 }
 

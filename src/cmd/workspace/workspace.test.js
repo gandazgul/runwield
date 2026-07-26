@@ -114,15 +114,18 @@ Deno.test("workspace pair approves through store and prints safe output", async 
             __testDeps: {
                 store: {
                     approvePairingRequest: (/** @type {string} */ code) => ({
-                        deviceLabel: `Device ${code}`,
+                        deviceLabel: `Device ${code}\x1B[31m\x07`,
                         expiresAt: "2026-01-01T00:05:00.000Z",
                     }),
                     close: () => {},
                 },
             },
         });
-        assertStringIncludes(capture.logs.join("\n"), "Approved Workspace pairing request");
-        assertStringIncludes(capture.logs.join("\n"), "ABC123");
+        const output = capture.logs.join("\n");
+        assertStringIncludes(output, "Approved Workspace pairing request");
+        assertStringIncludes(output, "ABC123");
+        assertEquals(output.includes("\x1B"), false);
+        assertEquals(output.includes("\x07"), false);
     } finally {
         capture.restore();
     }

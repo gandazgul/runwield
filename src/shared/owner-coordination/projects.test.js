@@ -241,6 +241,26 @@ Deno.test("two database connections racing to register one Project converge on o
     }
 });
 
+Deno.test("Project registration rejects relative roots before filesystem resolution", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-relative-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        assertThrows(
+            () => registerProject(database, { root: "relative/project" }),
+            Error,
+            "absolute path",
+        );
+        assertThrows(
+            () => relinkProject(database, { projectId: "missing", newRoot: "relative/project" }),
+            Error,
+            "absolute path",
+        );
+    } finally {
+        database.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("Project registration rejects files", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-project-file-" });
     const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });

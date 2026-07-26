@@ -6,6 +6,7 @@ import {
     claimPairingRequest,
     createPairingRequest,
     getPairingRequestByProof,
+    stripTerminalControlCharacters,
 } from "./pairing.js";
 import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
 
@@ -81,6 +82,26 @@ Deno.test("pairing request stores only hashes and requires approval before claim
             claimed.deviceId,
         );
         assertEquals(verifyDeviceCsrf(database, claimed.deviceId, claimed.csrf), true);
+    } finally {
+        database.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("pairing device labels strip terminal control characters", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-pairing-label-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        assertEquals(stripTerminalControlCharacters("Phone\x1B[31m\x07"), "Phone");
+        const request = createPairingRequest(database, {
+            deviceLabel: "Phone\x1B[31m\x07\nName",
+            idFactory: idFactory(),
+            now: () => "2026-01-01T00:00:00.000Z",
+            codeFactory: () => "LABEL1",
+            proofFactory: () => "proof",
+        });
+        const approved = approvePairingRequest(database, request.code, { now: () => "2026-01-01T00:00:01.000Z" });
+        assertEquals(approved.deviceLabel, "PhoneName");
     } finally {
         database.close();
         await Deno.remove(dir, { recursive: true });
