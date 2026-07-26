@@ -224,6 +224,25 @@ Deno.test("footer location follows active worktree execution context", () => {
     assertEquals(text, "/repo-runwield-demo (runwield/worktree/demo)");
 });
 
+Deno.test("footer location shortens RunWield-managed worktree paths", () => {
+    const text = buildFooterLocationText({
+        cwd: "/Users/gandazgul/Documents/web/runwield",
+        activeExecutionWorkflow: {
+            executionCwd:
+                "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-frontend-framework-design-skill-51003995",
+            worktreeBranch: "runwield/worktree/frontend-framework-design-skill-51003995",
+        },
+    }, {
+        home: "/Users/gandazgul",
+        resolveBranch: () => "main",
+    });
+
+    assertEquals(
+        text,
+        "runwield/runwield-runwield-frontend-framework-design-skill-51003995 (runwield/worktree/frontend-framework-design-skill-51003995)",
+    );
+});
+
 Deno.test("footer location resolves branch from the displayed cwd when not in an execution worktree", () => {
     const calls = /** @type {string[]} */ ([]);
     const text = buildFooterLocationText({
