@@ -219,7 +219,20 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
 
-        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
+        const canonicalMarkdownBeforeResolution = (await loadPlan(projectRoot, "p"))?.markdown;
+        /** @type {any[]} */
+        const metrics = [];
+        const result = await resolveValidationExecutionContext({
+            projectRoot,
+            planName: "p",
+            triageMeta: {},
+            __deps: {
+                recordWorkflowMetric: (metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
+            },
+        });
 
         assertEquals(result.kind, "ok");
         if (result.kind === "ok") {
@@ -229,7 +242,10 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
                 assertEquals(result.context.baselineTree, baselineTree);
             }
             assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.restoredPlanFile, { relativePath: "plans/p.md" });
         }
+        assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalMarkdownBeforeResolution);
+        assertEquals(metrics.at(-1)?.details.planFileRestored, true);
         const persistedPlan = await loadPlan(projectRoot, "p");
         assertEquals(persistedPlan?.attrs.executionMode, "worktree");
         assertEquals(persistedPlan?.attrs.executionBaselineTree, baselineTree);
