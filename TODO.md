@@ -5,7 +5,7 @@
 - [x] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
       memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
 - [x] CONTEXT-FORMAT file is not extracted on a fresh install.
-- [ ] The footer CWD and branch needs to be updates when working in a worktree. Currently it shows the main branch and
+- [x] The footer CWD and branch needs to be updates when working in a worktree. Currently it shows the main branch and
       the main CWD even when in a worktree.
 - [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
@@ -31,6 +31,15 @@
       unavailable · cost unavailable"
 - [ ] silly message just say nothing if its not an epic: RunWield Epic continuation complete:
       completed_plan_has_no_parent_epic.
+- [ ] in the code review surface allow the side bars to be collapsed.
+  - [ ] ![alt text](image.png) the inline comments overflow the container they should wrap and have padding
+- [ ] The /share link is not the preview link, is should be.
+  - [ ] We should eventually have session share support in the self hosted plan sharing server.
+  - [ ] the shared session html should be friendlier and only contain the messages and hide more of the cruft in
+        collapsible sections.
+- [x] After hitting other on a user-interview question, there's no way to go back to the multiple choice options. The
+      user has to cancel the interview and the model gets nothing. Esc should go back to the multiple choice options, a
+      second Esc then cancels the interview.
 
 ## Backlog
 

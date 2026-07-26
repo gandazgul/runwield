@@ -1,4 +1,5 @@
 ---
+planId: "8db5439a-35d9-439b-a434-95f01adf1843"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Restructure and Apache-license the bundled frontend-framework Skill with convention-aware visual and UX design guidance inspired by Anthropic's frontend-design Skill."
@@ -11,14 +12,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T17:11:07-04:00"
-updatedAt: "2026-07-26T22:06:29.676Z"
+updatedAt: "2026-07-26T22:06:44.609Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-26T21:27:31.129Z"
 verifiedAt: "2026-07-26T22:06:29.676Z"
 userVerifiedAt: null
-userVerificationNote: null
 executionReport: "- Reworked `src/skills/frontend-framework/SKILL.md` into a 42-line convention-first reference index with design-basis invariant, scoped Apache-2.0 notice, sibling context pointers, and a single conditional `agent-browser-use` pointer.\n- Added `ENGINEERING.md`, `UX-DESIGN.md`, `VISUAL-DESIGN.md`, and nested full Apache 2.0 `LICENSE.txt`; `src/agent-definitions/frontend-engineer.md` was not modified.\n- Static checks passed: SKILL.md Markdown links resolve within `frontend-framework/`; license text includes Apache 2.0 terms/appendix; visible notice scopes the nested license to this package only.\n- Scenario audits passed: routine fixes preserve existing language; partial systems extend minimally; greenfield/redesign branches require system discovery plus grounded reusable visual foundations; UX form/async work resolves to UX reference; browser mechanics remain in `agent-browser-use`.\n- `write-a-skill` critique: model invocation retained with shorter leading-word description; branch granularity and progressive disclosure improved; concepts co-located with completion criteria; duplicate loop/browser prose removed. Residual trade-off: description remains broad enough to trigger multiple frontend branches, accepted to avoid another model-invoked skill.\n- Verification passed: `deno fmt --check src/skills/frontend-framework/SKILL.md src/skills/frontend-framework/ENGINEERING.md src/skills/frontend-framework/UX-DESIGN.md src/skills/frontend-framework/VISUAL-DESIGN.md`; `deno test -A --no-check scripts/release-check.test.js`; `deno task ci`.\n- Browser verification not run: this was Skill Markdown/prompt reference work, not browser-rendered product UI, matching the plan's execution policy."
+workRecord:
+    status: "generated"
+    recordId: "2f15e59b-b2fb-4948-83d8-4653905a34b0"
+    path: "docs/work-records/2026-07-26-frontend-framework-skill-restructured.md"
+    lastAttemptAt: "2026-07-26T22:06:34.501Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
