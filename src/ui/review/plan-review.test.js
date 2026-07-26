@@ -254,6 +254,28 @@ classification: FEATURE
     }
 });
 
+Deno.test("submitPlanForReview malformed empty feedback decision does not write Plan or record feedback", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const originalPlan = await Deno.readTextFile(planPath);
+    const harness = makeDeps({ approved: false, feedback: "" });
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            __deps: harness.deps,
+        });
+
+        assertEquals(result.approved, false);
+        assertEquals(result.feedback, "");
+        assertEquals(result.cancellationReason, "malformed_review_response");
+        assertEquals(await Deno.readTextFile(planPath), originalPlan);
+        assertEquals(harness.events, []);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("submitPlanForReview records feedback and returns loaded images", async () => {
     const { dir, planPath } = await makePlanFile();
     const imagePath = join(dir, "reference.png");
@@ -283,8 +305,9 @@ Deno.test("submitPlanForReview records feedback and returns loaded images", asyn
     }
 });
 
-Deno.test("submitPlanForReview timeout or exit does not record feedback", async () => {
+Deno.test("submitPlanForReview timeout or exit does not write Plan or record feedback", async () => {
     const { dir, planPath } = await makePlanFile();
+    const originalPlan = await Deno.readTextFile(planPath);
     const harness = makeDeps({ approved: false, feedback: "", exit: true, canceled: true });
     try {
         const result = await submitPlanForReview({
@@ -297,14 +320,16 @@ Deno.test("submitPlanForReview timeout or exit does not record feedback", async 
         assertEquals(result.approved, false);
         assertEquals(result.canceled, true);
         assertEquals(result.cancellationReason, "review_exit");
+        assertEquals(await Deno.readTextFile(planPath), originalPlan);
         assertEquals(harness.events, []);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
 });
 
-Deno.test("submitPlanForReview cancellation is driven by its AbortSignal", async () => {
+Deno.test("submitPlanForReview cancellation is driven by its AbortSignal without writing Plan", async () => {
     const { dir, planPath } = await makePlanFile();
+    const originalPlan = await Deno.readTextFile(planPath);
     const controller = new AbortController();
     let stopped = false;
     /** @type {() => void} */
@@ -343,6 +368,7 @@ Deno.test("submitPlanForReview cancellation is driven by its AbortSignal", async
             feedback: "Cancelled by user (Esc)",
             cancellationReason: "abort_signal",
         });
+        assertEquals(await Deno.readTextFile(planPath), originalPlan);
         assertEquals(stopped, true);
     } finally {
         await Deno.remove(dir, { recursive: true });

@@ -3,6 +3,7 @@ import { runLoadPlanCommand } from "./index.js";
 import { loadPlan, resolveSiblingChildPlanDependencies, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
+import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import {
     createExecutionWorktree,
     mergeExecutionWorktree,
@@ -1644,6 +1645,99 @@ Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async
     assertEquals(lifecycleCalled, true);
 });
 
+Deno.test("runLoadPlanCommand planning approval forwards feedback images to execution", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("resume");
+    const reviewImages = [{ base64: "planning-approved", mimeType: "image/png" }];
+    /** @type {any} */
+    let executeRequest = null;
+
+    await runLoadPlanCommand(["plan-planning-approved"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-planning-approved"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-planning-approved",
+                    path: "plans/plan-planning-approved.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanningAgent: () =>
+                Promise.resolve({
+                    outcome: "approved_execute",
+                    planName: "plan-planning-approved",
+                    triageMeta: { classification: "FEATURE", affectedPaths: [] },
+                    feedback: "Carry these approved notes into execution.",
+                    images: reviewImages,
+                }),
+            executePlan: (/** @type {any} */ request) => {
+                executeRequest = request;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(executeRequest.reviewFeedback, "Carry these approved notes into execution.");
+    assertEquals(executeRequest.reviewImages, reviewImages);
+});
+
+Deno.test("runLoadPlanCommand planning PROJECT approval forwards feedback images to Slicer", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    const reviewImages = [{ base64: "planning-project", mimeType: "image/png" }];
+    /** @type {any} */
+    let slicerRequest = null;
+
+    await runLoadPlanCommand(["project-planning-approved"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["project-planning-approved"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "project-planning-approved",
+                    path: "plans/project-planning-approved.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanningAgent: () =>
+                Promise.resolve({
+                    outcome: "approved_decompose",
+                    planName: "project-planning-approved",
+                    triageMeta: { classification: "PROJECT", affectedPaths: [] },
+                    feedback: "Carry these approved notes into slicing.",
+                    images: reviewImages,
+                }),
+            runSlicerAgent: (/** @type {any} */ request) => {
+                slicerRequest = request;
+                return Promise.resolve({ ok: true });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(slicerRequest.reviewFeedback, "Carry these approved notes into slicing.");
+    assertEquals(slicerRequest.reviewImages, reviewImages);
+});
+
 Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("view", null);
@@ -1722,6 +1816,162 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
     assertEquals(executed, false);
 });
 
+Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review", "no");
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "canceled",
+            _meta: { canceled: true, feedback: "Cancelled by user (Esc)" },
+        }),
+    });
+    fixture.state.workflow = { planName: "ready-review-cancel", worktreeId: "wt-1", ownerAgent: AGENTS.ENGINEER };
+    const preReviewWorkflow = fixture.state.workflow;
+    const registryStatuses = /** @type {string[]} */ ([]);
+    let lifecycleCalled = false;
+
+    await runLoadPlanCommand(["ready-review-cancel"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["ready-review-cancel"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "ready-review-cancel",
+                    path: "plans/ready-review-cancel.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        worktreeId: "wt-1",
+                        worktreePath: "/tmp/ready-review-cancel",
+                        worktreeBranch: "runwield/worktree/ready-review-cancel",
+                        worktreeStatus: "active",
+                    },
+                }),
+            findWorktreeById: () =>
+                Promise.resolve({
+                    id: "wt-1",
+                    planName: "ready-review-cancel",
+                    path: "/tmp/ready-review-cancel",
+                    branch: "runwield/worktree/ready-review-cancel",
+                    status: "active",
+                }),
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ _id,
+                /** @type {{ status?: string }} */ updates,
+            ) => {
+                registryStatuses.push(String(updates.status));
+                return Promise.resolve(/** @type {any} */ ({ id: "wt-1", status: updates.status }));
+            },
+            recordPlanEvent: () => {
+                lifecycleCalled = true;
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(lifecycleCalled, false);
+    assertEquals(registryStatuses, ["abandoned", "active"]);
+    assertEquals(fixture.state.workflow, preReviewWorkflow);
+});
+
+Deno.test("runLoadPlanCommand approved review preserves remote review outcome", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("review");
+    let planningCalled = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "accepted",
+            message: "Plan saved for remote review.",
+            _meta: { remoteReview: true, reviewerUrl: "https://review.example/plan", approved: false },
+        }),
+    });
+
+    await runLoadPlanCommand(["remote-review-plan"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["remote-review-plan"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "remote-review-plan",
+                    path: "plans/remote-review-plan.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            runPlanningAgent: () => {
+                planningCalled = true;
+                return Promise.resolve({ outcome: "no_call" });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(planningCalled, false);
+    assertEquals(messages.some((message) => message.includes("remote review")), true);
+    assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), false);
+});
+
+Deno.test("runLoadPlanCommand approved review retries after canceled Runtime review", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("review", "yes");
+    const runtimeResponses = [
+        { outcome: "canceled", _meta: { canceled: true, feedback: "Cancelled by user (Esc)" } },
+        { outcome: "accepted", _meta: { approved: true, approvalAction: "later" } },
+    ];
+    let executed = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => runtimeResponses.shift(),
+    });
+
+    await runLoadPlanCommand(["plan-review-retry"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-review-retry"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-review-retry",
+                    path: "plans/plan-review-retry.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(prompts.some((prompt) => prompt.prompt === "Review the Plan again?"), true);
+    assertEquals(messages.some((message) => message.includes("Plan review ended without an answer")), true);
+    assertEquals(executed, false);
+});
+
 Deno.test("runLoadPlanCommand approved review run action executes without post-approval prompt", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
@@ -1773,6 +2023,98 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
     });
 
     assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand approved FEATURE review run forwards approval feedback images", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    const reviewImages = [{ base64: "approved", mimeType: "image/png" }];
+    /** @type {any} */
+    let executeRequest = null;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "run",
+                feedback: "Use this screenshot during implementation.",
+                images: reviewImages,
+            },
+        }),
+    });
+
+    await runLoadPlanCommand(["plan-run-with-images"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-run-with-images"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-with-images",
+                    path: "plans/plan-run-with-images.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            executePlan: (/** @type {any} */ request) => {
+                executeRequest = request;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(executeRequest.reviewFeedback, "Use this screenshot during implementation.");
+    assertEquals(executeRequest.reviewImages, reviewImages);
+});
+
+Deno.test("runLoadPlanCommand approved FEATURE review later action shows session-complete guidance", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("review");
+    let executed = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "later" } }),
+    });
+
+    await runLoadPlanCommand(["plan-save-later"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-save-later"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-save-later",
+                    path: "plans/plan-save-later.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(executed, false);
+    assertEquals(messages.some((message) => message.includes("Plan saved. Resume later")), true);
+    assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
 
 Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readiness and execution", async () => {
@@ -2268,12 +2610,23 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
     assertEquals(fixture.state.agentHistory, [AGENTS.ARCHITECT]);
 });
 
-Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Slicer", async () => {
+Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Slicer with approval images", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
     let slicerCalled = false;
+    /** @type {any} */
+    let slicerRequest = null;
+    const reviewImages = [{ base64: "approved", mimeType: "image/png" }];
     const fixture = makeRuntimeFixture({
-        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "decompose" } }),
+        requestInteraction: () => ({
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "decompose",
+                feedback: "Use this screenshot while slicing.",
+                images: reviewImages,
+            },
+        }),
     });
 
     await runLoadPlanCommand(["plan-project-decompose"], {
@@ -2296,6 +2649,49 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
                         status: "approved",
                     },
                 }),
+            runSlicerAgent: (/** @type {any} */ request) => {
+                slicerCalled = true;
+                slicerRequest = request;
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(slicerCalled, true);
+    assertEquals(slicerRequest.reviewFeedback, "Use this screenshot while slicing.");
+    assertEquals(slicerRequest.reviewImages, reviewImages);
+});
+
+Deno.test("runLoadPlanCommand approved PROJECT review later action shows session-complete guidance", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("review");
+    let slicerCalled = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "later" } }),
+    });
+
+    await runLoadPlanCommand(["plan-project-save-later"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-project-save-later"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-project-save-later",
+                    path: "plans/plan-project-save-later.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
             runSlicerAgent: () => {
                 slicerCalled = true;
                 return Promise.resolve({ ok: true });
@@ -2305,17 +2701,22 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
         }),
     });
 
-    assertEquals(slicerCalled, true);
+    assertEquals(slicerCalled, false);
+    assertEquals(messages.some((message) => message.includes("Plan saved. Resume later")), true);
+    assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
 
-Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
+Deno.test("runLoadPlanCommand approved review kicks off planner on denial with images", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
     let plannerCalled = false;
+    /** @type {any[] | undefined} */
+    let plannerImages;
+    const reviewImages = [{ base64: "abc", mimeType: "image/png" }];
     const fixture = makeRuntimeFixture({
         requestInteraction: () => ({
             outcome: "accepted",
-            _meta: { approved: false, feedback: "missing tests" },
+            _meta: { approved: false, feedback: "missing tests", images: reviewImages },
         }),
     });
 
@@ -2338,8 +2739,9 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
                         status: "approved",
                     },
                 }),
-            runPlanningAgent: () => {
+            runPlanningAgent: (/** @type {any} */ request) => {
                 plannerCalled = true;
+                plannerImages = request.images;
                 return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
             },
             resetTuiState: () => {},
@@ -2347,6 +2749,53 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
     });
 
     assertEquals(plannerCalled, true);
+    assertEquals(plannerImages, reviewImages);
+});
+
+Deno.test("runLoadPlanCommand approved PROJECT review feedback returns images to Architect", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    /** @type {any} */
+    let plannerRequest = null;
+    const reviewImages = [{ base64: "project-feedback", mimeType: "image/png" }];
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "accepted",
+            _meta: { approved: false, feedback: "Revise the Epic.", images: reviewImages },
+        }),
+    });
+
+    await runLoadPlanCommand(["project-feedback-images"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["project-feedback-images"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "project-feedback-images",
+                    path: "plans/project-feedback-images.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            runPlanningAgent: (/** @type {any} */ request) => {
+                plannerRequest = request;
+                return Promise.resolve({ outcome: "saved", planName: "project-feedback-images" });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(plannerRequest.agentName, AGENTS.ARCHITECT);
+    assertEquals(plannerRequest.images, reviewImages);
 });
 
 Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async () => {

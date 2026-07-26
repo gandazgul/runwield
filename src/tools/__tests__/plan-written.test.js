@@ -1,6 +1,7 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import { createPlanWrittenTool } from "../plan-written.js";
 
 /**
@@ -270,7 +271,20 @@ Deno.test("plan_written feature approval can save without execution", async () =
 
     assertEquals(result.details.outcome, "saved");
     assertEquals(result.terminate, true);
+    assertStringIncludes(result.content[0].text, SESSION_COMPLETE_GUIDANCE);
     assertEquals(events.some((event) => String(event.message || "").includes("Plan saved")), true);
+    assertEquals(events.some((event) => String(event.message || "").includes(SESSION_COMPLETE_GUIDANCE)), true);
+});
+
+Deno.test("plan_written project approval can save for later with session-complete guidance", async () => {
+    const { tool, events } = makeHarness({ classification: "PROJECT", approvalAction: "later" });
+    const result = await execute(tool, "runtime-epic");
+
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.terminate, true);
+    assertStringIncludes(result.content[0].text, SESSION_COMPLETE_GUIDANCE);
+    assertEquals(events.some((event) => String(event.message || "").includes("Plan saved")), true);
+    assertEquals(events.some((event) => String(event.message || "").includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
 
 Deno.test("plan_written project approval returns decomposition outcome", async () => {
