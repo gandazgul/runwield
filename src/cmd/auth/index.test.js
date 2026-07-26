@@ -254,11 +254,13 @@ Deno.test("runLoginCommand reports unavailable providers and cancelled API key i
 
 Deno.test("runLoginCommand exercises subscription callbacks", async () => {
     const registry = /** @type {any} */ (createRegistry());
+    const authUrl =
+        "https://auth.example/oauth/authorize?client_id=runwield&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcallback&scope=openid%20profile%20email&state=long-state-token";
     registry.authStorage.login = async (
         /** @type {string} */ providerId,
         /** @type {any} */ callbacks,
     ) => {
-        callbacks.onAuth({ url: "https://auth.example", instructions: "Follow the light" });
+        callbacks.onAuth({ url: authUrl, instructions: "Follow the light" });
         assertEquals(await callbacks.onPrompt({ message: "Enter code", placeholder: "123" }), "code-value");
         callbacks.onProgress("Halfway there");
         assertEquals(
@@ -278,7 +280,11 @@ Deno.test("runLoginCommand exercises subscription callbacks", async () => {
     });
 
     assertEquals(messages.includes("Halfway there"), true);
-    assertEquals(messages.some((message) => message.includes("https://auth.example")), true);
+    const authMessage = messages.find((message) => message.includes("auth.example")) || "";
+    assertEquals(
+        authMessage.includes(`\x1b]8;;${authUrl}\x07${authUrl}\x1b]8;;\x07`),
+        true,
+    );
     assertEquals(messages.at(-1), "Logged in to ChatGPT Plus/Pro.");
 });
 
