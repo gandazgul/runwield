@@ -103,7 +103,7 @@
         "tailwind-merge": "npm:tailwind-merge@^3.6.0",
         "unique-username-generator": "npm:unique-username-generator@^1.5.1",
         "fuse.js": "npm:fuse.js@^7.4.2",
-        "perfect-freehand": "npm:perfect-freehand@^1.2.2",
+        "perfect-freehand": "npm:perfect-freehand@^1.2.3",
         "@deno/astro-adapter": "npm:@deno/astro-adapter@^0.6.0",
         "@astrojs/react": "npm:@astrojs/react@^6.0.1",
         "@astrojs/check": "npm:@astrojs/check@^0.9.9",
