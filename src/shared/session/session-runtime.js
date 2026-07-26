@@ -319,6 +319,7 @@ export class SessionRuntime {
         const workflowContext = session.getWorkflowContext() || managed?.workflowContext || null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
         const contextCapacity = getRuntimeContextCapacity(session);
+        const activeModelState = session.getActiveModelState();
         return {
             id: session.id,
             cwd: session.cwd,
@@ -350,8 +351,11 @@ export class SessionRuntime {
             activeAgentInfo: pendingAgentName
                 ? { displayName: pendingAgentName, model: "", provider: "", agentName: pendingAgentName }
                 : session.getActiveAgentInfo(),
-            activeModel: session.getActiveModelState(),
-            thinkingLevel: session.getThinkingLevel(),
+            activeModel: {
+                model: pendingManagedIntent.model || activeModelState.model,
+                provider: pendingManagedIntent.provider || activeModelState.provider,
+            },
+            thinkingLevel: pendingManagedIntent.thinkingLevel || session.getThinkingLevel(),
             busy: session.isTurnActive() || (this.#busyOperationDepths.get(session.id) || 0) > 0,
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
@@ -747,6 +751,12 @@ export class SessionRuntime {
     setSessionModel(sessionId, model, provider = "", userOverride = true) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            session.mergePendingManagedTurnIntent?.({ model, provider });
+            session.setActiveModelState(model, provider, userOverride);
+            this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
+            return { ok: true, model, provider };
+        }
         const managedRejection = this.#rejectManagedPublicMutation(session, "setSessionModel");
         if (managedRejection) return managedRejection;
         session.setActiveModelState(model, provider, userOverride);
@@ -765,6 +775,12 @@ export class SessionRuntime {
     async reconfigureSessionModel(sessionId, model, provider = "") {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            session.mergePendingManagedTurnIntent?.({ model, provider });
+            session.setActiveModelState(model, provider, true);
+            this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
+            return { ok: true, model, provider };
+        }
         const managedRejection = this.#rejectManagedPublicMutation(session, "reconfigureSessionModel");
         if (managedRejection) return managedRejection;
         session.setActiveModelState(model, provider, true);
@@ -1014,6 +1030,9 @@ export class SessionRuntime {
             return { ok: false, error: "unsupported" };
         }
         session.setThinkingLevel(next);
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            session.mergePendingManagedTurnIntent?.({ thinkingLevel: next });
+        }
         this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel: next });
         return { ok: true, thinkingLevel: next };
     }
@@ -1176,6 +1195,8 @@ export class SessionRuntime {
     async compactSession(sessionId, instructions = undefined) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.compactSession: session not found");
+        const managedRejection = this.#rejectManagedPublicMutation(session, "compactSession");
+        if (managedRejection) throw new Error(managedRejection.error);
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         if (!rootAgentSession?.compact) throw new Error("Runtime session cannot be compacted.");
         return await this.#runBusyOperation(session.id, () => rootAgentSession.compact(instructions));
@@ -1185,6 +1206,10 @@ export class SessionRuntime {
     async reloadSession(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            await getSettingsManager(session.cwd).reload();
+            return { ok: true, deferred: true };
+        }
         const agentName = session.getRootAgentName();
         if (!agentName) return { ok: false };
         await getSettingsManager(session.cwd).reload();
@@ -1371,6 +1396,9 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         session.setThinkingLevel(thinkingLevel);
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager()) {
+            session.mergePendingManagedTurnIntent?.({ thinkingLevel });
+        }
         this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel });
         return { ok: true, thinkingLevel };
     }
@@ -1998,10 +2026,20 @@ export class SessionRuntime {
                 sessionPath: managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(sessionManager);
+            if (pendingIntent.model || pendingIntent.provider) {
+                hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
+            }
+            if (pendingIntent.thinkingLevel) hostedSession.setThinkingLevel(pendingIntent.thinkingLevel);
             const agentName = options.agentName || pendingIntent.agentName ||
                 await this.#resolveResumeAgentName(sessionManager);
+            const pendingModel = pendingIntent.model || pendingIntent.provider
+                ? pendingIntent.provider && pendingIntent.model
+                    ? `${pendingIntent.provider}/${pendingIntent.model}`
+                    : pendingIntent.model || undefined
+                : undefined;
             await this.#activateSessionAgent(hostedSession, {
                 agentName,
+                model: pendingModel,
                 toolNames: options.toolNames,
                 customTools: options.customTools,
                 allowReturnToRouter: options.allowReturnToRouter,
