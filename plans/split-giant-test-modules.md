@@ -1,4 +1,5 @@
 ---
+planId: "74e5e3f3-097a-4311-8e8a-5ab5deaf22f7"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Split five serial-heavy test modules along domain boundaries and teach the write-tests Skill to preserve focused, parallel-safe test modules."
