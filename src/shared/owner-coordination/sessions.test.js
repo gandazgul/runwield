@@ -561,6 +561,46 @@ Deno.test("Session catalog rejects symlink-retargeted roots even when entered ro
     });
 });
 
+Deno.test("Session catalog accepts stored historical root evidence after old cwd disappears", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const dir = await Deno.makeTempDir({ prefix: "runwield-session-historical-missing-" });
+        Deno.env.set("HOME", dir);
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const historicalRoot = `${dir}/old-repo`;
+            const currentRoot = `${dir}/new-repo`;
+            await Deno.mkdir(historicalRoot, { recursive: true });
+            await Deno.mkdir(currentRoot, { recursive: true });
+            const ids = idFactory();
+            const project = registerProject(database, { root: historicalRoot, idFactory: ids, now: () => "t1" });
+            const transcriptPath = await writeTranscript(historicalRoot, "historical-pi");
+            relinkProject(database, {
+                projectId: project.projectId,
+                newRoot: currentRoot,
+                idFactory: ids,
+                now: () => "t2",
+            });
+            await Deno.remove(historicalRoot, { recursive: true });
+
+            const result = await catalogProjectSessions(database, project.projectId, {
+                idFactory: ids,
+                now: () => "t3",
+            });
+
+            assertEquals(result.diagnostics, []);
+            assertEquals(result.cataloged.length, 1);
+            assertEquals(result.cataloged[0].piSessionId, "historical-pi");
+            assertEquals(result.cataloged[0].transcriptPath, transcriptPath);
+        } finally {
+            database.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDir(dir);
+        }
+    });
+});
+
 Deno.test("Session catalog reconstruction after database deletion requires re-registration and creates conservative mappings", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
