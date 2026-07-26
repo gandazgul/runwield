@@ -170,6 +170,30 @@ loopback listener behind Tailscale Serve, WireGuard plus a trusted HTTPS termina
 TLS boundary. Direct non-loopback owner serving is refused unless trusted-terminator mode is explicit and the configured
 public origin is `https://...`; do not expose the plaintext backend listener directly to browsers.
 
+A typical Tailscale Serve setup keeps RunWield on loopback and terminates HTTPS at the trusted Tailscale boundary:
+
+```bash
+wld workspace serve --bind 127.0.0.1 --port 8787 --public-origin https://<tailnet-name>.<tailnet>.ts.net --no-open
+tailscale serve --https=443 127.0.0.1:8787
+```
+
+If a trusted terminator must reach a non-loopback backend address, start owner Workspace only with explicit terminator
+trust and an HTTPS public origin, then firewall the plaintext listener so browsers cannot reach it directly:
+
+```bash
+wld workspace serve --bind 0.0.0.0 --port 8787 --trust-tls-terminator --public-origin https://workspace.example.test --no-open
+```
+
+Manage paired browsers from the owner Workspace device page:
+
+```bash
+open http://127.0.0.1:8787/devices
+```
+
+The page lists active, current, and revoked devices by safe device label and pairing time. Use **Revoke** to invalidate
+a browser; revoking the current browser clears its cookies and returns it to pairing, while revoking another browser
+closes registered live connections and denies its next owner request.
+
 Projects must be explicitly registered before Workspace can show their Plans. The owner Project view reuses the existing
 Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
 later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
