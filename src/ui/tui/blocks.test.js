@@ -241,6 +241,21 @@ Deno.test("SystemMessageBlock appendText uses header and style", () => {
     assertEquals(plain.includes("Loaded skills (1): s1"), true);
 });
 
+Deno.test("SystemMessageBlock preserves OSC 8 hyperlinks on wrapped URL lines", () => {
+    const w = 50;
+    const url =
+        "https://auth.example/oauth/authorize?client_id=runwield&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcallback&scope=openid%20profile%20email&state=long-state-token";
+    const block = new SystemMessageBlock(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`);
+    const lines = block.render(w);
+    const urlLines = lines.filter((line) => line.includes("auth.example") || line.includes("redirect_uri"));
+
+    assertEquals(urlLines.length > 1, true);
+    for (const line of urlLines) {
+        assertEquals(line.includes(`\x1b]8;;${url}\x07`), true);
+        assertEquals(line.includes("\x1b]8;;\x07"), true);
+    }
+});
+
 // ─── ReviewResultBlock ───────────────────────────────────────────────────────
 
 Deno.test("ReviewResultBlock renders approved markdown with success background", () => {

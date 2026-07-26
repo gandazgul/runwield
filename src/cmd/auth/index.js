@@ -99,6 +99,21 @@ function parseAuthType(value) {
 }
 
 /**
+ * Wrap a terminal-visible URL in an OSC 8 hyperlink so wrapped URLs remain a
+ * single clickable target in terminals that support explicit hyperlinks.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function formatClickableTerminalUrl(url) {
+    const safeUrl = Array.from(url).filter((char) => {
+        const code = char.charCodeAt(0);
+        return code >= 32 && code !== 127;
+    }).join("");
+    return `\x1b]8;;${safeUrl}\x07${safeUrl}\x1b]8;;\x07`;
+}
+
+/**
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<"oauth" | "api_key" | null>}
  */
@@ -148,7 +163,7 @@ async function loginWithSubscription(uiAPI, provider, registry) {
                 uiAPI.appendSystemMessage(
                     [
                         `Open this URL to login to ${provider.name}:`,
-                        info.url,
+                        formatClickableTerminalUrl(info.url),
                         info.instructions || "",
                     ].filter(Boolean).join("\n"),
                 );
