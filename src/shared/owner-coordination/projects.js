@@ -62,9 +62,9 @@ function newId(idFactory) {
  */
 function requireAbsoluteRoot(root, field) {
     if (typeof root !== "string" || !root.trim()) throw new Error(`${field} is required`);
-    const path = resolve(root);
-    if (!isAbsolute(path)) throw new Error(`${field} must be an absolute path`);
-    return path;
+    const enteredRoot = root.trim();
+    if (!isAbsolute(enteredRoot)) throw new Error(`${field} must be an absolute path`);
+    return resolve(enteredRoot);
 }
 
 /** @param {string} path */

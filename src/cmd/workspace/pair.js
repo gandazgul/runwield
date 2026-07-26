@@ -3,6 +3,7 @@
 import { CLI_BIN } from "../../constants.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { normalizePairingCode } from "../../shared/owner-coordination/crypto.js";
+import { stripTerminalControlCharacters } from "../../shared/owner-coordination/pairing.js";
 
 export function printWorkspacePairHelp() {
     console.log(`Usage: ${CLI_BIN} workspace pair <code>`);
@@ -27,7 +28,8 @@ export function runWorkspacePairCommand(argv, options = {}) {
     const store = deps.store || openOwnerCoordinationStore({ dbPath: deps.dbPath });
     try {
         const approved = store.approvePairingRequest(code);
-        console.log(`[RunWield] Approved Workspace pairing request for ${approved.deviceLabel}.`);
+        const safeDeviceLabel = stripTerminalControlCharacters(approved.deviceLabel);
+        console.log(`[RunWield] Approved Workspace pairing request for ${safeDeviceLabel}.`);
         console.log(`[RunWield] The browser can now finish pairing before ${approved.expiresAt}.`);
     } catch (error) {
         console.error(`[RunWield] ${error instanceof Error ? error.message : String(error)}`);
