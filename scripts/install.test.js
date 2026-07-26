@@ -21,6 +21,7 @@ const RELEASE_BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "snip"];
 
 /** @type {Array<Exclude<ReleaseBinaryName, "wld">>} */
 const HELPER_NAMES = ["mnemosyne", "cymbal", "snip"];
+const REPO_ROOT = new URL("..", import.meta.url).pathname;
 
 /**
  * @param {string} path
@@ -218,6 +219,7 @@ async function runInstaller(fixture, options = {}) {
     const scriptPath = new URL("../install.sh", import.meta.url).pathname;
     const command = new Deno.Command("/bin/bash", {
         args: [scriptPath, options.requestedVersion ?? VERSIONS.runwield],
+        cwd: REPO_ROOT,
         env,
         stdout: "piped",
         stderr: "piped",
@@ -249,6 +251,7 @@ async function runInstallerInPseudoTty(fixture, input, options = {}) {
         : ["-q", "-c", `/bin/bash -lc ${quoteShell(command)}`, "/dev/null"];
     const proc = new Deno.Command("script", {
         args: scriptArgs,
+        cwd: REPO_ROOT,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",
