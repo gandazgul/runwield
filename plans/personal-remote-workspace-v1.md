@@ -23,9 +23,12 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T22:32:43-04:00"
-updatedAt: "2026-07-26T12:12:59-04:00"
+updatedAt: "2026-07-26T20:48:25.394Z"
 status: "ready_for_work"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+worktreeStatus: "abandoned"
 ---
 
 # Personal Remote Workspace v1
@@ -541,6 +544,9 @@ Existing functions, modules, or patterns to reuse:
 
 - **Lease fencing versus side effects:** SQLite fencing protects coordination writes but cannot undo a command already
   issued. Activation takeover is never automatic during a live operation, and uncertain Plan effects route to recovery.
+  For QUICK_FIX, non-Git in-place work, or another operation with no Plan Workflow Lease/worktree proof, uncertain
+  filesystem effects leave the Session activation blocked and visible across TUI, Workspace, and ACP until explicit
+  Session recovery; absence of a Plan is never treated as proof that retry is safe.
 - **Transcript ahead of database:** a current JSONL may contain a committed entry, or a new segment may exist with valid
   lineage, whose generation/manifest publication was lost. Reconciliation uses segment lineage and stable entry
   evidence; it never duplicates the entry, guesses that the segment is current, or catalogs the orphan as another
