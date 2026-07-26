@@ -500,7 +500,11 @@ export function summarizeProjectedEntries(entries) {
         if (value.type === "custom" && value.customType === "runwield.attention") {
             const reason = typeof value.data?.reason === "string" ? value.data.reason : "agentStopped";
             const agentName = typeof value.data?.agentName === "string" ? value.data.agentName : activeAgent;
-            attention = { reason, agentName };
+            attention = {
+                eventId: makeEventId(value, RuntimeEventTypes.ATTENTION_REQUESTED, 0),
+                reason,
+                agentName,
+            };
         }
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
