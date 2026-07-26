@@ -505,6 +505,10 @@ The first version succeeds when:
 - Making a raw WebTUI the primary Session experience.
 - Blind workflow replay after a crash.
 - Transparent automatic Plan Workflow Lease takeover.
+- Per-Project isolated OS worker processes or containers; v1 keeps the Project Runtime boundary compatible with later
+  isolation but does not require a separate worker per Project.
+- Token-level cross-process mirroring of live model streams, tool output, or terminal bytes; v1 synchronizes settled
+  committed generations, checkpoints, attention state, and recoverable workflow facts instead.
 - Hosted SaaS execution, billing, organization policy, or multi-tenant infrastructure.
 - Replacing Shared Plan capability links with Workspace device identity.
 

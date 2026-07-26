@@ -194,14 +194,16 @@ Stage 1 is complete only when the operator can:
 
 ### 6.3 ACP compatibility requirements
 
-Stage 1 fixes the ACP gaps that affect the reference journey:
+Stage 1 applies the Personal Remote Workspace coordination model to ACP and fixes only the ACP-specific protocol gaps
+that affect the reference journey. It does not establish stable identity, activation enforcement, or checkpoint storage
+from scratch; those invariants are prerequisites delivered by Personal Remote Workspace.
 
-- The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits and maps to a
-  stable RunWield Session ID. In-process Runtime IDs may remain separate internally.
+- The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits and maps to the
+  already-established stable RunWield Session ID. In-process Runtime IDs may remain separate internally.
 - `initialize` negotiates the supported protocol version instead of echoing unsupported versions.
 - `usage_update.cost` uses the ACP cost object shape, and context capacity is not knowingly misreported.
-- ACP `session/load`, `session/prompt`, `session/cancel`, compaction, and continuation paths acquire or validate a
-  Session Activation Lease before opening or mutating a writable Pi `SessionManager` for an existing Session.
+- ACP `session/load`, `session/prompt`, `session/cancel`, compaction, and continuation paths use the existing Session
+  Activation Lease enforcement before opening or mutating a writable Pi `SessionManager` for an existing Session.
 - If another TUI, Workspace, or ACP process owns activation, ACP fails mutation visibly and safely or remains a
   synchronized reader where the protocol operation supports read-only behavior.
 - Cancellation waits for Runtime settlement and final mapped updates before `session/prompt` returns `cancelled`.
@@ -218,9 +220,10 @@ requirement.
 Reloading a Session is not sufficient when a process failed during execution or while awaiting a human decision.
 `activeExecutionWorkflow` is live Hosted Session state, while committed Session generation, checkpoint state, Plan
 status/revision, Plan Workflow Lease generation, execution baseline, and worktree identity provide the durable recovery
-evidence. Stage 1 must bridge that gap through **Durable Workflow Checkpoints** and **Plan Recovery**.
+evidence. Personal Remote Workspace provides **Durable Workflow Checkpoints** and **Plan Recovery** as shared workflow
+coordination primitives; Stage 1 proves that ACP participates in them correctly for the OpenAB/Telegram journey.
 
-After reloading a session associated with an In-Progress Plan, RunWield must:
+After ACP reloads a session associated with an In-Progress Plan, RunWield must:
 
 - detect the interrupted Plan, relevant checkpoint state, expected generations, and any recorded worktree state;
 - reconstruct enough durable context to inspect the current state safely;

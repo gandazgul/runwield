@@ -484,6 +484,10 @@ Future/open:
 
 - Personal Remote Workspace owner coordination: stable Session catalog, activation leases, committed generations,
   Durable Workflow Checkpoints, Plan Workflow Leases, and automatic synchronization.
+- Per-Project isolated OS worker processes or containers after the Personal Workspace Project Runtime boundary is
+  proven.
+- Token-level cross-process mirroring of live model streams, tool output, or terminal bytes; current coordination should
+  rely on settled committed generations, checkpoints, attention state, and recoverable workflow facts.
 - Hosted RunWield Workspace / Cloudflare D1 deployment for Shared Spaces and later SaaS composition.
 - Any RunWield-owned semantic index if Cymbal is not sufficient.
 
