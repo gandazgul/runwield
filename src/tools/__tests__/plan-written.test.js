@@ -1,17 +1,21 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import { createPlanWrittenTool } from "../plan-written.js";
 
 /**
  * @param {Object} options
  * @param {"FEATURE" | "PROJECT"} [options.classification]
  * @param {any} [options.reviewResponse]
+ * @param {any[]} [options.reviewResponses]
+ * @param {any} [options.retryResponse]
  * @param {"run" | "decompose" | "later"} [options.approvalAction]
  * @param {boolean} [options.exists]
  */
 function makeHarness(options = {}) {
     const events = /** @type {any[]} */ ([]);
+    const reviewResponses = [...(options.reviewResponses || [])];
     const lifecycle = /** @type {any[]} */ ([]);
     const metrics = /** @type {any[]} */ ([]);
     const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: Deno.cwd() });
@@ -32,10 +36,13 @@ function makeHarness(options = {}) {
                     ? Promise.reject(new Deno.errors.NotFound())
                     : Promise.resolve({ isFile: true }),
             requestPlanReview: (_hostedSession, request) => {
+                if (request.type === "approval") {
+                    return Promise.resolve(options.retryResponse || { outcome: "canceled", value: false });
+                }
                 const onSurfaceReady = /** @type {any} */ (request._meta)?.onSurfaceReady;
                 onSurfaceReady?.({ url: "http://127.0.0.1:4567/review/plan?token=test" });
                 return Promise.resolve(
-                    options.reviewResponse || {
+                    reviewResponses.shift() || options.reviewResponse || {
                         outcome: "accepted",
                         _meta: {
                             approved: true,
@@ -171,15 +178,30 @@ Deno.test("plan_written returns review feedback and images to the planning agent
     assertEquals(lifecycle, []);
 });
 
-Deno.test("plan_written cancellation is terminal and event-driven", async () => {
+Deno.test("plan_written cancellation asks whether to reopen review before completing", async () => {
     const { tool, events } = makeHarness({
         reviewResponse: { outcome: "canceled" },
+        retryResponse: { outcome: "canceled", value: false },
     });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "canceled");
     assertEquals(result.terminate, true);
-    assertEquals(events.some((event) => event.type === RuntimeEventTypes.SYSTEM_STATUS), true);
+    assertEquals(events.some((event) => String(event.message || "").includes("This session is complete")), true);
+});
+
+Deno.test("plan_written reopens review when recovery confirmation is accepted", async () => {
+    const { tool } = makeHarness({
+        reviewResponses: [
+            { outcome: "canceled" },
+            { outcome: "accepted", _meta: { approved: true, approvalAction: "run" } },
+        ],
+        retryResponse: { outcome: "accepted", value: true },
+    });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(result.terminate, true);
 });
 
 Deno.test("plan_written feature approval returns execution outcome", async () => {
@@ -254,7 +276,20 @@ Deno.test("plan_written feature approval can save without execution", async () =
 
     assertEquals(result.details.outcome, "saved");
     assertEquals(result.terminate, true);
+    assertStringIncludes(result.content[0].text, SESSION_COMPLETE_GUIDANCE);
     assertEquals(events.some((event) => String(event.message || "").includes("Plan saved")), true);
+    assertEquals(events.some((event) => String(event.message || "").includes(SESSION_COMPLETE_GUIDANCE)), true);
+});
+
+Deno.test("plan_written project approval can save for later with session-complete guidance", async () => {
+    const { tool, events } = makeHarness({ classification: "PROJECT", approvalAction: "later" });
+    const result = await execute(tool, "runtime-epic");
+
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.terminate, true);
+    assertStringIncludes(result.content[0].text, SESSION_COMPLETE_GUIDANCE);
+    assertEquals(events.some((event) => String(event.message || "").includes("Plan saved")), true);
+    assertEquals(events.some((event) => String(event.message || "").includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
 
 Deno.test("plan_written project approval returns decomposition outcome", async () => {

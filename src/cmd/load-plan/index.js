@@ -29,6 +29,11 @@ import {
 } from "../../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
+    appendSessionCompleteGuidance,
+    requestRecoverablePlanReview,
+    SESSION_COMPLETE_GUIDANCE,
+} from "../../shared/workflow/plan-review-recovery.js";
+import {
     getWorkflowDiff as getWorkflowDiffFn,
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
@@ -130,9 +135,10 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} runPlanningAgent
  * @property {(options: Record<string, any>) => Promise<any>} runValidation
  * @property {(options: Record<string, any>) => Promise<any>} runSlicerAgent
+ * @property {() => Record<string, any> | null} getActiveExecutionWorkflow
  * @property {(workflow: Record<string, any>) => void} setActiveExecutionWorkflow
  * @property {() => void} clearActiveExecutionWorkflow
- * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, approvalAction?: import('../../shared/workflow/plan-approval.js').PlanApprovalAction, planAttrs?: import('../../plan-store.js').PlanFrontMatter, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
+ * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, approvalAction?: import('../../shared/workflow/plan-approval.js').PlanApprovalAction, planAttrs?: import('../../plan-store.js').PlanFrontMatter, images?: Array<{base64: string, mimeType: string}>, remoteReview?: boolean, reviewerUrl?: string, spaceId?: string, serverUrl?: string, revision?: string, reused?: boolean, message?: string }>} reviewPlan
  * @property {(name: string) => void} rename
  */
 
@@ -167,6 +173,7 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
             deps.runSlicerAgent
                 ? /** @type {any} */ (deps.runSlicerAgent)(options)
                 : runtime.runSlicerAgent(sessionId, options),
+        getActiveExecutionWorkflow: () => runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow || null,
         setActiveExecutionWorkflow: (workflow) => {
             runtime.setActiveExecutionWorkflow(sessionId, workflow);
         },
@@ -189,6 +196,13 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
                     ? /** @type {import('../../plan-store.js').PlanFrontMatter} */ (review.planAttrs)
                     : undefined,
                 images: Array.isArray(review.images) ? review.images : undefined,
+                remoteReview: review.remoteReview === true,
+                reviewerUrl: typeof review.reviewerUrl === "string" ? review.reviewerUrl : undefined,
+                spaceId: typeof review.spaceId === "string" ? review.spaceId : undefined,
+                serverUrl: typeof review.serverUrl === "string" ? review.serverUrl : undefined,
+                revision: typeof review.revision === "string" ? review.revision : undefined,
+                reused: typeof review.reused === "boolean" ? review.reused : undefined,
+                message: typeof response.message === "string" ? response.message : undefined,
             };
         },
         rename: (name) => {
@@ -980,6 +994,10 @@ async function executePostPlanningDecision({
             triageMeta: /** @type {import('../../plan-store.js').PlanFrontMatter} */ (
                 decision.payload.triageMeta
             ),
+            reviewFeedback: /** @type {string | undefined} */ (decision.payload.reviewFeedback),
+            reviewImages: /** @type {Array<{base64: string, mimeType: string}> | undefined} */ (
+                decision.payload.reviewImages
+            ),
         });
         return true;
     }
@@ -999,6 +1017,10 @@ async function executePostPlanningDecision({
     const execRes = await executePlan({
         planName,
         triageMeta,
+        reviewFeedback: /** @type {string | undefined} */ (decision.payload.reviewFeedback),
+        reviewImages: /** @type {Array<{base64: string, mimeType: string}> | undefined} */ (
+            decision.payload.reviewImages
+        ),
     });
     const policy = resolvePlanExecutionPolicy(triageMeta);
     const executionDecision = decidePostExecution(execRes, {
@@ -3267,29 +3289,89 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
+                    const preReviewAttrs = { ...plan.attrs };
+                    const preReviewWorkflow = session.getActiveExecutionWorkflow();
+                    /** @type {RecoveryWorktreeContext | null} */
+                    let priorWorktree = null;
+                    let reopenedForReview = false;
                     if (isExecutablePlanStatus(plan.attrs.status)) {
-                        await reopenPlanForReview({
-                            projectRoot,
-                            plan,
-                            currentStatus: plan.attrs.status,
+                        priorWorktree = await resolveRecoveryWorktree(projectRoot, plan, {
                             findWorktreeById,
                             findWorktreeByPlanName,
-                            updateWorktreeRegistryEntry,
-                            recordPlanEvent,
-                            session,
                         });
+                        if (priorWorktree?.id) {
+                            await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status: "abandoned" });
+                        }
+                        session.clearActiveExecutionWorkflow();
+                        plan.attrs = {
+                            ...plan.attrs,
+                            status: "feedback",
+                            worktreeId: /** @type {any} */ (null),
+                            worktreePath: /** @type {any} */ (null),
+                            worktreeBranch: /** @type {any} */ (null),
+                            worktreeBaseBranch: /** @type {any} */ (null),
+                            worktreeStatus: "abandoned",
+                        };
+                        reopenedForReview = true;
                     }
 
                     await switchPlanAgent(agentName);
 
-                    const reviewResult = await session.reviewPlan({
-                        planName: plan.planName,
-                        planPath: plan.path,
-                        triageMeta: plan.attrs,
+                    const recoverableReview = await requestRecoverablePlanReview({
+                        requestReview: () =>
+                            session.reviewPlan({
+                                planName: plan.planName,
+                                planPath: plan.path,
+                                triageMeta: plan.attrs,
+                            }),
+                        requestRetry: async () => {
+                            const value = await uiAPI.promptSelect("Review the Plan again?", [
+                                { value: "yes", label: "Yes" },
+                                { value: "no", label: "No" },
+                            ]);
+                            return value === "yes"
+                                ? { outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true }
+                                : { outcome: RuntimeInteractionOutcomes.CANCELED, value: false };
+                        },
+                        onUnanswered: ({ reason }) => {
+                            uiAPI.appendSystemMessage(
+                                `Plan review ended without an answer (${reason}).`,
+                                false,
+                                "RunWield",
+                            );
+                        },
                     });
 
-                    if (reviewResult.canceled) {
-                        uiAPI.appendSystemMessage("Plan review canceled.", false, "RunWield");
+                    if (recoverableReview.kind === "complete") {
+                        if (reopenedForReview) {
+                            plan.attrs = preReviewAttrs;
+                            if (
+                                priorWorktree?.id && typeof priorWorktree.status === "string" &&
+                                priorWorktree.status !== "none"
+                            ) {
+                                const status =
+                                    /** @type {import('../../shared/worktree-registry.js').WorktreeRegistryEntry['status']} */ (
+                                        priorWorktree.status
+                                    );
+                                await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status });
+                            }
+                            if (preReviewWorkflow) {
+                                session.setActiveExecutionWorkflow(preReviewWorkflow);
+                            }
+                        }
+                        uiAPI.appendSystemMessage(SESSION_COMPLETE_GUIDANCE, false, "RunWield");
+                        skipRouterRestore = true;
+                        return;
+                    }
+
+                    const reviewResult = recoverableReview.response;
+
+                    if (reviewResult.remoteReview) {
+                        uiAPI.appendSystemMessage(
+                            reviewResult.message || `Plan saved for remote review: ${plan.planName}`,
+                            false,
+                            "RunWield",
+                        );
                         skipRouterRestore = true;
                         return;
                     }
@@ -3338,10 +3420,14 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 await runSlicerAgent({
                                     planName: plan.planName,
                                     triageMeta: plan.attrs,
+                                    reviewFeedback: reviewResult.feedback,
+                                    reviewImages: reviewResult.images,
                                 });
                             } else {
                                 uiAPI.appendSystemMessage(
-                                    `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                    appendSessionCompleteGuidance(
+                                        `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                    ),
                                     false,
                                     "RunWield",
                                 );
@@ -3373,6 +3459,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             const execRes = await executePlan({
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
+                                reviewFeedback: reviewResult.feedback,
+                                reviewImages: reviewResult.images,
                             });
                             const policy = resolvePlanExecutionPolicy(plan.attrs);
                             const executionDecision = decidePostExecution(execRes, {
@@ -3390,7 +3478,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             });
                         } else {
                             uiAPI.appendSystemMessage(
-                                `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                appendSessionCompleteGuidance(
+                                    `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                ),
                                 false,
                                 "RunWield",
                             );
@@ -3404,6 +3494,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         agentName,
                         initialRequest: buildReReviewRevisionRequest(plan.planName, reviewResult.feedback),
                         triageMeta: plan.attrs,
+                        images: reviewResult.images,
                     });
 
                     const planningDecision = decidePostPlanning(outcome, {
