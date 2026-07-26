@@ -445,6 +445,7 @@ Deno.test("targeted Work Record auto-generation resolves child FEATURE to termin
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd,
             planName: "epic/01-child",
+            __deps: { shouldAutoGenerate: () => true },
             generationOptions: {
                 idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
                 now: () => new Date("2026-07-16T00:00:00.000Z"),

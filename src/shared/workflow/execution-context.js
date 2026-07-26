@@ -232,8 +232,7 @@ export async function resolveValidationExecutionContext({
     }
     const executionMode = normalizedCandidateMode || durableMode;
     if (!executionMode) {
-        const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch &&
-            attrs.executionBaselineTree;
+        const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;
         if (!hasCompleteLegacyWorktree) {
             await recordResolutionMetric({ cwd: projectRoot, planName, reason: "unknown_execution_mode" });
             return blocked(
@@ -277,8 +276,8 @@ export async function resolveValidationExecutionContext({
     const worktreePath = candidateWorktreePath || recordedWorktreePath;
     const worktreeBranch = asString(candidate.worktreeBranch) || asString(attrs.worktreeBranch);
     const worktreeBaseBranch = asString(candidate.worktreeBaseBranch) || asString(attrs.worktreeBaseBranch);
-    const baselineTree = asString(candidate.baselineTree) || asString(attrs.executionBaselineTree);
-    if (!worktreeId || !worktreePath || !worktreeBranch || !worktreeBaseBranch || !baselineTree) {
+    let baselineTree = asString(candidate.baselineTree) || asString(attrs.executionBaselineTree);
+    if (!worktreeId || !worktreePath || !worktreeBranch || !worktreeBaseBranch) {
         await recordResolutionMetric({ cwd: projectRoot, planName, reason: "incomplete_worktree_identity" });
         return blocked(
             "incomplete_worktree_identity",
@@ -340,7 +339,8 @@ export async function resolveValidationExecutionContext({
             `Worktree registry identity for ${worktreeId} does not match Plan metadata.`,
         );
     }
-    if (registryEntry.executionBaselineTree && registryEntry.executionBaselineTree !== baselineTree) {
+    if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
+    if (registryEntry.executionBaselineTree && baselineTree && registryEntry.executionBaselineTree !== baselineTree) {
         return blocked(
             "registry_base_tree_mismatch",
             `Worktree registry execution baseline for ${worktreeId} does not match Plan metadata.`,
@@ -360,6 +360,20 @@ export async function resolveValidationExecutionContext({
             `Worktree registry base ref for ${worktreeId} does not match execution context.`,
         );
     }
+    if (!baselineTree) {
+        const baselineRef = candidateBaseCommit || asString(registryEntry.baseCommit) || candidateBaseRef ||
+            asString(registryEntry.baseRef);
+        if (baselineRef) {
+            baselineTree = await runGitFn(projectRoot, ["rev-parse", `${baselineRef}^{tree}`]);
+        }
+    }
+    if (!baselineTree) {
+        await recordResolutionMetric({ cwd: projectRoot, planName, reason: "incomplete_worktree_identity" });
+        return blocked(
+            "incomplete_worktree_identity",
+            `Plan ${planName} is missing worktree delivery identity; run Plan Recovery.`,
+        );
+    }
     const canonicalRegistryPath = await realPathFn(registryEntry.path);
     const canonicalWorktreePath = await realPathFn(worktreePath);
     if (!canonicalRegistryPath || !canonicalWorktreePath || canonicalRegistryPath !== canonicalWorktreePath) {
@@ -369,13 +383,7 @@ export async function resolveValidationExecutionContext({
         );
     }
     const executionPlan = await loadPlanFn(canonicalWorktreePath, planName);
-    if (!executionPlan) {
-        return blocked(
-            "execution_plan_missing",
-            `Execution worktree ${worktreeId} does not contain Plan ${planName}.`,
-        );
-    }
-    if (attrs.planId && executionPlan.attrs.planId && attrs.planId !== executionPlan.attrs.planId) {
+    if (executionPlan && attrs.planId && executionPlan.attrs.planId && attrs.planId !== executionPlan.attrs.planId) {
         return blocked(
             "execution_plan_id_mismatch",
             `Execution worktree Plan ID does not match canonical Plan ${planName}.`,
@@ -404,22 +412,26 @@ export async function resolveValidationExecutionContext({
     }
     await runGitFn(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`]);
     const actualBaselineTree = await runGitFn(canonicalWorktreePath, ["rev-parse", `${baselineTree}^{tree}`]);
-    if (actualBaselineTree !== baselineTree) {
+    if (!actualBaselineTree) {
         return blocked(
             "baseline_tree_mismatch",
             `Execution baseline tree for ${planName} is not valid in this repository.`,
         );
     }
+    baselineTree = actualBaselineTree;
 
     let persistedLegacyExecutionMode = false;
-    if (plan && attrs.executionMode !== "worktree") {
+    if (plan && (attrs.executionMode !== "worktree" || !attrs.executionBaselineTree)) {
         await updatePlanFrontMatterFn(
             projectRoot,
             planName,
-            { executionMode: "worktree", deliveryEvidence: null },
+            {
+                ...(attrs.executionMode !== "worktree" ? { executionMode: "worktree", deliveryEvidence: null } : {}),
+                ...(!attrs.executionBaselineTree ? { executionBaselineTree: baselineTree } : {}),
+            },
             attrs,
         );
-        persistedLegacyExecutionMode = true;
+        persistedLegacyExecutionMode = attrs.executionMode !== "worktree";
     }
     await recordResolutionMetric({
         cwd: projectRoot,

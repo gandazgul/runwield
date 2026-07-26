@@ -531,7 +531,8 @@ async function runResumeCheck({
                     projectRoot: projectRoot,
                     path: worktreeContext.path,
                     branch: worktreeContext.branch,
-                    baseTree: plan.attrs.executionBaselineTree || worktreeContext.baseTree,
+                    baseTree: plan.attrs.executionBaselineTree || worktreeContext.executionBaselineTree ||
+                        worktreeContext.baseTree || worktreeContext.baseCommit,
                 });
                 if (!status.exists) failures.push(`Recorded worktree is missing: ${worktreeContext.path}`);
                 if (
@@ -840,7 +841,8 @@ async function validateCompletedExecution(
         planName,
         triageMeta: effectiveMeta,
         executionMode: effectiveMeta.executionMode,
-        baselineTree: effectiveMeta.executionBaselineTree,
+        baselineTree: effectiveMeta.executionBaselineTree || worktreeContext?.executionBaselineTree ||
+            worktreeContext?.baseTree || worktreeContext?.baseCommit,
         worktreeId: worktreeContext?.id || effectiveMeta.worktreeId,
         worktreeBranch: worktreeContext?.branch || effectiveMeta.worktreeBranch,
         worktreeBaseBranch: worktreeContext?.baseBranch || effectiveMeta.worktreeBaseBranch,
@@ -1147,6 +1149,7 @@ async function executeReadyPlanWithRepair({
  * @property {string} [baseRef]
  * @property {string} [baseCommit]
  * @property {string} [baseTree]
+ * @property {string} [executionBaselineTree]
  */
 
 /**
@@ -1181,6 +1184,7 @@ async function resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, fi
         baseRef: entry?.baseRef,
         baseCommit: entry?.baseCommit,
         baseTree: entry?.baseTree,
+        executionBaselineTree: entry?.executionBaselineTree,
     };
 }
 
@@ -1407,7 +1411,8 @@ async function appendRecoveryReport(projectRoot, plan, uiAPI, getWorkflowDiff, w
                     projectRoot: projectRoot,
                     path: worktreeContext.path,
                     branch: worktreeContext.branch,
-                    baseTree: plan.attrs.executionBaselineTree || undefined,
+                    baseTree: plan.attrs.executionBaselineTree || worktreeContext.executionBaselineTree ||
+                        worktreeContext.baseTree || worktreeContext.baseCommit || undefined,
                 });
                 lines.push(
                     status.exists
@@ -1562,7 +1567,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
             projectRoot: projectRoot,
             path: worktreeContext.path,
             branch: worktreeContext.branch,
-            baseTree: worktreeContext.baseTree,
+            baseTree: worktreeContext.executionBaselineTree || worktreeContext.baseTree || worktreeContext.baseCommit,
         });
         if (!status.exists) {
             uiAPI.appendSystemMessage(
