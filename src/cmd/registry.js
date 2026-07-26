@@ -333,7 +333,7 @@ export const commandRegistry = {
         name: COMMAND_NAMES.SHARE,
         displayName: "Share",
         description: "Share current session as a secret GitHub Gist",
-        summary: "Export the current session to HTML and upload it as a secret GitHub Gist.",
+        summary: "Export the current session JSONL snapshot and upload it as a secret GitHub Gist.",
         usage: [
             "/share",
         ],
@@ -482,7 +482,7 @@ export const commandRegistry = {
         ],
         notes: [],
         execute: runHelpCommand,
-        surfaces: ["cli"],
+        surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.VERSION]: {
         name: COMMAND_NAMES.VERSION,
@@ -496,7 +496,7 @@ export const commandRegistry = {
         ],
         notes: [],
         execute: runVersionCommand,
-        surfaces: ["cli"],
+        surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.QUIT]: {
         name: COMMAND_NAMES.QUIT,
