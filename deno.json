@@ -134,7 +134,8 @@
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
         "workspace:check": "deno run -A npm:astro check --root src/ui/workspace --tsconfig tsconfig.json",
         "compile": "deno run -A ./scripts/compile.js",
-        "ux:new-user": "podman build --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
+        "ux:new-user": "podman build --target wld-ux-latest --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
+        "ux:new-user:current": "sh -c 'case $(uname -m) in arm64|aarch64) target=aarch64-unknown-linux-gnu ;; x86_64|amd64) target=x86_64-unknown-linux-gnu ;; *) echo unsupported container compile architecture: $(uname -m) >&2; exit 1 ;; esac; deno task compile --target \"$target\" && podman build --target wld-ux-current --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux-current:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux-current:local'",
         "release:check": "deno run -A scripts/release-check.js",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js"

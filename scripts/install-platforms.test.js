@@ -70,3 +70,30 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
         await Deno.remove(fixture.root, { recursive: true });
     }
 });
+
+Deno.test("ux:new-user image provisions npm for required agent-browser helper", async () => {
+    const containerfile = await Deno.readTextFile("Containerfile.wld-ux");
+    assertStringIncludes(containerfile, "\n        npm \\");
+    assertStringIncludes(containerfile, "command -v wld mnemosyne cymbal agent-browser snip");
+});
+
+Deno.test("ux:new-user tasks build latest and current targets from one containerfile", async () => {
+    const denoJson = JSON.parse(await Deno.readTextFile("deno.json"));
+    assertStringIncludes(denoJson.tasks["ux:new-user"], "--target wld-ux-latest");
+    assertStringIncludes(denoJson.tasks["ux:new-user"], "-f Containerfile.wld-ux");
+
+    const currentTask = denoJson.tasks["ux:new-user:current"];
+    assertStringIncludes(currentTask, "deno task compile --target");
+    assertStringIncludes(currentTask, "--target wld-ux-current");
+    assertStringIncludes(currentTask, "-f Containerfile.wld-ux");
+    assertStringIncludes(currentTask, "runwield-wld-ux-current:local");
+
+    const containerfile = await Deno.readTextFile("Containerfile.wld-ux");
+    assertStringIncludes(containerfile, "FROM wld-ux-base AS wld-ux-latest");
+    assertStringIncludes(containerfile, "FROM wld-ux-base AS wld-ux-current");
+    assertStringIncludes(containerfile, "COPY --chown=deno:deno bin/wld /tmp/wld-current");
+    assertStringIncludes(containerfile, 'install -m 755 /tmp/wld-current "$WLD_INSTALL_DIR/wld"');
+
+    const containerignore = await Deno.readTextFile(".containerignore");
+    assertStringIncludes(containerignore, "!bin/wld");
+});

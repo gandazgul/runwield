@@ -17,6 +17,8 @@ src/ui/workspace/.astro
 .astro
 dist
 bin
+!bin/
+!bin/wld
 coverage
 .DS_Store
 .env
