@@ -2,7 +2,7 @@
 planId: "f9544cf4-7c0c-4564-8e1c-52ee10369263"
 classification: "FEATURE"
 complexity: "HIGH"
-summary: "Make Plan Lifecycle and worktree state transitions transactional, fail-closed, and automatically recoverable across Plan front matter, the worktree registry, and Git publication state."
+summary: "Refactor the Plan Lifecycle machine so every lifecycle/worktree transition is one transactional operation across Plan front matter, the worktree registry, Git branches/worktrees, and recovery evidence."
 affectedPaths:
     - "src/plan-store.js"
     - "src/plan-store.test.js"
@@ -17,6 +17,7 @@ affectedPaths:
     - "src/shared/workflow/validation.js"
     - "src/shared/workflow/validation-loop-delivery.test.js"
     - "src/shared/workflow/validation-loop-recovery.test.js"
+    - "src/shared/workflow/architecture-boundary.test.js"
     - "src/shared/worktree.js"
     - "src/shared/worktree-registry.js"
     - "src/shared/worktree-registry.test.js"
@@ -41,34 +42,54 @@ status: "draft"
 origin: "internal"
 ---
 
-# Transactional Plan Lifecycle and Worktree Recovery
+# Transactional Plan Lifecycle State Machine Refactor
 
 ## Context
 
-The Plan Lifecycle state machine is the critical Core authority for RunWield delivery truth. It decides whether work is
-drafted, approved, executing, implemented, verified, closed, held, recoverable, or safe to continue. Worktree execution
-adds two more durable truth sources: `.wld/worktrees.json` and Git's actual worktree/branch state. Today the happy path
-is strong, especially staged `validation_passed` metadata landing through the merge commit, but the system has no single
-transaction boundary across Plan Front Matter, registry entries, and Git postconditions.
+The Plan Lifecycle state machine is RunWield Core's delivery authority. It decides whether work is draft, ready,
+executing, implemented, validation-failed, verified, closed, held, recoverable, or safe to continue. Worktree-backed
+execution also involves `.wld/worktrees.json`, Git worktrees, Git branches, merge proof, Plan front matter, and cleanup.
 
-The result is observable drift: verified FEATURE Plans can lack required evidence, registry entries can outlive archived
-Plans, registry and Plan worktree statuses can disagree, stale live worktrees can remain attached forever, and malformed
-Plan Front Matter can be treated like a missing Plan. These failures are especially dangerous because lifecycle writes
-are durable user-facing state. A transition that partially succeeds must not leave the user stranded in a state RunWield
-cannot explain or recover.
+Today too many lifecycle flows rely on the caller remembering to call several modules in the correct order: update the
+Plan, update the registry, inspect or mutate Git, maybe merge, maybe clean up, maybe record evidence, maybe tell the
+user how to recover. That is the bug. Callers should not encode lifecycle choreography. One lifecycle transition should
+own the complete operation and either commit all intended durable effects, roll them back, or leave a concrete recovery
+record.
 
-This feature makes every consequential lifecycle action behave as one recoverable transaction: either all intended state
-changes commit and verify together, or RunWield automatically rolls them back or records a precise resumable recovery
-marker with helpful next steps.
+The current behavior creates user-visible traps: Plans can point at stale or incomplete worktree metadata, registry
+entries can drift from Plans, live worktrees can remain dirty or attached without an obvious next action, validation can
+block with internal jargon, and recovery sometimes asks users to understand implementation details. These failures are
+especially dangerous because lifecycle state is user-facing truth. If RunWield caused the inconsistent state, RunWield
+must repair it automatically where safe and otherwise present a concrete next step such as "retry validation from this
+worktree", "delete/recreate this worktree and start over", or "re-open the Plan for review".
 
 ## Objective
 
-Introduce a transactional state-transition layer for Plan Lifecycle and worktree operations so one Plan Event produces
-one coherent durable outcome across Plan Front Matter, `.wld/worktrees.json`, and Git publication checks. Every failure
-path must preserve enough evidence to recover automatically when safe, or guide the user to a bounded repair flow when
-automatic repair would risk data loss.
+Refactor the Plan Lifecycle machine so each lifecycle/worktree transition is invoked through one transaction boundary.
+That boundary must cover every durable side effect required for the transition: Plan front matter/status/evidence,
+`.wld/worktrees.json`, Git worktree/branch operations, merge publication proof, cleanup bookkeeping, metrics, and
+plain-English recovery instructions.
+
+The outcome is not a helper library that callers may optionally compose. The outcome is a state machine API where the
+caller asks for one transition and the transition performs all required steps or none. If all-or-none is impossible
+because Git already performed an irreversible side effect, the transaction must settle into a durable recovery state
+with enough evidence to continue safely.
 
 ## Approach
+
+Audit every Plan Lifecycle transition one by one, then route each through a Core transaction runner. The audit should
+produce an explicit transition matrix before broad rewrites begin. For each transition, document:
+
+- the external request that triggers it;
+- the current source modules/callers involved;
+- the intended before-state and after-state;
+- the Plan fields it may read/write;
+- the registry fields it may read/write;
+- the Git worktree/branch operations it may perform;
+- the postconditions that prove success;
+- what can be automatically rolled back;
+- what cannot be rolled back and therefore needs a recovery record;
+- the exact user-facing recovery actions.
 
 Add a Core `state-transition` module that becomes the only write path for lifecycle-changing operations. A transition
 has four phases:
@@ -82,19 +103,28 @@ has four phases:
 4. `settle`: mark the journal entry committed. If apply or verify fails, automatically rollback file/registry state from
    snapshots when safe; otherwise mark the entry `needs_recovery` with a typed recovery recipe.
 
-Use atomic Plan writes everywhere Plan Front Matter changes. Malformed YAML is not a recoverable "missing Plan" case:
+Use atomic Plan writes everywhere Plan front matter changes. Malformed YAML is not a recoverable "missing Plan" case:
 loading should distinguish NotFound from parse failure, block the transition, preserve bytes, and offer an explicit
 repair path. Registry writes already use tmp-and-rename; keep that behavior but make missing-id updates and duplicate
 active entries fail loudly.
 
-Do not try to make Git itself transactional. Instead, treat Git operations as prepare/apply/postcondition work with
-durable evidence. If Git publication succeeds but cleanup fails, the verified Plan remains verified and cleanup becomes
-recoverable bookkeeping. If Git publication or proof is inconclusive, the canonical Plan remains implemented with
-recoverable worktree metadata, and the journal records how to retry or continue.
+Do not try to pretend Git itself is transactional. Instead, make Git operations explicit transaction phases with durable
+preconditions and postconditions. If Git publication succeeds but cleanup fails, the verified Plan remains verified and
+cleanup becomes recoverable bookkeeping. If Git publication or proof is inconclusive, the canonical Plan remains
+implemented with a recovery record that points to the exact worktree/branch/evidence needed to retry.
+
+Adopt one-pointer policy wherever possible: the Plan may point to a `worktreeId`; the registry owns worktree path,
+branch, base, baseline, status, and lifecycle bookkeeping; Git owns physical existence and attachment. Duplicated Plan
+fields may exist for legacy compatibility or UI display, but transaction logic must not treat copied Plan fields as
+independent truth when a registry entry and Git facts are available.
 
 Finally, add a `wld worktrees doctor` or equivalent `wld plans doctor --worktrees` command that reconciles current drift
 from Plan files, the registry, and `git worktree list --porcelain`. It should report exact drift classes, safely repair
 mechanical metadata disagreements, and avoid deleting branches or directories without explicit user confirmation.
+
+All user-facing blocked/recovery messages must be written for someone who does not know RunWield internals. Avoid bare
+terms like "execution mode", "Plan Recovery", "registry identity", or "delivery evidence" unless paired with an
+immediate plain-English explanation and a concrete action.
 
 ## Files to Modify
 
@@ -110,6 +140,8 @@ mechanical metadata disagreements, and avoid deleting branches or directories wi
   hold/reset/reopen events, parent Epic advancement, and validation rollback through transactional updates.
 - `src/shared/workflow/plan-lifecycle.test.js` - verify every Plan Event either commits all metadata or leaves canonical
   state unchanged/recoverable, including partial `triageMeta` and FEATURE Delivery Evidence guard cases.
+- `src/shared/workflow/architecture-boundary.test.js` - add boundary checks that lifecycle/worktree callers cannot
+  directly compose Plan writes, registry writes, and Git mutations outside the transaction API.
 - `src/shared/workflow/execution-context.js` - return typed transaction prerequisites and recovery recipes when Plan,
   registry, and Git evidence disagree.
 - `src/shared/workflow/workflow.js` - make worktree creation plus registry insertion plus `execution_started` one
@@ -149,6 +181,16 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
+- [ ] Build the transition inventory first. Search all callers of `recordPlanEvent`, `updatePlanFrontMatter`,
+      `updatePlanStatus`, worktree registry mutation helpers, `createExecutionWorktree`, `mergeExecutionWorktree`,
+      `removeExecutionWorktree`, validation merge helpers, Workspace lifecycle APIs, and `/load-plan` recovery actions.
+      Produce a checked-in transition matrix in code comments, docs, or tests that names every lifecycle transition and
+      its Plan/registry/Git side effects. Do not start broad rewrites until this inventory exists.
+- [ ] Define transition ownership and forbid caller choreography. Decide the public transition API names for execution
+      start, implementation checkpoint, validation failure, validation retry, verified merge publication, merge-conflict
+      recovery, abandon/recreate, hold, review reopen, user verification, close, and Workspace lifecycle movement. Add
+      boundary tests that fail if high-level callers directly sequence raw Plan writes plus registry/Git operations
+      instead of invoking the transaction API.
 - [ ] Add atomic Plan-file persistence. Introduce a shared write helper that writes to a temp file in the target
       directory, flushes, renames, and cleans up temp files on failure. Replace direct lifecycle-related
       `Deno.writeTextFile` calls in `savePlan`, `updatePlanStatus`, `updatePlanFrontMatter`, collaboration metadata
@@ -158,15 +200,18 @@ Existing functions, modules, or patterns to reuse:
       recovery metadata. Add user-facing messages that name the exact Plan path and parse problem.
 - [ ] Implement `state-transition.js`. Define transition ids, lifecycle lock path, journal location, before/after
       snapshots, intended Plan/registry/Git postconditions, rollback strategy, and `needs_recovery` recipes. Keep the
-      public API small: `runPlanStateTransition(opts)` plus typed helpers for common Plan/worktree transitions.
-- [ ] Route `recordPlanEvent` through the transaction layer. Re-read canonical Plan state inside the lock, reject stale
-      `currentStatus`, derive classification from canonical attrs for FEATURE evidence guards, and verify the final Plan
-      attrs after writing. Parent Epic advancement must be a separate nested-safe transaction that only runs after the
-      child transaction settles.
-- [ ] Make execution start atomic. Create the worktree, add the registry entry, materialize required Plan metadata, and
-      record `execution_started` as one transition. If registry or Plan metadata writing fails after `git worktree add`,
-      automatically remove the new worktree and branch when clean; otherwise journal a recoverable orphan with exact
-      cleanup steps.
+      public API small: callers request a named lifecycle transition with inputs; the transaction owns all sub-steps. It
+      is acceptable to expose typed helpers for common transitions, but those helpers must still call the same
+      transaction runner.
+- [ ] Route simple Plan-only events through the transaction layer first. Re-read canonical Plan state inside the lock,
+      reject stale `currentStatus`, derive classification from canonical attrs for FEATURE evidence guards, and verify
+      the final Plan attrs after writing. Parent Epic advancement must be a separate nested-safe transaction that only
+      runs after the child transaction settles.
+- [ ] Make execution start atomic. Create the worktree, add the registry entry, record the Plan pointer/status, and
+      record `execution_started` as one transition. The Plan should store the durable `worktreeId` pointer; registry and
+      Git inspection should supply path/branch/base/baseline truth. If registry or Plan writing fails after
+      `git worktree add`, automatically remove the new worktree and branch when clean; otherwise journal a recoverable
+      orphan with exact cleanup steps.
 - [ ] Make implementation completion atomic. Checkpoint the execution worktree, update registry status, and record
       `implementation_finished` together. A failed checkpoint leaves the Plan `in_progress`; a failed metadata update
       rolls back registry status or records a recovery marker that points to the checkpoint commit.
@@ -183,6 +228,10 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Bring Workspace lifecycle actions under the same transaction rules. Manual movement away from execution states
       must either preserve recoverable metadata, explicitly abandon it through a transaction, or block with a clear
       recovery action. Workspace should not call raw lifecycle writes that ignore registry state.
+- [ ] Bring `/load-plan` recovery under the same transaction rules. Retry validation, continue execution, manual merge,
+      reset/recreate, abandon, hold, user verification, and re-open review must request named transitions and display
+      the transition's recovery recipe. The command must not synthesize partial recovery by manually updating front
+      matter, registry entries, and git state in different branches.
 - [ ] Add worktree doctor/reconcile. Inspect active and archived Plans, `.wld/worktrees.json`,
       `git worktree list
       --porcelain`, matching `runwield/worktree/*` branches, and Delivery Evidence. Report
@@ -195,6 +244,9 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Update docs and operator guidance. Document that Plan Lifecycle state is transactional, how recovery recipes are
       generated, which failures are automatically fixed, when user confirmation is required, and how to run doctor
       before/after upgrading existing projects.
+- [ ] Remove or quarantine old bypasses. After migration, audit the transition inventory again and either delete old
+      helper entry points or make them private/test-only. Add regression coverage so new lifecycle callers cannot
+      accidentally reintroduce multi-module caller choreography.
 
 ## Verification Plan
 

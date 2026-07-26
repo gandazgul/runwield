@@ -52,6 +52,19 @@
   - Keep Guided Review v1 independent from Work Records.
   - Later: share review-analysis machinery with Recorder.
 
+- [ ] Build Plan Finalizer for FEATURE Plans:
+      [docs/prd/feature-plan-finalization-prd.md](docs/prd/feature-plan-finalization-prd.md).
+  - Run a clean-context Finalizer after Planner and before the one user-facing Plan review.
+  - Preserve Planner-owned design decisions, derive executable steps/verification, and return insufficiency to Planner
+    instead of inventing missing decisions.
+  - Update Slicer child-draft behavior so Planner, not Slicer, owns final executable FEATURE detail.
+
+- [ ] Implement Semantic Code Review convergence:
+      [docs/prd/semantic-code-review-convergence-prd.md](docs/prd/semantic-code-review-convergence-prd.md).
+  - Add structured Reviewer results, a validation-owned Review Issue Ledger, stable issue identities, Engineer repair
+    claims, and a two-cycle automatic semantic review limit.
+  - Persist only final advisories into a managed Verified Plan appendix after successful validation/merge-back.
+
 ### P2 - Frontend Execution UX
 
 - [ ] Build Frontend Engineer + Pair Execution:
@@ -71,6 +84,12 @@
       [docs/prd/runwield-acp-session-host-PRD.md](docs/prd/runwield-acp-session-host-PRD.md).
   - Current memory says SessionRuntime/ACP event contract is largely consumer-ready; backlog should now focus on
     remaining external UX/integration gaps, not redoing completed runtime boundaries.
+
+- [ ] Build FEATURE Plan Finalizer recovery hooks for long Planner sessions:
+      [docs/prd/feature-plan-finalization-prd.md](docs/prd/feature-plan-finalization-prd.md),
+      [docs/prd/session-context-resilience-prd.md](docs/prd/session-context-resilience-prd.md).
+  - Ensure Planner rereads current drafts after compaction/continuation and Finalizer handoffs do not depend on raw
+    planning transcripts.
 
 ### P4 - Evaluation, Metrics, and Model Capability
 
@@ -99,6 +118,27 @@
   - Current Core already has share/pull/push/unshare direction; next grooming should identify remaining Phase 2 gaps:
     docs, hardening, retention, closed-plan UX, diff viewer, notifications, hosted follow-up.
 
+- [ ] Build Personal Remote Workspace v1: [docs/prd/runwield-workspace-PRD.md](docs/prd/runwield-workspace-PRD.md).
+  - Include registered Projects, private-network device pairing/revocation, the Attention Dashboard, persistent
+    Sessions, Session Activation Leases, Durable Workflow Checkpoints, Plan Workflow Leases, notifications, artifact
+    intelligence, cross-Project human Cymbal search, and the code-server Code Surface.
+  - Preserve repository artifacts as canonical and keep TUI/ACP/Workspace sibling surfaces from creating competing
+    Session or Plan workflow writers.
+
+- [ ] Build Attached Mode starting with the Claude Code FEATURE Preview:
+      [docs/prd/attached-mode-prd.md](docs/prd/attached-mode-prd.md).
+  - Keep all model calls host-owned while RunWield owns Plan Lifecycle, review, worktrees, validation, recovery, Work
+    Records, and memory truth.
+  - Prove the full `/runwield` FEATURE journey in an uninitialized trusted repo before expanding to stable Claude,
+    Codex, OpenCode, and Pi adapters.
+
+- [ ] Build Forge Change Request Delivery:
+      [docs/prd/forge-change-request-delivery-prd.md](docs/prd/forge-change-request-delivery-prd.md).
+  - Preserve Direct Delivery as the unchanged default while adding a nonterminal In Review / finalization-pending path
+    for GitHub and GitLab shared-repo and fork publication.
+  - Prove merged delivery before marking FEATURE work Verified, bind validation evidence to the published revision, and
+    keep QUICK_FIX support explicit.
+
 - [ ] Build runwield.dev landing/docs site. Inspiration: https://itayinbarr.github.io/little-coder/
 
 ### P6 - Search, Memory, and Source Intelligence
@@ -113,6 +153,15 @@
 
 - [ ] Add refresh path for core project memories beyond `/sleep`, while keeping Mnemosyne core memories as source of the
       compressed project brief.
+
+- [ ] Build Team Memory sharing: [docs/prd/team-memory-sharing-prd.md](docs/prd/team-memory-sharing-prd.md).
+  - Classify memory audience independently from Core importance, materialize reviewable repository text at safe
+    checkpoints, and reconcile accepted Trusted Branch Team Memories back into local Mnemosyne state.
+  - Never commit database/index state or activate Team Memories from untrusted branches.
+
+- [ ] Groom remaining Work Records v1 resume points: [docs/prd/work-records-prd.md](docs/prd/work-records-prd.md).
+  - Decide headless/backfill flags, edit governance, Workspace integration, external Plan import behavior, richer
+    authorship/audit direction, and any deferred `wld wr` subcommands.
 
 ### P7 - Architecture / Codebase Shape
 

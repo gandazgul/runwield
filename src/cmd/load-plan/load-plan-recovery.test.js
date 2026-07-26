@@ -566,8 +566,8 @@ Deno.test("runLoadPlanCommand implemented plan blocks validation without executi
     assertEquals(
         messages.some((message) =>
             message.includes("Validation blocked:") &&
-            (message.includes("RunWield will not infer in-place execution from missing worktree state") ||
-                message.includes("missing worktree delivery identity"))
+            message.includes("cannot tell where") &&
+            message.includes("will not validate the current checkout automatically")
         ),
         true,
     );
@@ -1039,7 +1039,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
             }),
         });
 
-        assertEquals(persistedUpdates.worktreeBaseBranch, "feature-base");
+        assertEquals(Object.hasOwn(persistedUpdates, "worktreeBaseBranch"), false);
         assertEquals(stagedExecutionCwd, worktreePath);
         assertEquals(mergedBranch, "runwield/worktree/plan-merge-conflict");
         assertEquals(mergedTargetBranch, "feature-base");
