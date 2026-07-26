@@ -20,7 +20,7 @@ Deno.test("install.sh recognizes newly installed Snip for filter setup before sh
     const fixture = await createFixture();
     const filterLog = join(fixture.root, "filter.log");
     try {
-        const result = await runInstallerInPseudoTty(fixture, "n\n\n", { extraEnv: { WLD_FILTER_LOG: filterLog } });
+        const result = await runInstallerInPseudoTty(fixture, "\nn\n", { extraEnv: { WLD_FILTER_LOG: filterLog } });
         assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
         assertStringIncludes(result.stdout, "RunWield Deno Snip filters installed");
         const log = await Deno.readTextFile(filterLog);
