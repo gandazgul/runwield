@@ -347,8 +347,9 @@ export class SessionRuntime {
                 }
                 : null,
             activeAgent: pendingAgentName || session.getRootAgentName() || managed?.activeAgent || null,
-            activeAgentInfo: pendingAgentName ? { displayName: pendingAgentName, agentName: pendingAgentName } : session
-                .getActiveAgentInfo(),
+            activeAgentInfo: pendingAgentName
+                ? { displayName: pendingAgentName, model: "", provider: "", agentName: pendingAgentName }
+                : session.getActiveAgentInfo(),
             activeModel: session.getActiveModelState(),
             thinkingLevel: session.getThinkingLevel(),
             busy: session.isTurnActive() || (this.#busyOperationDepths.get(session.id) || 0) > 0,
