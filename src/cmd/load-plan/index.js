@@ -439,7 +439,24 @@ async function confirmAffectedPathChangesBeforeExecution({
  * @returns {boolean}
  */
 function isHoldableStatus(status) {
-    return Boolean(status) && status !== "verified" && status !== "closed_without_verification" && status !== "on_hold";
+    return Boolean(status) && status !== "verified" && status !== "user_verified" &&
+        status !== "closed_without_verification" && status !== "on_hold";
+}
+
+/**
+ * @param {string | undefined} status
+ * @returns {boolean}
+ */
+function isUserVerifiableStatus(status) {
+    return Boolean(status) && [
+        "draft",
+        "feedback",
+        "approved",
+        "ready_for_decomposition",
+        "ready_for_work",
+        "in_progress",
+        "implemented",
+    ].includes(String(status));
 }
 
 /**
@@ -522,6 +539,79 @@ async function putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPl
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
     uiAPI.appendSystemMessage(
         `Plan put on hold. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+        false,
+        "RunWield",
+    );
+    return true;
+}
+
+/**
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} opts.autoGenerateWorkRecordForCompletedPlan
+ * @returns {Promise<boolean>}
+ */
+async function markPlanUserVerified(
+    { projectRoot, plan, uiAPI, recordPlanEvent, autoGenerateWorkRecordForCompletedPlan },
+) {
+    if (!isUserVerifiableStatus(plan.attrs.status)) {
+        uiAPI.appendSystemMessage(
+            `Plans with status ${plan.attrs.status} must be re-opened before User Verification.`,
+            true,
+            "RunWield",
+        );
+        return false;
+    }
+    uiAPI.appendSystemMessage(
+        "User Verification records your attestation. RunWield Workflow Validation, verifiedAt, and Delivery Evidence will not be claimed.",
+        false,
+        "RunWield",
+    );
+    let note = "";
+    while (!note) {
+        if (typeof uiAPI.promptText !== "function") {
+            uiAPI.appendSystemMessage(
+                "Cannot mark User Verified: this UI cannot collect the required verification note.",
+                true,
+                "RunWield",
+            );
+            return false;
+        }
+        const entered = await uiAPI.promptText("Required user verification note (blank cancels):");
+        if (entered === null || entered === undefined) return false;
+        note = String(entered).trim();
+        if (!note) {
+            uiAPI.appendSystemMessage("A User Verification note is required.", true, "RunWield");
+        }
+    }
+    const updatedAttrs = await recordPlanEvent({
+        cwd: projectRoot,
+        planName: plan.planName,
+        event: "manual_user_verified",
+        currentStatus: plan.attrs.status,
+        details: { triageMeta: plan.attrs, userVerificationNote: note },
+    });
+    plan.attrs = { ...plan.attrs, ...updatedAttrs };
+    let workRecordMessage = "";
+    try {
+        const result = await autoGenerateWorkRecordForCompletedPlan({ cwd: projectRoot, planName: plan.planName });
+        workRecordMessage = ` ${result.message}`;
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        workRecordMessage = ` ${
+            formatWorkRecordAutoGenerationResult({
+                status: "failed",
+                planName: plan.planName,
+                error: reason,
+                message: "",
+            })
+        }`;
+    }
+    uiAPI.appendSystemMessage(
+        `Plan marked User Verified. RunWield Workflow Validation was not claimed.${workRecordMessage}`,
         false,
         "RunWield",
     );
@@ -1704,6 +1794,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {PlanSessionSurface} opts.session
  * @param {typeof probeGitRepositoryFn} [opts.probeGitRepository]
  * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
+ * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} [opts.autoGenerateWorkRecordForCompletedPlan]
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
@@ -1742,6 +1833,7 @@ async function handlePlanRecovery({
     session,
     probeGitRepository = probeGitRepositoryFn,
     resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
+    autoGenerateWorkRecordForCompletedPlan = autoGenerateWorkRecordForCompletedPlanFn,
 }) {
     const initialPolicy = resolvePlanExecutionPolicy(plan.attrs);
     const loadedWorktreeId = plan.attrs.worktreeId;
@@ -1793,6 +1885,10 @@ async function handlePlanRecovery({
                 { value: "reset", label: resetLabel },
                 ...(hasWorktree ? [{ value: "abandon", label: "Delete/abandon worktree" }] : []),
                 { value: "review", label: "Re-open for review" },
+                {
+                    value: "user_verify",
+                    label: "Mark as User Verified (user attestation; no Workflow Validation claim)",
+                },
                 { value: "hold", label: "Put on hold" },
                 { value: "cancel", label: "Cancel" },
             ]
@@ -1804,6 +1900,10 @@ async function handlePlanRecovery({
                 { value: "reset", label: resetLabel },
                 ...(hasWorktree ? [{ value: "abandon", label: "Delete/abandon worktree" }] : []),
                 { value: "review", label: "Re-open for review" },
+                {
+                    value: "user_verify",
+                    label: "Mark as User Verified (user attestation; no Workflow Validation claim)",
+                },
                 { value: "hold", label: "Put on hold" },
                 { value: "cancel", label: "Cancel" },
             ];
@@ -1828,6 +1928,18 @@ async function handlePlanRecovery({
         if (answer === "hold") {
             await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
             await recordRecoveryResult("hold", "handled");
+            return "handled";
+        }
+
+        if (answer === "user_verify") {
+            await markPlanUserVerified({
+                projectRoot,
+                plan,
+                uiAPI,
+                recordPlanEvent,
+                autoGenerateWorkRecordForCompletedPlan,
+            });
+            await recordRecoveryResult("user_verify", "handled");
             return "handled";
         }
 
@@ -2527,7 +2639,7 @@ function formatChildPlanDescription(child) {
 function formatNextChildLabel(child) {
     const order = child.attrs.order !== undefined ? `${String(child.attrs.order).padStart(2, "0")}. ` : "";
     const summary = child.attrs.summary || child.name;
-    return `Execute next non-verified child FEATURE: ${order}${summary} [${child.attrs.status}]`;
+    return `Execute next incomplete child FEATURE: ${order}${summary} [${child.attrs.status}]`;
 }
 
 /**
@@ -2535,7 +2647,8 @@ function formatNextChildLabel(child) {
  * @returns {boolean}
  */
 function isActionableNextChild(child) {
-    return child.attrs.status !== "verified" && child.attrs.status !== "closed_without_verification";
+    return child.attrs.status !== "verified" && child.attrs.status !== "user_verified" &&
+        child.attrs.status !== "closed_without_verification";
 }
 
 /**
@@ -2554,14 +2667,24 @@ function formatTopLevelPlanOption(plan) {
 
 /**
  * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
- * @returns {{ total: number, verified: number, active: number, remaining: number, failed: number, onHold: number }}
+ * @returns {{ total: number, verified: number, userVerified: number, completed: number, active: number, remaining: number, failed: number, onHold: number }}
  */
 function countEpicChildStatuses(children) {
-    /** @type {{ total: number, verified: number, active: number, remaining: number, failed: number, onHold: number }} */
-    const counts = { total: children.length, verified: 0, active: 0, remaining: 0, failed: 0, onHold: 0 };
+    /** @type {{ total: number, verified: number, userVerified: number, completed: number, active: number, remaining: number, failed: number, onHold: number }} */
+    const counts = {
+        total: children.length,
+        verified: 0,
+        userVerified: 0,
+        completed: 0,
+        active: 0,
+        remaining: 0,
+        failed: 0,
+        onHold: 0,
+    };
     for (const child of children) {
         const status = child.attrs.status;
         if (status === "verified") counts.verified += 1;
+        else if (status === "user_verified") counts.userVerified += 1;
         else if (status === "in_progress" || status === "implemented") counts.active += 1;
         else if (status === "failed") counts.failed += 1;
         else if (status === "on_hold") counts.onHold += 1;
@@ -2569,6 +2692,7 @@ function countEpicChildStatuses(children) {
             counts.remaining += 1;
         }
     }
+    counts.completed = counts.verified + counts.userVerified;
     return counts;
 }
 
@@ -2580,7 +2704,7 @@ function formatEpicProgressSummary(children) {
     const counts = countEpicChildStatuses(children);
     const label = counts.total === 1 ? "child FEATURE" : "child FEATUREs";
     const parts = [
-        `Progress: ${counts.verified}/${counts.total} ${label} verified`,
+        `Progress: ${counts.verified} RunWield verified / ${counts.userVerified} User Verified / ${counts.total} ${label}`,
         `${counts.active} active/implemented`,
         `${counts.remaining} remaining`,
     ];
@@ -2620,9 +2744,9 @@ function buildEpicPlanSummary(plan, children) {
 function buildEpicDoneEnoughSummary(children) {
     const counts = countEpicChildStatuses(children);
     const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
-    return `Done enough for now: ${counts.verified}/${counts.total} child FEATURE${
+    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child FEATURE${
         counts.total === 1 ? "" : "s"
-    } verified, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
+    }, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
 }
 
 /**
@@ -2634,7 +2758,7 @@ function isDoneEnoughEpic(plan) {
 }
 
 /**
- * @param {Array<{ dependency: string, planName?: string, status?: string, state: "verified" | "unverified" | "missing" }>} unmetDependencies
+ * @param {Array<{ dependency: string, planName?: string, status?: string, state: "verified" | "user_verified" | "unverified" | "missing" }>} unmetDependencies
  * @returns {string}
  */
 function formatDependencyWarning(unmetDependencies) {
@@ -2665,7 +2789,9 @@ async function confirmChildFeatureDependencies(projectRoot, plan, uiAPI, resolve
         plan.attrs.parentPlan,
         dependencies,
     );
-    const unmetDependencies = dependencyStates.filter((dependency) => dependency.state !== "verified");
+    const unmetDependencies = dependencyStates.filter((dependency) =>
+        dependency.state !== "verified" && dependency.state !== "user_verified"
+    );
     if (unmetDependencies.length === 0) return true;
 
     uiAPI.appendSystemMessage(formatDependencyWarning(unmetDependencies), true, "RunWield");
@@ -2773,6 +2899,12 @@ async function handleEpicPlan({
             ...(hasChildren && plan.attrs.status === "ready_for_work"
                 ? [{ value: "done_enough", label: "Mark Epic done enough for now" }]
                 : []),
+            ...(isUserVerifiableStatus(plan.attrs.status)
+                ? [{
+                    value: "user_verify",
+                    label: "Mark Epic as User Verified (user attestation; no Workflow Validation claim)",
+                }]
+                : []),
             ...(isHoldableStatus(plan.attrs.status) ? [{ value: "hold", label: "Put Epic on hold" }] : []),
             { value: "view", label: "View Epic details" },
             { value: "cancel", label: "Cancel" },
@@ -2788,6 +2920,17 @@ async function handleEpicPlan({
 
         if (answer === "hold") {
             await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+            return "handled";
+        }
+
+        if (answer === "user_verify") {
+            await markPlanUserVerified({
+                projectRoot,
+                plan,
+                uiAPI,
+                recordPlanEvent,
+                autoGenerateWorkRecordForCompletedPlan,
+            });
             return "handled";
         }
 
@@ -3243,6 +3386,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 session,
                 probeGitRepository,
                 resolveValidationExecutionContextForRecovery: deps.resolveValidationExecutionContext,
+                autoGenerateWorkRecordForCompletedPlan,
             });
             if (result === "handled") return;
         }
@@ -3255,8 +3399,14 @@ export async function runLoadPlanCommand(argv, options = {}) {
         );
         if (!dependenciesConfirmed) return;
 
-        if (plan.attrs.status === "verified") {
-            uiAPI.appendSystemMessage("This plan is already verified.", false, "RunWield");
+        if (plan.attrs.status === "verified" || plan.attrs.status === "user_verified") {
+            uiAPI.appendSystemMessage(
+                plan.attrs.status === "verified"
+                    ? "This plan is already verified."
+                    : "This plan is User Verified by user attestation.",
+                false,
+                "RunWield",
+            );
             while (true) {
                 const answer = await uiAPI.promptSelect("What would you like to do?", [
                     { value: "review", label: "Re-open for review (planner/architect)" },
@@ -3283,7 +3433,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 await reopenPlanForReview({
                     projectRoot,
                     plan,
-                    currentStatus: "verified",
+                    currentStatus: plan.attrs.status,
                     findWorktreeById,
                     findWorktreeByPlanName,
                     updateWorktreeRegistryEntry,
@@ -3300,6 +3450,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 const answer = reviewForced ? "review" : await uiAPI.promptSelect("What would you like to do?", [
                     { value: "proceed", label: "Proceed with execution" },
                     { value: "review", label: "Re-open for review (edit/annotate)" },
+                    {
+                        value: "user_verify",
+                        label: "Mark as User Verified (user attestation; no Workflow Validation claim)",
+                    },
                     { value: "hold", label: "Put on hold" },
                     { value: "view", label: "View plan details" },
                     { value: "cancel", label: "Cancel" },
@@ -3310,6 +3464,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                 if (answer === "hold") {
                     await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+                    return;
+                }
+
+                if (answer === "user_verify") {
+                    await markPlanUserVerified({
+                        projectRoot,
+                        plan,
+                        uiAPI,
+                        recordPlanEvent,
+                        autoGenerateWorkRecordForCompletedPlan,
+                    });
                     return;
                 }
 
@@ -3588,6 +3753,12 @@ export async function runLoadPlanCommand(argv, options = {}) {
             while (true) {
                 const answer = await uiAPI.promptSelect("What would you like to do?", [
                     { value: "resume", label: "Resume planning" },
+                    ...(isUserVerifiableStatus(plan.attrs.status)
+                        ? [{
+                            value: "user_verify",
+                            label: "Mark as User Verified (user attestation; no Workflow Validation claim)",
+                        }]
+                        : []),
                     ...(isHoldableStatus(plan.attrs.status) ? [{ value: "hold", label: "Put on hold" }] : []),
                     { value: "view", label: "View plan details" },
                     { value: "cancel", label: "Cancel" },
@@ -3599,6 +3770,16 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 }
                 if (answer === "hold") {
                     await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+                    return;
+                }
+                if (answer === "user_verify") {
+                    await markPlanUserVerified({
+                        projectRoot,
+                        plan,
+                        uiAPI,
+                        recordPlanEvent,
+                        autoGenerateWorkRecordForCompletedPlan,
+                    });
                     return;
                 }
                 if (answer === "resume") break;

@@ -33,7 +33,13 @@ Deno.test("runLoadPlanCommand draft Epic offers Architect review without Slicer 
     });
 
     const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
-    assertEquals(epicPrompt?.options.map((option) => option.value), ["review", "hold", "view", "cancel"]);
+    assertEquals(epicPrompt?.options.map((option) => option.value), [
+        "review",
+        "user_verify",
+        "hold",
+        "view",
+        "cancel",
+    ]);
     assertEquals(epicPrompt?.options[0].label, "Review with Architect");
 });
 
@@ -77,7 +83,13 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
     });
 
     const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
-    assertEquals(epicPrompt?.options.map((option) => option.value), ["slicer", "hold", "view", "cancel"]);
+    assertEquals(epicPrompt?.options.map((option) => option.value), [
+        "slicer",
+        "user_verify",
+        "hold",
+        "view",
+        "cancel",
+    ]);
     assertEquals(messages.some((m) => m.includes("no child FEATURE plans")), true);
     assertEquals(slicerPlanName, "epic-a");
     assertEquals(executed, false);
@@ -143,12 +155,13 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
         "pick_child",
         "slicer",
         "done_enough",
+        "user_verify",
         "hold",
         "view",
         "cancel",
     ]);
     assertEquals(prompts[1].options[0].value, "__next_child__");
-    assertEquals(prompts[1].options[0].label, "Execute next non-verified child FEATURE: 02. Second child [draft]");
+    assertEquals(prompts[1].options[0].label, "Execute next incomplete child FEATURE: 02. Second child [draft]");
     assertEquals(prompts[1].options[1].label, "01. epic-b/01-first [verified] — First child");
     assertEquals(prompts[1].options[2].label, "02. epic-b/02-second [draft] — Second child — deps: 01-first");
     assertEquals(prompts[1].options[2].description?.includes("Dependencies: 01-first"), true);
@@ -208,7 +221,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
     });
 
     const detailMessage = messages.find((message) => message.includes("Child FEATURE plans:")) || "";
-    assertEquals(detailMessage.includes("Progress: 1/2 child FEATUREs verified"), true);
+    assertEquals(detailMessage.includes("Progress: 1 RunWield verified / 0 User Verified / 2 child FEATUREs"), true);
     assertEquals(detailMessage.includes("epic-view/01-first [verified] — First child"), true);
     assertEquals(detailMessage.includes("epic-view/02-second [ready_for_work] — Second child"), true);
 });

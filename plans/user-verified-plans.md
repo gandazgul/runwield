@@ -35,20 +35,21 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T10:40:37-04:00"
-updatedAt: "2026-07-26T15:50:50.951Z"
-status: "implemented"
+updatedAt: "2026-07-26T16:35:31.944Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-26T15:50:50.951Z"
+verifiedAt: "2026-07-26T16:35:31.944Z"
 executionReport: "- Implemented `user_verified` Plan status and `manual_user_verified` lifecycle event with required user note, `userVerifiedAt`, reopen cleanup, dependency satisfaction, Epic split progress/completion, and archive eligibility.\n- Added `wld load-plan` and Workspace User Verified actions with required-note validation, distinct labels/messages, no `verifiedAt`/Delivery Evidence fabrication, and best-effort Work Record generation.\n- Extended Work Records with `completionMode: user_verified`, Recorder/fallback attribution safeguards, list/read notices, backfill eligibility, and user note preservation.\n- Updated lifecycle/storage/CLI/Workspace/Work Record tests and documentation/PRDs/design guidance; recorded `User Verified Plan` as a separate `CONTEXT.md` follow-up without editing `CONTEXT.md` or ADRs.\n- Verification passed: `deno test -A src/plan-store.test.js src/shared/workflow/plan-lifecycle.test.js src/shared/workflow/epic-continuation.test.js`; `deno test -A src/cmd/load-plan/load-plan-recovery.test.js src/cmd/load-plan/load-plan-epic.test.js src/cmd/plans/archive.test.js`; `deno test -A src/shared/work-records/work-records.test.js src/ui/workspace/workspace-lifecycle.test.js src/ui/workspace/workspace-board.test.js`; `deno test -A src/cmd/load-plan/load-plan-review.test.js`; `deno test -A src/ui/workspace/workspace-local-server.test.js`; `deno task ci`.\n- Frontend browser check: started Workspace dev server at `http://127.0.0.1:5173/`, opened headed agent-browser session `runwield-user-verified-6dce8cd5`, verified Plan Board/detail routes loaded with lifecycle controls and no reported browser errors; did not submit the User Verified action in the live project to avoid mutating an active real Plan."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "06d074a9ef05bbb0982ff88a8438a65c7d255288"
-worktreeId: "6dce8cd5"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-user-verified-plans-6dce8cd5"
-worktreeBranch: "runwield/worktree/user-verified-plans-6dce8cd5"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "4691dd8ea9c35af11e51e2fedcd7f95b295c20b0"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "d8941368adb82800db15dbfe2773a3f4e93d8623"
 ---
 
 # User Verified Plans
