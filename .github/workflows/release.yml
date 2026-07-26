@@ -36,6 +36,13 @@ jobs:
                   EOF
                     chmod +x "$RUNNER_TEMP/runwield-ci-bin/$binary"
                   done
+                  # snip is a CLI token killer; CI uses a pass-through stub
+                  cat > "$RUNNER_TEMP/runwield-ci-bin/snip" <<'STUB'
+                  #!/usr/bin/env bash
+                  if [[ "$1" == "run" ]]; then shift; fi
+                  exec "$@"
+                  STUB
+                  chmod +x "$RUNNER_TEMP/runwield-ci-bin/snip"
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
             - name: Run source-quality gate
