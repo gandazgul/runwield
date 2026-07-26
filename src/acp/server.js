@@ -5,6 +5,7 @@
 
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
+import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
 import { SessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
@@ -22,6 +23,7 @@ const ACP_INVALID_STATE = -32002;
  * @typedef {Object} RunWieldAcpServerOptions
  * @property {(message: string) => void | Promise<void>} [diagnostic]
  * @property {SessionRuntime} [runtime]
+ * @property {import('../shared/owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
  * @property {AcpSessionMap} [sessionMap]
  */
 
@@ -238,7 +240,11 @@ async function closeAllMappedSessions(runtime, sessionMap) {
  */
 export function createRunWieldAcpServer(options = {}) {
     const app = agent({ name: "RunWield ACP MVP" });
-    const runtime = options.runtime || new SessionRuntime();
+    const ownerCoordinationStore = options.ownerCoordinationStore || openOwnerCoordinationStore();
+    const runtime = options.runtime || new SessionRuntime({
+        ownerCoordinationStore,
+        ownerProcessKind: "acp",
+    });
     const sessionMap = options.sessionMap || new AcpSessionMap();
     /** @type {unknown} */
     let clientCapabilities = null;
