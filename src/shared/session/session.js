@@ -21,6 +21,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
+import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
@@ -1644,6 +1645,11 @@ export async function buildAgentSession({
             parentTools: parentDelegableTools,
             runIsolatedAgentSession,
         }));
+    }
+
+    // Override the built-in read tool to block Git internals and unsafe binary/control-byte output.
+    if (!finalCustomTools.find((t) => t.name === "read")) {
+        finalCustomTools.push(createRunWieldReadToolDefinition(sessionCwd));
     }
 
     // Override the built-in edit tool to return file contents on failure.

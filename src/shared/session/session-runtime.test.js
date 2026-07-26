@@ -5,6 +5,9 @@ import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } fro
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { ensureRootAgentSession } from "./session.js";
 import { createSessionContextProjection } from "./session-context-report.js";
+import { getRunWieldSessionDir } from "./root-session.js";
+import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 /**
  * @param {string} id
@@ -174,6 +177,251 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
         Error,
         "requires an absolute cwd",
     );
+});
+
+Deno.test("SessionRuntime persists images for dormant managed Sessions", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-managed-image-" });
+        Deno.env.set("HOME", home);
+        const cwd = `${home}/project`;
+        await Deno.mkdir(cwd, { recursive: true });
+        await Deno.mkdir(`${home}/.wld`, { recursive: true });
+        await Deno.writeTextFile(
+            `${home}/.wld/models.json`,
+            JSON.stringify({
+                providers: {
+                    test: {
+                        baseUrl: "https://example.invalid/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                        models: [{ id: "vision-model", input: ["text", "image"] }],
+                    },
+                },
+            }),
+        );
+        const sessionHost = new SessionHost();
+        try {
+            const session = sessionHost.createSession({
+                id: "managed-image-runtime",
+                cwd,
+                sessionManager: null,
+                managed: {
+                    runwieldSessionId: "rw-managed-image",
+                    projectId: "project-managed-image",
+                    piSessionId: "pi-managed-image",
+                    transcriptPath: `${cwd}/transcript.jsonl`,
+                    generation: 1,
+                    name: "Managed image",
+                    activeAgent: "Router",
+                    model: "vision-model",
+                    provider: "test",
+                    workflowContext: null,
+                },
+            });
+            assertEquals(session.getRootSessionManager(), null);
+            const runtime = makeRuntime({ sessionHost });
+
+            const persisted = await runtime.persistSessionImage(session.id, {
+                base64: btoa("img"),
+                mimeType: "image/png",
+            });
+
+            const persistedPath = persisted.path || "";
+            assertEquals(persisted.ref?.startsWith("attachment:"), true);
+            assertEquals(persistedPath.startsWith(`${getRunWieldSessionDir(cwd)}/pi-managed-image_images/`), true);
+            assertEquals(new TextDecoder().decode(await Deno.readFile(persistedPath)), "img");
+            assertEquals(await runtime.preflightSessionImages(session.id, [persisted]), { ok: true, mode: "direct" });
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("SessionRuntime persists a newly managed Pi transcript before cataloging it", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-managed-lazy-transcript-" });
+        Deno.env.set("HOME", home);
+        const cwd = `${home}/project`;
+        await Deno.mkdir(cwd, { recursive: true });
+        const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
+        const sessionId = "managed-pi-lazy-1";
+        const transcriptPath = `${getRunWieldSessionDir(cwd)}/2026-01-01T00-00-00-000Z_${sessionId}.jsonl`;
+        try {
+            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+            store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
+            const runtime = new SessionRuntime({
+                ownerCoordinationStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-test-owner",
+                createRootSessionManager: async (_mode, managerCwd) => {
+                    await Deno.mkdir(getRunWieldSessionDir(managerCwd), { recursive: true });
+                    const branch = [{
+                        type: "session",
+                        version: 3,
+                        id: sessionId,
+                        timestamp: "2026-01-01T00:00:00.000Z",
+                        cwd: managerCwd,
+                    }];
+                    return {
+                        ...makeSessionManager(sessionId, managerCwd, branch),
+                        getSessionFile: () => transcriptPath,
+                        _rewriteFile: () => {
+                            Deno.writeTextFileSync(
+                                transcriptPath,
+                                branch.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+                            );
+                        },
+                    };
+                },
+                switchActiveAgent: (hostedSession, options) => {
+                    const manager = hostedSession.getRootSessionManager();
+                    manager?.appendCustomEntry?.("runwield.active_agent", { agentName: options.agentName });
+                    hostedSession.setRootAgentName(options.agentName);
+                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+                },
+            });
+            try {
+                const created = await runtime.createInteractiveSession({ cwd, mode: "new" });
+                assertEquals(created.sessionManagerId, sessionId);
+                assertEquals((await Deno.stat(transcriptPath)).isFile, true);
+
+                await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
+                const snapshot = runtime.getSessionSnapshot(created.sessionId);
+                assertEquals(snapshot?.managed?.generation, 0);
+            } finally {
+                runtime.closeAllSessionsWhenIdle?.();
+            }
+        } finally {
+            store.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
+
+Deno.test("SessionRuntime publishes generation zero before dehydrating newly managed Sessions", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-managed-create-" });
+        Deno.env.set("HOME", home);
+        const cwd = `${home}/project`;
+        await Deno.mkdir(cwd, { recursive: true });
+        const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
+        const sessionId = "managed-pi-1";
+        let switchCalls = 0;
+        try {
+            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+            const project = store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
+            const runtime = new SessionRuntime({
+                ownerCoordinationStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-test-owner",
+                createRootSessionManager: async (_mode, managerCwd) => {
+                    const sessionDir = getRunWieldSessionDir(managerCwd);
+                    await Deno.mkdir(sessionDir, { recursive: true });
+                    await Deno.writeTextFile(
+                        `${sessionDir}/2026-01-01T00-00-00-000Z_${sessionId}.jsonl`,
+                        JSON.stringify({
+                            type: "session",
+                            version: 3,
+                            id: sessionId,
+                            timestamp: "2026-01-01T00:00:00.000Z",
+                            cwd: managerCwd,
+                        }) + "\n",
+                    );
+                    return makeSessionManager(sessionId, managerCwd);
+                },
+                switchActiveAgent: (hostedSession, options) => {
+                    switchCalls += 1;
+                    const manager = hostedSession.getRootSessionManager();
+                    manager?.appendCustomEntry?.("runwield.active_agent", { agentName: options.agentName });
+                    hostedSession.setRootAgentName(options.agentName);
+                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+                },
+            });
+            try {
+                const created = await runtime.createInteractiveSession({ cwd, mode: "new" });
+                assertEquals(created.sessionManagerId, sessionId);
+                const active = store.inspectSessionActivation(
+                    runtime.getSessionSnapshot(created.sessionId)?.managed?.runwieldSessionId || "",
+                );
+                assertEquals(active.activation?.state, "active");
+                assertEquals(active.activation?.phase, "preparing");
+
+                await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
+                const snapshot = runtime.getSessionSnapshot(created.sessionId);
+                const managed = snapshot?.managed;
+                assertEquals(switchCalls, 1);
+                assertEquals(managed?.projectId, project.projectId);
+                assertEquals(managed?.generation, 0);
+                assertEquals(managed?.acknowledgedGeneration, 0);
+                assertEquals(managed?.syncState?.status, "current");
+                const inspected = store.inspectSessionActivation(managed?.runwieldSessionId || "");
+                assertEquals(inspected.activation?.state, "idle");
+                assertEquals(inspected.generation?.generation, 0);
+            } finally {
+                runtime.closeAllSessionsWhenIdle?.();
+            }
+        } finally {
+            store.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
+
+Deno.test("SessionRuntime can defer managed creation cataloging until Agent readiness", async () => {
+    const cwd = Deno.cwd();
+    let catalogCalls = 0;
+    let activationCalls = 0;
+    let protocolGateCalls = 0;
+    let managerCreations = 0;
+    const runtime = new SessionRuntime({
+        ownerCoordinationStore: /** @type {any} */ ({
+            listProjects: () => [{ projectId: "project-1", lifecycle: "enabled", currentRoot: Deno.realPathSync(cwd) }],
+            requireEnabledProjectRoot: () => ({
+                projectId: "project-1",
+                lifecycle: "enabled",
+                currentRoot: Deno.realPathSync(cwd),
+            }),
+            requireActivationProtocolEnabled: () => {
+                protocolGateCalls += 1;
+            },
+            ensureSessionCatalogRecord: () => {
+                catalogCalls += 1;
+                throw new Error("cataloging should wait for Agent readiness");
+            },
+            acquireSessionActivation: () => {
+                activationCalls += 1;
+                throw new Error("activation should wait for Agent readiness");
+            },
+        }),
+        createRootSessionManager: () => {
+            managerCreations += 1;
+            return Promise.resolve(makeSessionManager("manager-deferred", cwd));
+        },
+    });
+
+    const created = await runtime.createInteractiveSession({
+        cwd,
+        mode: "new",
+        deferManagedActivationUntilAgentReady: true,
+    });
+
+    assertEquals(typeof created.sessionManagerId, "string");
+    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed, null);
+    assertEquals(protocolGateCalls, 1);
+    assertEquals(managerCreations, 0);
+    assertEquals(catalogCalls, 0);
+    assertEquals(activationCalls, 0);
+    runtime.closeSession(created.sessionId);
 });
 
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
