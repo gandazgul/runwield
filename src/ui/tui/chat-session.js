@@ -57,7 +57,7 @@ import { installUiApiOverrides } from "./ui-api-overrides.js";
 import { renderBootBanner } from "./boot-banner.js";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
 import { handleBashCommand } from "./bash-interceptor.js";
-import { handleSlashCommand } from "./slash-dispatch.js";
+import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
 import { hasClipboardImage } from "./clipboard.js";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
@@ -270,6 +270,57 @@ export function renderFooterWorkflowLabelParts(parts, themeImpl = theme) {
 }
 
 /**
+ * @typedef {Object} FooterLocationSnapshot
+ * @property {string} [cwd]
+ * @property {{ executionCwd?: string, worktreeBranch?: string } | null} [activeExecutionWorkflow]
+ */
+
+/**
+ * @typedef {Object} FooterLocationOptions
+ * @property {string} [home]
+ * @property {(cwd: string) => string | undefined} [resolveBranch]
+ */
+
+/**
+ * @param {string} cwd
+ * @returns {string | undefined}
+ */
+function readGitBranchSync(cwd) {
+    try {
+        const cmd = new Deno.Command("git", { args: ["branch", "--show-current"], cwd });
+        const { success, stdout } = cmd.outputSync();
+        if (!success) return undefined;
+        return new TextDecoder().decode(stdout).trim() || undefined;
+    } catch (_e) {
+        return undefined;
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} home
+ * @returns {string}
+ */
+function formatFooterCwd(cwd, home) {
+    if (!home) return cwd;
+    if (cwd === home) return "~";
+    return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
+}
+
+/**
+ * @param {FooterLocationSnapshot} snapshot
+ * @param {FooterLocationOptions} [options]
+ * @returns {string}
+ */
+export function buildFooterLocationText(snapshot, options = {}) {
+    const home = options.home ?? Deno.env.get("HOME") ?? "";
+    const executionWorkflow = snapshot.activeExecutionWorkflow;
+    const footerCwd = executionWorkflow?.executionCwd || snapshot.cwd || Deno.cwd();
+    const branch = executionWorkflow?.worktreeBranch || options.resolveBranch?.(footerCwd) || "unknown";
+    return `${formatFooterCwd(footerCwd, home)} (${branch})`;
+}
+
+/**
  * @param {{ displayName?: string, agentName?: string } | null | undefined} agentInfo
  * @param {{ routingIntent?: string, complexity?: string, planName?: string } | null | undefined} workflowContext
  * @param {string} leftRaw
@@ -409,7 +460,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     const createdSession = await sessionRuntime.createInteractiveSession({
         cwd: Deno.cwd(),
         mode: options.sessionStartMode || "new",
-        deferManagedActivationUntilAgentReady: (options.sessionStartMode || "new") === "new",
     });
     let sessionId = createdSession.sessionId;
     function getRuntimeSnapshot() {
@@ -522,17 +572,15 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     attachRuntimeTelemetry();
 
     // Footer
-    const cwd = Deno.cwd().replace(Deno.env.get("HOME") || "", "~");
-    let branch = "main";
-    try {
-        const cmd = new Deno.Command("git", { args: ["branch", "--show-current"] });
-        const { success, stdout } = cmd.outputSync();
-        if (success) {
-            branch = new TextDecoder().decode(stdout).trim();
+    /** @type {Map<string, string>} */
+    const footerBranchCache = new Map();
+    /** @param {string} branchCwd */
+    const getCachedFooterBranch = (branchCwd) => {
+        if (!footerBranchCache.has(branchCwd)) {
+            footerBranchCache.set(branchCwd, readGitBranchSync(branchCwd) || "unknown");
         }
-    } catch (_e) {
-        branch = "unknown";
-    }
+        return footerBranchCache.get(branchCwd);
+    };
 
     const getModelAndProvider = () => {
         const snapshot = getRuntimeSnapshot();
@@ -640,7 +688,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             // right edge. The left block (cwd/branch) is truncated when it would
             // collide, so the right segment never gets pushed inward on long
             // content.
-            const line1LeftRaw = `${cwd} (${branch})`;
+            const line1LeftRaw = buildFooterLocationText(snapshot, { resolveBranch: getCachedFooterBranch });
             const { left: line1Left, rightParts: line1RightParts } = buildFooterLine1Parts(
                 activeAgentInfo,
                 snapshot.workflowContext,
@@ -1306,9 +1354,20 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         }
 
         if (isProcessingSubmission) {
-            if (userRequest === "/model" || userRequest.startsWith("/model ")) {
+            if (isImmediateBuiltinSlashCommandWhileStreaming(userRequest)) {
+                executeUserRequest(userRequest, images).catch((error) => {
+                    uiAPI.appendSystemMessage(
+                        `Error: ${error instanceof Error ? error.message : String(error)}`,
+                        true,
+                        "RunWield",
+                    );
+                });
+                return;
+            }
+
+            if (userRequest.startsWith("/")) {
                 uiAPI.appendSystemMessage(
-                    "I'm not able to change the model right now wait until idle or cancel with Esc.",
+                    "That slash command can only run after streaming has stopped.",
                     false,
                     "RunWield",
                 );

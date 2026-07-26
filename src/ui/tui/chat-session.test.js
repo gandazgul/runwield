@@ -3,6 +3,7 @@ import {
     __setSettingsManagerForPersistenceTests,
     buildFooterContextStat,
     buildFooterLine1Parts,
+    buildFooterLocationText,
     buildFooterWorkflowLabelParts,
     getActiveModel,
     getFooterWorkflowLabelText,
@@ -32,6 +33,32 @@ Deno.test("chat session layout keeps transcript, validation panel, spinner, prom
     assertEquals(indexes, [...indexes].sort((a, b) => a - b));
 });
 
+Deno.test("streaming submissions execute safe one-shot slash commands before steering", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const streamingBranchIndex = source.indexOf("if (isProcessingSubmission) {");
+    const immediateSlashIndex = source.indexOf(
+        "isImmediateBuiltinSlashCommandWhileStreaming(userRequest)",
+        streamingBranchIndex,
+    );
+    const executeSlashIndex = source.indexOf("executeUserRequest(userRequest, images)", immediateSlashIndex);
+    const blockedSlashIndex = source.indexOf('userRequest.startsWith("/")', executeSlashIndex);
+    const blockedSlashMessageIndex = source.indexOf(
+        "That slash command can only run after streaming has stopped.",
+        blockedSlashIndex,
+    );
+    const steerIndex = source.indexOf(
+        "sessionRuntime.steerSession(sessionId, userRequest, images)",
+        streamingBranchIndex,
+    );
+
+    assertEquals(streamingBranchIndex >= 0, true);
+    assertEquals(immediateSlashIndex > streamingBranchIndex, true);
+    assertEquals(executeSlashIndex > immediateSlashIndex, true);
+    assertEquals(blockedSlashIndex > executeSlashIndex, true);
+    assertEquals(blockedSlashMessageIndex > blockedSlashIndex, true);
+    assertEquals(steerIndex > blockedSlashMessageIndex, true);
+});
+
 Deno.test("managed session sync can read processing state before startup awaits", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
     const processingStateIndex = source.indexOf("let isProcessingSubmission = false;");
@@ -45,16 +72,17 @@ Deno.test("managed session sync can read processing state before startup awaits"
     assertEquals(syncControllerIndex < modelWelcomeIndex, true);
 });
 
-Deno.test("new TUI Sessions defer managed activation until after model onboarding", async () => {
+Deno.test("new TUI Sessions do not opt into managed activation implicitly", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
     const createSessionIndex = source.indexOf("const createdSession = await sessionRuntime.createInteractiveSession({");
-    const deferOptionIndex = source.indexOf("deferManagedActivationUntilAgentReady:");
+    const managedActivationOptionIndex = source.indexOf("enableManagedActivation:", createSessionIndex);
+    const deferOptionIndex = source.indexOf("deferManagedActivationUntilAgentReady:", createSessionIndex);
     const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
     const switchAgentIndex = source.indexOf("await sessionRuntime.switchAgent(sessionId, {");
 
     assertEquals(createSessionIndex >= 0, true);
-    assertEquals(deferOptionIndex > createSessionIndex, true);
-    assertEquals(deferOptionIndex < modelWelcomeIndex, true);
+    assertEquals(managedActivationOptionIndex === -1 || managedActivationOptionIndex > switchAgentIndex, true);
+    assertEquals(deferOptionIndex === -1 || deferOptionIndex > switchAgentIndex, true);
     assertEquals(modelWelcomeIndex < switchAgentIndex, true);
 });
 
@@ -179,6 +207,38 @@ Deno.test("footer label truncation preserves the left side", () => {
     );
     assertEquals(line.left, "~/project (main)");
     assertEquals(getFooterWorkflowLabelText(line.rightParts), "Planner - Medium Feature");
+});
+
+Deno.test("footer location follows active worktree execution context", () => {
+    const text = buildFooterLocationText({
+        cwd: "/repo",
+        activeExecutionWorkflow: {
+            executionCwd: "/repo-runwield-demo",
+            worktreeBranch: "runwield/worktree/demo",
+        },
+    }, {
+        home: "/repo",
+        resolveBranch: () => "main",
+    });
+
+    assertEquals(text, "/repo-runwield-demo (runwield/worktree/demo)");
+});
+
+Deno.test("footer location resolves branch from the displayed cwd when not in an execution worktree", () => {
+    const calls = /** @type {string[]} */ ([]);
+    const text = buildFooterLocationText({
+        cwd: "/home/user/repo",
+        activeExecutionWorkflow: null,
+    }, {
+        home: "/home/user",
+        resolveBranch: (cwd) => {
+            calls.push(cwd);
+            return "feature/local";
+        },
+    });
+
+    assertEquals(text, "~/repo (feature/local)");
+    assertEquals(calls, ["/home/user/repo"]);
 });
 
 Deno.test("footer workflow renderer applies provided theme tokens", () => {
