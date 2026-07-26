@@ -34,6 +34,13 @@ import { getProjectById, listProjectRootEvidence } from "./projects.js";
  * @property {string} message
  */
 
+/**
+ * @typedef {Object} ProjectRootEvidence
+ * @property {string} enteredRoot
+ * @property {string} canonicalRoot
+ * @property {string} rootState
+ */
+
 /** @param {unknown} value */
 function requireDatabase(value) {
     if (!value || typeof value !== "object" || !("handle" in value)) throw new Error("Owner database is required");
@@ -389,7 +396,7 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
     const project = getProjectById(ownerDb, projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
     const rootEvidence = listProjectRootEvidence(ownerDb, projectId);
-    /** @type {Map<string, { enteredRoot: string, canonicalRoot: string }>} */
+    /** @type {Map<string, ProjectRootEvidence>} */
     const roots = new Map();
     for (const root of rootEvidence) {
         roots.set(root.enteredRoot, root);
@@ -472,12 +479,15 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
 
 /**
  * @param {string} headerCwd
- * @param {{ enteredRoot: string, canonicalRoot: string }} evidence
+ * @param {ProjectRootEvidence} evidence
  */
 function isLocatorForRoot(headerCwd, evidence) {
+    const resolvedHeaderCwd = resolve(headerCwd);
     try {
-        return Deno.realPathSync(resolve(headerCwd)) === evidence.canonicalRoot;
+        return Deno.realPathSync(resolvedHeaderCwd) === evidence.canonicalRoot;
     } catch {
-        return false;
+        if (evidence.rootState !== "historical") return false;
+        return resolvedHeaderCwd === resolve(evidence.enteredRoot) ||
+            resolvedHeaderCwd === resolve(evidence.canonicalRoot);
     }
 }

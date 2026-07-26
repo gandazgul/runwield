@@ -540,6 +540,22 @@ export function createOrGetOperationReceipt(database, options) {
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ deviceId?: string | null, requestId: string, requestHash: string, runwieldSessionId: string }} options
+ */
+export function findOperationReceiptByRequest(database, options) {
+    const ownerDb = requireDatabase(database);
+    const existing = ownerDb.handle.prepare(
+        "SELECT * FROM owner_session_operations WHERE device_id IS ? AND runwield_session_id = ? AND request_id = ?",
+    ).get(options.deviceId ?? null, options.runwieldSessionId, options.requestId);
+    if (!existing) return null;
+    if (existing.request_hash !== options.requestHash) {
+        throw new Error("Operation request id was reused with different input");
+    }
+    return operationFromRow(existing);
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {string} operationId
  * @param {{ status: 'accepted' | 'running' | 'completed' | 'failed' | 'conflict', resultGeneration?: number | null, errorCode?: string | null, errorMessage?: string | null, now?: () => string }} updates
  */
