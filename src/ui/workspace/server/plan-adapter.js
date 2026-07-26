@@ -25,6 +25,10 @@ import {
 } from "../../../shared/workflow/plan-lifecycle.js";
 import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
+import {
+    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
+    formatWorkRecordAutoGenerationResult,
+} from "../../../shared/work-records/auto-generation.js";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
@@ -77,6 +81,11 @@ export const STATUS_META = {
         label: "Verified",
         description: "Work verified by RunWield Workflow Validation.",
     },
+    user_verified: {
+        status: "user_verified",
+        label: "User Verified",
+        description: "Work verified by the user without RunWield Workflow Validation proof.",
+    },
     closed_without_verification: {
         status: "closed_without_verification",
         label: "Closed without Verification",
@@ -94,6 +103,11 @@ export const ACTION_META = {
         action: PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS,
         label: "Move status",
         description: "Move among manual board statuses through Plan Lifecycle.",
+    },
+    [PLAN_LIFECYCLE_ACTIONS.USER_VERIFY]: {
+        action: PLAN_LIFECYCLE_ACTIONS.USER_VERIFY,
+        label: "Mark as User Verified",
+        description: "Record user attestation without setting verifiedAt or Delivery Evidence.",
     },
     [PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION]: {
         action: PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION,
@@ -229,6 +243,7 @@ function lifecycleActionsForAttrs(attrs) {
         allowedManualTargetStatuses: metadata.allowedManualTargetStatuses,
         manualTargetOptions: metadata.allowedManualTargetStatuses.map(statusOption),
         canCloseWithoutVerification: metadata.canCloseWithoutVerification,
+        canUserVerify: metadata.canUserVerify,
         canPutOnHold: metadata.canPutOnHold,
         canResumeFromHold: metadata.canResumeFromHold,
         canResetToDraft: metadata.canResetToDraft,
@@ -275,6 +290,8 @@ export function serializePlanSummary(resource) {
         worktreeBranch: attrs.worktreeBranch || "",
         humanReviewMode: attrs.humanReviewMode || "",
         closedWithoutVerificationReason: attrs.closedWithoutVerificationReason || "",
+        userVerifiedAt: attrs.userVerifiedAt || "",
+        userVerificationNote: attrs.userVerificationNote || "",
         workRecord: attrs.workRecord || null,
         heldFromStatus: attrs.heldFromStatus || "",
         heldAt: attrs.heldAt || "",
@@ -695,6 +712,11 @@ function validateLifecycleActionPayload(payload) {
         if (!reason) throw new Error("A close-without-verification reason is required.");
         body.closedWithoutVerificationReason = reason;
     }
+    if (action === PLAN_LIFECYCLE_ACTIONS.USER_VERIFY) {
+        const note = typeof body.userVerificationNote === "string" ? body.userVerificationNote.trim() : "";
+        if (!note) throw new Error("A User Verification note is required.");
+        body.userVerificationNote = note;
+    }
     return body;
 }
 
@@ -725,6 +747,11 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
         }
         details.manualTargetStatus = targetStatus;
         message = `Plan moved to ${statusOption(targetStatus).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.USER_VERIFY) {
+        if (!metadata.canUserVerify) throw new Error(metadata.blockedReasons.user_verify);
+        event = "manual_user_verified";
+        details.userVerificationNote = request.userVerificationNote;
+        message = "Plan marked User Verified. RunWield Workflow Validation was not claimed.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
         if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
         event = "manual_closed_without_verification";
@@ -773,7 +800,7 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 
 /**
  * @typedef {Object} WorkspaceLifecycleActionDeps
- * @property {(args: { cwd: string, planName: string }) => Promise<Record<string, unknown>>} [autoGenerateWorkRecordForCompletedPlan]
+ * @property {typeof autoGenerateWorkRecordForCompletedPlanFn} [autoGenerateWorkRecordForCompletedPlan]
  */
 
 /**
@@ -803,6 +830,11 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
         }
         details.manualTargetStatus = targetStatus;
         message = `Plan moved to ${statusOption(targetStatus).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.USER_VERIFY) {
+        if (!metadata.canUserVerify) throw new Error(metadata.blockedReasons.user_verify);
+        event = "manual_user_verified";
+        details.userVerificationNote = request.userVerificationNote;
+        message = "Plan marked User Verified. RunWield Workflow Validation was not claimed.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
         if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
         event = "manual_closed_without_verification";
@@ -847,10 +879,9 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
 
     const planName = resource.planName || resource.name;
     await recordPlanEvent({ cwd, planName, event, currentStatus, details });
-    if (event === "manual_closed_without_verification") {
-        const workRecordGeneration = await import("../../../shared/work-records/auto-generation.js");
+    if (event === "manual_closed_without_verification" || event === "manual_user_verified") {
         const generateWorkRecord = deps.autoGenerateWorkRecordForCompletedPlan ||
-            workRecordGeneration.autoGenerateWorkRecordForCompletedPlan;
+            autoGenerateWorkRecordForCompletedPlanFn;
         let workRecordResult;
         try {
             workRecordResult = await generateWorkRecord({ cwd, planName });
@@ -860,7 +891,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
                 status: /** @type {const} */ ("failed"),
                 planName,
                 error: reason,
-                message: workRecordGeneration.formatWorkRecordAutoGenerationResult({
+                message: formatWorkRecordAutoGenerationResult({
                     status: "failed",
                     planName,
                     error: reason,

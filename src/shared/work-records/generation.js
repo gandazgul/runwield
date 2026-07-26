@@ -24,6 +24,7 @@ import { syncWorkRecordToIndex } from "./index-adapter.js";
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
 const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
+const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Validation did not establish this result";
 
 /**
  * @typedef {Object} WorkRecordSource
@@ -36,7 +37,7 @@ const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
  * @property {string} body
  * @property {string} markdown
  * @property {"feature"|"epic"} [scope]
- * @property {"verified"|"closed_without_verification"|"done_enough"} [completionMode]
+ * @property {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} [completionMode]
  * @property {string} [closureReason]
  * @property {string} [executionReport]
  * @property {WorkRecordSource[]} [children]
@@ -151,11 +152,12 @@ export function parseRecorderSections(text) {
 
 /**
  * @param {WorkRecordSource} source
- * @returns {"verified"|"closed_without_verification"|"done_enough"|""}
+ * @returns {"verified"|"closed_without_verification"|"user_verified"|"done_enough"|""}
  */
 export function deriveWorkRecordCompletionMode(source) {
     if (isEpicPlan(source.attrs) && source.attrs.epicCompletionMode === "done_enough") return "done_enough";
     if (source.attrs.status === "closed_without_verification") return "closed_without_verification";
+    if (source.attrs.status === "user_verified") return "user_verified";
     if (source.attrs.status === "verified") return "verified";
     return "";
 }
@@ -362,6 +364,8 @@ function buildRecorderPrompt(source) {
                 scope: source.scope,
                 completionMode: source.completionMode,
                 closureReason: source.closureReason,
+                userVerificationNote: source.attrs.userVerificationNote,
+                userVerifiedAt: source.attrs.userVerifiedAt,
                 executionReport: source.executionReport,
                 attrs: source.attrs,
                 body: source.body,
@@ -402,6 +406,10 @@ export function synthesizeWorkRecordSections(source) {
         ? `This work was completed but RunWield Workflow Validation was skipped. Closure reason: ${
             source.closureReason || DEFAULT_CLOSURE_REASON
         }`
+        : source.completionMode === "user_verified"
+        ? `This work was marked User Verified by the user. RunWield Workflow Validation did not establish this result. User note: ${
+            nonEmptyString(source.attrs.userVerificationNote) || DEFAULT_CLOSURE_REASON
+        }`
         : source.completionMode === "done_enough"
         ? `${source.attrs.summary || title} The PROJECT Epic was marked done enough${
             source.attrs.epicDoneEnoughSummary ? `: ${source.attrs.epicDoneEnoughSummary}` : "."
@@ -428,6 +436,13 @@ export function synthesizeWorkRecordSections(source) {
  */
 function prepareGeneratedSections(source, sections) {
     const normalized = normalizeRecorderOutput(sections);
+    if (source.completionMode === "user_verified") {
+        const note = nonEmptyString(source.attrs.userVerificationNote) || DEFAULT_CLOSURE_REASON;
+        const summaryParts = [];
+        if (!normalized.summary.includes(USER_VERIFIED_TEXT)) summaryParts.push(`${USER_VERIFIED_TEXT}.`);
+        if (!normalized.summary.includes(note)) summaryParts.push(`User verification note: ${note}`);
+        return { ...normalized, summary: [...summaryParts, normalized.summary].join(" ").trim() };
+    }
     if (source.completionMode !== "closed_without_verification") return normalized;
     const reason = source.closureReason || DEFAULT_CLOSURE_REASON;
     const summaryParts = [];
@@ -575,7 +590,8 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
             scope: /** @type {"feature"|"epic"} */ (source.scope),
             origin: "internal",
             completionMode:
-                /** @type {"verified"|"closed_without_verification"|"done_enough"} */ (source.completionMode),
+                /** @type {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} */ (source
+                    .completionMode),
             createdAt: iso(now),
             ...(aggregateWorkRecordTickets(source) ? { tickets: aggregateWorkRecordTickets(source) } : {}),
             provenance: { sourcePlans: [source.planId] },

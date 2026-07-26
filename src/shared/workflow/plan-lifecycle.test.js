@@ -380,6 +380,37 @@ Deno.test("manual closure is terminal and does not pretend validation passed", (
     );
 });
 
+Deno.test("manual user verification records user attestation without RunWield proof", () => {
+    const updates = buildPlanEventUpdates("manual_user_verified", "implemented", {
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+        userVerificationNote: "Checked in staging with Alice.",
+        triageMeta: {
+            failureReason: "Workflow Validation failed.",
+            worktreeStatus: "validation_failed",
+            deliveryEvidence: { version: 1, mode: "non_git_in_place" },
+            verifiedAt: "2026-01-01T00:00:00.000Z",
+        },
+    });
+
+    assertEquals(updates.status, "user_verified");
+    assertEquals(updates.userVerifiedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.userVerificationNote, "Checked in staging with Alice.");
+    assertEquals(updates.verifiedAt, "2026-01-01T00:00:00.000Z");
+    assertEquals(updates.failureReason, "Workflow Validation failed.");
+    assertEquals(updates.worktreeStatus, "validation_failed");
+
+    assertThrows(
+        () => buildPlanEventUpdates("manual_user_verified", "implemented", { userVerificationNote: "  " }),
+        Error,
+        "manual_user_verified requires userVerificationNote",
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("manual_user_verified", "verified", { userVerificationNote: "done" }),
+        Error,
+        'manual_user_verified cannot apply to status "verified"',
+    );
+});
+
 Deno.test("hold events create, resume, and reset hold metadata", () => {
     const held = buildPlanEventUpdates("plan_held", "failed", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),
@@ -566,7 +597,10 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
         assertEquals(parent?.attrs.status, "verified");
         assertEquals(parent?.attrs.verifiedAt, "2026-01-02T03:04:05.000Z");
         assertEquals(parent?.attrs.epicCompletionMode, "done_enough");
-        assertEquals(parent?.attrs.epicDoneEnoughSummary, "All 2 child FEATURE plans are verified after epic/02-last.");
+        assertEquals(
+            parent?.attrs.epicDoneEnoughSummary,
+            "All 2 child FEATURE plans are completed after epic/02-last.",
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

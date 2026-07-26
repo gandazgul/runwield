@@ -394,7 +394,7 @@ export const commandRegistry = {
             "Push output never prints maintainer URLs by default; existing reviewer links remain valid across revisions.",
             "Use plans unshare to destructively delete a remote Shared Space with maintainer secrets, remove local collaboration secrets, and clear local lock metadata; --force skips the prompt but not safety checks.",
             "After unshare, old reviewer/maintainer links stop working and other checkouts need deleted-remote recovery before local edits.",
-            "Archive moves verified and closed_without_verification Plans by default; other statuses require --force and recoverable worktree states stay blocked.",
+            "Archive moves verified, user_verified, and closed_without_verification Plans by default; other statuses require --force and recoverable worktree states stay blocked.",
             "Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.",
             "The Workspace binds to 127.0.0.1 and a random available port by default.",
             "Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.",

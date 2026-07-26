@@ -25,6 +25,9 @@ export function workRecordNotices(record) {
     if (record.attrs.completionMode === "closed_without_verification") {
         notices.push("WARNING: RunWield verification was skipped.");
     }
+    if (record.attrs.completionMode === "user_verified") {
+        notices.push("NOTICE: verification was attested by the user, not RunWield Workflow Validation.");
+    }
     if (record.attrs.completionMode === "done_enough") {
         notices.push("NOTICE: PROJECT Epic was closed as done enough; deferred scope may remain.");
     }

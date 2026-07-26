@@ -235,6 +235,61 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
     }
 });
 
+Deno.test("Workspace persisted User Verification records attestation and triggers Work Record generation", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "feature", "# Feature", {
+            planId: "feature-id",
+            status: "implemented",
+            classification: "FEATURE",
+            failureReason: "Workflow Validation failed.",
+        });
+        /** @type {Array<{ cwd: string, planName: string, statusAtGeneration: string }>} */
+        const calls = [];
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            autoGenerateWorkRecordForCompletedPlan: async ({ cwd: generationCwd, planName }) => {
+                calls.push({
+                    cwd: generationCwd,
+                    planName,
+                    statusAtGeneration: String((await loadWorkspaceDetail(generationCwd, "feature-id")).status),
+                });
+                return { status: "generated", planName, message: "Work Record generated: wr.md." };
+            },
+        }).handler();
+
+        const blank = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "user_verify", userVerificationNote: "  " }),
+            }),
+        );
+        assertEquals(blank.status, 409);
+
+        const response = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "user_verify", userVerificationNote: "Checked in staging." }),
+            }),
+        );
+        assertEquals(response.status, 200);
+        const payload = await response.json();
+        assertStringIncludes(payload.message, "RunWield Workflow Validation was not claimed");
+        assertStringIncludes(payload.message, "Work Record generated");
+        assertEquals(calls, [{ cwd, planName: "feature", statusAtGeneration: "user_verified" }]);
+        const detail = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(detail.status, "user_verified");
+        assertEquals(detail.userVerificationNote, "Checked in staging.");
+        assertEquals(detail.frontMatter.verifiedAt, undefined);
+        assertEquals(detail.failureReason, "Workflow Validation failed.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("Workspace persisted close without verification triggers Work Record generation after closure", async () => {
     const cwd = await Deno.makeTempDir();
     try {

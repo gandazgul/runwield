@@ -414,3 +414,10 @@ callouts, Mermaid diagrams, optional widgets, and live diff blocks form a contin
 
 Guided Review generation controls must disclose that generation can use an additional LLM call. When auto-generation
 finishes, show a non-stealing **Guided Review ready** affordance instead of switching the reviewer away from plain Diff.
+
+### User Verified status intent
+
+Use the explicit label **User Verified** for `user_verified`. It is a closed/successful lifecycle outcome, but not
+proof-bearing RunWield Verified. Badges, buttons, and metadata should reuse existing RunWield semantic tokens for
+closed/success states and pair the label with explanatory text such as “verified by the user; Workflow Validation was
+not claimed.” Do not add a separate theme or token for this status.
