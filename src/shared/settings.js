@@ -35,9 +35,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
  */
 export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
     const homeDir = Deno.env.get("HOME") || "";
-    if (scope === "global") {
-        return join(homeDir, ".wld");
-    }
+    if (scope === "global") return join(homeDir, ".wld");
     return join(projectRoot, ".wld");
 }
 
