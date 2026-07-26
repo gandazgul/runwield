@@ -32,6 +32,7 @@ import { openOwnerCoordinationStore } from "../../shared/owner-coordination/inde
 import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
 import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
+import { buildPlanBoardSearchIndex } from "./plan-search.js";
 import { PlanDetail } from "./components/PlanDetail.jsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
@@ -714,6 +715,15 @@ function ownerPresentationUrl(currentUrl, pathname) {
     return String(url);
 }
 
+/**
+ * @param {string} boardId
+ * @param {Array<{ planId: string, title: string, planName: string, summary: string }>} searchIndex
+ */
+function ownerPlanBoardSearchScript(boardId, searchIndex) {
+    const payload = escapeScriptJson(JSON.stringify({ boardId, searchIndex }));
+    return `<script>const ownerPlanSearch=${payload};function normalizePlanQuery(value){return String(value||'').trim().replace(/\\s+/g,' ');}function ownerSearchMatches(entry,query){const normalized=normalizePlanQuery(query).toLowerCase();if(!normalized)return true;const haystack=[entry.title,entry.planName,entry.summary].join(' ').toLowerCase();return normalized.split(' ').every((term)=>haystack.includes(term));}function ownerApplyPlanSearch(query){const normalized=normalizePlanQuery(query);const scope=document.querySelector('[data-plan-search-scope="'+CSS.escape(ownerPlanSearch.boardId)+'"]');if(!scope)return;const visibleIds=new Set(ownerPlanSearch.searchIndex.filter((entry)=>ownerSearchMatches(entry,normalized)).map((entry)=>entry.planId));let visibleCount=0;scope.querySelectorAll('[data-plan-search-card]').forEach((card)=>{const visible=!normalized||visibleIds.has(card.dataset.planSearchCard||'');card.hidden=!visible;if(visible)visibleCount+=1;});scope.querySelectorAll('[data-plan-search-column]').forEach((column)=>{const visible=[...column.querySelectorAll('[data-plan-search-card]')].filter((card)=>!card.hidden).length;const count=column.querySelector('[data-column-count]');if(count)count.textContent=normalized?String(visible):(column.dataset.columnOriginalCount||String(visible));const filtered=column.querySelector('[data-filtered-empty]');if(filtered)filtered.hidden=!normalized||visible>0;const original=column.querySelector('[data-original-empty]');if(original)original.hidden=Boolean(normalized);});scope.querySelectorAll('[data-plan-search-repair]').forEach((lane)=>{const visible=[...lane.querySelectorAll('[data-plan-search-card]')].filter((card)=>!card.hidden).length;const filtered=lane.querySelector('[data-filtered-empty]');if(filtered)filtered.hidden=!normalized||visible>0;});const noResults=scope.querySelector('[data-plan-search-no-results]');if(noResults)noResults.hidden=!normalized||visibleCount>0;const url=new URL(location.href);if(normalized)url.searchParams.set('q',normalized);else url.searchParams.delete('q');history.replaceState(history.state,'',url.pathname+url.search+url.hash);document.querySelectorAll('a[href]').forEach((link)=>{const href=link.getAttribute('href')||'';if(!href||href.startsWith('#'))return;const next=new URL(href,location.href);if(next.origin!==location.origin)return;if(normalized)next.searchParams.set('q',normalized);else next.searchParams.delete('q');link.setAttribute('href',next.pathname+next.search+next.hash);});}const input=document.getElementById(ownerPlanSearch.boardId+'-plan-search');if(input){ownerApplyPlanSearch(input.value);input.addEventListener('input',(event)=>ownerApplyPlanSearch(event.currentTarget.value));}</script>`;
+}
+
 /** @param {any} ctx @param {"active" | "closed" | "on-hold"} view */
 async function renderOwnerProjectBoard(ctx, view) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
@@ -721,14 +731,14 @@ async function renderOwnerProjectBoard(ctx, view) {
     const componentView = ownerBoardScreenKey(view);
     const projectId = encodeURIComponent(ctx.params.projectId);
     const url = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans${view === "active" ? "" : `/${view}`}`);
-    const tabs =
-        `<nav class="tabs owner-project-tabs" aria-label="Project Plan views"><a href="/projects/${projectId}/plans" class="${
-            view === "active" ? "active" : ""
-        }">Plan Board</a><a href="/projects/${projectId}/plans/closed" class="${
-            view === "closed" ? "active" : ""
-        }">Closed</a><a href="/projects/${projectId}/plans/on-hold" class="${
-            view === "on-hold" ? "active" : ""
-        }">On Hold</a></nav>`;
+    const activeHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans`);
+    const closedHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans/closed`);
+    const onHoldHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans/on-hold`);
+    const tabs = `<nav class="tabs owner-project-tabs" aria-label="Project Plan views"><a href="${
+        escapeHtml(activeHref)
+    }" class="${view === "active" ? "active" : ""}">Plan Board</a><a href="${escapeHtml(closedHref)}" class="${
+        view === "closed" ? "active" : ""
+    }">Closed</a><a href="${escapeHtml(onHoldHref)}" class="${view === "on-hold" ? "active" : ""}">On Hold</a></nav>`;
     const toolbar = await renderOwnerReactComponent(PlanBoardToolbar, { board, view: componentView, url });
     const boardHtml = await renderOwnerReactComponent(PlanBoard, {
         board,
@@ -739,7 +749,11 @@ async function renderOwnerProjectBoard(ctx, view) {
             "Owner Workspace Plan Boards are read-only in this slice; lifecycle moves and edits are disabled until Plan Workflow Lease enforcement can authorize them safely.",
         draggableCards: false,
     });
-    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Plan Workflow Lease enforcement enables remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}`;
+    const boardId = `status-board-${componentView}`;
+    const searchIndex = buildPlanBoardSearchIndex(board.screens[componentView]);
+    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Plan Workflow Lease enforcement enables remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
+        ownerPlanBoardSearchScript(boardId, searchIndex)
+    }`;
 }
 
 /** @param {any} plan */
@@ -985,10 +999,43 @@ function remoteJson(data, status = 200) {
     });
 }
 
+/** @param {string} host */
+function isLoopbackWorkspaceHost(host) {
+    const value = String(host || "").toLowerCase();
+    return value === "localhost" || value === "127.0.0.1" || value === "::1" || value === "[::1]";
+}
+
+/** @param {string} origin */
+function normalizeWorkspacePublicOrigin(origin) {
+    const url = new URL(origin);
+    if (url.pathname !== "/" || url.search || url.hash) {
+        throw new Error("Owner Workspace public origin must be an origin only, with no path, query, or fragment.");
+    }
+    return url.origin;
+}
+
+/** @param {{ mode?: string, host: string, port: number, publicOrigin?: string, trustTlsTerminator?: boolean }} options */
+function assertWorkspaceServerTransportPolicy(options) {
+    if (options.mode !== "owner") return;
+    const publicOrigin = normalizeWorkspacePublicOrigin(
+        options.publicOrigin || `http://${options.host}:${options.port}`,
+    );
+    if (isLoopbackWorkspaceHost(options.host)) return;
+    if (!options.trustTlsTerminator || !publicOrigin.startsWith("https://")) {
+        throw new Error(
+            "Non-loopback owner Workspace bind requires trustTlsTerminator: true and an https:// publicOrigin.",
+        );
+    }
+}
+
 /**
  * @param {{ mode?: "local" | "remote" | "owner", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, adapter?: import("./server/remote-adapter.js").RemoteWorkspaceAdapter, maxRequestBytes?: number, retentionDays?: number, publicOrigin?: string, trustTlsTerminator?: boolean, store?: ReturnType<typeof openOwnerCoordinationStore> }} options
  */
 export function startWorkspaceServer(options) {
+    assertWorkspaceServerTransportPolicy(options);
+    const ownerPublicOrigin = options.mode === "owner"
+        ? normalizeWorkspacePublicOrigin(options.publicOrigin || `http://${options.host}:${options.port}`)
+        : "";
     const app = options.mode === "remote"
         ? createWorkspaceApp({
             mode: "remote",
@@ -1002,7 +1049,7 @@ export function startWorkspaceServer(options) {
             mode: "owner",
             dbPath: options.dbPath,
             store: options.store,
-            publicOrigin: options.publicOrigin || `http://${options.host}:${options.port}`,
+            publicOrigin: ownerPublicOrigin,
         })
         : createWorkspaceApp({ cwd: options.cwd ?? Deno.cwd(), token: options.token ?? "" });
     return Deno.serve({
