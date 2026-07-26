@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 4;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 5;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -171,8 +171,7 @@ CREATE TABLE IF NOT EXISTS session_committed_generations (
     committed_at TEXT NOT NULL,
     PRIMARY KEY (runwield_session_id, generation),
     FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
-    UNIQUE(runwield_session_id, project_id, generation),
-    UNIQUE(runwield_session_id, digest_algorithm, byte_length, digest_hex)
+    UNIQUE(runwield_session_id, project_id, generation)
 );
 
 CREATE TABLE IF NOT EXISTS owner_session_operations (
@@ -261,4 +260,42 @@ ALTER TABLE session_transcript_locators_v4 RENAME TO session_transcript_locators
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_locators_id_project ON session_transcript_locators(runwield_session_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_project ON session_transcript_locators(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_pi ON session_transcript_locators(pi_session_id);
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V5_SQL = `
+DROP INDEX IF EXISTS idx_owner_session_operations_request;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_session_operations_request
+    ON owner_session_operations(COALESCE(device_id, '__owner_device_null__'), runwield_session_id, request_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_session_generations_append_only
+BEFORE INSERT ON session_committed_generations
+BEGIN
+    SELECT CASE
+        WHEN NEW.generation <> COALESCE((
+            SELECT MAX(generation) + 1 FROM session_committed_generations
+             WHERE runwield_session_id = NEW.runwield_session_id
+        ), 0)
+        THEN RAISE(ABORT, 'session generations must be append-only and monotonic')
+    END;
+    SELECT CASE
+        WHEN NEW.terminal_entry_id IS NULL AND NEW.byte_length > (
+            SELECT COALESCE(MIN(byte_length), NEW.byte_length)
+              FROM session_committed_generations
+             WHERE runwield_session_id = NEW.runwield_session_id
+        )
+        THEN RAISE(ABORT, 'terminal entry id is nullable only for header-only generations')
+    END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_generations_no_update
+BEFORE UPDATE ON session_committed_generations
+BEGIN
+    SELECT RAISE(ABORT, 'session generations are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_generations_no_delete
+BEFORE DELETE ON session_committed_generations
+BEGIN
+    SELECT RAISE(ABORT, 'session generations are append-only');
+END;
 `;

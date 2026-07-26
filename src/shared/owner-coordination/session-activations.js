@@ -117,6 +117,57 @@ function requireProof(proof) {
     if (!proof.phase) throw new Error("Activation proof phase is required");
 }
 
+const LEGAL_PHASE_TRANSITIONS = new Map([
+    ["bootstrap", new Set(["checkpointing"])],
+    ["preparing", new Set(["hydrated"])],
+    ["hydrated", new Set(["turning", "checkpointing"])],
+    ["turning", new Set(["checkpointing"])],
+    ["checkpointing", new Set()],
+]);
+
+/** @param {NonNullable<ReturnType<typeof activationFromRow>>} current @param {ActivationProof} proof */
+function proofMatches(current, proof) {
+    return current.ownerInstanceId === proof.ownerInstanceId &&
+        current.ownerProcessKind === proof.ownerProcessKind &&
+        current.operationId === proof.operationId &&
+        current.fence === proof.fence &&
+        current.phase === proof.phase &&
+        current.expectedGeneration === proof.expectedGeneration;
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} ownerDb
+ * @param {NonNullable<ReturnType<typeof activationFromRow>>} current
+ * @param {ActivationProof} proof
+ * @param {string} now
+ */
+function assertActiveProofFresh(ownerDb, current, proof, now) {
+    if (current.state !== "active") throw new Error("Activation is not active");
+    if (!proofMatches(current, proof)) throw new Error("Activation proof was rejected");
+    if (current.heartbeatDeadlineAt && current.heartbeatDeadlineAt <= now) {
+        ownerDb.handle.prepare(
+            `UPDATE session_activation_state
+                SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
+                    operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL,
+                    updated_at = ?, blocked_reason = 'heartbeat_expired'
+              WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
+        ).run(
+            now,
+            proof.runwieldSessionId,
+            proof.projectId,
+            proof.ownerInstanceId,
+            proof.ownerProcessKind,
+            proof.operationId,
+            proof.fence,
+            proof.phase,
+            proof.expectedGeneration ?? null,
+        );
+        throw new Error("Activation heartbeat expired");
+    }
+}
+
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {ActivationProof} proof
@@ -133,21 +184,35 @@ export function heartbeatSessionActivation(database, proof, options = {}) {
             ).get(proof.runwieldSessionId, proof.projectId),
         );
         if (!current || current.state !== "active") throw new Error("Activation is not active");
+        if (!proofMatches(current, proof)) throw new Error("Activation proof was rejected");
         if (current.heartbeatDeadlineAt && current.heartbeatDeadlineAt <= now) {
             ownerDb.handle.prepare(
                 `UPDATE session_activation_state
                     SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
                         operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL,
                         updated_at = ?, blocked_reason = 'heartbeat_expired'
-                  WHERE runwield_session_id = ? AND project_id = ?`,
-            ).run(now, proof.runwieldSessionId, proof.projectId);
+                  WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
+                    AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                    AND expected_generation IS ?`,
+            ).run(
+                now,
+                proof.runwieldSessionId,
+                proof.projectId,
+                proof.ownerInstanceId,
+                proof.ownerProcessKind,
+                proof.operationId,
+                proof.fence,
+                proof.phase,
+                proof.expectedGeneration ?? null,
+            );
             return { expired: true };
         }
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET heartbeat_at = ?, heartbeat_deadline_at = ?, updated_at = ?
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
-                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?`,
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
         ).run(
             now,
             deadlineFrom(now),
@@ -159,6 +224,7 @@ export function heartbeatSessionActivation(database, proof, options = {}) {
             proof.operationId,
             proof.fence,
             proof.phase,
+            proof.expectedGeneration ?? null,
         );
         if (result.changes !== 1) throw new Error("Activation heartbeat proof was rejected");
         return {
@@ -251,10 +317,21 @@ export function changeSessionActivationPhase(database, proof, nextPhase, options
     const ownerDb = requireDatabase(database);
     const now = isoNow(options.now);
     return ownerDb.transaction(() => {
+        const current = activationFromRow(
+            ownerDb.handle.prepare(
+                "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+            ).get(proof.runwieldSessionId, proof.projectId),
+        );
+        if (!current) throw new Error("Activation is not active");
+        assertActiveProofFresh(ownerDb, current, proof, now);
+        if (!LEGAL_PHASE_TRANSITIONS.get(proof.phase)?.has(nextPhase)) {
+            throw new Error(`Illegal activation phase transition: ${proof.phase} -> ${nextPhase}`);
+        }
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state SET phase = ?, updated_at = ?, heartbeat_at = ?, heartbeat_deadline_at = ?
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
-                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?`,
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
         ).run(
             nextPhase,
             now,
@@ -267,6 +344,7 @@ export function changeSessionActivationPhase(database, proof, nextPhase, options
             proof.operationId,
             proof.fence,
             proof.phase,
+            proof.expectedGeneration ?? null,
         );
         if (result.changes !== 1) throw new Error("Activation phase proof was rejected");
         return { ...proof, phase: nextPhase };
@@ -289,11 +367,12 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
                 "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
             ).get(proof.runwieldSessionId, proof.projectId),
         );
-        if (!current || current.state !== "active") throw new Error("Activation is not active");
+        if (!current) throw new Error("Activation is not active");
+        assertActiveProofFresh(ownerDb, current, proof, now);
+        if (proof.phase !== "checkpointing") throw new Error("Generation publication requires checkpointing phase");
         const previous = current.latestGeneration;
         const expectedNext = previous === null ? 0 : previous + 1;
         if (evidence.generation !== expectedNext) throw new Error(`Generation must advance to ${expectedNext}`);
-        assertProofMatches(current, proof);
         ownerDb.handle.prepare(
             `INSERT INTO session_committed_generations(runwield_session_id, project_id, generation, evidence_version,
                 digest_algorithm, byte_length, terminal_entry_id, digest_hex, operation_id, fence, committed_at)
@@ -317,7 +396,8 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
                     owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL, acquired_at = NULL,
                     heartbeat_at = NULL, heartbeat_deadline_at = NULL, updated_at = ?, blocked_reason = NULL
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
-                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?`,
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
         ).run(
             evidence.generation,
             now,
@@ -328,6 +408,7 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
             proof.operationId,
             proof.fence,
             proof.phase,
+            proof.expectedGeneration ?? null,
         );
         if (result.changes !== 1) throw new Error("Activation release proof was rejected");
         return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
@@ -344,6 +425,16 @@ export function releaseUnchangedActivation(database, proof, options = {}) {
     const ownerDb = requireDatabase(database);
     const now = isoNow(options.now);
     return ownerDb.transaction(() => {
+        const current = activationFromRow(
+            ownerDb.handle.prepare(
+                "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+            ).get(proof.runwieldSessionId, proof.projectId),
+        );
+        if (!current) throw new Error("Activation is not active");
+        assertActiveProofFresh(ownerDb, current, proof, now);
+        if (proof.phase !== "bootstrap" && proof.phase !== "preparing") {
+            throw new Error("Unchanged release is only allowed before hydration");
+        }
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET state = CASE WHEN latest_generation IS NULL THEN 'uninitialized' ELSE 'idle' END,
@@ -351,7 +442,8 @@ export function releaseUnchangedActivation(database, proof, options = {}) {
                     expected_generation = NULL, acquired_at = NULL, heartbeat_at = NULL, heartbeat_deadline_at = NULL,
                     updated_at = ?, blocked_reason = NULL
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
-                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?`,
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
         ).run(
             now,
             proof.runwieldSessionId,
@@ -361,26 +453,11 @@ export function releaseUnchangedActivation(database, proof, options = {}) {
             proof.operationId,
             proof.fence,
             proof.phase,
+            proof.expectedGeneration ?? null,
         );
         if (result.changes !== 1) throw new Error("Activation unchanged release proof was rejected");
         return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
     });
-}
-
-/**
- * @param {NonNullable<ReturnType<typeof activationFromRow>>} current
- * @param {ActivationProof} proof
- */
-function assertProofMatches(current, proof) {
-    if (
-        current.ownerInstanceId !== proof.ownerInstanceId ||
-        current.ownerProcessKind !== proof.ownerProcessKind ||
-        current.operationId !== proof.operationId ||
-        current.fence !== proof.fence ||
-        current.phase !== proof.phase
-    ) {
-        throw new Error("Activation proof was rejected");
-    }
 }
 
 /**
@@ -461,8 +538,49 @@ export function createOrGetOperationReceipt(database, options) {
     });
 }
 
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} operationId
+ * @param {{ status: 'accepted' | 'running' | 'completed' | 'failed' | 'conflict', resultGeneration?: number | null, errorCode?: string | null, errorMessage?: string | null, now?: () => string }} updates
+ */
+export function updateOperationReceipt(database, operationId, updates) {
+    const ownerDb = requireDatabase(database);
+    const now = isoNow(updates.now);
+    const completedAt = updates.status === "completed" || updates.status === "failed" || updates.status === "conflict"
+        ? now
+        : null;
+    const result = ownerDb.handle.prepare(
+        `UPDATE owner_session_operations
+            SET status = ?, updated_at = ?, completed_at = COALESCE(?, completed_at), result_generation = ?,
+                error_code = ?, error_message = ?
+          WHERE operation_id = ?`,
+    ).run(
+        updates.status,
+        now,
+        completedAt,
+        updates.resultGeneration ?? null,
+        updates.errorCode ?? null,
+        updates.errorMessage ?? null,
+        operationId,
+    );
+    if (result.changes !== 1) throw new Error("Operation receipt not found");
+    return getOperationReceipt(database, operationId);
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} operationId
+ */
+export function getOperationReceipt(database, operationId) {
+    const ownerDb = requireDatabase(database);
+    return operationFromRow(
+        ownerDb.handle.prepare("SELECT * FROM owner_session_operations WHERE operation_id = ?").get(operationId),
+    );
+}
+
 /** @param {any} row */
 function operationFromRow(row) {
+    if (!row) return null;
     return {
         id: row.id,
         deviceId: row.device_id,
