@@ -14,33 +14,71 @@ import { getCliCommandDefinitions, getCommandDefinition } from "../registry.js";
  */
 
 /**
- * Print global CLI usage/help text.
+ * @returns {string}
  */
-export function printGlobalHelp() {
-    console.log("RunWield — Plan-by-Default Coding Harness\n");
-    console.log("Usage:");
-    console.log(`  ${CLI_BIN} \"<user request>\"`);
-    console.log(`  ${CLI_BIN} --continue \"<optional message>\"`);
-    console.log(`  ${CLI_BIN} <command> [args]\n`);
+function formatGlobalHelp() {
+    const lines = [
+        "RunWield — Plan-by-Default Coding Harness",
+        "",
+        "Usage:",
+        `  ${CLI_BIN} "<user request>"`,
+        `  ${CLI_BIN} --continue "<optional message>"`,
+        `  ${CLI_BIN} <command> [args]`,
+        "",
+        "Commands:",
+    ];
 
-    console.log("Commands:");
     const commands = getCliCommandDefinitions();
     const nameWidth = Math.max(...commands.map((command) => command.name.length));
     for (const command of commands) {
-        console.log(`  ${command.name.padEnd(nameWidth)} ${command.summary}`);
+        lines.push(`  ${command.name.padEnd(nameWidth)} ${command.summary}`);
     }
 
-    console.log("\nGlobal flags:");
-    console.log("  --continue, -c   Continue newest saved session (default startup route only)");
-    console.log("  --help, -h       Show global help or command help");
-    console.log("  --version, -v    Print version and target architecture");
-    console.log("  --mode acp       Start the ACP stdio adapter (stdout reserved for protocol frames)");
+    lines.push(
+        "",
+        "Global flags:",
+        "  --continue, -c   Continue newest saved session (default startup route only)",
+        "  --help, -h       Show global help or command help",
+        "  --version, -v    Print version and target architecture",
+        "  --mode acp       Start the ACP stdio adapter (stdout reserved for protocol frames)",
+        "",
+        "Help:",
+        `  ${CLI_BIN} help`,
+        `  ${CLI_BIN} help <command>`,
+        `  ${CLI_BIN} --help <command>`,
+        `  ${CLI_BIN} <command> --help`,
+    );
+    return lines.join("\n");
+}
 
-    console.log("\nHelp:");
-    console.log(`  ${CLI_BIN} help`);
-    console.log(`  ${CLI_BIN} help <command>`);
-    console.log(`  ${CLI_BIN} --help <command>`);
-    console.log(`  ${CLI_BIN} <command> --help`);
+/**
+ * @param {string} commandName
+ * @returns {string | null}
+ */
+function formatCommandHelp(commandName) {
+    const command = getCommandDefinition(commandName);
+    if (!command) return null;
+
+    const lines = [`Usage (${command.name}):`];
+    for (const line of command.usage) {
+        lines.push(`  ${line}`);
+    }
+
+    if (command.notes && command.notes.length > 0) {
+        lines.push("", "Notes:");
+        for (const note of command.notes) {
+            lines.push(`  - ${note}`);
+        }
+    }
+
+    return lines.join("\n");
+}
+
+/**
+ * Print global CLI usage/help text.
+ */
+export function printGlobalHelp() {
+    console.log(formatGlobalHelp());
 }
 
 /**
@@ -50,21 +88,9 @@ export function printGlobalHelp() {
  * @returns {boolean}
  */
 export function printCommandHelp(commandName) {
-    const command = getCommandDefinition(commandName);
-    if (!command) return false;
-
-    console.log(`Usage (${command.name}):`);
-    for (const line of command.usage) {
-        console.log(`  ${line}`);
-    }
-
-    if (command.notes && command.notes.length > 0) {
-        console.log("\nNotes:");
-        for (const note of command.notes) {
-            console.log(`  - ${note}`);
-        }
-    }
-
+    const message = formatCommandHelp(commandName);
+    if (!message) return false;
+    console.log(message);
     return true;
 }
 
@@ -72,7 +98,7 @@ export function printCommandHelp(commandName) {
  * Run help command
  *
  * @param {string[]} argv
- * @param {{ __testDeps?: CommandDependencies }} [options]
+ * @param {{ uiAPI?: import('../../ui/tui/types.js').UiAPI, __testDeps?: CommandDependencies }} [options]
  */
 export async function runHelpCommand(argv, options = {}) {
     await Promise.resolve();
@@ -93,7 +119,17 @@ export async function runHelpCommand(argv, options = {}) {
 
     const [commandName] = parsed._.map(String);
 
-    const found = printCommandHelp(commandName);
+    if (options.uiAPI) {
+        const message = commandName ? formatCommandHelp(commandName) : formatGlobalHelp();
+        if (message) {
+            options.uiAPI.appendSystemMessage(message);
+            return;
+        }
+        options.uiAPI.appendSystemMessage(`[RunWield] Unknown command for help: ${commandName}`, true);
+        return;
+    }
+
+    const found = commandName ? printCommandHelp(commandName) : false;
     if (!found && commandName) {
         console.error(`[RunWield] Unknown command for help: ${commandName}`);
         console.log();
