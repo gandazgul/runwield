@@ -1,6 +1,8 @@
 /**
- * Verify that every submodule commit pinned by the superproject can be fetched
- * from the submodule's configured remote.
+ * Verify local submodule hygiene without network access.
+ *
+ * This check is intended for fast per-change CI. Remote fetchability for pinned
+ * commits lives in scripts/check-submodule-fetchability.js.
  */
 
 /**
@@ -12,30 +14,21 @@
  */
 
 /**
- * @typedef {Object} SubmoduleConfig
- * @property {string} name
- * @property {string} path
- * @property {string} url
- */
-
-/**
- * @typedef {Object} SubmodulePin
- * @property {string} name
- * @property {string} path
- * @property {string} url
+ * @typedef {Object} SubmoduleStatus
+ * @property {string} prefix
  * @property {string} sha
+ * @property {string} path
+ * @property {string} line
  */
 
 /**
  * @param {string} command
  * @param {string[]} args
- * @param {{ cwd?: string }} [options]
  * @returns {Promise<CommandResult>}
  */
-async function run(command, args, options = {}) {
+async function run(command, args) {
     const child = new Deno.Command(command, {
         args,
-        cwd: options.cwd,
         stdout: "piped",
         stderr: "piped",
     });
@@ -63,78 +56,89 @@ async function hasGitmodules() {
 }
 
 /**
- * @returns {Promise<SubmoduleConfig[]>}
+ * @param {string} output
+ * @returns {SubmoduleStatus[]}
  */
-async function readSubmoduleConfigs() {
-    const result = await run("git", [
-        "config",
-        "--file",
-        ".gitmodules",
-        "--get-regexp",
-        "^submodule\\..*\\.(path|url)$",
-    ]);
-    if (!result.success) {
-        throw new Error(`Failed to read .gitmodules:\n${result.stderr || result.stdout}`);
-    }
-
-    /** @type {Map<string, Partial<SubmoduleConfig>>} */
-    const submodulesByName = new Map();
-    for (const line of result.stdout.split("\n")) {
-        if (!line.trim()) continue;
-        const match = line.match(/^submodule\.(.+)\.(path|url)\s+(.+)$/);
-        if (!match) continue;
-
-        const [, name, key, value] = match;
-        const submodule = submodulesByName.get(name) ?? { name };
-        if (key === "path") submodule.path = value.trim();
-        if (key === "url") submodule.url = value.trim();
-        submodulesByName.set(name, submodule);
-    }
-
-    return Array.from(submodulesByName.values()).map((submodule) => {
-        if (!submodule.name || !submodule.path || !submodule.url) {
-            throw new Error(`Incomplete .gitmodules entry: ${JSON.stringify(submodule)}`);
-        }
-        return {
-            name: submodule.name,
-            path: submodule.path,
-            url: submodule.url,
-        };
+function parseSubmoduleStatus(output) {
+    return output.split("\n").flatMap((line) => {
+        if (!line.trim()) return [];
+        const match = line.match(/^([ +-U])([0-9a-f]{40})\s+([^\s]+)(?:\s|$)/);
+        if (!match) throw new Error(`Unable to parse submodule status line: ${line}`);
+        return [{ prefix: match[1], sha: match[2], path: match[3], line }];
     });
 }
 
 /**
- * @param {SubmoduleConfig} submodule
- * @returns {Promise<SubmodulePin>}
+ * @returns {Promise<SubmoduleStatus[]>}
  */
-async function readPinnedSubmoduleCommit(submodule) {
-    const result = await run("git", ["ls-tree", "HEAD", "--", submodule.path]);
+async function readRecursiveSubmoduleStatus() {
+    const result = await run("git", ["submodule", "status", "--recursive"]);
     if (!result.success) {
-        throw new Error(`Failed to read pinned commit for ${submodule.path}:\n${result.stderr || result.stdout}`);
+        throw new Error(`Failed to read submodule status:\n${result.stderr || result.stdout}`);
     }
-
-    const match = result.stdout.match(/^160000 commit ([0-9a-f]{40})\t(.+)$/m);
-    if (!match) {
-        throw new Error(`No gitlink entry found for submodule path ${submodule.path}.`);
-    }
-
-    return {
-        ...submodule,
-        sha: match[1],
-    };
+    return parseSubmoduleStatus(result.stdout);
 }
 
 /**
- * @param {SubmodulePin} submodule
- * @param {string} workDir
- * @returns {Promise<CommandResult>}
+ * @param {SubmoduleStatus[]} statuses
+ * @returns {boolean}
  */
-async function fetchPinnedCommit(submodule, workDir) {
-    const repoDir = await Deno.makeTempDir({ dir: workDir, prefix: "submodule-fetch-" });
-    const initResult = await run("git", ["init", "--bare", repoDir]);
-    if (!initResult.success) return initResult;
+function reportUninitializedOrMismatchedSubmodules(statuses) {
+    let failed = false;
+    for (const status of statuses) {
+        if (status.prefix === "-") {
+            failed = true;
+            console.error(`Submodule is not initialized: ${status.path}`);
+            console.error(status.line);
+        } else if (status.prefix === "+") {
+            failed = true;
+            console.error(`Submodule checkout does not match the pinned gitlink: ${status.path}`);
+            console.error(status.line);
+        } else if (status.prefix === "U") {
+            failed = true;
+            console.error(`Submodule has merge conflicts: ${status.path}`);
+            console.error(status.line);
+        }
+    }
+    return failed;
+}
 
-    return await run("git", ["-C", repoDir, "fetch", "--depth=1", submodule.url, submodule.sha]);
+/**
+ * @param {SubmoduleStatus} status
+ * @returns {Promise<boolean>}
+ */
+async function reportDirtySubmodule(status) {
+    const result = await run("git", [
+        "-C",
+        status.path,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    ]);
+    if (!result.success) {
+        console.error(`Failed to inspect submodule working tree: ${status.path}`);
+        console.error(result.stderr || result.stdout || `git status exited with code ${result.code}`);
+        return true;
+    }
+    if (!result.stdout.trim()) return false;
+
+    console.error(`Submodule working tree is dirty: ${status.path}`);
+    console.error(result.stdout.trimEnd());
+    return true;
+}
+
+/**
+ * @param {SubmoduleStatus[]} statuses
+ * @returns {Promise<boolean>}
+ */
+async function reportDirtySubmodules(statuses) {
+    let failed = false;
+    for (const status of statuses) {
+        if (status.prefix === "-") continue;
+        if (await reportDirtySubmodule(status)) failed = true;
+    }
+    return failed;
 }
 
 /**
@@ -142,41 +146,25 @@ async function fetchPinnedCommit(submodule, workDir) {
  */
 async function main() {
     if (!(await hasGitmodules())) {
-        console.log("No .gitmodules file found; skipping submodule fetchability check.");
+        console.log("No .gitmodules file found; skipping local submodule check.");
         return;
     }
 
-    const configs = await readSubmoduleConfigs();
-    if (configs.length === 0) {
-        console.log("No submodules configured; skipping submodule fetchability check.");
+    const statuses = await readRecursiveSubmoduleStatus();
+    if (statuses.length === 0) {
+        console.log("No submodules configured; skipping local submodule check.");
         return;
     }
 
-    const submodules = await Promise.all(configs.map(readPinnedSubmoduleCommit));
-    const tempDir = await Deno.makeTempDir({ prefix: "wld-submodule-check-" });
-    let failed = false;
-
-    try {
-        for (const submodule of submodules) {
-            console.log(`Checking ${submodule.path} @ ${submodule.sha} from ${submodule.url}`);
-            const result = await fetchPinnedCommit(submodule, tempDir);
-            if (!result.success) {
-                failed = true;
-                console.error(`Pinned submodule commit is not fetchable: ${submodule.path} @ ${submodule.sha}`);
-                console.error(result.stderr || result.stdout || `git fetch exited with code ${result.code}`);
-            }
-        }
-    } finally {
-        await Deno.remove(tempDir, { recursive: true }).catch((error) => {
-            if (!(error instanceof Deno.errors.NotFound)) throw error;
-        });
+    const hasCheckoutFailure = reportUninitializedOrMismatchedSubmodules(statuses);
+    const hasDirtySubmodule = await reportDirtySubmodules(statuses);
+    if (hasCheckoutFailure || hasDirtySubmodule) {
+        throw new Error(
+            "Local submodule check failed. Initialize submodules, checkout pinned commits, and clean them before merging.",
+        );
     }
 
-    if (failed) {
-        throw new Error("Submodule fetchability check failed. Update the pinned submodule commit before merging.");
-    }
-
-    console.log("All pinned submodule commits are fetchable.");
+    console.log("All local submodules are initialized, pinned, and clean.");
 }
 
 await main();
