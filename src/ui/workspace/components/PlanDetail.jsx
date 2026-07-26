@@ -9,7 +9,7 @@ import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 
-const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
+const CLOSED_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 
 /** @param {string} status */
 export function tabForPlanStatus(status) {
@@ -80,7 +80,9 @@ const METADATA_LABELS = Object.freeze({
     [FM.failureReason]: "Failure reason",
     [FM.failedAt]: "Failed at",
     [FM.implementedAt]: "Implemented at",
-    [FM.verifiedAt]: "Verified at",
+    [FM.verifiedAt]: "RunWield verified at",
+    [FM.userVerifiedAt]: "User verified at",
+    [FM.userVerificationNote]: "User verification note",
     [FM.closedWithoutVerificationReason]: "Closed without verification reason",
     [FM.workRecord]: "Work Record",
     [FM.executionMode]: "Execution mode",
@@ -127,6 +129,8 @@ const METADATA_GROUPS = Object.freeze([
             FM.failedAt,
             FM.implementedAt,
             FM.verifiedAt,
+            FM.userVerifiedAt,
+            FM.userVerificationNote,
             FM.closedWithoutVerificationReason,
             FM.workRecord,
         ],
@@ -197,6 +201,8 @@ function planMetadata(plan) {
         [FM.failedAt]: source[FM.failedAt] ?? plan.failedAt,
         [FM.implementedAt]: source[FM.implementedAt] ?? plan.implementedAt,
         [FM.verifiedAt]: source[FM.verifiedAt] ?? plan.verifiedAt,
+        [FM.userVerifiedAt]: source[FM.userVerifiedAt] ?? plan.userVerifiedAt,
+        [FM.userVerificationNote]: source[FM.userVerificationNote] ?? plan.userVerificationNote,
         [FM.closedWithoutVerificationReason]: source[FM.closedWithoutVerificationReason] ??
             plan.closedWithoutVerificationReason,
         [FM.workRecord]: source[FM.workRecord] ?? plan.workRecord,
@@ -354,7 +360,7 @@ function DetailMetadata({ plan }) {
 
 /** @param {{ epic: any }} props */
 function EpicSummary({ epic }) {
-    const progress = epic.childProgress || { verified: 0, total: 0, active: 0, remaining: 0 };
+    const progress = epic.childProgress || { verified: 0, userVerified: 0, total: 0, active: 0, remaining: 0 };
     const health = epic.childHealth || {};
     const failed = health.failed?.length || 0;
     const held = health.held?.length || 0;
@@ -364,7 +370,10 @@ function EpicSummary({ epic }) {
     return (
         <>
             <div className="progress-meter large" aria-label="Epic child progress">
-                <span>{progress.verified}/{progress.total} child Plans verified</span>
+                <span>
+                    {progress.verified} RunWield verified / {progress.userVerified || 0} User Verified /{" "}
+                    {progress.total} child Plans
+                </span>
                 <span>{progress.active} active or implemented</span>
                 <span>{progress.remaining} remaining</span>
                 {failed ? <span>{failed} failed</span> : null}
@@ -537,6 +546,13 @@ function StaticLifecycleActions({ plan }) {
                     ? (
                         <button type="button" className="secondary-action lifecycle-action hold-action">
                             Put on hold
+                        </button>
+                    )
+                    : null}
+                {actions.canUserVerify
+                    ? (
+                        <button type="button" className="primary-action lifecycle-action">
+                            Mark as User Verified
                         </button>
                     )
                     : null}

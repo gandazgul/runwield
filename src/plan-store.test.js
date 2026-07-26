@@ -538,6 +538,8 @@ Deno.test("groupPlanHierarchy groups Epics, nested children, standalone, and orp
     assertEquals(grouped.orphanChildren.map((plan) => plan.name), ["orphan/child"]);
     assertEquals(countChildPlanProgress(/** @type {any} */ (plans.slice(1, 4))), {
         verified: 1,
+        userVerified: 0,
+        completed: 1,
         active: 0,
         failed: 1,
         onHold: 0,
@@ -1847,6 +1849,8 @@ Deno.test("shared hierarchy helpers match Epic, child, orphan, standalone, and p
     assertEquals(grouped.standalone.map((plan) => plan.name), ["standalone"]);
     assertEquals(countChildPlanProgress(grouped.childrenByParent.get("epic") || []), {
         verified: 1,
+        userVerified: 0,
+        completed: 1,
         active: 1,
         failed: 1,
         onHold: 0,
@@ -1872,10 +1876,17 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
             status: "implemented",
             attrs: { status: "implemented" },
         },
+        {
+            name: "epic/03-user",
+            planName: "epic/03-user",
+            planId: "user-id",
+            status: "user_verified",
+            attrs: { status: "user_verified" },
+        },
     ]);
 
     assertEquals(
-        resolveSiblingChildPlanDependencyStates("epic", ["done", "epic/active", "03-missing"], siblings),
+        resolveSiblingChildPlanDependencyStates("epic", ["done", "epic/active", "user", "04-missing"], siblings),
         [
             {
                 dependency: "done",
@@ -1893,7 +1904,15 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
                 status: "implemented",
                 state: "unverified",
             },
-            { dependency: "03-missing", state: "missing" },
+            {
+                dependency: "user",
+                planId: "user-id",
+                planName: "epic/03-user",
+                path: undefined,
+                status: "user_verified",
+                state: "user_verified",
+            },
+            { dependency: "04-missing", state: "missing" },
         ],
     );
 });

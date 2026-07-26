@@ -17,6 +17,7 @@ export const WORK_RECORD_ORIGINS = Object.freeze(["internal", "external"]);
 export const WORK_RECORD_COMPLETION_MODES = Object.freeze([
     "verified",
     "closed_without_verification",
+    "user_verified",
     "done_enough",
 ]);
 
@@ -63,7 +64,7 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  * @property {"pending_verification"|"draft"|"approved"|"superseded"} status
  * @property {"feature"|"epic"|"quick_fix"} scope
  * @property {"internal"|"external"} origin
- * @property {"verified"|"closed_without_verification"|"done_enough"} completionMode
+ * @property {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} completionMode
  * @property {string} createdAt
  * @property {import('../ticket-references.js').TicketReference[]} [tickets]
  * @property {string} [archivedAt]

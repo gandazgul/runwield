@@ -51,9 +51,9 @@ Archival is not a Plan Status. Archived Plans keep their last durable lifecycle 
 `plans/archived/`, preserving nested relative paths. Normal active listings hide `plans/archived/`, while explicit
 archive commands can list, read, and restore those plaintext markdown files.
 
-`verified` and `closed_without_verification` are terminal outcomes that can be archived without `--force`. Other
-statuses, including `on_hold`, require `--force` because they may represent unfinished or resumable work. Even with
-`--force`, Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`, or
+`verified`, `user_verified`, and `closed_without_verification` are terminal outcomes that can be archived without
+`--force`. Other statuses, including `on_hold`, require `--force` because they may represent unfinished or resumable
+work. Even with `--force`, Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`, or
 `merge_conflict`) remain blocked until the user resolves or abandons that worktree state through a dedicated flow.
 
 Archive metadata (`archivedAt`, `archiveReason`, `archivedFromStatus`, `archivedFromPath`) and restore metadata
@@ -96,6 +96,7 @@ changing the Plan state machine.
 | `epic_done_enough`                   | `ready_for_work`, `verified`                                                                    | `verified`                    | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                                                                                                                              |
 | `manual_status_change`               | Board-safe non-terminal statuses                                                                | Dynamic target                | User-driven board movement among `draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `implemented`; `ready_for_decomposition` is included only for Epics. Records an event instead of editing `status` directly. |
 | `manual_closed_without_verification` | Board-safe non-terminal statuses                                                                | `closed_without_verification` | Terminal manual closure without Workflow Validation; does not set `verifiedAt` or review metadata.                                                                                                                             |
+| `manual_user_verified`               | Board-safe non-terminal statuses                                                                | `user_verified`               | Terminal user attestation with required `userVerificationNote`; sets `userVerifiedAt`, never sets `verifiedAt`, and preserves failure, execution, review, Delivery Evidence, and worktree facts as history.                    |
 | `plan_held`                          | Any non-terminal, non-closed status                                                             | `on_hold`                     | Records `heldFromStatus`, `heldAt`, optional `holdReason`, and optional `holdStalenessBaseline`; preserves recovery/worktree metadata.                                                                                         |
 | `hold_resumed`                       | `on_hold`                                                                                       | `heldFromStatus`              | Caller must run the Resume Check first and provide/read the held-from status; clears hold metadata.                                                                                                                            |
 | `hold_reset_to_draft`                | `on_hold`                                                                                       | `draft`                       | Clears hold and execution/recovery/validation fields while preserving identity/context fields and Plan body.                                                                                                                   |
@@ -106,7 +107,7 @@ Board actions are lifecycle events, not direct Front Matter edits. Generic board
 and may move both directions only within the safe board set: `draft`, `feedback`, `approved`, `ready_for_work`,
 `in_progress`, and `implemented`. For PROJECT Epics, `ready_for_decomposition` is also board-safe.
 
-Generic board movement cannot enter or leave `failed`, cannot produce `verified`, cannot enter
+Generic board movement cannot enter or leave `failed`, cannot produce `verified` or `user_verified`, cannot enter
 `closed_without_verification`, and cannot enter or resume from `on_hold`. Those states remain behind recovery, Workflow
 Validation, manual closure, or hold-specific events. `verified` is reserved for Workflow Validation except for the
 existing Epic `epic_done_enough` event.
@@ -250,8 +251,9 @@ Mechanical Validation after Engineer `task_completed`, without Plan lifecycle st
 
 `parentPlan`: Child FEATURE pointer to the parent Epic plan name.
 
-`dependencies`: Optional sibling FEATURE Plan identifiers that should be verified first. Loading a child FEATURE warns
-when dependencies are missing or not verified, but the user may choose to proceed.
+`dependencies`: Optional sibling FEATURE Plan identifiers that should be complete first. Loading a child FEATURE warns
+when dependencies are missing or neither RunWield Verified nor User Verified, but the user may choose to proceed. User
+Verified dependencies are satisfied but labeled distinctly.
 
 `failureReason`: Optional concise reason for `failed` status, validation failure, or merge-back failure.
 
@@ -349,8 +351,24 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 - `implemented` means implementation finished in the execution worktree, even if validation or merge-back later fails.
 - `verified` requires successful Workflow Validation and, for worktree-backed plans, successful merge-back, except for
   PROJECT Epics marked `done_enough`.
+- `user_verified` is terminal user attestation and never implies RunWield Workflow Validation passed.
 - `closed_without_verification` is terminal manual closure and never implies validation passed.
 - `on_hold` is a pause state; resume/reset must clear hold metadata.
 - Human code review is optional Workflow Validation metadata, not a separate Plan Status.
 - Executable FEATURE validation cannot pass with an empty or Plan-document-only workflow diff.
 - Workflow code should record Plan Events instead of directly mutating Plan Status.
+
+## User Verified Plans
+
+`user_verified` is a terminal Plan Status for outcomes the user personally verified outside RunWield Workflow
+Validation. The canonical event is `manual_user_verified`; it requires a trimmed, non-empty `userVerificationNote` and
+records `userVerifiedAt`. It does not set `verifiedAt`, synthesize Delivery Evidence, clean up worktrees, erase prior
+`failureReason`, or relabel human review/validation history.
+
+User Verified Plans satisfy child dependencies and Epic completion accounting, but reports must keep them separate from
+proof-bearing RunWield `verified` Plans. A mixed Epic can advance when every child is either RunWield Verified with
+mode-appropriate Delivery Evidence or User Verified. The manual action does not start automatic next-child execution.
+Re-opening from `user_verified` returns to `feedback` and clears stale user attestation fields.
+
+Canonical domain term follow-up: `User Verified Plan` should be added to `CONTEXT.md` by Ideator/Init in a separate
+context update; this feature intentionally leaves `CONTEXT.md` and ADRs unchanged.
