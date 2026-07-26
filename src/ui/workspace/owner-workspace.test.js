@@ -1,12 +1,39 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { savePlan } from "../../plan-store.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { createOwnerWorkspaceApp } from "./server.js";
+import { createOwnerWorkspaceApp, startWorkspaceServer } from "./server.js";
 
 /** @param {string} credential @param {string} [csrf] */
 function cookiePair(credential, csrf = "csrf-secret") {
     return `rw_owner_device=${encodeURIComponent(credential)}; rw_owner_csrf=${encodeURIComponent(csrf)}`;
 }
+
+Deno.test("startWorkspaceServer enforces owner non-loopback TLS policy at the exported entry point", () => {
+    assertThrows(
+        () =>
+            startWorkspaceServer({
+                mode: "owner",
+                host: "0.0.0.0",
+                port: 8787,
+                publicOrigin: "http://runwield.example.test",
+                trustTlsTerminator: true,
+            }),
+        Error,
+        "https:// publicOrigin",
+    );
+    assertThrows(
+        () =>
+            startWorkspaceServer({
+                mode: "owner",
+                host: "0.0.0.0",
+                port: 8787,
+                publicOrigin: "https://runwield.example.test",
+                trustTlsTerminator: false,
+            }),
+        Error,
+        "trustTlsTerminator",
+    );
+});
 
 Deno.test("owner Workspace redirects unpaired browsers and serves pairing code bootstrap", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-ui-" });
@@ -126,6 +153,8 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertEquals(tokenizedPage.status, 200);
         const tokenizedHtml = await tokenizedPage.text();
         assertStringIncludes(tokenizedHtml, "q=owner");
+        assertStringIncludes(tokenizedHtml, `/projects/${project.projectId}/plans/closed?q=owner`);
+        assertStringIncludes(tokenizedHtml, "ownerApplyPlanSearch");
         assertEquals(/href=\"[^\"]*token=ephemeral/.test(tokenizedHtml), false);
 
         const onHoldPage = await app(
@@ -241,6 +270,49 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertEquals(rescanText.includes(projectRoot), false);
         assertEquals(rescanText.includes("sessionPath"), false);
         assertEquals(rescanText.includes('"cwd"'), false);
+
+        store.setProjectEnabled(project.projectId, false);
+        let disabledCatalogCalled = false;
+        store.catalogProjectSessions = () => {
+            disabledCatalogCalled = true;
+            return Promise.resolve({ cataloged: [], diagnostics: [] });
+        };
+        const disabledRescan = await app(
+            new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/action`, {
+                method: "POST",
+                headers: {
+                    origin: "http://127.0.0.1:8787",
+                    cookie: cookiePair(claimed.credential),
+                    "x-runwield-csrf": "csrf-secret",
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({ action: "rescan" }),
+            }),
+        );
+        assertEquals(disabledRescan.status, 400);
+        assertEquals(disabledCatalogCalled, false);
+        store.setProjectEnabled(project.projectId, true);
+        store.removeProject(project.projectId);
+        let removedCatalogCalled = false;
+        store.catalogProjectSessions = () => {
+            removedCatalogCalled = true;
+            return Promise.resolve({ cataloged: [], diagnostics: [] });
+        };
+        const removedRescan = await app(
+            new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/action`, {
+                method: "POST",
+                headers: {
+                    origin: "http://127.0.0.1:8787",
+                    cookie: cookiePair(claimed.credential),
+                    "x-runwield-csrf": "csrf-secret",
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({ action: "rescan" }),
+            }),
+        );
+        assertEquals(removedRescan.status, 400);
+        assertEquals(removedCatalogCalled, false);
+        store.restoreProject(project.projectId);
 
         const badUpgradeOrigin = await app(
             new Request("http://127.0.0.1:8787/api/owner/future-socket", {

@@ -174,6 +174,7 @@ export async function projectActionApi(ctx) {
         else if (body.action === "relink") {
             ctx.state.store.relinkProject({ projectId, newRoot: String(body.newRoot || "") });
         } else if (body.action === "rescan") {
+            requireOwnerProjectRoot(ctx.state.store, projectId);
             const result = await ctx.state.store.catalogProjectSessions(projectId, { fullRescan: true });
             return ownerJson({
                 projects: listOwnerProjects(ctx.state.store),
