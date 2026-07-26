@@ -261,20 +261,7 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
         try {
             Deno.env.set("HOME", tempHome);
             __resetSettingsForTests();
-            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-            await Deno.writeTextFile(
-                join(tempHome, ".wld", "models.json"),
-                JSON.stringify({
-                    providers: {
-                        test: {
-                            baseUrl: "https://example.invalid/v1",
-                            api: "openai-completions",
-                            apiKey: "test-key",
-                            models: [{ id: "model" }],
-                        },
-                    },
-                }),
-            );
+            await writeVisionModelConfig(tempHome);
 
             const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
             const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
@@ -336,20 +323,7 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
         try {
             Deno.env.set("HOME", tempHome);
             __resetSettingsForTests();
-            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-            await Deno.writeTextFile(
-                join(tempHome, ".wld", "models.json"),
-                JSON.stringify({
-                    providers: {
-                        test: {
-                            baseUrl: "https://example.invalid/v1",
-                            api: "openai-completions",
-                            apiKey: "test-key",
-                            models: [{ id: "model" }],
-                        },
-                    },
-                }),
-            );
+            await writeVisionModelConfig(tempHome);
 
             const hostedSession = new HostedSession({ id: "task-completed-policy", cwd: tempHome });
             hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
@@ -407,6 +381,7 @@ async function writeVisionModelConfig(tempHome) {
                     api: "openai-completions",
                     apiKey: "test-key",
                     models: [
+                        { id: "model", input: ["text"] },
                         { id: "text", input: ["text"] },
                         { id: "vision", input: ["text", "image"] },
                     ],
@@ -711,20 +686,7 @@ Deno.test("buildAgentSession auto-wires Work Record tools with role access modes
         try {
             Deno.env.set("HOME", tempHome);
             __resetSettingsForTests();
-            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-            await Deno.writeTextFile(
-                join(tempHome, ".wld", "models.json"),
-                JSON.stringify({
-                    providers: {
-                        test: {
-                            baseUrl: "https://example.invalid/v1",
-                            api: "openai-completions",
-                            apiKey: "test-key",
-                            models: [{ id: "model" }],
-                        },
-                    },
-                }),
-            );
+            await writeVisionModelConfig(tempHome);
 
             /** @param {string} agentName */
             const build = async (agentName) => {

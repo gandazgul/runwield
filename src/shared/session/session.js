@@ -347,15 +347,34 @@ let bundledSkillsExtractionPromise = null;
  */
 async function copyTreeFromBundle(srcDir, destDir) {
     await Deno.mkdir(destDir, { recursive: true });
+    const currentEntries = new Set();
     for await (const entry of Deno.readDir(srcDir)) {
+        currentEntries.add(entry.name);
         const srcPath = join(srcDir, entry.name);
         const destPath = join(destDir, entry.name);
         if (entry.isDirectory) {
+            try {
+                const destStat = await Deno.stat(destPath);
+                if (!destStat.isDirectory) await Deno.remove(destPath, { recursive: true });
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
             await copyTreeFromBundle(srcPath, destPath);
         } else if (entry.isFile) {
+            try {
+                const destStat = await Deno.stat(destPath);
+                if (destStat.isDirectory) await Deno.remove(destPath, { recursive: true });
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
             const bytes = await Deno.readFile(srcPath);
             await Deno.writeFile(destPath, bytes);
         }
+    }
+
+    for await (const entry of Deno.readDir(destDir)) {
+        if (currentEntries.has(entry.name)) continue;
+        await Deno.remove(join(destDir, entry.name), { recursive: true });
     }
 }
 
@@ -370,11 +389,6 @@ export function extractBundledSkills() {
     bundledSkillsExtractionPromise = (async () => {
         if (!BUNDLED_SKILLS_CACHE_DIR) return null;
         if (!(await directoryExists(SKILLS_DIR))) return null;
-        try {
-            await Deno.remove(BUNDLED_SKILLS_CACHE_DIR, { recursive: true });
-        } catch {
-            // Cache dir may not exist yet — fine.
-        }
         try {
             await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
             return BUNDLED_SKILLS_CACHE_DIR;

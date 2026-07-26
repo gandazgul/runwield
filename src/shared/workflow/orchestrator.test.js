@@ -235,6 +235,7 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "clean", cwd: Deno.cwd() }),
             readLatestTaskCompletedOutcome: () => true,
             runRootTurn: (/** @type {any} */ args) => {
                 rootTurns.push(args.agentName);
@@ -391,6 +392,7 @@ Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_F
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "clean", cwd: Deno.cwd() }),
             readLatestTaskCompletedOutcome: () => null,
             runRootTurn: () => Promise.resolve([]),
             runMechanicalValidation: () => {

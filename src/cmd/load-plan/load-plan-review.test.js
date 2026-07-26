@@ -1,149 +1,9 @@
-// deno-lint-ignore-file no-unused-vars
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
-import { loadPlan, resolveSiblingChildPlanDependencies, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+
 import { AGENTS } from "../../constants.js";
-import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
-import {
-    createExecutionWorktree,
-    mergeExecutionWorktree,
-    preparePrimaryPlanPathForMerge,
-    restorePrimaryPlanPathAfterMergeFailure,
-} from "../../shared/worktree.js";
 
-/**
- * @typedef {Object} SlicerTriageMeta
- * @property {string} [status]
- */
-
-/**
- * @typedef {Object} SlicerRunArgs
- * @property {string} planName
- * @property {SlicerTriageMeta} triageMeta
- */
-
-/**
- * @typedef {Object} RecordedPlanEvent
- * @property {string} event
- * @property {string} currentStatus
- */
-
-/**
- * @param {string} cwd
- * @param {string[]} args
- * @returns {Promise<string>}
- */
-async function git(cwd, args) {
-    const output = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
-    if (!output.success) throw new Error(new TextDecoder().decode(output.stderr));
-    return new TextDecoder().decode(output.stdout).trim();
-}
-
-function makeUi() {
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {Array<unknown>} */
-    const selections = [];
-    /** @type {Array<{ prompt: string, options: Array<{ value: string, label: string, description?: string }>, config?: unknown }>} */
-    const prompts = [];
-
-    return {
-        messages,
-        selections,
-        prompts,
-        uiAPI: /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
-            appendSystemMessage: (msg) => messages.push(String(msg)),
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            requestRender: () => {},
-            promptSelect: (prompt, options = [], config) => {
-                prompts.push({
-                    prompt: String(prompt),
-                    options: /** @type {Array<{ value: string, label: string, description?: string }>} */ (options),
-                    config,
-                });
-                return Promise.resolve(selections.shift() ?? null);
-            },
-            promptText: () => Promise.resolve(null),
-            showModelSelector: () => {},
-        }),
-    };
-}
-
-/**
- * @typedef {Object} RuntimeFixtureOptions
- * @property {string} [sessionId]
- * @property {string} [activeAgent]
- * @property {(request: any) => any} [requestInteraction]
- */
-
-/** @param {RuntimeFixtureOptions} [options] */
-function makeRuntimeFixture(options = {}) {
-    const sessionId = options.sessionId || "load-plan-test";
-    const state = {
-        activeAgent: options.activeAgent || AGENTS.ROUTER,
-        agentHistory: /** @type {string[]} */ ([]),
-        workflow: /** @type {Record<string, any> | null} */ (null),
-        renamed: /** @type {string | null} */ (null),
-    };
-    const runtime = /** @type {import('../../shared/session/session-runtime.js').SessionRuntime} */ (
-        /** @type {unknown} */ ({
-            /** @param {string} id */
-            getSessionSnapshot: (id) =>
-                id === sessionId
-                    ? {
-                        id,
-                        cwd: Deno.cwd(),
-                        activeAgent: state.activeAgent,
-                        activeExecutionWorkflow: state.workflow,
-                    }
-                    : null,
-            /** @param {string} _id @param {{ agentName: string }} request */
-            switchAgent: (_id, request) => {
-                state.activeAgent = request.agentName;
-                state.agentHistory.push(request.agentName);
-                return Promise.resolve({ ok: true, changed: true, agentName: request.agentName });
-            },
-            executePlan: () => Promise.resolve(undefined),
-            runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
-            runValidation: () => Promise.resolve(undefined),
-            runSlicerAgent: () => Promise.resolve(undefined),
-            /** @param {string} _id @param {Record<string, any>} workflow */
-            setActiveExecutionWorkflow: (_id, workflow) => {
-                state.workflow = workflow;
-                return { ok: true };
-            },
-            clearActiveExecutionWorkflow: () => {
-                state.workflow = null;
-                return { ok: true };
-            },
-            /** @param {string} _id @param {any} request */
-            requestInteraction: (_id, request) =>
-                Promise.resolve(
-                    options.requestInteraction?.(request) || {
-                        outcome: "canceled",
-                    },
-                ),
-            /** @param {string} _id @param {string} name */
-            renameSession: (_id, name) => {
-                state.renamed = name;
-                return { ok: true };
-            },
-        })
-    );
-    return {
-        context: { sessionId, sessionRuntime: runtime },
-        runtime,
-        state,
-    };
-}
-
-function makeRuntimeContext() {
-    return makeRuntimeFixture().context;
-}
-
-function noOpRecordPlanEvent() {
-    return Promise.resolve(/** @type {any} */ ({}));
-}
+import { makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {
     const { uiAPI, selections } = makeUi();
@@ -537,10 +397,10 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     const { uiAPI, selections, messages } = makeUi();
     selections.push("slicer");
     let slicerOpened = false;
-    /** @type {SlicerRunArgs[]} */
+    /** @type {import("./load-plan-test-helpers.js").SlicerRunArgs[]} */
     const slicerCalls = [];
     let executed = false;
-    /** @type {RecordedPlanEvent[]} */
+    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
     const events = [];
 
     await runLoadPlanCommand(["epic-review"], {
@@ -564,7 +424,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            runSlicerAgent: (/** @type {SlicerRunArgs} */ args) => {
+            runSlicerAgent: (/** @type {import("./load-plan-test-helpers.js").SlicerRunArgs} */ args) => {
                 slicerOpened = true;
                 slicerCalls.push(args);
                 return Promise.resolve({ ok: true });
@@ -574,7 +434,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
+            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
                 events.push({ event: args.event, currentStatus: args.currentStatus });
                 return Promise.resolve({ status: "ready_for_decomposition" });
             },
@@ -594,7 +454,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic rejects execution policy bef
     const { uiAPI, selections, messages } = makeUi();
     selections.push("slicer");
     let slicerOpened = false;
-    /** @type {RecordedPlanEvent[]} */
+    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
     const events = [];
 
     await runLoadPlanCommand(["epic-invalid-policy"], {
@@ -623,7 +483,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic rejects execution policy bef
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
+            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
                 events.push(args);
                 return Promise.resolve({ status: "ready_for_decomposition" });
             },
@@ -643,7 +503,7 @@ Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy 
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
     });
     let slicerOpened = false;
-    /** @type {RecordedPlanEvent[]} */
+    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
     const events = [];
 
     await runLoadPlanCommand(["epic-review-invalid-policy"], {
@@ -672,7 +532,7 @@ Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy 
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
+            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
                 events.push(args);
                 return Promise.resolve({ status: "ready_for_decomposition" });
             },

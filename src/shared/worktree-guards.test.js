@@ -1,62 +1,17 @@
-// deno-lint-ignore-file no-unused-vars
-import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
-import { basename, dirname } from "@std/path";
-import { HOME_DIR } from "../constants.js";
-import { loadPlan, savePlan } from "../plan-store.js";
+import { assertRejects } from "@std/assert";
+
+import { savePlan } from "../plan-store.js";
 import { GitRepositoryRequiredError } from "./git.js";
-import { stageValidationPassedInExecutionWorktree } from "./workflow/plan-lifecycle.js";
-import { findByPlanName } from "./worktree-registry.js";
+
 import {
-    checkpointExecutionWorktree,
     createExecutionWorktree,
-    findReusableWorktree,
-    getWorktreeStatus,
-    inspectExecutionWorktreeMergeRisk,
     mergeExecutionWorktree,
-    preparePrimaryPlanPathForMerge,
     prepareTargetBranchRef,
     removeExecutionWorktree,
-    resolveCurrentCheckoutBranch,
-    resolveWorktreeParent,
-    restorePrimaryPlanPathAfterMergeFailure,
     sealExecutionWorktreeCandidate,
 } from "./worktree.js";
 
-/** @type {import('./workflow/plan-lifecycle.js').PlanEventDetails} */
-const TEST_DELIVERY_DETAILS = {
-    executionMode: "worktree",
-    deliveryEvidence: {
-        version: 1,
-        mode: "worktree_merge",
-        executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        targetBranch: "main",
-        targetHeadBeforeMerge: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    },
-};
-
-/**
- * @param {string} cwd
- * @param {string[]} args
- */
-async function git(cwd, args) {
-    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
-    const output = await command.output();
-    if (!output.success) {
-        throw new Error(new TextDecoder().decode(output.stderr));
-    }
-    return new TextDecoder().decode(output.stdout).trim();
-}
-
-async function makeRepo() {
-    const cwd = await Deno.makeTempDir();
-    await git(cwd, ["init", "-b", "main"]);
-    await git(cwd, ["config", "user.email", "runwield@example.com"]);
-    await git(cwd, ["config", "user.name", "RunWield Test"]);
-    await Deno.writeTextFile(`${cwd}/README.md`, "base\n");
-    await git(cwd, ["add", "."]);
-    await git(cwd, ["commit", "-m", "base"]);
-    return cwd;
-}
+import { git, makeRepo } from "./worktree-test-helpers.js";
 
 Deno.test("worktree helpers report Git requirement outside Git", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-worktree-" });

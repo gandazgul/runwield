@@ -609,3 +609,7 @@ settingsTest("Plan Server URL setting stores only the normalized server URL", as
         await Deno.remove(tempProject, { recursive: true });
     }
 });
+
+Deno.test("cleanup temp dirs", async () => {
+    await Deno.remove(TEMP_DIR, { recursive: true });
+});
