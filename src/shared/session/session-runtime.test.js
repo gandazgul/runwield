@@ -179,7 +179,7 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
     );
 });
 
-Deno.test("SessionRuntime persists images for dormant managed Sessions", async () => {
+Deno.test("SessionRuntime keeps dormant managed image persistence read-only but allows live manager paste", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const home = await Deno.makeTempDir({ prefix: "runwield-runtime-managed-image-" });
@@ -222,6 +222,17 @@ Deno.test("SessionRuntime persists images for dormant managed Sessions", async (
             assertEquals(session.getRootSessionManager(), null);
             const runtime = makeRuntime({ sessionHost });
 
+            await assertRejects(
+                () =>
+                    runtime.persistSessionImage(session.id, {
+                        base64: btoa("img"),
+                        mimeType: "image/png",
+                    }),
+                Error,
+                "no active session is available",
+            );
+
+            session.setRootSessionManager(makeSessionManager("pi-managed-image", cwd));
             const persisted = await runtime.persistSessionImage(session.id, {
                 base64: btoa("img"),
                 mimeType: "image/png",
@@ -424,6 +435,48 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
     runtime.closeSession(created.sessionId);
 });
 
+Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
+    const pendingImageGuardIndex = source.indexOf("const hasPendingImages =", promptManagedIndex);
+    const userMessageIndex = source.indexOf("type: RuntimeEventTypes.USER_MESSAGE", promptManagedIndex);
+    const hydrationIndex = source.indexOf("await this.#openPersistedRootSession({", promptManagedIndex);
+    const promptSessionIndex = source.indexOf(
+        "const result = await this.promptSession(sessionId, {",
+        promptManagedIndex,
+    );
+    const imageEventFallbackIndex = source.indexOf("emitInitialEvents: hasPendingImages", promptSessionIndex);
+
+    assertEquals(promptManagedIndex >= 0, true);
+    assertEquals(pendingImageGuardIndex > promptManagedIndex, true);
+    assertEquals(userMessageIndex > promptManagedIndex, true);
+    assertEquals(userMessageIndex > pendingImageGuardIndex, true);
+    assertEquals(hydrationIndex > userMessageIndex, true);
+    assertEquals(promptSessionIndex > hydrationIndex, true);
+    assertEquals(imageEventFallbackIndex > promptSessionIndex, true);
+});
+
+Deno.test("SessionRuntime managed prompt preserves pending local agent selection", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
+    const openIndex = source.indexOf("await this.#openPersistedRootSession({", promptManagedIndex);
+    const agentSelectionIndex = source.indexOf(
+        "const agentName = options.agentName || hostedSession.getRootAgentName() ||",
+        openIndex,
+    );
+    const resumeFallbackIndex = source.indexOf(
+        "await this.#resolveResumeAgentName(sessionManager)",
+        agentSelectionIndex,
+    );
+    const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", agentSelectionIndex);
+
+    assertEquals(promptManagedIndex >= 0, true);
+    assertEquals(openIndex > promptManagedIndex, true);
+    assertEquals(agentSelectionIndex > openIndex, true);
+    assertEquals(resumeFallbackIndex > agentSelectionIndex, true);
+    assertEquals(activateIndex > resumeFallbackIndex, true);
+});
+
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
     const runtime = makeRuntime();
     const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
@@ -607,6 +660,50 @@ Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () 
     ]);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.USER_MESSAGE).length, 1);
     assertEquals(events.every((event) => event.sessionId === sessionId), true);
+});
+
+Deno.test("SessionRuntime persists pending prompt images once a live manager exists", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-pending-image-" });
+        Deno.env.set("HOME", home);
+        const cwd = `${home}/project`;
+        await Deno.mkdir(cwd, { recursive: true });
+        /** @type {import('./types.js').ImageAttachment[][]} */
+        const handlerImages = [];
+        const runtime = makeRuntime({
+            handler: (_request, images) => {
+                handlerImages.push(images);
+                return Promise.resolve({ kind: "complete" });
+            },
+        });
+        try {
+            const sessionId = await runtime.createPromptReadySession({ cwd });
+            /** @type {any[]} */
+            const events = [];
+            runtime.subscribeSessionEvents(sessionId, (event) => {
+                events.push(event);
+            });
+
+            const result = await runtime.promptSession(sessionId, {
+                initialRequest: "look",
+                initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+            });
+
+            assertEquals(result.ok, true);
+            const userEvent = events.find((event) => event.type === RuntimeEventTypes.USER_MESSAGE);
+            const eventImage = userEvent?.images?.[0];
+            const handlerImage = handlerImages[0]?.[0];
+            assertEquals(eventImage?.ref?.startsWith("attachment:"), true);
+            assertEquals(handlerImage?.ref, eventImage?.ref);
+            assertEquals(handlerImage?.path, eventImage?.path);
+            assertEquals(new TextDecoder().decode(await Deno.readFile(eventImage.path)), "img");
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true }).catch(() => {});
+        }
+    });
 });
 
 Deno.test("SessionRuntime keeps direct model operations busy until the outermost operation settles", async () => {
