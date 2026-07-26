@@ -30,7 +30,7 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
-import { prepareExecutionPlanFile } from "./execution-plan-file.js";
+import { ensureExecutionPlanFile, loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import {
@@ -999,7 +999,8 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
  *     resolveTargetBranchName?: typeof resolveTargetBranchName,
  *     captureWorktreeTree?: typeof captureWorktreeTree,
- *     prepareExecutionPlanFile?: typeof prepareExecutionPlanFile,
+ *     loadCanonicalExecutionPlanSource?: typeof loadCanonicalExecutionPlanSource,
+ *     ensureExecutionPlanFile?: typeof ensureExecutionPlanFile,
  *     removeExecutionWorktree?: typeof removeExecutionWorktree,
  *     removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
@@ -1032,7 +1033,8 @@ export async function startActiveExecutionWorkflow(
     const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
     const resolveTarget = __deps?.resolveTargetBranchName || resolveTargetBranchName;
     const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
-    const preparePlanFile = __deps?.prepareExecutionPlanFile || prepareExecutionPlanFile;
+    const loadCanonicalPlanSource = __deps?.loadCanonicalExecutionPlanSource || loadCanonicalExecutionPlanSource;
+    const ensurePlanFile = __deps?.ensureExecutionPlanFile || ensureExecutionPlanFile;
     const removeWorktree = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const removeRegistryEntry = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
@@ -1096,6 +1098,14 @@ export async function startActiveExecutionWorkflow(
         }, { cwd: projectRoot });
         return activeWorkflow;
     }
+    const canonicalPlanSource = await loadCanonicalPlanSource(projectRoot, planName);
+    if (canonicalPlanSource.kind !== "loaded") {
+        throw new Error(
+            `Cannot load canonical Project Plan ${canonicalPlanSource.relativePath}: ${
+                canonicalPlanSource.reason || canonicalPlanSource.kind
+            }`,
+        );
+    }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const hasRecordedWorktree = Boolean(
         triageMeta.worktreeId || triageMeta.worktreePath || triageMeta.worktreeBranch ||
@@ -1125,7 +1135,11 @@ export async function startActiveExecutionWorkflow(
         ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
     });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
-    const planFile = await preparePlanFile({ projectRoot, executionCwd: worktree.path, planName });
+    const planFile = await ensurePlanFile({
+        executionCwd: worktree.path,
+        planName,
+        canonicalSource: canonicalPlanSource,
+    });
     if (planFile.kind !== "present" && planFile.kind !== "restored") {
         const preparationError = new Error(
             `Cannot prepare execution worktree Plan file ${planFile.relativePath}: ${planFile.reason || planFile.kind}`,

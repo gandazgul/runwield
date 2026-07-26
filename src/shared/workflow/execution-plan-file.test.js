@@ -96,6 +96,28 @@ Deno.test("prepareExecutionPlanFile classifies canonical symlink and non-regular
     assertEquals(directory.kind, "non_regular");
 });
 
+Deno.test("loadCanonicalExecutionPlanSource rejects symlinked and non-directory canonical parents", async () => {
+    const projectRoot = await makeTempProject();
+    const outsidePlans = await makeTempProject();
+    await Deno.writeTextFile(
+        join(outsidePlans, "plans", "demo.md"),
+        injectFrontMatter("# Outside", { planId: "outside-plan" }),
+    );
+
+    await Deno.remove(join(projectRoot, "plans"));
+    await Deno.symlink(join(outsidePlans, "plans"), join(projectRoot, "plans"));
+    const symlinkedParent = await loadCanonicalExecutionPlanSource(projectRoot, "demo");
+    assertEquals(symlinkedParent.kind, "symlink");
+    assertEquals(symlinkedParent.relativePath, "plans/demo.md");
+
+    await Deno.remove(join(projectRoot, "plans"));
+    await Deno.mkdir(join(projectRoot, "plans"));
+    await Deno.writeTextFile(join(projectRoot, "plans", "epic"), "not a directory");
+    const nonDirectoryParent = await loadCanonicalExecutionPlanSource(projectRoot, "epic/child");
+    assertEquals(nonDirectoryParent.kind, "non_regular");
+    assertEquals(nonDirectoryParent.relativePath, "plans/epic/child.md");
+});
+
 Deno.test("prepareExecutionPlanFile blocks target symlink directory and malformed target evidence", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();

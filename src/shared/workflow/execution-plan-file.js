@@ -44,6 +44,61 @@ function projectRelativePath(projectRoot, absolutePath) {
 }
 
 /**
+ * Inspect an existing canonical-source parent chain without following symlinked ancestors.
+ *
+ * @param {string} projectRoot
+ * @param {string[]} segments
+ * @param {string} sourceRelativePath
+ * @returns {Promise<
+ *   { ok: true } |
+ *   { ok: false, kind: "absent"|"unreadable"|"symlink"|"non_regular", reason: string }
+ * >}
+ */
+async function inspectCanonicalParentChain(projectRoot, segments, sourceRelativePath) {
+    let current = projectRoot;
+    for (const segment of segments) {
+        current = join(current, segment);
+        const currentRelativePath = projectRelativePath(projectRoot, current);
+        let info;
+        try {
+            info = await lstatOrNull(current);
+        } catch {
+            return {
+                ok: false,
+                kind: "unreadable",
+                reason:
+                    `Canonical Plan source parent is unreadable at ${currentRelativePath}; source: ${sourceRelativePath}.`,
+            };
+        }
+        if (!info) {
+            return {
+                ok: false,
+                kind: "absent",
+                reason:
+                    `Canonical Plan source is absent: ${sourceRelativePath} (missing parent ${currentRelativePath}).`,
+            };
+        }
+        if (info.isSymlink) {
+            return {
+                ok: false,
+                kind: "symlink",
+                reason:
+                    `Canonical Plan source parent is a symlink at ${currentRelativePath}; source: ${sourceRelativePath}.`,
+            };
+        }
+        if (!info.isDirectory) {
+            return {
+                ok: false,
+                kind: "non_regular",
+                reason:
+                    `Canonical Plan source parent is not a directory at ${currentRelativePath}; source: ${sourceRelativePath}.`,
+            };
+        }
+    }
+    return { ok: true };
+}
+
+/**
  * @param {string} projectRoot
  * @param {string} planName
  * @returns {Promise<{ kind: "loaded", path: string, relativePath: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter } | ExecutionPlanFileResult>}
@@ -51,6 +106,11 @@ function projectRelativePath(projectRoot, absolutePath) {
 export async function loadCanonicalExecutionPlanSource(projectRoot, planName) {
     const path = getStoredPlanPath(projectRoot, planName);
     const relativePath = projectRelativePath(projectRoot, path);
+    const parentRelativePath = dirname(relativePath);
+    const parentSegments = parentRelativePath === "." ? [] : parentRelativePath.split("/");
+    const parents = await inspectCanonicalParentChain(projectRoot, parentSegments, relativePath);
+    if (!parents.ok) return { kind: parents.kind, path, relativePath, reason: parents.reason };
+
     let info;
     try {
         info = await Deno.lstat(path);
@@ -89,6 +149,10 @@ export async function loadCanonicalExecutionPlanSource(projectRoot, planName) {
     }
     try {
         const { attrs } = parsePlanFrontMatter(markdown);
+        const recheckedParents = await inspectCanonicalParentChain(projectRoot, parentSegments, relativePath);
+        if (!recheckedParents.ok) {
+            return { kind: recheckedParents.kind, path, relativePath, reason: recheckedParents.reason };
+        }
         return { kind: "loaded", path, relativePath, markdown, attrs };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
