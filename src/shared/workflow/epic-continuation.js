@@ -16,7 +16,7 @@ import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { runValidationLoop } from "./validation.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 
-const TERMINAL_CHILD_STATUSES = new Set(["verified", "closed_without_verification"]);
+const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 
 /**
  * @typedef {Object} EpicContinuationChild
@@ -42,7 +42,10 @@ const TERMINAL_CHILD_STATUSES = new Set(["verified", "closed_without_verificatio
  */
 function isActiveProjectEpic(attrs) {
     if (attrs?.classification !== "PROJECT") return false;
-    if (attrs.status === "on_hold" || attrs.status === "verified" || attrs.status === "closed_without_verification") {
+    if (
+        attrs.status === "on_hold" || attrs.status === "verified" || attrs.status === "user_verified" ||
+        attrs.status === "closed_without_verification"
+    ) {
         return false;
     }
     return attrs.epicCompletionMode !== "done_enough";
@@ -74,8 +77,8 @@ export async function resolveEpicContinuation({ cwd, completedPlanName, __deps =
     const resolveDependenciesImpl = __deps.resolveSiblingChildPlanDependencies || resolveSiblingChildPlanDependencies;
     const completed = await loadPlanImpl(cwd, completedPlanName);
     if (!completed) return { kind: "none", reason: "completed_plan_missing", completedPlanName };
-    if (completed.attrs.classification !== "FEATURE" || completed.attrs.status !== "verified") {
-        return { kind: "none", reason: "completed_plan_not_verified_child_feature", completedPlanName };
+    if (completed.attrs.classification !== "FEATURE" || !TERMINAL_CHILD_STATUSES.has(completed.attrs.status)) {
+        return { kind: "none", reason: "completed_plan_not_completed_child_feature", completedPlanName };
     }
     const parentPlanName = typeof completed.attrs.parentPlan === "string" ? completed.attrs.parentPlan.trim() : "";
     if (!parentPlanName) return { kind: "none", reason: "completed_plan_has_no_parent_epic", completedPlanName };
@@ -115,7 +118,9 @@ export async function resolveEpicContinuation({ cwd, completedPlanName, __deps =
     }
 
     const dependencies = await resolveDependenciesImpl(cwd, parentPlanName, next.attrs.dependencies || []);
-    const unmet = dependencies.find((dependency) => dependency.state !== "verified");
+    const unmet = dependencies.find((dependency) =>
+        dependency.state !== "verified" && dependency.state !== "user_verified"
+    );
     if (unmet) {
         return {
             kind: "blocked",

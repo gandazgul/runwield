@@ -10,11 +10,12 @@ import {
 /**
  * @typedef {Object} PlanLifecycleActionIntent
  * @property {string} planId
- * @property {"move_status"|"close_without_verification"|"put_on_hold"|"resume_from_hold"|"reset_to_draft"} action
+ * @property {"move_status"|"user_verify"|"close_without_verification"|"put_on_hold"|"resume_from_hold"|"reset_to_draft"} action
  * @property {string} [fromStatus]
  * @property {string} [targetStatus]
  * @property {string} [holdReason]
  * @property {string} [closedWithoutVerificationReason]
+ * @property {string} [userVerificationNote]
  * @property {boolean} [acceptResumeWarnings]
  */
 
@@ -37,6 +38,13 @@ import {
  * @property {string} planId
  * @property {string} fromStatus
  * @property {?string} reason
+ */
+
+/**
+ * @typedef {Object} UserVerifyIntentOptions
+ * @property {string} planId
+ * @property {string} fromStatus
+ * @property {?string} note
  */
 
 /**
@@ -64,6 +72,22 @@ export function createMoveStatusIntent({ planId, fromStatus, toStatus }) {
 export function createPutOnHoldIntent({ planId, fromStatus, holdReason }) {
     if (holdReason === null) return null;
     return { planId, fromStatus, action: PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD, holdReason };
+}
+
+/**
+ * @param {UserVerifyIntentOptions} opts
+ * @returns {?PlanLifecycleActionIntent}
+ */
+export function createUserVerifyIntent({ planId, fromStatus, note }) {
+    if (note === null) return null;
+    const userVerificationNote = String(note || "").trim();
+    if (!userVerificationNote) return null;
+    return {
+        planId,
+        fromStatus,
+        action: PLAN_LIFECYCLE_ACTIONS.USER_VERIFY,
+        userVerificationNote,
+    };
 }
 
 /**
@@ -171,6 +195,24 @@ export function PlanLifecycleActions({
         if (intent) submit(intent);
     }
 
+    function userVerify() {
+        const note = prompt(
+            "Required user verification note. This records your attestation and does not claim RunWield Workflow Validation.",
+            plan.userVerificationNote || "",
+        );
+        if (note === null) return;
+        const intent = createUserVerifyIntent({
+            planId: plan.planId,
+            fromStatus: plan.status,
+            note,
+        });
+        if (!intent) {
+            setMessage("A User Verification note is required.");
+            return;
+        }
+        submit(intent);
+    }
+
     function closeWithoutVerification() {
         const reason = prompt(
             "Required reason for closing without RunWield Workflow Validation.",
@@ -190,6 +232,7 @@ export function PlanLifecycleActions({
     }
 
     const putOnHoldLabel = lifecycleActionLabel(actions, PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD);
+    const userVerifyLabel = lifecycleActionLabel(actions, PLAN_LIFECYCLE_ACTIONS.USER_VERIFY);
     const closeWithoutVerificationLabel = lifecycleActionLabel(
         actions,
         PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION,
@@ -198,11 +241,12 @@ export function PlanLifecycleActions({
     const resetToDraftLabel = lifecycleActionLabel(actions, PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT);
 
     const canShowPutOnHold = showPutOnHold && actions.canPutOnHold;
+    const canShowUserVerify = !putOnHoldOnly && actions.canUserVerify;
     const canShowCloseWithoutVerification = !putOnHoldOnly && actions.canCloseWithoutVerification;
     const canShowResumeFromHold = !putOnHoldOnly && actions.canResumeFromHold;
     const canShowResetToDraft = !putOnHoldOnly && actions.canResetToDraft;
     const hasStatusMoveControls = !putOnHoldOnly && showStatusMoves && actions.manualTargetOptions?.length;
-    const hasPrimaryControls = hasStatusMoveControls || canShowCloseWithoutVerification ||
+    const hasPrimaryControls = hasStatusMoveControls || canShowUserVerify || canShowCloseWithoutVerification ||
         canShowPutOnHold || canShowResumeFromHold || canShowResetToDraft;
 
     if (putOnHoldOnly && !canShowPutOnHold) return null;
@@ -248,6 +292,19 @@ export function PlanLifecycleActions({
                                     onClick={hold}
                                 >
                                     {putOnHoldLabel}
+                                </RunWieldButton>
+                            )
+                            : null}
+                        {canShowUserVerify
+                            ? (
+                                <RunWieldButton
+                                    type="button"
+                                    variant="primary"
+                                    className="lifecycle-action"
+                                    disabled={disabled}
+                                    onClick={userVerify}
+                                >
+                                    {userVerifyLabel}
                                 </RunWieldButton>
                             )
                             : null}

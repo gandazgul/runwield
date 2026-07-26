@@ -513,3 +513,10 @@ Future Core metrics:
   validation, and recovery paths.
 - Owner coordination state can be reconstructed conservatively from canonical Projects, transcript catalogs, Plan files,
   and worktree evidence without deleting source, Plans, Work Records, worktrees, or Session Transcripts.
+
+### User Verified Plan lifecycle outcome
+
+RunWield supports terminal Plan Status `user_verified` via Plan Event `manual_user_verified`. The event requires
+`userVerificationNote`, records `userVerifiedAt`, never records `verifiedAt` or synthesized Delivery Evidence, satisfies
+dependencies/Epic completion with distinct User Verified labels, and is archive-eligible subject to existing
+recoverable-worktree guards.

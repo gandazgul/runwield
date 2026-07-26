@@ -132,7 +132,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
  * @property {string} [planId] - Durable project-scoped resource identity for Workspace URLs
- * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} status
+ * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} status
  * @property {"internal"|"external"} [origin] - "internal" = created by a RunWield agent; "external" = a pre-existing markdown file loaded from an arbitrary path and resumed with RunWield
  * @property {string} [parentPlan] - Canonical parent plan name for child FEATURE plans
  * @property {number} [order] - Epic child FEATURE execution order.
@@ -141,6 +141,8 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [failedAt] - ISO timestamp when execution failed
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
  * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
+ * @property {string|null} [userVerifiedAt] - ISO timestamp when the user attested verification outside Workflow Validation
+ * @property {string|null} [userVerificationNote] - Required note for user_verified terminal plans
  * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
  * @property {string|null} [executionReport] - Latest task_completed Markdown report captured when implementation finished
  * @property {{ status?: "generated"|"failed", recordId?: string, path?: string, lastAttemptAt?: string, error?: string }} [workRecord] - Neutral backlink to canonical Work Record generation state
@@ -391,6 +393,8 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failedAt, fm.failedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.implementedAt, fm.implementedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.verifiedAt, fm.verifiedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerifiedAt, fm.userVerifiedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerificationNote, fm.userVerificationNote);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationReason, fm.closedWithoutVerificationReason);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionReport, fm.executionReport);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workRecord, fm.workRecord);
@@ -454,6 +458,7 @@ const PLAN_STATUSES = new Set([
     "failed",
     "implemented",
     "verified",
+    "user_verified",
     "closed_without_verification",
     "on_hold",
 ]);
@@ -468,7 +473,8 @@ const PLAN_LIST_STATUS_ORDER = new Map([
     ["approved", 6],
     ["in_progress", 7],
     ["verified", 8],
-    ["closed_without_verification", 9],
+    ["user_verified", 9],
+    ["closed_without_verification", 10],
     ["on_hold", 10],
 ]);
 
@@ -491,6 +497,26 @@ function normalizePlanStatus(status) {
         return /** @type {PlanFrontMatter["status"]} */ (status);
     }
     return DEFAULT_FRONT_MATTER.status;
+}
+
+/** @param {string | undefined | null} status */
+export function isRunWieldVerifiedStatus(status) {
+    return status === "verified";
+}
+
+/** @param {string | undefined | null} status */
+export function isUserVerifiedStatus(status) {
+    return status === "user_verified";
+}
+
+/** @param {string | undefined | null} status */
+export function isPlanDependencySatisfiedStatus(status) {
+    return status === "verified" || status === "user_verified";
+}
+
+/** @param {string | undefined | null} status */
+export function isCompletedPlanStatus(status) {
+    return status === "verified" || status === "user_verified" || status === "closed_without_verification";
 }
 
 /**
@@ -1023,6 +1049,10 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             failedAt: attrs.failedAt,
             implementedAt: attrs.implementedAt,
             verifiedAt: attrs.verifiedAt,
+            userVerifiedAt: attrs.userVerifiedAt,
+            userVerificationNote: typeof attrs.userVerificationNote === "string"
+                ? attrs.userVerificationNote
+                : undefined,
             closedWithoutVerificationReason: typeof attrs.closedWithoutVerificationReason === "string"
                 ? attrs.closedWithoutVerificationReason
                 : undefined,
@@ -1797,7 +1827,7 @@ export async function listPlans(cwd) {
 }
 
 const ARCHIVED_DIR_NAME = "archived";
-const TERMINAL_ARCHIVABLE_STATUSES = new Set(["verified", "closed_without_verification"]);
+const TERMINAL_ARCHIVABLE_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 const RECOVERABLE_WORKTREE_STATUSES = new Set(["active", "execution_failed", "validation_failed", "merge_conflict"]);
 
 /**
@@ -1929,7 +1959,7 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     const status = source.attrs.status;
     if (!TERMINAL_ARCHIVABLE_STATUSES.has(status) && !options.force) {
         throw new Error(
-            `Cannot archive ${source.name} with status ${status} without --force. Only verified and closed_without_verification archive by default.`,
+            `Cannot archive ${source.name} with status ${status} without --force. Only verified, user_verified, and closed_without_verification archive by default.`,
         );
     }
 
@@ -2476,7 +2506,7 @@ export async function findPlansByParent(cwd, parentPlan) {
  * @param {string} parentPlan
  * @param {unknown} dependencies
  * @param {Array<{ name: string, planName?: string, planId?: string, path?: string, attrs?: any, status?: string }>} siblings
- * @returns {Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>}
+ * @returns {Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "user_verified" | "unverified" | "missing" }>}
  */
 export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies, siblings) {
     const { name: parentPlanName } = canonicalizeStoredPlanName(parentPlan);
@@ -2525,7 +2555,11 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
         };
         return {
             ...resolved,
-            state: status === "verified" ? /** @type {const} */ ("verified") : /** @type {const} */ ("unverified"),
+            state: status === "verified"
+                ? /** @type {const} */ ("verified")
+                : status === "user_verified"
+                ? /** @type {const} */ ("user_verified")
+                : /** @type {const} */ ("unverified"),
         };
     });
 }
@@ -2536,7 +2570,7 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
  * @param {string} cwd
  * @param {string} parentPlan
  * @param {unknown} dependencies
- * @returns {Promise<Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>>}
+ * @returns {Promise<Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "user_verified" | "unverified" | "missing" }>>}
  */
 export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, dependencies) {
     const { name: parentPlanName } = canonicalizeStoredPlanName(parentPlan);
@@ -2604,7 +2638,7 @@ export function groupPlanHierarchy(plans) {
 
 /**
  * @param {Array<{ attrs?: any, status?: string }>} children
- * @returns {{ verified: number, active: number, failed: number, onHold: number, remaining: number, total: number, byStatus: Record<string, number> }}
+ * @returns {{ verified: number, userVerified: number, completed: number, active: number, failed: number, onHold: number, remaining: number, total: number, byStatus: Record<string, number> }}
  */
 export function countChildPlanProgress(children) {
     /** @type {Record<string, number>} */
@@ -2614,12 +2648,14 @@ export function countChildPlanProgress(children) {
         byStatus[status] = (byStatus[status] || 0) + 1;
     }
     const verified = byStatus.verified || 0;
+    const userVerified = byStatus.user_verified || 0;
+    const completed = verified + userVerified;
     const active = (byStatus.in_progress || 0) + (byStatus.implemented || 0);
     const failed = byStatus.failed || 0;
     const onHold = byStatus.on_hold || 0;
     const total = children.length;
-    const remaining = total - verified - active - failed - onHold;
-    return { verified, active, failed, onHold, remaining, total, byStatus };
+    const remaining = total - completed - active - failed - onHold;
+    return { verified, userVerified, completed, active, failed, onHold, remaining, total, byStatus };
 }
 
 /**
