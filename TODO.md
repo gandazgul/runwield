@@ -29,6 +29,8 @@
       engineer's task_completed result.
 - [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens
       unavailable · cost unavailable"
+- [ ] silly message just say nothing if its not an epic: RunWield Epic continuation complete:
+      completed_plan_has_no_parent_epic.
 
 ## Backlog
 
