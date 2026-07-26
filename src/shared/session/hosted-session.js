@@ -111,6 +111,11 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {import('./workflow-context-session.js').WorkflowContext | null} workflowContext
  */
 
+/**
+ * @typedef {Object} PendingManagedTurnIntent
+ * @property {string} [agentName]
+ */
+
 /** @param {unknown} value */
 function getSessionManagerId(value) {
     if (!value || typeof value !== "object" || !("getSessionId" in value) || typeof value.getSessionId !== "function") {
@@ -203,6 +208,8 @@ export class HostedSession {
         this.activeTurnId = null;
         /** @type {ManagedSessionMetadata | null} */
         this.managed = options.managed || null;
+        /** @type {PendingManagedTurnIntent} */
+        this.pendingManagedTurnIntent = {};
     }
 
     assertActive() {
@@ -325,6 +332,23 @@ export class HostedSession {
 
     getManagedMetadata() {
         return this.managed ? { ...this.managed } : null;
+    }
+
+    /** @param {PendingManagedTurnIntent} intent */
+    mergePendingManagedTurnIntent(intent) {
+        this.assertActive();
+        this.pendingManagedTurnIntent = { ...this.pendingManagedTurnIntent, ...intent };
+    }
+
+    getPendingManagedTurnIntent() {
+        return { ...this.pendingManagedTurnIntent };
+    }
+
+    consumePendingManagedTurnIntent() {
+        this.assertActive();
+        const intent = { ...this.pendingManagedTurnIntent };
+        this.pendingManagedTurnIntent = {};
+        return intent;
     }
 
     dehydrateManagedSession() {

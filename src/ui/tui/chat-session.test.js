@@ -58,6 +58,37 @@ Deno.test("new TUI Sessions defer managed activation until after model onboardin
     assertEquals(modelWelcomeIndex < switchAgentIndex, true);
 });
 
+Deno.test("startup boot banner renders before managed agent activation can block it", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const bootBannerIndex = source.indexOf("await renderBootBanner({");
+    const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
+    const switchAgentIndex = source.indexOf("await sessionRuntime.switchAgent(sessionId, {");
+
+    assertEquals(bootBannerIndex >= 0, true);
+    assertEquals(modelWelcomeIndex >= 0, true);
+    assertEquals(switchAgentIndex >= 0, true);
+    assertEquals(bootBannerIndex < modelWelcomeIndex, true);
+    assertEquals(bootBannerIndex < switchAgentIndex, true);
+});
+
+Deno.test("pasted images remain pending when managed startup is dormant", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const pasteHandlerIndex = source.indexOf("async function handleImagePaste(image)");
+    const persistIndex = source.indexOf("sessionRuntime.persistSessionImage(sessionId, image)", pasteHandlerIndex);
+    const dormantFallbackIndex = source.indexOf('message.includes("no active session is available")', persistIndex);
+    const preflightIndex = source.indexOf(
+        "const preflight = await preflightCurrentImages([attachment]);",
+        persistIndex,
+    );
+    const returnIndex = source.indexOf("return attachment;", preflightIndex);
+
+    assertEquals(pasteHandlerIndex >= 0, true);
+    assertEquals(persistIndex > pasteHandlerIndex, true);
+    assertEquals(dormantFallbackIndex > persistIndex, true);
+    assertEquals(preflightIndex > dormantFallbackIndex, true);
+    assertEquals(returnIndex > preflightIndex, true);
+});
+
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
