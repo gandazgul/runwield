@@ -22,11 +22,33 @@ let pathPromise = null;
 /** @param {string} sourceDir @param {string} destinationDir */
 async function copyTreeFromBundle(sourceDir, destinationDir) {
     await Deno.mkdir(destinationDir, { recursive: true });
+    const currentEntries = new Set();
     for await (const entry of Deno.readDir(sourceDir)) {
+        currentEntries.add(entry.name);
         const sourcePath = join(sourceDir, entry.name);
         const destinationPath = join(destinationDir, entry.name);
-        if (entry.isDirectory) await copyTreeFromBundle(sourcePath, destinationPath);
-        else if (entry.isFile) await Deno.writeFile(destinationPath, await Deno.readFile(sourcePath));
+        if (entry.isDirectory) {
+            try {
+                const destinationStat = await Deno.stat(destinationPath);
+                if (!destinationStat.isDirectory) await Deno.remove(destinationPath, { recursive: true });
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
+            await copyTreeFromBundle(sourcePath, destinationPath);
+        } else if (entry.isFile) {
+            try {
+                const destinationStat = await Deno.stat(destinationPath);
+                if (destinationStat.isDirectory) await Deno.remove(destinationPath, { recursive: true });
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
+            await Deno.writeFile(destinationPath, await Deno.readFile(sourcePath));
+        }
+    }
+
+    for await (const entry of Deno.readDir(destinationDir)) {
+        if (currentEntries.has(entry.name)) continue;
+        await Deno.remove(join(destinationDir, entry.name), { recursive: true });
     }
 }
 

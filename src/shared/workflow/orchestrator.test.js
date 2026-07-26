@@ -246,6 +246,7 @@ orchestratorTest(
             sessionManager: undefined,
             __deps: /** @type {any} */ ({
                 createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+                probeGitRepository: () => Promise.resolve({ ok: true, state: "clean", cwd: Deno.cwd() }),
                 readLatestTaskCompletedOutcome: () => true,
                 runRootTurn: (/** @type {any} */ args) => {
                     rootTurns.push(args.agentName);
@@ -405,6 +406,7 @@ orchestratorTest(
             sessionManager: undefined,
             __deps: /** @type {any} */ ({
                 createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+                probeGitRepository: () => Promise.resolve({ ok: true, state: "clean", cwd: Deno.cwd() }),
                 readLatestTaskCompletedOutcome: () => null,
                 runRootTurn: () => Promise.resolve([]),
                 runMechanicalValidation: () => {

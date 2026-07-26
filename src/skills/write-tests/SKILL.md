@@ -48,7 +48,16 @@ behavior.
    - Do not invent tests for behaviors that were not requested unless they protect against evidenced regression risk.
    - One test = one focused behavior. Do not combine multiple scenarios into a single assertion block.
 
-3. **Know what not to test**
+3. **Shape the test module around one behavioral domain**
+   - Before appending to an existing file, inspect what contracts it already owns and whether it is becoming a
+     mixed-responsibility or serial-critical module.
+   - Group tests by behavioral/domain contract, not by convenience of shared setup.
+   - If unrelated behaviors are colocated or one module is concentrating the runner's critical path, split the module
+     first and extract only fixtures that are safe to use in parallel.
+   - This step is complete when every changed test has one clear domain home and unrelated behavior is not colocated
+     merely to reuse setup.
+
+4. **Know what not to test**
    - Implementation details (private functions, internal state transitions not exposed through the interface)
    - Trivial delegation (a function that simply passes through to another function)
    - Third-party library behavior (assume the library works, test that your code uses it correctly)
