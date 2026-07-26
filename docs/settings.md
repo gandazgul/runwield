@@ -349,7 +349,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
-| `notifications`                            | object            | enabled by default                              | global + project | Desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts when the host platform has a supported notifier.                                                                                                        |
+| `notifications`                            | object            | enabled by default                              | global + project | Terminal bell and desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts. Desktop banners require a supported notifier; terminal BEL is TUI-only.                                                              |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                                                                                        |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                                                                                           |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
@@ -429,22 +429,26 @@ Example:
 
 ### `notifications`
 
-`notifications` controls desktop attention notifications. RunWield sends these when an agent stops and returns control
+`notifications` controls TUI attention notifications. RunWield sends these when an agent stops and returns control
 without an automated continuation, when `plan_written` starts plan review/approval, and when `user_interview` starts a
 structured prompt.
 
 Defaults:
 
-- `enabled`: `true`; if the platform has no supported notifier, RunWield silently skips notifications.
-- `activation`: `tab`; notification clicks try exact tab/pane activation where the terminal supports it, then fall back
-  to activating the terminal app or showing session context in the notification.
+- `enabled`: `true`; disables both terminal BEL and desktop notification delivery when set to `false`.
+- `terminalBell`: `true`; emits one ASCII BEL byte from the RunWield TUI for each enabled attention event. Your terminal
+  emulator and multiplexer settings decide whether that becomes a sound, visual flash, urgency marker, tab badge, or no
+  visible effect.
+- `activation`: `tab`; desktop notification clicks try exact tab/pane activation where the terminal supports it, then
+  fall back to activating the terminal app or showing session context in the notification.
 - `events.agentStopped`, `events.planWritten`, `events.userInterview`: all `true`.
 
 macOS click-to-return support uses the optional `terminal-notifier` command when it is installed. Without it, RunWield
 can still use system notifications where available, but those notifications may not run a click action. Exact tab
 activation is terminal-specific: Terminal.app and iTerm2 can use the current TTY, WezTerm can use its pane id, and Kitty
 requires remote-control environment support; otherwise the notification includes the RunWield session name so you can
-identify the source manually.
+identify the source manually. Desktop notification commands do not request their own sound; RunWield uses terminal BEL
+for audio/tab attention so one event does not request duplicate sounds.
 
 Example:
 
@@ -452,12 +456,23 @@ Example:
 {
     "notifications": {
         "enabled": true,
+        "terminalBell": true,
         "activation": "tab",
         "events": {
             "agentStopped": true,
             "planWritten": true,
             "userInterview": true
         }
+    }
+}
+```
+
+To suppress all BEL-derived terminal effects while keeping desktop notifications:
+
+```jsonc
+{
+    "notifications": {
+        "terminalBell": false
     }
 }
 ```

@@ -34,6 +34,24 @@ function makeCommandRecorder(existingCommands = {}) {
     };
 }
 
+/**
+ * @param {{ throwOnWrite?: boolean }} [options]
+ * @returns {{ writes: number[][], writeTerminal: (bytes: Uint8Array) => void }}
+ */
+function makeTerminalWriter(options = {}) {
+    /** @type {number[][]} */
+    const writes = [];
+    return {
+        writes,
+        writeTerminal(bytes) {
+            writes.push([...bytes]);
+            if (options.throwOnWrite) {
+                throw new Error("bell failed");
+            }
+        },
+    };
+}
+
 Deno.test("resolveNotificationSettings defaults on and normalizes malformed values", () => {
     assertEquals(resolveNotificationSettings(undefined), {
         enabled: true,
@@ -43,6 +61,7 @@ Deno.test("resolveNotificationSettings defaults on and normalizes malformed valu
             planWritten: true,
             userInterview: true,
         },
+        terminalBell: true,
     });
 
     assertEquals(
@@ -55,6 +74,21 @@ Deno.test("resolveNotificationSettings defaults on and normalizes malformed valu
                 planWritten: false,
                 userInterview: true,
             },
+            terminalBell: true,
+        },
+    );
+
+    assertEquals(
+        resolveNotificationSettings({ terminalBell: false }),
+        {
+            enabled: true,
+            activation: "tab",
+            events: {
+                agentStopped: true,
+                planWritten: true,
+                userInterview: true,
+            },
+            terminalBell: false,
         },
     );
 });
@@ -71,6 +105,7 @@ Deno.test("detectTerminalIdentity captures tty and terminal environment", async 
         pid: 42,
         getMergedCustomSetting: () => undefined,
         runCommand: commands.runCommand,
+        writeTerminal: () => {},
     });
 
     assertEquals(identity.sessionLabel, "demo");
@@ -170,12 +205,14 @@ Deno.test("buildNotificationCommand uses terminal-notifier with click execute wh
         pid: 1,
         getMergedCustomSetting: () => undefined,
         runCommand: commands.runCommand,
+        writeTerminal: () => {},
     });
 
     assert(command);
     assertEquals(command.cmd, "terminal-notifier");
     assert(command.args.includes("-execute"));
     assert(command.args.includes("-message"));
+    assertEquals(command.args.includes("-sound"), false);
     assertStringIncludes(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-");
     assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "/dev/ttys123");
     assertEquals(command.args[command.args.indexOf("-sender") + 1], "com.apple.Terminal");
@@ -195,14 +232,19 @@ Deno.test("buildNotificationCommand falls back to osascript notification", async
         pid: 1,
         getMergedCustomSetting: () => undefined,
         runCommand: commands.runCommand,
+        writeTerminal: () => {},
     });
 
     assert(command);
     assertEquals(command.cmd, "osascript");
     assertStringIncludes(command.args.join(" "), "display notification");
+    assertEquals(command.args.join(" ").includes("beep"), false);
+    assertEquals(command.args.join(" ").includes("sound"), false);
 });
 
-Deno.test("notifyRunWieldEvent returns unsupported on non-macOS and respects disabled events", async () => {
+Deno.test("notifyRunWieldEvent emits terminal bell on non-macOS and respects disabled events", async () => {
+    const unsupportedCommands = makeCommandRecorder();
+    const unsupportedBell = makeTerminalWriter();
     const unsupported = await notifyRunWieldEvent("agentStopped", {
         sessionName: "demo",
         __deps: {
@@ -210,12 +252,18 @@ Deno.test("notifyRunWieldEvent returns unsupported on non-macOS and respects dis
             env: {},
             pid: 1,
             getMergedCustomSetting: () => undefined,
-            runCommand: makeCommandRecorder().runCommand,
+            runCommand: unsupportedCommands.runCommand,
+            writeTerminal: unsupportedBell.writeTerminal,
         },
     });
     assertEquals(unsupported.sent, false);
     assertEquals(unsupported.reason, "unsupported");
+    assertEquals(unsupported.terminalBellEmitted, true);
+    assertEquals(unsupportedBell.writes, [[7]]);
+    assertEquals(unsupportedCommands.calls.filter((call) => call.cmd === "tty").length, 1);
 
+    const disabledCommands = makeCommandRecorder({ osascript: true });
+    const disabledBell = makeTerminalWriter();
     const disabled = await notifyRunWieldEvent("planWritten", {
         sessionName: "demo",
         __deps: {
@@ -223,15 +271,20 @@ Deno.test("notifyRunWieldEvent returns unsupported on non-macOS and respects dis
             env: {},
             pid: 1,
             getMergedCustomSetting: () => ({ events: { planWritten: false } }),
-            runCommand: makeCommandRecorder({ osascript: true }).runCommand,
+            runCommand: disabledCommands.runCommand,
+            writeTerminal: disabledBell.writeTerminal,
         },
     });
     assertEquals(disabled.sent, false);
     assertEquals(disabled.reason, "event_disabled");
+    assertEquals(disabled.terminalBellEmitted, false);
+    assertEquals(disabledBell.writes, []);
+    assertEquals(disabledCommands.calls, []);
 });
 
 Deno.test("notifyRunWieldEvent falls back to osascript when terminal-notifier command fails", async () => {
     const commands = makeCommandRecorder({ "terminal-notifier": "fail", osascript: true });
+    const bell = makeTerminalWriter();
     const result = await notifyRunWieldEvent("agentStopped", {
         sessionName: "demo",
         __deps: {
@@ -240,16 +293,105 @@ Deno.test("notifyRunWieldEvent falls back to osascript when terminal-notifier co
             pid: 1,
             getMergedCustomSetting: () => undefined,
             runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
         },
     });
 
     assertEquals(result.sent, true);
     assertEquals(result.reason, "sent:terminal_notifier_failed");
     assertEquals(result.command?.cmd, "osascript");
+    assertEquals(result.terminalBellEmitted, true);
+    assertEquals(bell.writes, [[7]]);
+    assertEquals(result.command?.args.join(" ").includes("beep"), false);
+    assertEquals(result.command?.args.join(" ").includes("sound"), false);
+});
+
+Deno.test("notifyRunWieldEvent terminalBell false preserves desktop delivery", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("userInterview", {
+        sessionName: "silent bell",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => ({ activation: "none", terminalBell: false }),
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.sent, true);
+    assertEquals(result.reason, "sent");
+    assertEquals(result.command?.cmd, "osascript");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(bell.writes, []);
+});
+
+Deno.test("notifyRunWieldEvent skips bell, tty lookup, and desktop attempts for disabled or unknown events", async () => {
+    const disabledCommands = makeCommandRecorder({ osascript: true });
+    const disabledBell = makeTerminalWriter();
+    const disabled = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "disabled",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => ({ enabled: false }),
+            runCommand: disabledCommands.runCommand,
+            writeTerminal: disabledBell.writeTerminal,
+        },
+    });
+
+    assertEquals(disabled.reason, "disabled");
+    assertEquals(disabled.terminalBellEmitted, false);
+    assertEquals(disabledBell.writes, []);
+    assertEquals(disabledCommands.calls, []);
+
+    const unknownCommands = makeCommandRecorder({ osascript: true });
+    const unknownBell = makeTerminalWriter();
+    const unknown = await notifyRunWieldEvent(/** @type {any} */ ("unknown"), {
+        sessionName: "unknown",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            runCommand: unknownCommands.runCommand,
+            writeTerminal: unknownBell.writeTerminal,
+        },
+    });
+
+    assertEquals(unknown.reason, "unknown_event");
+    assertEquals(unknown.terminalBellEmitted, false);
+    assertEquals(unknownBell.writes, []);
+    assertEquals(unknownCommands.calls, []);
+});
+
+Deno.test("notifyRunWieldEvent isolates terminal bell write failures from desktop delivery", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter({ throwOnWrite: true });
+    const result = await notifyRunWieldEvent("planWritten", {
+        sessionName: "bell failure",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => ({ activation: "none" }),
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.sent, true);
+    assertEquals(result.reason, "sent");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(bell.writes, [[7]]);
 });
 
 Deno.test("notifyRunWieldEvent includes session and agent context in sent notification", async () => {
     const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter();
     const result = await notifyRunWieldEvent("userInterview", {
         sessionName: "feature x",
         agentName: "Planner",
@@ -259,6 +401,7 @@ Deno.test("notifyRunWieldEvent includes session and agent context in sent notifi
             pid: 1,
             getMergedCustomSetting: () => ({ activation: "none" }),
             runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
         },
     });
 
@@ -267,4 +410,6 @@ Deno.test("notifyRunWieldEvent includes session and agent context in sent notifi
     assertStringIncludes(result.title, "Planner");
     assertStringIncludes(result.title, "feature x");
     assertStringIncludes(result.message, "wld - feature x");
+    assertEquals(result.terminalBellEmitted, true);
+    assertEquals(bell.writes, [[7]]);
 });
