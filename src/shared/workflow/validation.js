@@ -1059,6 +1059,17 @@ export function shouldRunWorkflowValidation(triageMeta) {
 }
 
 /**
+ * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @returns {boolean}
+ */
+export function shouldContinueParentEpicAfterValidation(triageMeta) {
+    const parentPlan = /** @type {{ parentPlan?: unknown }} */ (triageMeta || {}).parentPlan;
+    return triageMeta?.classification === "FEATURE" &&
+        typeof parentPlan === "string" &&
+        parentPlan.trim().length > 0;
+}
+
+/**
  * No-plan Mechanical Validation for direct QUICK_FIX work. Runs configured local
  * CI and sends failures back to Engineer, without Plan lifecycle, semantic
  * review, code review, implementation diff checks, worktree merge-back, or
@@ -3080,7 +3091,7 @@ export async function runValidationLoop({
             planName,
             projectRoot,
             classification: triageMeta?.classification,
-            ...(triageMeta?.classification === "FEATURE"
+            ...(shouldContinueParentEpicAfterValidation(triageMeta)
                 ? { epicContinuation: { completedPlanName: planName, projectRoot } }
                 : {}),
         });
