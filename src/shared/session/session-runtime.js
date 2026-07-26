@@ -2558,6 +2558,7 @@ export class SessionRuntime {
             }
             this.clearQueuedMessages(session.id, "session_cancel");
             agentCanceled = this.#abortActiveSession(session);
+            if (agentCanceled) session.suppressNextAgentStoppedAttention();
             aborted = operationCanceled || agentCanceled;
         } finally {
             this.#emitSessionEvent(session.id, {

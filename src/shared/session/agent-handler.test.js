@@ -1036,6 +1036,27 @@ Deno.test("agent-handler requests attention when an ordinary turn returns contro
     assertEquals(attentions[0].agentName, "planner");
 });
 
+Deno.test("agent-handler suppresses agent-stopped attention after user cancellation", async () => {
+    let attentionCount = 0;
+    const hostedSession = makeHostedSession();
+    hostedSession.suppressNextAgentStoppedAttention();
+    const handler = createAgentHandler("planner", {
+        hostedSession,
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestTriageOutcome: () => null,
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => false,
+        requestAttention: () => {
+            attentionCount++;
+        },
+    });
+
+    await handler("cancelled", [], /** @type {any} */ ({}));
+    await handler("next ordinary turn", [], /** @type {any} */ ({}));
+
+    assertEquals(attentionCount, 1);
+});
+
 Deno.test("agent-handler does not request agent-stopped attention before triage dispatch", async () => {
     let attentionCount = 0;
     const handler = createAgentHandler("router", {
