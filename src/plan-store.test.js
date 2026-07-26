@@ -10,6 +10,7 @@ import {
     findPlanById,
     findPlansByParent,
     getPlansDir,
+    getStoredPlanPath,
     groupPlanHierarchy,
     hashPlanBody,
     injectFrontMatter,
@@ -51,6 +52,18 @@ import {
 function testWithFs(name, fn) {
     Deno.test({ name, permissions: { read: true, write: true }, fn });
 }
+
+Deno.test("getStoredPlanPath resolves canonical top-level and nested plan paths", () => {
+    assertEquals(getStoredPlanPath("/project", "demo"), "/project/plans/demo.md");
+    assertEquals(getStoredPlanPath("/project", "demo.md"), "/project/plans/demo.md");
+    assertEquals(getStoredPlanPath("/project", "epic/child.md"), "/project/plans/epic/child.md");
+});
+
+Deno.test("getStoredPlanPath rejects escaping or ambiguous plan names", () => {
+    for (const name of ["", "/tmp/demo", "epic//child", "epic/./child", "epic/../child", "../demo"]) {
+        assertThrows(() => getStoredPlanPath("/project", name));
+    }
+});
 
 Deno.test("front matter key constants expose canonical planning metadata order", () => {
     assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");

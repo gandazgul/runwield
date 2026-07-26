@@ -80,6 +80,8 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
                     }),
                 );
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "restored", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree1"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -128,6 +130,8 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
                     }),
                 );
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "restored", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree2"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -171,6 +175,8 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
                 createCalls++;
                 return Promise.reject(new Error("should reuse recorded worktree"));
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "present", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree-main"),
             updateWorktreeRegistryEntry: (projectRoot, id, updates) => {
                 registryUpdates.push({ projectRoot, id, updates });
@@ -257,6 +263,8 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
                 createCalls++;
                 return Promise.reject(new Error("should not create"));
             },
+            prepareExecutionPlanFile: () =>
+                Promise.resolve({ kind: "present", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree4"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),

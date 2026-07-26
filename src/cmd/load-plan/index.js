@@ -889,6 +889,13 @@ async function validateCompletedExecution(
         }
         throw new Error(resolution.message);
     }
+    if (resolution.restoredPlanFile && uiAPI) {
+        uiAPI.appendSystemMessage(
+            `Restored missing execution worktree Plan file from the canonical Project Plan: ${resolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+            false,
+            "RunWield",
+        );
+    }
     const resolvedContext = resolution.context;
     /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, executionMode?: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, worktreeBaseRef?: string, worktreeBaseCommit?: string, nonGitInPlace?: boolean }} */
     const workflow = {
@@ -1378,6 +1385,13 @@ async function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, sessi
                 return false;
             }
             throw new Error(resolution.message);
+        }
+        if (resolution.restoredPlanFile && uiAPI) {
+            uiAPI.appendSystemMessage(
+                `Restored missing execution worktree Plan file from the canonical Project Plan: ${resolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+                false,
+                "RunWield",
+            );
         }
         resolvedContext = resolution.context;
     }
@@ -2119,6 +2133,13 @@ async function handlePlanRecovery({
                 );
                 await recordRecoveryResult("merge", "blocked", { reason: manualResolution.reason });
                 continue;
+            }
+            if (manualResolution.restoredPlanFile) {
+                uiAPI.appendSystemMessage(
+                    `Restored missing execution worktree Plan file from the canonical Project Plan: ${manualResolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+                    false,
+                    "RunWield",
+                );
             }
             const manualContext = manualResolution.context;
             if (manualContext.executionMode !== "worktree") {
