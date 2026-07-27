@@ -5,7 +5,7 @@
 
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -1047,7 +1047,7 @@ function hasImplementationDiff(diffText, planName) {
  * @returns {boolean}
  */
 function requiresImplementationDiff(triageMeta) {
-    return triageMeta?.classification === "FEATURE" || triageMeta?.classification === "PROJECT";
+    return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
 }
 
 /**
@@ -1055,7 +1055,7 @@ function requiresImplementationDiff(triageMeta) {
  * @returns {boolean}
  */
 export function shouldRunWorkflowValidation(triageMeta) {
-    return triageMeta?.classification === "FEATURE" || triageMeta?.classification === "PROJECT";
+    return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
 }
 
 /**
@@ -1064,7 +1064,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  */
 export function shouldContinueParentEpicAfterValidation(triageMeta) {
     const parentPlan = /** @type {{ parentPlan?: unknown }} */ (triageMeta || {}).parentPlan;
-    return triageMeta?.classification === "FEATURE" &&
+    return isPlannedChangeClassification(triageMeta?.classification) &&
         typeof parentPlan === "string" &&
         parentPlan.trim().length > 0;
 }
@@ -2926,7 +2926,7 @@ export async function runValidationLoop({
                     },
                 });
             }
-            if (triageMeta?.classification === "FEATURE") {
+            if (isPlannedChangeClassification(triageMeta?.classification)) {
                 progress = updateValidationProgress(progress, {
                     outcome: "running",
                     stage: "manual_qa",

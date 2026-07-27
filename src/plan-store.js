@@ -10,7 +10,14 @@
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, join, relative, resolve } from "@std/path";
-import { CLI_BIN, PLANS_DIR_NAME } from "./constants.js";
+import {
+    CLI_BIN,
+    isPlannedChangeClassification,
+    normalizePlanClassification,
+    normalizeWorkKind,
+    PLANS_DIR_NAME,
+    ROUTING_INTENT_PLANNED_CHANGE,
+} from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
 import {
@@ -129,7 +136,8 @@ export function getStoredPlanPath(cwd, planName) {
 /**
  * @typedef {Object} PlanFrontMatter
  * @property {string} [planId] - Durable project-scoped resource identity for URL/addressable Plan lookup
- * @property {"QUICK_FIX"|"FEATURE"|"PROJECT"} classification
+ * @property {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"|"PROJECT"} classification
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
@@ -211,7 +219,8 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
- * @property {string} content - Planner-format markdown body for the child FEATURE.
+ * @property {string} content - Planner-format markdown body for the child planned change.
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional child Work Kind.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
  * @property {number} [sequence] - Deprecated alias for order.
  */
@@ -223,7 +232,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {"created" | "updated"} action - Whether the derived file existed before this write.
  * @property {string[]} dependencies - Serialized child FEATURE dependencies.
- * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
+ * @property {Partial<PlanFrontMatter> & { classification: "PLANNED_CHANGE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
  */
 
 /**
@@ -231,7 +240,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @type {PlanFrontMatter}
  */
 const DEFAULT_FRONT_MATTER = {
-    classification: "FEATURE",
+    classification: "PLANNED_CHANGE",
     complexity: "MEDIUM",
     summary: "",
     affectedPaths: [],
@@ -383,6 +392,7 @@ function formatFrontMatter(fm) {
     const lines = ["---"];
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.planId, fm.planId);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.classification, fm.classification);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workKind, fm.workKind);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
@@ -491,6 +501,7 @@ const PLAN_LIST_STATUS_ORDER = new Map([
 
 const PLAN_LIST_CLASSIFICATION_ORDER = new Map([
     ["PROJECT", 0],
+    ["PLANNED_CHANGE", 1],
     ["FEATURE", 1],
     ["QUICK_FIX", 2],
 ]);
@@ -588,7 +599,7 @@ function hasExplicitPolicyValue(value) {
  * @returns {PlanExecutionPolicySuccess | PlanExecutionPolicyError}
  */
 export function resolvePlanExecutionPolicy(meta) {
-    const classification = meta.classification || DEFAULT_FRONT_MATTER.classification;
+    const classification = normalizePlanClassification(meta.classification || DEFAULT_FRONT_MATTER.classification);
     const explicitAgent = hasExplicitPolicyValue(meta.executionAgent);
     const explicitRecommendation = hasExplicitPolicyValue(meta.collaborationRecommendation);
     const validAgent = normalizeExecutionAgent(meta.executionAgent);
@@ -634,17 +645,17 @@ export function resolvePlanExecutionPolicy(meta) {
         };
     }
 
-    const isFeature = classification === "FEATURE";
-    const executionAgent = isFeature && validAgent
+    const isPlannedChange = isPlannedChangeClassification(classification);
+    const executionAgent = isPlannedChange && validAgent
         ? validAgent
-        : isFeature && meta.frontend === true
+        : isPlannedChange && meta.frontend === true
         ? "frontend-engineer"
         : "engineer";
-    const source = isFeature && validAgent
+    const source = isPlannedChange && validAgent
         ? "canonical"
-        : isFeature && meta.frontend === true
+        : isPlannedChange && meta.frontend === true
         ? "legacy_frontend"
-        : isFeature && meta.frontend === false
+        : isPlannedChange && meta.frontend === false
         ? "legacy_frontend_false"
         : "absent";
     if (executionAgent === "engineer" && validRecommendation === "pair") {
@@ -890,15 +901,21 @@ export function injectFrontMatter(markdown, overrides = {}) {
         body = b;
     }
 
+    /** @type {PlanFrontMatter} */
     const fm = {
         ...existingFm,
         ...overrides,
         planId: Object.hasOwn(overrides, "planId")
             ? normalizePlanId(overrides.planId)
             : normalizePlanId(existingFm.planId),
-        classification: overrides.classification ??
-            existingFm.classification ??
-            DEFAULT_FRONT_MATTER.classification,
+        classification: normalizePlanClassification(
+            overrides.classification ??
+                existingFm.classification ??
+                DEFAULT_FRONT_MATTER.classification,
+        ),
+        workKind: Object.hasOwn(overrides, "workKind")
+            ? normalizeWorkKind(overrides.workKind)
+            : normalizeWorkKind(existingFm.workKind),
         complexity: overrides.complexity ??
             existingFm.complexity ??
             DEFAULT_FRONT_MATTER.complexity,
@@ -1028,7 +1045,8 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
         attrs: {
             ...sourceAttrs,
             planId: normalizePlanId(attrs.planId),
-            classification: attrs.classification || DEFAULT_FRONT_MATTER.classification,
+            classification: normalizePlanClassification(attrs.classification || DEFAULT_FRONT_MATTER.classification),
+            workKind: normalizeWorkKind(attrs.workKind),
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
@@ -1389,7 +1407,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
         if (seen.has(name)) throw new Error(`Duplicate child plan name: ${name}`);
         seen.add(name);
         const policy = resolvePlanExecutionPolicy({
-            classification: "FEATURE",
+            classification: ROUTING_INTENT_PLANNED_CHANGE,
             executionAgent: child.executionAgent,
             collaborationRecommendation: child.collaborationRecommendation,
             frontend: child.frontend,
@@ -1412,16 +1430,18 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
 
         const dependencies = normalizeStringList(child.dependencies) || [];
         const affectedPaths = normalizeStringList(child.affectedPaths) || [];
-        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} */
+        /** @type {Partial<PlanFrontMatter> & { classification: "PLANNED_CHANGE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} */
         const metadata = {
-            classification: /** @type {const} */ ("FEATURE"),
+            classification: "PLANNED_CHANGE",
             status: /** @type {const} */ ("draft"),
             parentPlan: parentPlanName,
             order: child.order,
             affectedPaths,
         };
+        const workKind = normalizeWorkKind(child.workKind);
+        if (workKind) metadata.workKind = workKind;
         const policyResult = resolvePlanExecutionPolicy({
-            classification: "FEATURE",
+            classification: ROUTING_INTENT_PLANNED_CHANGE,
             executionAgent: child.executionAgent,
             collaborationRecommendation: child.collaborationRecommendation,
             frontend: child.frontend,
@@ -1812,8 +1832,10 @@ export function comparePlansForList(a, b) {
     if (statusDelta !== 0) return statusDelta;
 
     const classificationDelta =
-        (PLAN_LIST_CLASSIFICATION_ORDER.get(a.attrs.classification) ?? PLAN_LIST_CLASSIFICATION_ORDER.size) -
-        (PLAN_LIST_CLASSIFICATION_ORDER.get(b.attrs.classification) ?? PLAN_LIST_CLASSIFICATION_ORDER.size);
+        (PLAN_LIST_CLASSIFICATION_ORDER.get(normalizePlanClassification(a.attrs.classification)) ??
+            PLAN_LIST_CLASSIFICATION_ORDER.size) -
+        (PLAN_LIST_CLASSIFICATION_ORDER.get(normalizePlanClassification(b.attrs.classification)) ??
+            PLAN_LIST_CLASSIFICATION_ORDER.size);
     if (classificationDelta !== 0) return classificationDelta;
 
     return a.name.localeCompare(b.name);
@@ -2594,7 +2616,12 @@ export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, depen
  * @returns {boolean}
  */
 export function isChildFeaturePlan(plan) {
-    return plan.attrs.classification === "FEATURE" && typeof plan.attrs.parentPlan === "string" &&
+    return isChildPlannedChangePlan(plan);
+}
+
+/** @param {{ attrs: Partial<PlanFrontMatter> }} plan */
+export function isChildPlannedChangePlan(plan) {
+    return isPlannedChangeClassification(plan.attrs.classification) && typeof plan.attrs.parentPlan === "string" &&
         plan.attrs.parentPlan.trim().length > 0;
 }
 

@@ -191,7 +191,7 @@ collaborationRecommendation: pair
     const decision = server.waitForDecision();
     await server.stop();
 
-    assertEquals(html.includes('"classification":"FEATURE"'), true);
+    assertEquals(html.includes('"classification":"PLANNED_CHANGE"'), true);
     assertEquals(html.includes('"executionAgent":"frontend-engineer"'), true);
     assertEquals(html.includes('"collaborationRecommendation":"pair"'), true);
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });

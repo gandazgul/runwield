@@ -46,7 +46,80 @@ export const SNIP_FILTERS_DIR = resolveBundledResourcePath("snip-filters");
 export const CATPPUCCIN_MOCHA_THEME_PATH = resolveBundledResourcePath("ui", "theme", "catppuccin-mocha.json");
 
 /** Allowed Routing Intent values emitted by the router. */
-export const ROUTING_INTENTS = ["INQUIRY", "IDEATION", "OPERATION", "QUICK_FIX", "FEATURE", "PROJECT"];
+export const ROUTING_INTENTS = [
+    "INQUIRY",
+    "IDEATION",
+    "OPERATION",
+    "QUICK_FIX",
+    "PLANNED_CHANGE",
+    "FEATURE",
+    "PROJECT",
+];
+
+/** Canonical planned-work Routing Intent and Plan Classification. */
+export const ROUTING_INTENT_PLANNED_CHANGE = "PLANNED_CHANGE";
+
+/** Legacy planned-work workflow label accepted for compatibility. */
+export const LEGACY_ROUTING_INTENT_FEATURE = "FEATURE";
+
+/** Work Kind values describe the nature of planned executable work. */
+export const WORK_KINDS = ["BUG_FIX", "FEATURE", "REFACTOR", "MAINTENANCE"];
+
+/**
+ * @param {unknown} value
+ * @returns {"INQUIRY"|"IDEATION"|"OPERATION"|"QUICK_FIX"|"PLANNED_CHANGE"|"PROJECT"|null}
+ */
+export function normalizeRoutingIntent(value) {
+    if (typeof value !== "string") return null;
+    if (value === LEGACY_ROUTING_INTENT_FEATURE) return ROUTING_INTENT_PLANNED_CHANGE;
+    return ROUTING_INTENTS.includes(value)
+        ? /** @type {"INQUIRY"|"IDEATION"|"OPERATION"|"QUICK_FIX"|"PLANNED_CHANGE"|"PROJECT"} */ (value)
+        : null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {"QUICK_FIX"|"PLANNED_CHANGE"|"PROJECT"}
+ */
+export function normalizePlanClassification(value) {
+    if (typeof value !== "string") return ROUTING_INTENT_PLANNED_CHANGE;
+    if (value === LEGACY_ROUTING_INTENT_FEATURE) return ROUTING_INTENT_PLANNED_CHANGE;
+    if (value === ROUTING_INTENT_PLANNED_CHANGE || value === "PROJECT" || value === "QUICK_FIX") return value;
+    return ROUTING_INTENT_PLANNED_CHANGE;
+}
+
+/** @param {unknown} value */
+export function isPlannedChangeClassification(value) {
+    return value === ROUTING_INTENT_PLANNED_CHANGE || value === LEGACY_ROUTING_INTENT_FEATURE;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|undefined}
+ */
+export function normalizeWorkKind(value) {
+    if (typeof value !== "string") return undefined;
+    return WORK_KINDS.includes(value) ? /** @type {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} */ (value) : undefined;
+}
+
+/**
+ * @param {unknown} workKind
+ * @returns {string}
+ */
+export function formatPlannedWorkLabel(workKind) {
+    switch (normalizeWorkKind(workKind)) {
+        case "BUG_FIX":
+            return "Planned bug fix";
+        case "FEATURE":
+            return "Planned feature";
+        case "REFACTOR":
+            return "Planned refactor";
+        case "MAINTENANCE":
+            return "Planned maintenance";
+        default:
+            return "Planned change";
+    }
+}
 
 /** Allowed complexity values emitted by triage. */
 export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];

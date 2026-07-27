@@ -22,12 +22,15 @@ Deno.test("workflow context records latest triage and suppresses duplicates", ()
     const entries = [];
     const sessionManager = makeSessionManager(entries);
 
-    recordWorkflowTriageContext(sessionManager, { routingIntent: "FEATURE", complexity: "MEDIUM" });
-    recordWorkflowTriageContext(sessionManager, { routingIntent: "FEATURE", complexity: "MEDIUM" });
+    recordWorkflowTriageContext(sessionManager, { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
+    recordWorkflowTriageContext(sessionManager, { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
 
     assertEquals(entries.length, 1);
     assertEquals(entries[0].customType, WORKFLOW_CONTEXT_CUSTOM_TYPE);
-    assertEquals(readPersistedWorkflowContext(sessionManager), { routingIntent: "FEATURE", complexity: "MEDIUM" });
+    assertEquals(readPersistedWorkflowContext(sessionManager), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+    });
 });
 
 Deno.test("workflow context merges plan name and later triage clears stale plan", () => {
@@ -58,7 +61,7 @@ Deno.test("workflow context skips malformed latest markers and tolerates missing
         {
             type: "custom",
             customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
-            data: { routingIntent: "FEATURE", complexity: "LOW" },
+            data: { routingIntent: "PLANNED_CHANGE", complexity: "LOW" },
         },
         {
             type: "custom",
@@ -67,7 +70,7 @@ Deno.test("workflow context skips malformed latest markers and tolerates missing
         },
     ]);
 
-    assertEquals(readPersistedWorkflowContext(sessionManager), { routingIntent: "FEATURE", complexity: "LOW" });
+    assertEquals(readPersistedWorkflowContext(sessionManager), { routingIntent: "PLANNED_CHANGE", complexity: "LOW" });
     assertEquals(recordWorkflowPlanName(null, "p"), { planName: "p" });
 });
 
@@ -89,7 +92,7 @@ Deno.test("workflow context normalization accepts canonical intents and sanitize
         routingIntent: "OPERATION",
         complexity: "LOW",
     });
-    assertEquals(normalizeWorkflowContext({ routingIntent: "FEATURE", complexity: "bad", planName: "p.md" }), {
+    assertEquals(normalizeWorkflowContext({ routingIntent: "PLANNED_CHANGE", complexity: "bad", planName: "p.md" }), {
         planName: "p",
     });
 });

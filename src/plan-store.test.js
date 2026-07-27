@@ -1096,7 +1096,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             { name: "project-breakdown-epic/02-load-child-features", action: "created" },
         ]);
         assertEquals(results[0].metadata, {
-            classification: "FEATURE",
+            classification: "PLANNED_CHANGE",
             status: "draft",
             parentPlan: "project-breakdown-epic",
             order: 1,
@@ -1110,7 +1110,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
-        assertEquals(first?.attrs.classification, "FEATURE");
+        assertEquals(first?.attrs.classification, "PLANNED_CHANGE");
         assertEquals(first?.attrs.status, "draft");
         assertEquals(first?.attrs.parentPlan, "project-breakdown-epic");
         assertEquals(first?.attrs.summary, "Keep parent-child links loadable");
@@ -1564,7 +1564,7 @@ testWithFs("classification updates reject preserved canonical execution policy o
             "PROJECT Epics are non-executable and must not define executionAgent.",
         );
         const loaded = await loadPlan(cwd, "feature-policy");
-        assertEquals(loaded?.attrs.classification, "FEATURE");
+        assertEquals(loaded?.attrs.classification, "PLANNED_CHANGE");
         assertEquals(loaded?.attrs.executionAgent, "frontend-engineer");
     } finally {
         await Deno.remove(cwd, { recursive: true });

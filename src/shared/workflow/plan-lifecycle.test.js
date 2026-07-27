@@ -600,7 +600,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
         assertEquals(parent?.attrs.epicCompletionMode, "done_enough");
         assertEquals(
             parent?.attrs.epicDoneEnoughSummary,
-            "All 2 child FEATURE plans are completed after epic/02-last.",
+            "All 2 child planned change plans are completed after epic/02-last.",
         );
     } finally {
         await Deno.remove(cwd, { recursive: true });
@@ -1105,7 +1105,7 @@ Deno.test("recordPlanEvent enforces FEATURE Delivery Evidence without supplied t
                     currentStatus: "implemented",
                 }),
             Error,
-            "FEATURE validation_passed requires executionMode",
+            "planned change validation_passed requires executionMode",
         );
         assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
     } finally {

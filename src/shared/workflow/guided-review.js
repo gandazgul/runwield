@@ -3,6 +3,7 @@
  * Deterministic Guided Review policy and fallback explainer helpers.
  */
 
+import { isPlannedChangeClassification } from "../../constants.js";
 import { parseDiffFiles, summarizeDiffForReview } from "./review-diff-tool.js";
 
 export const GUIDED_REVIEW_EXPLAINER_SCHEMA_VERSION = "1.0";
@@ -54,7 +55,8 @@ function normalizeComplexity(value) {
 /** @param {Record<string, unknown>} attrs */
 function isChildFeaturePlan(attrs) {
     const classification = normalizeComplexity(attrs.classification);
-    return classification === "FEATURE" && Boolean(attrs.parentPlan || attrs.parent || attrs.epic || attrs.epicName);
+    return isPlannedChangeClassification(classification) &&
+        Boolean(attrs.parentPlan || attrs.parent || attrs.epic || attrs.epicName);
 }
 
 /** @param {string[]} paths */

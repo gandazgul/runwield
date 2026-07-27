@@ -29,7 +29,7 @@ export function BoardColumn({ column, url, draggableCards = true }) {
                                 key={plan.planId}
                                 plan={plan}
                                 url={url}
-                                roleLabel="Feature"
+                                roleLabel="Planned Change"
                                 draggableCard={draggableCards}
                             />
                         )
