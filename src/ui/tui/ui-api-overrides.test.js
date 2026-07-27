@@ -63,6 +63,8 @@ function makeHarness() {
     };
     const uiAPI = {
         isOutputSuppressed: () => false,
+        promptSelect: () => Promise.resolve("yes"),
+        promptText: () => Promise.resolve("text"),
     };
     const registry = {
         find: (/** @type {string} */ provider, /** @type {string} */ id) => ({ provider, id }),
@@ -116,6 +118,30 @@ Deno.test("installUiApiOverrides disables and enables editor submission", () => 
     harness.uiAPI.enableInput();
     assertEquals(harness.editor.disableSubmit, false);
     assertEquals(harness.stats.renders, 2);
+});
+
+Deno.test("installUiApiOverrides blocks editor submission while prompts are active and restores prior state", async () => {
+    const harness = makeHarness();
+    harness.editor.disableSubmit = false;
+    let resolveSelect = /** @type {(value: string) => void} */ (() => {});
+    harness.uiAPI.promptSelect = () =>
+        new Promise((resolve) => {
+            resolveSelect = resolve;
+        });
+    installUiApiOverrides({ ...harness, __deps: harness.deps });
+
+    const selectPromise = harness.uiAPI.promptSelect("Review the Plan again?", [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+    ]);
+    assertEquals(harness.editor.disableSubmit, true);
+    resolveSelect("yes");
+    assertEquals(await selectPromise, "yes");
+    assertEquals(harness.editor.disableSubmit, false);
+
+    harness.editor.disableSubmit = true;
+    assertEquals(await harness.uiAPI.promptText("Feedback"), "text");
+    assertEquals(harness.editor.disableSubmit, true);
 });
 
 Deno.test("installUiApiOverrides appends images unless output is suppressed", () => {
