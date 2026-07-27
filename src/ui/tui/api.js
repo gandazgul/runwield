@@ -130,6 +130,24 @@ export function createUiApi(
     /** @type {ValidationHandoffBlock | null} */
     let validationPanelBlock = null;
 
+    const removeInputAccessoryResources = () => {
+        if (!inputAccessoryContainer) {
+            keyboardHelp = null;
+            managedSyncStatus = null;
+            return;
+        }
+        if (keyboardHelp) {
+            inputAccessoryContainer.removeChild(keyboardHelp.block);
+            inputAccessoryContainer.removeChild(keyboardHelp.spacer);
+            keyboardHelp = null;
+        }
+        if (managedSyncStatus) {
+            inputAccessoryContainer.removeChild(managedSyncStatus.block);
+            inputAccessoryContainer.removeChild(managedSyncStatus.spacer);
+            managedSyncStatus = null;
+        }
+    };
+
     const renderValidationPanel = () => {
         if (!validationPanelContainer || outputSuppressed) return;
         if (!validationProgress) {
@@ -643,6 +661,7 @@ export function createUiApi(
             for (const id of toolElapsedTimers.keys()) {
                 clearToolElapsedTimer(id);
             }
+            removeInputAccessoryResources();
         },
 
         clearMessages: () => {
@@ -660,6 +679,32 @@ export function createUiApi(
             validationPanelBlock = null;
             validationReportOrder = 0;
             queuedMessageBlocks.clear();
+            activeToolBlocks.clear();
+            for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
+            removeInputAccessoryResources();
+            tui.requestRender();
+        },
+
+        dispose: () => {
+            if (activePromptCancel) {
+                activePromptCancel();
+                activePromptCancel = null;
+            }
+            stopBusyFrameTimer();
+            restoreFocusedCursorAfterBusy();
+            for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
+            activeToolBlocks.clear();
+            queuedMessageBlocks.clear();
+            removeInputAccessoryResources();
+            validationProgress = null;
+            latestEngineerReport = null;
+            latestReviewerReport = null;
+            validationPanelBlock = null;
+            validationReportOrder = 0;
+            validationPanelContainer?.clear?.();
+            activeInteractionContainer?.clear?.();
+            spinner.setBusy(false, spinner.tasks);
+            tui.setFocus(null);
             tui.requestRender();
         },
 
