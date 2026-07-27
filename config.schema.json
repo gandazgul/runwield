@@ -65,7 +65,7 @@
         },
         "notifications": {
             "$ref": "#/$defs/notifications",
-            "description": "Terminal bell and desktop attention notifications for agent stops, plan review, and user interview prompts."
+            "description": "Terminal bell and desktop attention notifications for agent stops, plan review, user interview prompts, and /compact completion."
         },
         "workflowMetrics": {
             "description": "Opt-in local-only workflow metrics recording. When disabled or unset, no metrics are written. Records are stored under ~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl.",
@@ -443,6 +443,10 @@
                             "default": true
                         },
                         "userInterview": {
+                            "type": "boolean",
+                            "default": true
+                        },
+                        "compactionFinished": {
                             "type": "boolean",
                             "default": true
                         }

@@ -6,6 +6,23 @@
 import { theme } from "../../ui/theme/theme.js";
 
 /**
+ * @param {import('../registry.js').CommandContext} options
+ */
+function notifyCompactionFinished(options) {
+    try {
+        const { notifyRunWieldEvent, sessionRuntime, sessionId } = options;
+        if (!notifyRunWieldEvent || !sessionRuntime || !sessionId) return;
+        const sessionName = sessionRuntime.getSessionSnapshot?.(sessionId)?.name || undefined;
+        const result = notifyRunWieldEvent("compactionFinished", { sessionName });
+        if (result && typeof result === "object" && "catch" in result && typeof result.catch === "function") {
+            result.catch(() => {});
+        }
+    } catch {
+        // Notification delivery is best-effort and must not affect compaction outcomes.
+    }
+}
+
+/**
  * Handle compact command.
  *
  * @param {string[]} argv
@@ -52,5 +69,7 @@ export async function runCompactCommand(argv, options = {}) {
         } else {
             uiAPI.appendSystemMessage(`Compaction failed: ${message}`);
         }
+    } finally {
+        notifyCompactionFinished(options);
     }
 }

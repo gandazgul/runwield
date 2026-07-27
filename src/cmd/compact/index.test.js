@@ -14,24 +14,38 @@ function makeUi() {
     };
 }
 
+function makeNotifier() {
+    const notifications = /** @type {Array<{ eventName: string, options: any }>} */ ([]);
+    return {
+        notifications,
+        notifyRunWieldEvent: (/** @type {string} */ eventName, /** @type {any} */ options) => {
+            notifications.push({ eventName, options });
+        },
+    };
+}
+
 /** @param {{ compact?: (id: string, instructions?: string) => Promise<any> }} [options] */
 function makeRuntimeContext(options = {}) {
     return {
         sessionId: "compact-test",
         sessionRuntime: /** @type {any} */ ({
             compactSession: options.compact || (() => Promise.resolve({ tokensBefore: 1234, summary: "summary" })),
+            getSessionSnapshot: () => ({ name: "Compact Session" }),
         }),
     };
 }
 
 Deno.test("runCompactCommand requires a Runtime session id", async () => {
     const { uiAPI, messages } = makeUi();
-    await runCompactCommand([], { uiAPI });
+    const { notifyRunWieldEvent, notifications } = makeNotifier();
+    await runCompactCommand([], { uiAPI, notifyRunWieldEvent });
     assertEquals(messages, ["Error: No active agent session."]);
+    assertEquals(notifications, []);
 });
 
-Deno.test("runCompactCommand delegates compaction to SessionRuntime", async () => {
+Deno.test("runCompactCommand delegates compaction to SessionRuntime and notifies on success", async () => {
     const { uiAPI, messages } = makeUi();
+    const { notifyRunWieldEvent, notifications } = makeNotifier();
     let instructions = "";
     const context = makeRuntimeContext({
         compact: (_id, value) => {
@@ -43,14 +57,19 @@ Deno.test("runCompactCommand delegates compaction to SessionRuntime", async () =
     await runCompactCommand(["keep", "decisions"], {
         uiAPI,
         ...context,
+        notifyRunWieldEvent,
     });
 
     assertEquals(instructions, "keep decisions");
     assertEquals(messages.some((message) => message.includes("Session compacted.")), true);
     assertEquals(messages.includes("short summary"), true);
+    assertEquals(notifications, [{
+        eventName: "compactionFinished",
+        options: { sessionName: "Compact Session" },
+    }]);
 });
 
-Deno.test("runCompactCommand reports Runtime compaction outcomes", async () => {
+Deno.test("runCompactCommand reports Runtime compaction outcomes and notifies", async () => {
     for (
         const [errorMessage, expected] of [
             ["Compaction cancelled", "Compaction cancelled."],
@@ -59,10 +78,16 @@ Deno.test("runCompactCommand reports Runtime compaction outcomes", async () => {
         ]
     ) {
         const { uiAPI, messages } = makeUi();
+        const { notifyRunWieldEvent, notifications } = makeNotifier();
         await runCompactCommand([], {
             uiAPI,
             ...makeRuntimeContext({ compact: () => Promise.reject(new Error(errorMessage)) }),
+            notifyRunWieldEvent,
         });
         assertEquals(messages.at(-1), expected);
+        assertEquals(notifications, [{
+            eventName: "compactionFinished",
+            options: { sessionName: "Compact Session" },
+        }]);
     }
 });
