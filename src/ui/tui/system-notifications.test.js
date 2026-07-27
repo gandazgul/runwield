@@ -60,6 +60,7 @@ Deno.test("resolveNotificationSettings defaults on and normalizes malformed valu
             agentStopped: true,
             planWritten: true,
             userInterview: true,
+            compactionFinished: true,
         },
         terminalBell: true,
     });
@@ -73,6 +74,7 @@ Deno.test("resolveNotificationSettings defaults on and normalizes malformed valu
                 agentStopped: true,
                 planWritten: false,
                 userInterview: true,
+                compactionFinished: true,
             },
             terminalBell: true,
         },
@@ -87,6 +89,7 @@ Deno.test("resolveNotificationSettings defaults on and normalizes malformed valu
                 agentStopped: true,
                 planWritten: true,
                 userInterview: true,
+                compactionFinished: true,
             },
             terminalBell: false,
         },
@@ -326,6 +329,53 @@ Deno.test("notifyRunWieldEvent terminalBell false preserves desktop delivery", a
     assertEquals(result.command?.cmd, "osascript");
     assertEquals(result.terminalBellEmitted, false);
     assertEquals(bell.writes, []);
+});
+
+Deno.test("notifyRunWieldEvent sends compaction finished notification with session context", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("compactionFinished", {
+        sessionName: "compact session",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => ({ activation: "none" }),
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.sent, true);
+    assertEquals(result.command?.cmd, "osascript");
+    assertStringIncludes(result.title, "Compaction finished");
+    assertStringIncludes(result.title, "compact session");
+    assertStringIncludes(result.message, "The /compact command finished. Return to view the result.");
+    assertStringIncludes(result.message, "wld - compact session");
+    assertEquals(result.terminalBellEmitted, true);
+    assertEquals(bell.writes, [[7]]);
+});
+
+Deno.test("notifyRunWieldEvent disables compaction finished independently", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("compactionFinished", {
+        sessionName: "disabled compact",
+        __deps: {
+            os: "darwin",
+            env: {},
+            pid: 1,
+            getMergedCustomSetting: () => ({ events: { compactionFinished: false } }),
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.sent, false);
+    assertEquals(result.reason, "event_disabled");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(bell.writes, []);
+    assertEquals(commands.calls, []);
 });
 
 Deno.test("notifyRunWieldEvent skips bell, tty lookup, and desktop attempts for disabled or unknown events", async () => {
