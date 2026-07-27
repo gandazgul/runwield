@@ -217,16 +217,36 @@ Deno.test("API key setup dispatches the API key login command", async () => {
     assertEquals(harness.commands[0], { name: COMMAND_NAMES.LOGIN, argv: ["api-key"], skipPostLoginSetup: true });
 });
 
-Deno.test("failed setup returns control to the editor so recovery slash commands can run", async () => {
+Deno.test("cancelled first-run login relaunches setup instead of returning to chat", async () => {
     const harness = makeHarness("subscription");
+    const selections = ["subscription", null];
+    let promptCount = 0;
     const result = await maybeShowModelWelcome({
         ...harness.options,
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: (/** @type {string} */ message) => harness.messages.push(message),
+            promptSelect: () => {
+                promptCount++;
+                return Promise.resolve(selections.shift() ?? null);
+            },
+        }),
         getModelRegistry: () => registryWithAvailable([]),
     });
 
     assertEquals(result.noModel, true);
     assertEquals(result.suppressBootBanner, true);
-    assertEquals(harness.editor.disableSubmit, false);
+    assertEquals(promptCount, 2);
+    assertEquals(harness.commands, [
+        { name: COMMAND_NAMES.LOGIN, argv: ["subscription"], skipPostLoginSetup: true },
+        { name: COMMAND_NAMES.QUIT, argv: [] },
+    ]);
+    assertEquals(
+        harness.messages.includes(
+            "No usable models are available yet. Run /login again to configure credentials, or quit with /quit.",
+        ),
+        false,
+    );
+    assertEquals(harness.editor.disableSubmit, true);
     assertEquals(harness.agentActivated(), 0);
 });
 

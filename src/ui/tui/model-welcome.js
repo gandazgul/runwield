@@ -120,66 +120,52 @@ export async function maybeShowModelWelcome(options) {
         initialAvailability.error ? `Model registry note: ${initialAvailability.error}` : "",
     ].filter(Boolean).join("\n");
 
-    const choice = await options.uiAPI.promptSelect(
-        title,
-        [
-            {
-                value: "subscription",
-                label: "Use a subscription login",
-                description: "Sign in with a supported provider account.",
-            },
-            {
-                value: "api-key",
-                label: "Use an API key",
-                description: "Paste a provider API key and store it in RunWield config.",
-            },
-        ],
-        { hint: "↑↓ Navigate  Enter Select  Esc Quit" },
-    );
-
-    if (!choice) {
-        options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
-        if (options.quit) {
-            await options.quit({ uiAPI: options.uiAPI, editor: options.editor, tui: options.tui });
-        } else {
-            await commandRegistry[COMMAND_NAMES.QUIT].execute([], {
-                uiAPI: options.uiAPI,
-                editor: options.editor,
-                tui: options.tui,
-                sessionId: options.sessionId,
-                sessionRuntime: options.sessionRuntime,
-            });
-        }
-        return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
-    }
-
-    const loginArg = choice === "subscription" ? "subscription" : "api-key";
-    await commandRegistry[COMMAND_NAMES.LOGIN].execute([loginArg], {
-        uiAPI: options.uiAPI,
-        editor: options.editor,
-        tui: options.tui,
-        sessionId: options.sessionId,
-        sessionRuntime: options.sessionRuntime,
-        skipPostLoginSetup: true,
-    });
-
-    const afterLoginAvailability = getConfiguredModelAvailability(getModelRegistry);
-    if (!afterLoginAvailability.available) {
-        options.uiAPI.appendSystemMessage(
-            "No usable models are available yet. Run /login again to configure credentials, or quit with /quit.",
-            true,
-            "RunWield",
+    let afterLoginAvailability = initialAvailability;
+    while (!afterLoginAvailability.available) {
+        const choice = await options.uiAPI.promptSelect(
+            title,
+            [
+                {
+                    value: "subscription",
+                    label: "Use a subscription login",
+                    description: "Sign in with a supported provider account.",
+                },
+                {
+                    value: "api-key",
+                    label: "Use an API key",
+                    description: "Paste a provider API key and store it in RunWield config.",
+                },
+            ],
+            { hint: "↑↓ Navigate  Enter Select  Esc Quit" },
         );
-        options.editor.disableSubmit = false;
-        options.tui.setFocus(options.editor);
-        options.tui.requestRender();
-        return {
-            shown: true,
-            suppressBootBanner: true,
-            noModel: true,
-            setupCompleted: false,
-            availabilityError: afterLoginAvailability.error,
-        };
+
+        if (!choice) {
+            options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
+            if (options.quit) {
+                await options.quit({ uiAPI: options.uiAPI, editor: options.editor, tui: options.tui });
+            } else {
+                await commandRegistry[COMMAND_NAMES.QUIT].execute([], {
+                    uiAPI: options.uiAPI,
+                    editor: options.editor,
+                    tui: options.tui,
+                    sessionId: options.sessionId,
+                    sessionRuntime: options.sessionRuntime,
+                });
+            }
+            return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
+        }
+
+        const loginArg = choice === "subscription" ? "subscription" : "api-key";
+        await commandRegistry[COMMAND_NAMES.LOGIN].execute([loginArg], {
+            uiAPI: options.uiAPI,
+            editor: options.editor,
+            tui: options.tui,
+            sessionId: options.sessionId,
+            sessionRuntime: options.sessionRuntime,
+            skipPostLoginSetup: true,
+        });
+
+        afterLoginAvailability = getConfiguredModelAvailability(getModelRegistry);
     }
 
     await commandRegistry[COMMAND_NAMES.MODEL].execute([], {
