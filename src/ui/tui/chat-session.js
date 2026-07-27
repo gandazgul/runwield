@@ -25,6 +25,7 @@ import {
     theme,
 } from "../theme/theme.js";
 import { VERSION } from "../../shared/version.js";
+import { getCachedUpdateAvailabilitySync, refreshUpdateCheckCache } from "../../shared/update-check.js";
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
@@ -106,6 +107,15 @@ function formatTokens(count) {
  * @property {string} text
  * @property {"dim" | "warning" | "error"} token
  */
+
+/**
+ * @param {string} latestVersion
+ * @param {any} [themeImpl]
+ * @returns {string}
+ */
+export function renderUpdateNoticeLine(latestVersion, themeImpl = theme) {
+    return `New version available: ${themeImpl.fg("routingQuickFix", latestVersion)}. Run \`wld update\` to install it`;
+}
 
 /**
  * Format the active Agent's context-window capacity for the footer.
@@ -549,12 +559,29 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     );
 
     const helpText = new Text(compactHelp, 0, 0);
+    const updateNoticeText = new Text("", 0, 0);
 
     if (!suppressStartupHeader) {
+        const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });
+        if (cachedUpdateAvailability?.available) {
+            updateNoticeText.setText(renderUpdateNoticeLine(cachedUpdateAvailability.latestVersion));
+        }
+        void refreshUpdateCheckCache({ currentVersion: VERSION }).then((availability) => {
+            if (!availability.available) {
+                updateNoticeText.setText("");
+                tui.requestRender();
+                return;
+            }
+            updateNoticeText.setText(renderUpdateNoticeLine(availability.latestVersion));
+            tui.requestRender();
+        }).catch(() => {});
+
         // Render the logo first
         renderBootLogo(container);
         // Title line
         container.addChild(new Text(titleLine, 0, 0));
+        // Update notice placeholder
+        container.addChild(updateNoticeText);
         // Help text
         container.addChild(helpText);
 
