@@ -1762,9 +1762,48 @@ export async function runValidationLoop({
         let reviewResponse = "";
         let reviewOutcome = null;
         let semanticUsedLargeDiffPath = false;
-        // Track reviewer execution failures (errors, blank output) for retry flow
         /** @type {boolean} */
         let reviewerFailed = false;
+        const maxReviewerAttempts = 3;
+        const reviewerToolNames = ["read", "grep", "find", "ls", "review_complete"];
+        /**
+         * @param {import('../session/types.js').AgentDefinition} reviewerAgentDef
+         * @param {string} reviewDiffText
+         * @param {number} attempt
+         * @returns {{ prompt: string, agentDef: import('../session/types.js').AgentDefinition, customTools: import('@earendil-works/pi-coding-agent').ToolDefinition[] }}
+         */
+        const buildSemanticReviewAttempt = (reviewerAgentDef, reviewDiffText, attempt) => {
+            const diffBytes = new TextEncoder().encode(reviewDiffText).byteLength;
+            const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
+            const continuationPrefix = attempt > 1
+                ? `Continue reviewing ${planName}. You must finish this semantic review by calling review_complete.\n\n`
+                : "";
+            /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
+            const customTools = [];
+            let prompt;
+
+            if (isLargeDiff) {
+                prompt = continuationPrefix + buildLargeDiffReviewPrompt(
+                    reviewerAgentDef,
+                    planContent,
+                    reviewDiffText,
+                    diffBytes,
+                );
+                customTools.push(createReviewDiffTool(reviewDiffText));
+            } else {
+                prompt = continuationPrefix +
+                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${reviewDiffText}`;
+            }
+
+            return {
+                prompt,
+                agentDef: {
+                    ...reviewerAgentDef,
+                    tools: reviewerToolNames,
+                },
+                customTools,
+            };
+        };
         try {
             diffText = await getDiffText(baselineTree, executionCwd);
             latestDiffText = diffText;
@@ -1774,89 +1813,73 @@ export async function runValidationLoop({
                 diffText.trim()
             ) {
                 const diffBytes = new TextEncoder().encode(diffText).byteLength;
-                const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
-                semanticUsedLargeDiffPath = isLargeDiff;
+                semanticUsedLargeDiffPath = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
+                let lastReviewerFailure = "Semantic Reviewer did not complete.";
 
-                let reviewPrompt;
-                let reviewerAgentDef = await loadReviewerPromptImpl();
-                /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-                const reviewerCustomTools = [];
-                const reviewerToolNames = ["read", "grep", "find", "ls", "review_complete"];
-
-                if (isLargeDiff) {
-                    reviewPrompt = buildLargeDiffReviewPrompt(reviewerAgentDef, planContent, diffText, diffBytes);
-                    // Attach the bounded diff-inspection tool
-                    reviewerCustomTools.push(createReviewDiffTool(diffText));
-                    // Create a modified definition that permits these tools
-                    reviewerAgentDef = {
-                        ...reviewerAgentDef,
-                        tools: reviewerToolNames,
-                    };
-                } else {
-                    // Inline diffs still permit read-only repository investigation when
-                    // the diff alone is insufficient to judge the Plan requirement.
-                    reviewerAgentDef = {
-                        ...reviewerAgentDef,
-                        tools: reviewerToolNames,
-                    };
-                    reviewPrompt =
-                        `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
-                }
-
-                /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */
-                let sessionMessages;
-                try {
-                    sessionMessages = await runIsolatedAgentSessionImpl({
-                        hostedSession,
-                        agentName: AGENTS.REVIEWER,
-                        userRequest: reviewPrompt,
-                        cwd: executionCwd,
-                        _agentDefOverride: reviewerAgentDef,
-                        customTools: reviewerCustomTools.length > 0 ? reviewerCustomTools : undefined,
-                        includeEditFallback: false,
-                        // Reviewer must judge only the supplied plan/diff and its own
-                        // read-only investigation, not the workflow's conversation history.
-                        // Omitting the shared manager gives this transient invocation a
-                        // fresh in-memory SessionManager.
-                    });
-                } catch (/** @type {any} */ invocationError) {
-                    const errorMsg = invocationError instanceof Error
-                        ? invocationError.message
-                        : String(invocationError);
-                    progress = updateValidationProgress(progress, {
-                        stage: "semantic_review",
-                        checks: { semanticReview: "failed" },
-                        message: `Semantic Reviewer execution failed: ${errorMsg}`,
-                    });
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        `Semantic Reviewer execution failed: ${errorMsg}`,
-                        true,
-                        progress,
-                    );
-                    reviewerFailed = true;
-                    reviewResponse = "";
-                    sessionMessages = [];
-                }
-
-                if (!reviewerFailed) {
-                    reviewOutcome = readLatestReviewOutcome(sessionMessages);
-                    if (!reviewOutcome) {
+                for (let reviewAttempt = 1; reviewAttempt <= maxReviewerAttempts && !reviewOutcome; reviewAttempt++) {
+                    if (reviewAttempt > 1) {
                         progress = updateValidationProgress(progress, {
                             stage: "semantic_review",
-                            checks: { semanticReview: "failed" },
-                            message: "Semantic Reviewer did not call review_complete. Treating as execution failure.",
+                            checks: { semanticReview: "running" },
                         });
                         emitRunWieldSystemStatus(
                             hostedSession,
-                            "Semantic Reviewer did not call review_complete. Treating as execution failure.",
-                            true,
+                            `Sending Semantic Reviewer continuation request: continue reviewing ${planName} (${reviewAttempt}/${maxReviewerAttempts})...`,
+                            "info",
                             progress,
                         );
-                        reviewerFailed = true;
-                    } else {
-                        reviewResponse = reviewOutcome.feedback || "";
                     }
+
+                    const reviewerAgentDef = await loadReviewerPromptImpl();
+                    const reviewAttemptConfig = buildSemanticReviewAttempt(reviewerAgentDef, diffText, reviewAttempt);
+
+                    try {
+                        const sessionMessages = await runIsolatedAgentSessionImpl({
+                            hostedSession,
+                            agentName: AGENTS.REVIEWER,
+                            userRequest: reviewAttemptConfig.prompt,
+                            cwd: executionCwd,
+                            _agentDefOverride: reviewAttemptConfig.agentDef,
+                            customTools: reviewAttemptConfig.customTools.length > 0
+                                ? reviewAttemptConfig.customTools
+                                : undefined,
+                            includeEditFallback: false,
+                            // Reviewer must judge only the supplied plan/diff and its own
+                            // read-only investigation, not the workflow's conversation history.
+                            // Omitting the shared manager gives each attempt a fresh in-memory
+                            // SessionManager, including automatic continuation attempts.
+                        });
+                        reviewOutcome = readLatestReviewOutcome(sessionMessages);
+                        if (!reviewOutcome) {
+                            lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
+                        }
+                    } catch (/** @type {any} */ invocationError) {
+                        const errorMsg = invocationError instanceof Error
+                            ? invocationError.message
+                            : String(invocationError);
+                        lastReviewerFailure = `Semantic Reviewer execution failed: ${errorMsg}`;
+                    }
+                }
+
+                if (reviewOutcome) {
+                    reviewResponse = reviewOutcome.feedback || "";
+                    progress = updateValidationProgress(progress, {
+                        checks: { semanticReview: reviewOutcome.approved ? "passed" : "failed" },
+                    });
+                } else {
+                    reviewerFailed = true;
+                    haltReason = "Semantic Review failed to complete after 3 attempts. Validation halted.";
+                    progress = updateValidationProgress(progress, {
+                        stage: "semantic_review",
+                        checks: { semanticReview: "failed" },
+                        message: `${lastReviewerFailure} ${haltReason}`,
+                    });
+                    emitRunWieldSystemStatus(
+                        hostedSession,
+                        `${lastReviewerFailure} ${haltReason}`,
+                        true,
+                        progress,
+                    );
                 }
             }
         } catch (error) {
@@ -1871,134 +1894,21 @@ export async function runValidationLoop({
             // SessionRuntime owns turn/busy state for the full validation operation.
         }
 
-        if (haltReason) break;
-
-        // Handle reviewer execution failures with retry/cancel menu
-        if (reviewerFailed && diffText.trim()) {
-            const retryResponse = await requestHostedSessionInteraction(hostedSession, {
-                type: RuntimeInteractionTypes.SELECT,
-                prompt: "Semantic Review failed to complete. What would you like to do?",
-                options: [
-                    { value: "retry", label: "Retry Semantic Review" },
-                    { value: "cancel", label: "Stop/Cancel Validation" },
-                ],
+        if (reviewerFailed && haltReason) {
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "semantic_review_result",
+                planName,
+                details: {
+                    validationCycle: validationCycles,
+                    approved: false,
+                    reason: "failed_after_automatic_continuation_attempts",
+                },
             });
-            if (retryResponse.outcome === "selected" && retryResponse.value === "retry") {
-                // Reset failure flag before retry; the first failure should not carry over
-                reviewerFailed = false;
-                // Rerun semantic review from the beginning of the cycle
-                progress = updateValidationProgress(progress, {
-                    stage: "semantic_review",
-                    checks: { semanticReview: "running" },
-                });
-                emitRunWieldSystemStatus(hostedSession, "Retrying Semantic Code Review...", "info", progress);
-                try {
-                    // Rebuild diff and try again
-                    const retryDiffText = await getDiffText(baselineTree, executionCwd);
-                    const diffBytes = new TextEncoder().encode(retryDiffText).byteLength;
-                    const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
-
-                    let retryPrompt;
-                    let retryAgentDef = await loadReviewerPromptImpl();
-                    /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-                    const retryCustomTools = [];
-
-                    if (isLargeDiff) {
-                        retryPrompt = buildLargeDiffReviewPrompt(retryAgentDef, planContent, retryDiffText, diffBytes);
-                        retryCustomTools.push(createReviewDiffTool(retryDiffText));
-                        retryAgentDef = {
-                            ...retryAgentDef,
-                            tools: ["read", "grep", "find", "ls", "review_complete"],
-                        };
-                    } else {
-                        retryAgentDef = {
-                            ...retryAgentDef,
-                            tools: ["read", "grep", "find", "ls", "review_complete"],
-                        };
-                        retryPrompt =
-                            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${retryDiffText}`;
-                    }
-
-                    try {
-                        const retryMessages = await runIsolatedAgentSessionImpl({
-                            hostedSession,
-                            agentName: AGENTS.REVIEWER,
-                            userRequest: retryPrompt,
-                            cwd: executionCwd,
-                            _agentDefOverride: retryAgentDef,
-                            customTools: retryCustomTools.length > 0 ? retryCustomTools : undefined,
-                            includeEditFallback: false,
-                            // Keep retries isolated as well; failed Reviewer context must
-                            // not leak into the next independent audit attempt.
-                        });
-                        const retryOutcome = readLatestReviewOutcome(retryMessages);
-                        reviewResponse = retryOutcome?.feedback || "";
-                        // Propagate the reviewOutcome up so the approved/rejected check below sees it
-                        reviewOutcome = retryOutcome;
-                    } catch (/** @type {any} */ retryError) {
-                        const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-                        progress = updateValidationProgress(progress, {
-                            stage: "semantic_review",
-                            checks: { semanticReview: "failed" },
-                            message: `Semantic Reviewer retry also failed: ${errorMsg}`,
-                        });
-                        emitRunWieldSystemStatus(
-                            hostedSession,
-                            `Semantic Reviewer retry also failed: ${errorMsg}`,
-                            true,
-                            progress,
-                        );
-                        reviewerFailed = true;
-                    }
-                } finally {
-                    // SessionRuntime owns turn/busy state for the full validation operation.
-                }
-
-                if (!reviewerFailed && reviewOutcome?.feedback != null) {
-                    progress = updateValidationProgress(progress, {
-                        checks: { semanticReview: reviewOutcome?.approved ? "passed" : "failed" },
-                    });
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        "Semantic Review retry completed.",
-                        "success",
-                        progress,
-                    );
-                    // Reset reviewerFailed so normal flow continues below
-                    reviewerFailed = false;
-                } else {
-                    haltReason = "Semantic Review failed after retry. Validation halted.";
-                    await recordWorkflowMetricImpl({
-                        category: "validation",
-                        event: "semantic_review_result",
-                        planName,
-                        details: {
-                            validationCycle: validationCycles,
-                            approved: false,
-                            reason: "failed_and_retried",
-                        },
-                    });
-                    // Fall through to the halt handling below
-                }
-            } else {
-                haltReason = "User canceled validation after Semantic Review failure.";
-                reviewerFailed = true;
-            }
-
-            if (haltReason) {
-                await recordWorkflowMetricImpl({
-                    category: "validation",
-                    event: "semantic_review_result",
-                    planName,
-                    details: {
-                        validationCycle: validationCycles,
-                        approved: false,
-                        reason: haltReason,
-                    },
-                });
-                break;
-            }
+            break;
         }
+
+        if (haltReason) break;
 
         if (requiresImplementationDiff(triageMeta) && !hasImplementationDiff(diffText, planName)) {
             haltReason = diffText.trim()

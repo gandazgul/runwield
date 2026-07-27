@@ -232,7 +232,7 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
     assertStringIncludes(reviewPrompts[0], "review_diff");
 });
 
-Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an error", async () => {
+Deno.test("runValidationLoop automatically halts after three reviewer execution failures", async () => {
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const promptsSeen = [];
@@ -247,8 +247,8 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runIsolatedAgentSession: () => {
-                promptsSeen.push("review-invoked");
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                promptsSeen.push(opts.userRequest);
                 throw new Error("Context window exceeded");
             },
             recordWorkflowMetric: (/** @type {any} */ metric) => {
@@ -259,28 +259,25 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
         }),
     });
 
-    // Should show the retry/cancel prompt - promptSelect was called
-    // The existing makeUi() stores promptSelections
-    // Since promptSelect returns "stop" (default in makeUi), validation should halt
-    assertStringIncludes(
-        uiAPI.messages.join(" "),
-        "Semantic Reviewer execution failed",
+    const reviewPrompts = promptsSeen.filter((prompt) => prompt.includes("Git Diff"));
+    assertEquals(reviewPrompts.length, 3);
+    assertEquals(uiAPI.promptSelections, []);
+    assertStringIncludes(reviewPrompts[1], "Continue reviewing p");
+    assertStringIncludes(reviewPrompts[2], "Continue reviewing p");
+    const failureCall = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("failed to complete after 3 attempts")
     );
-    const failureProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
-        call.message.includes("Semantic Reviewer execution failed")
-    )?.validationProgress;
-    assertEquals(failureProgress?.stage, "semantic_review");
-    assertEquals(failureProgress?.checks.semanticReview, "failed");
-    assertStringIncludes(
-        uiAPI.messages.join(" "),
-        "User canceled validation",
-    );
+    assertEquals(failureCall?.validationProgress?.stage, "semantic_review");
+    assertEquals(failureCall?.validationProgress?.checks.semanticReview, "failed");
+    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Reviewer execution failed");
 });
 
-Deno.test("runValidationLoop halts when reviewer returns blank output and user cancels", async () => {
+Deno.test("runValidationLoop sends continuation prompts when reviewer omits review_complete", async () => {
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
-    const events = [];
+    const reviewPrompts = [];
+    /** @type {number} */
+    let reviewCalls = 0;
 
     await runValidationLoop({
         hostedSession,
@@ -292,42 +289,46 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runIsolatedAgentSession: () =>
-                Promise.resolve(
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewPrompts.push(opts.userRequest);
+                reviewCalls++;
+                if (reviewCalls === 1) {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "assistant",
+                            content: [{ type: "text", text: "The implementation matches the plan." }],
+                        }]),
+                    );
+                }
+                return Promise.resolve(
                     /** @type {any} */ ([{
-                        role: "assistant",
-                        content: [{ type: "text", text: "" }],
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
-                ),
-            recordWorkflowMetric: (/** @type {any} */ metric) => {
-                events.push(metric.event);
-                return Promise.resolve(null);
+                );
             },
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: () => Promise.resolve({}),
         }),
     });
 
-    // Since promptSelect returns "stop" (default in makeUi), validation should halt
-    assertStringIncludes(
-        uiAPI.messages.join(" "),
-        "did not call review_complete",
-    );
-    assertStringIncludes(
-        uiAPI.messages.join(" "),
-        "User canceled validation",
-    );
+    assertEquals(reviewCalls, 2);
+    assertEquals(uiAPI.promptSelections, []);
+    assertStringIncludes(reviewPrompts[1], "Continue reviewing p");
+    assertStringIncludes(uiAPI.messages.join(" "), "Sending Semantic Reviewer continuation request");
+    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Code Review Approved");
 });
 
-Deno.test("runValidationLoop retries semantic review when user chooses retry", async () => {
+Deno.test("runValidationLoop automatically retries semantic review after invocation errors", async () => {
     const { uiAPI, hostedSession } = makeValidationUi();
     const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     /** @type {number} */
     let reviewCalls = 0;
     /** @type {any[]} */
     const reviewOpts = [];
-
-    // Override promptSelect to return "retry" so the retry path is exercised
-    uiAPI.promptSelect = () => Promise.resolve("retry");
 
     await runValidationLoop({
         hostedSession,
@@ -345,7 +346,6 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
                 if (reviewCalls === 1) {
                     throw new Error("Context window exceeded");
                 }
-                // Second call succeeds
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -370,10 +370,7 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
         [false, false],
         "Reviewer retries must each start without the shared workflow SessionManager",
     );
-    const retryProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
-        call.message.includes("Retrying Semantic Code Review")
-    )?.validationProgress;
-    assertEquals(retryProgress?.stage, "semantic_review");
-    assertEquals(retryProgress?.message, undefined);
-    assertStringIncludes(uiAPI.messages.join(" "), "retry completed");
+    assertStringIncludes(reviewOpts[1].userRequest, "Continue reviewing p");
+    assertStringIncludes(uiAPI.messages.join(" "), "Sending Semantic Reviewer continuation request");
+    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Code Review Approved");
 });

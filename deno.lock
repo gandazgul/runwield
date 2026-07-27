@@ -90,6 +90,7 @@
     "npm:esbuild@~0.28.1": "0.28.1",
     "npm:fuse.js@^7.4.2": "7.4.2",
     "npm:highlight.js@^11.11.1": "11.11.1",
+    "npm:js-tiktoken@*": "1.0.21",
     "npm:katex@~0.16.47": "0.16.47",
     "npm:lucide-react@^1.25.0": "1.26.0_react@19.2.7",
     "npm:marked@^17.0.6": "17.0.6",
@@ -4911,6 +4912,12 @@
     },
     "jose@6.2.3": {
       "integrity": "sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw=="
+    },
+    "js-tiktoken@1.0.21": {
+      "integrity": "sha512-biOj/6M5qdgx5TKjDnFT1ymSpM5tbd3ylwDtrQvFQSu0Z7bBYko2dF+W/aUkXUPuk6IVpRxk/3Q2sHOzGlS36g==",
+      "dependencies": [
+        "base64-js"
+      ]
     },
     "js-tokens@4.0.0": {
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="
