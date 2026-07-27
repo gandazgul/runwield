@@ -21,20 +21,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T18:50:18-04:00"
-updatedAt: "2026-07-26T23:18:46.013Z"
-status: "in_progress"
+updatedAt: "2026-07-27T00:07:26.470Z"
+status: "implemented"
 origin: "internal"
+implementedAt: "2026-07-27T00:07:26.470Z"
 userVerifiedAt: null
-userVerificationNote: null
-humanReviewMode: null
-humanReviewDecision: null
 executionMode: "worktree"
 executionBaselineTree: "678b590b2177fbb690fad035e13f5364ad707770"
 worktreeId: "c4ad153f"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-release-candidate-and-promotion-flow-c4ad153f"
 worktreeBranch: "runwield/worktree/release-candidate-and-promotion-flow-c4ad153f"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
 ---
 
 # Release Candidate and Promotion Flow
