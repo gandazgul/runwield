@@ -284,14 +284,19 @@ orchestratorTest(
         const activeAgents = [];
         /** @type {string[]} */
         const rootTurns = [];
+        const hostedSession = makeHostedSession();
         let mechanicalValidationCount = 0;
         /** @type {any} */
         let mechanicalValidationArgs;
+        /** @type {any} */
+        let workflowDuringEngineerTurn = null;
+        /** @type {any} */
+        let workflowDuringValidation = null;
         /** @type {any[]} */
         const metrics = [];
 
         await dispatchPostTriage({
-            hostedSession: makeHostedSession(),
+            hostedSession,
             triage: {
                 routingIntent: "QUICK_FIX",
                 complexity: "LOW",
@@ -307,6 +312,7 @@ orchestratorTest(
                 readLatestTaskCompletedOutcome: () => true,
                 runRootTurn: (/** @type {any} */ args) => {
                     rootTurns.push(args.agentName);
+                    workflowDuringEngineerTurn = args.hostedSession.getActiveExecutionWorkflow();
                     assertEquals(args.userRequest.includes("Routing Intent: QUICK_FIX"), true);
                     return Promise.resolve(
                         /** @type {any} */ ([{
@@ -319,6 +325,7 @@ orchestratorTest(
                 runMechanicalValidation: (/** @type {any} */ args) => {
                     mechanicalValidationCount++;
                     mechanicalValidationArgs = args;
+                    workflowDuringValidation = args.hostedSession.getActiveExecutionWorkflow();
                     return Promise.resolve({ passed: true, attempts: 0 });
                 },
                 runValidationLoop: () => {
@@ -340,7 +347,14 @@ orchestratorTest(
 
         assertEquals(activeAgents, ["engineer"]);
         assertEquals(rootTurns, ["engineer"]);
+        assertEquals(workflowDuringEngineerTurn?.planName, "quick-fix");
+        assertEquals(workflowDuringEngineerTurn?.executionAgent, "engineer");
+        assertEquals(workflowDuringEngineerTurn?.executionStarted, true);
+        assertEquals(workflowDuringEngineerTurn?.triageMeta?.classification, "QUICK_FIX");
+        assertEquals(workflowDuringEngineerTurn?.manualQaContext?.includes("## User Request\nFix it"), true);
         assertEquals(mechanicalValidationCount, 1);
+        assertEquals(workflowDuringValidation, null);
+        assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
         assertEquals(mechanicalValidationArgs.manualQaName, "quick-fix");
         assertEquals(mechanicalValidationArgs.manualQaContext.includes("## User Request\nFix it"), true);
         assertEquals(mechanicalValidationArgs.manualQaContext.includes("Routing Intent: QUICK_FIX"), true);
@@ -445,13 +459,14 @@ orchestratorTest("dispatchPostTriage cancels QUICK_FIX before Engineer when non-
 });
 
 orchestratorTest(
-    "dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed",
+    "dispatchPostTriage preserves QUICK_FIX workflow when Engineer stops without task_completed",
     async () => {
         const uiAPI = makeUi();
+        const hostedSession = makeHostedSession();
         let mechanicalValidationCount = 0;
 
         await dispatchPostTriage({
-            hostedSession: makeHostedSession(),
+            hostedSession,
             triage: {
                 routingIntent: "QUICK_FIX",
                 complexity: "LOW",
@@ -480,10 +495,14 @@ orchestratorTest(
         assertEquals(mechanicalValidationCount, 0);
         assertEquals(
             uiAPI.messages.some((/** @type {string} */ message) =>
-                message.includes("Mechanical Validation will not run")
+                message.includes("Mechanical Validation will resume after task_completed")
             ),
             true,
         );
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, true);
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.triageMeta?.classification, "QUICK_FIX");
     },
 );
 
@@ -664,9 +683,10 @@ orchestratorTest("dispatchPostTriage executes approved FEATURE plans and runs va
 orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
     /** @type {string[]} */
     const activeAgents = [];
+    const hostedSession = makeHostedSession();
 
     await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
+        hostedSession,
         triage: {
             routingIntent: "PROJECT",
             classification: "PROJECT",
@@ -690,7 +710,17 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete PROJ
                     triageMeta: { routingIntent: "PROJECT", classification: "PROJECT" },
                 },
             }),
-            executePlan: () => Promise.resolve({ executionComplete: false }),
+            executePlan: () => {
+                hostedSession.setActiveExecutionWorkflow({
+                    planName: "project-plan",
+                    triageMeta: { classification: "PROJECT" },
+                    executionAgent: "engineer",
+                    executionStarted: true,
+                    projectRoot: Deno.cwd(),
+                    executionCwd: Deno.cwd(),
+                });
+                return Promise.resolve({ executionComplete: false });
+            },
             decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
                 kind: "stay_with_agent",
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
@@ -707,14 +737,17 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete PROJ
     });
 
     assertEquals(activeAgents, ["engineer"]);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "project-plan");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, true);
 });
 
 orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEATURE execution", async () => {
     /** @type {string[]} */
     const activeAgents = [];
+    const hostedSession = makeHostedSession();
 
     await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
+        hostedSession,
         triage: {
             routingIntent: "FEATURE",
             classification: "FEATURE",
@@ -735,7 +768,17 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEAT
                     triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
                 },
             }),
-            executePlan: () => Promise.resolve({ executionComplete: false }),
+            executePlan: () => {
+                hostedSession.setActiveExecutionWorkflow({
+                    planName: "feature-plan",
+                    triageMeta: { classification: "FEATURE" },
+                    executionAgent: "engineer",
+                    executionStarted: true,
+                    projectRoot: Deno.cwd(),
+                    executionCwd: Deno.cwd(),
+                });
+                return Promise.resolve({ executionComplete: false });
+            },
             decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
                 kind: "stay_with_agent",
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
@@ -752,6 +795,8 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEAT
     });
 
     assertEquals(activeAgents, ["engineer"]);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "feature-plan");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, true);
 });
 
 orchestratorTest("dispatchPostTriage ignores stale execution handoff state by using typed results", async () => {

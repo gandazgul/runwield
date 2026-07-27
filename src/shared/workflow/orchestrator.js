@@ -73,6 +73,40 @@ function toRouterHandoff(outcome) {
 }
 
 /**
+ * @param {string} decoratedRequest
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} [messages]
+ * @returns {string}
+ */
+function buildQuickFixManualQaContext(decoratedRequest, messages) {
+    const manualQaSummary = messages ? extractAssistantOutput(messages) : null;
+    return [
+        decoratedRequest,
+        manualQaSummary ? `## Implementation Summary\n${manualQaSummary}` : "",
+    ].filter(Boolean).join("\n\n");
+}
+
+/**
+ * @param {TriageOutcome} triage
+ * @param {string} projectRoot
+ * @param {string} manualQaName
+ * @param {string} manualQaContext
+ * @returns {import('../session/hosted-session.js').ActiveExecutionWorkflow}
+ */
+function createQuickFixWorkflow(triage, projectRoot, manualQaName, manualQaContext) {
+    return {
+        planName: "quick-fix",
+        triageMeta: { ...triage, classification: "QUICK_FIX" },
+        executionAgent: /** @type {"engineer"} */ (AGENTS.ENGINEER),
+        executionStarted: true,
+        executionAttemptStartedAtMs: Date.now(),
+        projectRoot,
+        executionCwd: projectRoot,
+        manualQaName,
+        manualQaContext,
+    };
+}
+
+/**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
  * @returns {Promise<boolean>}
@@ -328,7 +362,7 @@ export async function dispatchPostTriage(
         });
         const routerHandoff = readLatestReturnToRouterOutcomeImpl(messages, preTurnCount);
         if (routerHandoff) return toRouterHandoff(routerHandoff);
-        const completed = readLatestTaskCompletedOutcomeImpl(messages);
+        const completed = readLatestTaskCompletedOutcomeImpl(messages, preTurnCount);
         await recordWorkflowMetricImpl({
             category: "execution",
             event: "operation_completed_observed",
@@ -350,6 +384,8 @@ export async function dispatchPostTriage(
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
+        const manualQaName = normalizedTriage.sessionName || "quick-fix";
+        const initialManualQaContext = buildQuickFixManualQaContext(decoratedRequest);
         const gitProbe = await probeGit(projectRoot);
         if (
             !gitProbe.ok && !hasConsent("quickFix", projectRoot) &&
@@ -370,6 +406,9 @@ export async function dispatchPostTriage(
         }
 
         await activateAgent(AGENTS.ENGINEER);
+        hostedSession.setActiveExecutionWorkflow(
+            createQuickFixWorkflow(normalizedTriage, projectRoot, manualQaName, initialManualQaContext),
+        );
 
         const preTurnCount = getPreTurnMessageCount();
         const messages = await runRootTurnImpl({
@@ -379,8 +418,11 @@ export async function dispatchPostTriage(
             images,
         });
         const routerHandoff = readLatestReturnToRouterOutcomeImpl(messages, preTurnCount);
-        if (routerHandoff) return toRouterHandoff(routerHandoff);
-        const completed = readLatestTaskCompletedOutcomeImpl(messages);
+        if (routerHandoff) {
+            hostedSession.clearActiveExecutionWorkflow();
+            return toRouterHandoff(routerHandoff);
+        }
+        const completed = readLatestTaskCompletedOutcomeImpl(messages, preTurnCount);
         if (!completed) {
             await recordWorkflowMetricImpl({
                 category: "execution",
@@ -390,21 +432,19 @@ export async function dispatchPostTriage(
             });
             emitSystemStatus(
                 hostedSession,
-                `${engineerDisplay} stopped without task_completed; QUICK_FIX may be incomplete and Mechanical Validation will not run.`,
+                `${engineerDisplay} stopped without task_completed during QUICK_FIX. Staying with ${engineerDisplay}; Mechanical Validation will resume after task_completed.`,
                 { header: "RunWield" },
             );
             return;
         }
 
-        const manualQaSummary = extractAssistantOutput(messages);
+        const manualQaContext = buildQuickFixManualQaContext(decoratedRequest, messages);
+        hostedSession.clearActiveExecutionWorkflow();
         const mechanicalResult = await runMechanicalValidationImpl({
             hostedSession,
             sessionManager,
-            manualQaName: normalizedTriage.sessionName || "quick-fix",
-            manualQaContext: [
-                decoratedRequest,
-                manualQaSummary ? `## Implementation Summary\n${manualQaSummary}` : "",
-            ].filter(Boolean).join("\n\n"),
+            manualQaName,
+            manualQaContext,
         });
         await recordWorkflowMetricImpl({
             category: "execution",
