@@ -30,13 +30,14 @@ import { runSettingsCommand } from "./settings/index.js";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
+import { runUpdateCommand } from "./update/index.js";
 import { runSnipFiltersCommand } from "./snip-filters/index.js";
 import { runAcpCommand } from "./acp/index.js";
 import { runWorkspaceCommand } from "./workspace/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -56,6 +57,7 @@ export const COMMAND_NAMES = Object.freeze({
     SLEEP: "sleep",
     HELP: "help",
     VERSION: "version",
+    UPDATE: "update",
     QUIT: "quit",
     EXIT: "exit",
     INIT: "init",
@@ -498,6 +500,24 @@ export const commandRegistry = {
         notes: [],
         execute: runVersionCommand,
         surfaces: ["cli", "slash"],
+    },
+    [COMMAND_NAMES.UPDATE]: {
+        name: COMMAND_NAMES.UPDATE,
+        aliases: ["upgrade"],
+        displayName: "Update",
+        description: "Install the latest Stable release",
+        summary: "Update RunWield by running the public Stable-channel installer.",
+        usage: [
+            `${bin("update")}`,
+            `${bin("upgrade")}`,
+        ],
+        notes: [
+            "Installs the latest Stable RunWield release; Candidate prereleases are not selected by this command.",
+            "When possible, WLD_INSTALL_DIR is set to the current wld binary directory before running install.sh.",
+            "Set WLD_INSTALL_DIR yourself to choose a specific installation directory.",
+        ],
+        execute: runUpdateCommand,
+        surfaces: ["cli"],
     },
     [COMMAND_NAMES.QUIT]: {
         name: COMMAND_NAMES.QUIT,
