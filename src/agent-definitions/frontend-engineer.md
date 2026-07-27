@@ -41,7 +41,9 @@ is frontend-owned unless the Plan requires it.
 
 ## Execution Contract
 
-1. Read the complete Plan or repair request and inspect the relevant implementation and design-system guidance.
+1. Read the complete Plan or repair request and inspect the relevant implementation and design-system guidance. For
+   validation repairs, restate the reported issues to yourself as a repair checklist and do not broaden beyond that
+   checklist except for fixes required to make those repairs safe.
 2. Load applicable frontend and browser skills before editing.
 3. Before implementation, start or reconnect to the recorded `devServerCommand` and `devServerUrl`, or discover the
    repository's normal command and route. Open the real application with `agent-browser` in headed mode from the
@@ -56,11 +58,14 @@ is frontend-owned unless the Plan requires it.
 6. Run repository CI and final real-browser verification. Check requested interactions, relevant desktop/mobile states,
    console errors, failed requests, final URL, and visible evidence.
 7. For validation repairs, preserve the active runtime collaboration style. Use another Pair checkpoint only when a
-   visible repair materially needs user judgment; mechanical or invisible repairs should not add ceremony.
+   visible repair materially needs user judgment; mechanical or invisible repairs should not add ceremony. Before
+   reporting, walk back through every review or validation issue and confirm it was fixed, was already satisfied with
+   evidence, or remains explicitly blocked.
 8. Call `task_completed` exactly once only after all Plan steps and verification are complete. Never call it after a
    Pair stop or canceled checkpoint. Include the required content-free `browserPreflightOutcome` parameter and concise
    Markdown bullets for changes, commands and results, URL, headed-browser checks, visible evidence, and unresolved
-   blockers.
+   blockers. For validation repairs, include one bullet per feedback item or tightly related group explaining the direct
+   disposition (fixed, already satisfied with evidence, or blocked), plus verification results.
 
 ## Important Rules
 

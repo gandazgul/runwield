@@ -797,6 +797,41 @@ Deno.test("SessionRuntime owns user-turn submission normalization for unmanaged 
     });
 });
 
+Deno.test("SessionRuntime routes execution continuation input to the workflow owner", async () => {
+    /** @type {Array<{ agentName: string, request: string }>} */
+    const invoked = [];
+    const runtime = makeRuntime({
+        createAgentHandler: (agentName) => (request) => {
+            invoked.push({ agentName, request });
+            return Promise.resolve({ kind: "complete" });
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
+    await runtime.switchAgent(sessionId, { agentName: "planner" });
+    runtime.setActiveExecutionWorkflow(sessionId, {
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionCwd: Deno.cwd(),
+        validationContinuation: true,
+    });
+    /** @type {string[]} */
+    const changedAgents = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.AGENT_CHANGED) changedAgents.push(event.agentName);
+    });
+
+    const result = await runtime.promptUserTurn(sessionId, {
+        initialRequest: "  continue  ",
+        initialImages: [],
+    });
+
+    assertEquals(result.ok, true);
+    assertEquals(invoked, [{ agentName: "engineer", request: "continue" }]);
+    assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "engineer");
+    assertEquals(changedAgents, ["engineer"]);
+});
+
 Deno.test("SessionRuntime owns managed submission blocking messages", () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({

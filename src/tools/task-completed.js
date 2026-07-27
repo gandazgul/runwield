@@ -12,8 +12,9 @@ import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summary for the completed task.";
 const ENGINEER_MESSAGE_DESCRIPTION =
-    "Concise Markdown bullet-point success, failure, or blocked report. Use one bullet per major outcome, verification " +
-    "result, frontend browser check, or unresolved blocker; do not submit a prose paragraph.";
+    "Concise Markdown bullet-point success, failure, or blocked report. Use one bullet per major outcome, review " +
+    "feedback item or related group, verification result, frontend browser check, or unresolved blocker; directly " +
+    "state each feedback item's disposition when repairing validation/review feedback; do not submit a prose paragraph.";
 const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
     " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, visible evidence, and exact blockers; Pair checkpoint acceptance is not verification evidence.";
 
