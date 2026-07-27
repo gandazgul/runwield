@@ -4,6 +4,7 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 import { encodeCwdForSessionDir } from "./root-session.js";
 import {
     captureTranscriptEvidence,
+    getCommittedTranscriptAuthorityFacts,
     projectCommittedTranscript,
     selectProjectedEventsAfterCursor,
     summarizeProjectedEntries,
@@ -146,6 +147,33 @@ Deno.test("projection summary preserves stable attention event identity", () => 
         agentName: "Ideator",
     });
     assertEquals(second.attention?.eventId, first.attention?.eventId);
+});
+
+Deno.test("committed transcript authority facts are explicit projection extracts", () => {
+    const facts = getCommittedTranscriptAuthorityFacts({
+        snapshot: {
+            activeAgent: "Ideator",
+            model: "gpt-test",
+            provider: "openai",
+            thinkingLevel: "high",
+            workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+        },
+    });
+
+    assertEquals(facts, {
+        activeAgent: "Ideator",
+        model: "gpt-test",
+        provider: "openai",
+        thinkingLevel: "high",
+        workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+    });
+    assertEquals(getCommittedTranscriptAuthorityFacts(null), {
+        activeAgent: null,
+        model: null,
+        provider: null,
+        thinkingLevel: null,
+        workflowContext: null,
+    });
 });
 
 Deno.test("projection cursor selection fails closed when the prior cursor is absent", () => {

@@ -6,6 +6,7 @@ import { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import {
     captureTranscriptEvidence,
+    getCommittedTranscriptAuthorityFacts,
     projectCommittedTranscript,
 } from "../../../shared/session/session-transcript-projection.js";
 
@@ -220,7 +221,8 @@ export class WorkspaceSessionContinuationService {
             digestHex: inspected.generation.digestHex,
             limit: 1,
         });
-        if (projection.snapshot.activeAgent !== AGENTS.IDEATOR || projection.snapshot.workflowContext) {
+        const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
+        if (committedFacts.activeAgent !== AGENTS.IDEATOR || committedFacts.workflowContext) {
             throw new Error("Workspace continuation is only supported for idle Ideator conversation Sessions.");
         }
         const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
