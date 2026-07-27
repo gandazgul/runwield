@@ -6,7 +6,7 @@ import {
     generateContentKey,
     importContentKey,
 } from "./crypto.js";
-import { decodeBase64Url, encodeBase64Url } from "./base64url.js";
+import { decodeBase64Url, encodeBase64Url } from "./base64url.ts";
 
 Deno.test("content encryption keys export, import, and round trip JSON payloads", async () => {
     const key = await generateContentKey();

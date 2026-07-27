@@ -1,6 +1,6 @@
 /** @module shared/collaboration/capabilities */
 
-import { encodeBase64Url } from "./base64url.js";
+import { encodeBase64Url } from "./base64url.ts";
 
 export const REVIEWER_SCOPE = "reviewer";
 export const MAINTAINER_SCOPE = "maintainer";

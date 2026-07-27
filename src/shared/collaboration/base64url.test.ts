@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { decodeBase64Url, decodeUtf8Base64Url, encodeBase64Url, encodeUtf8Base64Url } from "./base64url.js";
+import { decodeBase64Url, decodeUtf8Base64Url, encodeBase64Url, encodeUtf8Base64Url } from "./base64url.ts";
 
 Deno.test("base64url round trips UTF-8 strings", () => {
     const encoded = encodeUtf8Base64Url("hello 🌎");

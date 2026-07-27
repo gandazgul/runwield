@@ -22,11 +22,10 @@ We have selected the following foundational stack for RunWield:
      test runner). It eliminates the need for `package.json` bloat, `node_modules` hell, and complex build tooling,
      perfectly aligning with a zero-friction CLI ethos.
 
-2. **Language: Vanilla JavaScript with JSDoc**
-   - **Why:** We will write pure ES Modules (`.js`) and use JSDoc comments for type-checking. This completely eliminates
-     the TypeScript transpilation step (`tsc` or `esbuild`). The codebase remains type-safe via Deno's native LSP, but
-     execution is instantaneous. This is critical for dogfooding RunWield: when the agent writes or modifies code, there
-     is no build step required before the next agent session can test the change.
+2. **Language: Deno-native JavaScript/TypeScript mix**
+   - **Why:** Superseded by [ADR-013](013-deno-native-typescript-ratchet.md). Existing JavaScript with JSDoc remains
+     valid, but new production source under `src/` is ratcheted toward native TypeScript (`.ts`/`.tsx`) while preserving
+     direct Deno execution and avoiding a TypeScript emit pipeline.
 
 3. **Agent Foundation: `pi-mono` Ecosystem**
    - **Why:** Instead of building an LLM orchestration layer from scratch, RunWield will heavily leverage
@@ -43,7 +42,8 @@ We have selected the following foundational stack for RunWield:
   tooling (Jest, ESLint, Prettier).
 - **Agent Synergy:** Using `pi-mono` allows RunWield to inherit battle-tested LLM abstractions and focus purely on the
   "Gatekeeper" and planning logic.
-- **Type Safety without Friction:** JSDoc provides the safety net of TypeScript without the runtime or compilation tax.
+- **Type Safety without Friction:** Deno-native checking provides a safety net without a separate runtime compilation
+  tax; see ADR-013 for the current language ratchet.
 
 ### Negative
 

@@ -1,24 +1,14 @@
-/** @module shared/collaboration/base64url */
-
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
 
-/**
- * @param {Uint8Array} bytes
- * @returns {string}
- */
-export function encodeBase64Url(bytes) {
+export function encodeBase64Url(bytes: Uint8Array): string {
     let binary = "";
     for (const byte of bytes) binary += String.fromCharCode(byte);
     return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-/**
- * @param {string} value
- * @returns {Uint8Array}
- */
-export function decodeBase64Url(value) {
+export function decodeBase64Url(value: string): Uint8Array {
     if (typeof value !== "string") throw new Error("base64url value must be a string");
     if (!BASE64URL_PATTERN.test(value)) throw new Error("base64url value contains invalid characters");
     const remainder = value.length % 4;
@@ -30,18 +20,10 @@ export function decodeBase64Url(value) {
     return bytes;
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
-export function encodeUtf8Base64Url(value) {
+export function encodeUtf8Base64Url(value: string): string {
     return encodeBase64Url(TEXT_ENCODER.encode(value));
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
-export function decodeUtf8Base64Url(value) {
+export function decodeUtf8Base64Url(value: string): string {
     return TEXT_DECODER.decode(decodeBase64Url(value));
 }

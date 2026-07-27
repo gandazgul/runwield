@@ -1,6 +1,6 @@
 /** @module shared/collaboration/crypto */
 
-import { decodeBase64Url, encodeBase64Url } from "./base64url.js";
+import { decodeBase64Url, encodeBase64Url } from "./base64url.ts";
 
 const AES_GCM_ALGORITHM = "AES-GCM";
 const KEY_LENGTH_BITS = 256;
