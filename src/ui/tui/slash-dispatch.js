@@ -12,6 +12,7 @@
 
 import { basename } from "@std/path";
 import { setTerminalTitleForName } from "./terminal-title.js";
+import { notifyRunWieldEventQuietly } from "./system-notifications.js";
 
 const OPERATOR_AGENT = "operator";
 
@@ -97,6 +98,7 @@ function maybeUpdateTitleForSlashCommand(command, runtime, sessionId, displayNam
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
+ * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {(text: string, images: import('../../shared/session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {{
@@ -193,6 +195,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
             originalHandleInput,
             setActiveModel: ctx.setActiveModel,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
+            notifyRunWieldEvent: ctx.notifyRunWieldEvent || notifyRunWieldEventQuietly,
         });
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {
