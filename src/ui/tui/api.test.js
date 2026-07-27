@@ -493,3 +493,31 @@ Deno.test("createUiApi suppressOutput silences later UI mutations except clearin
     ui.clearMessages();
     assertEquals(messageList.children, []);
 });
+
+Deno.test("createUiApi dispose clears prompts, timers, focus, and validation containers", async () => {
+    const { tui, messageList, focus } = makeTuiHarness();
+    const spinner = new SpinnerBlock();
+    const inputAccessoryContainer = makeContainer();
+    const validationPanelContainer = makeContainer();
+    const activeInteractionContainer = makeContainer();
+    const ui = createUiApi(
+        tui,
+        messageList,
+        spinner,
+        inputAccessoryContainer,
+        validationPanelContainer,
+        activeInteractionContainer,
+    );
+
+    const prompt = ui.promptText("Prompt", { persistResult: false });
+    assertNotEquals(focus(), null);
+    ui.updateValidationProgress?.({ outcome: "running", stage: "testing", message: "Testing" });
+    ui.startToolExecution?.("tool-1", "bash", "bash");
+    ui.dispose?.();
+
+    assertEquals(await prompt, null);
+    assertEquals(focus(), null);
+    assertEquals(validationPanelContainer.children.length, 0);
+    assertEquals(activeInteractionContainer.children.length, 0);
+    assertEquals(ui.getActiveToolBlock?.("tool-1"), undefined);
+});

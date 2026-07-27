@@ -109,5 +109,32 @@ Deno.test("createTuiManager stop is safe before init and with TUI lacking stop",
     manager.initTUI();
     manager.stopTUI();
 
-    assertEquals(events, ["restoreTitle", "uninstall", "start", "install", "restoreTitle", "uninstall"]);
+    assertEquals(events, ["restoreTitle", "start", "install", "restoreTitle", "uninstall"]);
+});
+
+Deno.test("createTuiManager clears partial state when TUI start fails", () => {
+    /** @type {string[]} */
+    const events = [];
+
+    class FakeTerminal {}
+
+    class FakeTui {
+        start() {
+            events.push("start");
+            throw new Error("boom");
+        }
+    }
+
+    const manager = createTuiManager({
+        TerminalCtor: FakeTerminal,
+        TuiCtor: FakeTui,
+        installCrashGuards: () => events.push("install"),
+        uninstallCrashGuards: () => events.push("uninstall"),
+        restoreTitle: () => events.push("restoreTitle"),
+    });
+
+    assertThrows(() => manager.initTUI(), Error, "boom");
+    assertThrows(() => manager.getTUI(), Error, "TUI not initialized");
+    manager.stopTUI();
+    assertEquals(events, ["start", "restoreTitle"]);
 });
