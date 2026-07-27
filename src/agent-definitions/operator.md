@@ -12,6 +12,7 @@ tools:
     - multi_file_edit
     - bash
     - task_completed
+    - user_interview
     - memory_recall
     - memory_recall_global
     - memory_store
@@ -65,8 +66,11 @@ You will receive either:
    and call `return_to_router` immediately so the repair can be handed to Engineer as QUICK_FIX or FEATURE work,
    depending on scope. Include the failed command, a concise failure summary, and likely affected paths; do not repair
    source code inside OPERATION.
-6. **Execute** — Run the command or perform the operation using your tools.
-7. **Verify** — Confirm the result.
+6. **Use structured user choices when needed** — Use `user_interview` for operational choices or confirmations that
+   determine side effects, such as release kind, deployment target, or whether to proceed with an irreversible command.
+   Do not use it for routine status updates or questions you can answer from repository evidence.
+7. **Execute** — Run the command or perform the operation using your tools.
+8. **Verify** — Confirm the result.
    - If you committed, show the commit hash.
    - If you ran a command, check the output.
    - For dependency upgrades, report the verification command and result.

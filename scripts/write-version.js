@@ -8,6 +8,8 @@
  */
 
 const FILE_PATH = "src/shared/version.js";
+const EXPLICIT_BUILD_VERSION_ENV = "WLD_BUILD_VERSION";
+const SAFE_BUILD_VERSION_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/;
 
 /**
  * @typedef {(name: string) => string | undefined} EnvReader
@@ -45,6 +47,32 @@ function runGitCommand(args) {
     } catch (_e) {
         return undefined;
     }
+}
+
+/**
+ * @param {string} value
+ * @returns {string | undefined}
+ */
+function normalizeExplicitBuildVersion(value) {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (!SAFE_BUILD_VERSION_PATTERN.test(trimmed)) {
+        throw new Error(`${EXPLICIT_BUILD_VERSION_ENV} must be a WLD release tag like v1.2.3 or v1.2.3-rc.1.`);
+    }
+    const rcMatch = trimmed.match(/-rc\.(\d+)$/);
+    if (rcMatch && Number(rcMatch[1]) < 1) {
+        throw new Error(`${EXPLICIT_BUILD_VERSION_ENV} release-candidate ordinal must be positive.`);
+    }
+    return trimmed;
+}
+
+/**
+ * @param {EnvReader} [readEnv]
+ * @returns {string | undefined}
+ */
+export function getExplicitBuildVersion(readEnv = readEnvValue) {
+    const value = readEnv(EXPLICIT_BUILD_VERSION_ENV);
+    return value === undefined ? undefined : normalizeExplicitBuildVersion(value);
 }
 
 /**
@@ -87,7 +115,8 @@ export function resolveBuildVersion(options = {}) {
     const readEnv = options.readEnv ?? readEnvValue;
     const runGit = options.runGit ?? runGitCommand;
 
-    return getGitHubTagName(readEnv) ?? getExactGitTag(runGit) ?? getGitShortHash(runGit) ?? "dev";
+    return getExplicitBuildVersion(readEnv) ?? getGitHubTagName(readEnv) ?? getExactGitTag(runGit) ??
+        getGitShortHash(runGit) ?? "dev";
 }
 
 /**

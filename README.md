@@ -345,6 +345,8 @@ deno task compile
 
 `deno task ci` runs check, lint, format check, and tests.
 
+See [RELEASING.md](RELEASING.md) for RunWield's Candidate, Stable promotion, and release-publication policy.
+
 The codebase is pure JavaScript with JSDoc typing. Do not add TypeScript files or TypeScript syntax.
 
 ### Project Structure
