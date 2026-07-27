@@ -3,12 +3,15 @@
  * User prompts and agent request text used by workflow execution.
  */
 
+import { formatPlannedWorkLabel } from "../../constants.js";
+
 /**
  * @typedef {Object} SlicerChildSummary
  * @property {string} name
  * @property {number} [order]
  * @property {string} [status]
  * @property {string} [summary]
+ * @property {string} [workKind]
  * @property {string[]} [dependencies]
  * @property {string[]} [affectedPaths]
  * @property {import('../ticket-references.js').TicketReference[]} [tickets]
@@ -35,8 +38,8 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         `## Slice Plan: ${planName}`,
         "",
         "You are resuming an interactive Slicer conversation for this PROJECT Epic.",
-        "First propose or refine child FEATURE boundaries conversationally. Do not finalize or write child files unless the user explicitly confirms finalization.",
-        "Follow the Slicer system prompt: discuss FEATURE boundaries first; use the workflow tool for materialization/finalization only when explicitly requested.",
+        "First propose or refine child planned-change boundaries conversationally. Do not finalize or write child files unless the user explicitly confirms finalization.",
+        "Follow the Slicer system prompt: discuss planned-change boundaries first; use the workflow tool for materialization/finalization only when explicitly requested.",
         "",
         "## Epic Lifecycle State",
         `- Plan: plans/${planName}.md`,
@@ -65,6 +68,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         lines.push("## Triage Report");
         lines.push("## Triage Metadata");
         if (triageMeta.classification) lines.push(`- Classification: ${triageMeta.classification}`);
+        if (triageMeta.workKind) lines.push(`- Work Kind: ${triageMeta.workKind}`);
         if (triageMeta.complexity) lines.push(`- Complexity: ${triageMeta.complexity}`);
         if (triageMeta.summary) lines.push(`- Summary: ${triageMeta.summary}`);
         if (triageMeta.affectedPaths?.length) {
@@ -83,15 +87,16 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         );
     }
 
-    lines.push("## Existing Child FEATURE Plans");
+    lines.push("## Existing Child Planned Change Plans");
     if (children.length === 0) {
-        lines.push("No child FEATURE plans exist yet.");
+        lines.push("No child planned change plans exist yet.");
     } else {
         for (const child of children) {
             lines.push(`- ${child.name}`);
             if (child.order !== undefined) lines.push(`  - Order: ${child.order}`);
             if (child.status) lines.push(`  - Status: ${child.status}`);
             if (child.summary) lines.push(`  - Summary: ${child.summary}`);
+            if (child.workKind) lines.push(`  - Work Kind: ${child.workKind}`);
             if (child.dependencies?.length) lines.push(`  - Dependencies: ${child.dependencies.join(", ")}`);
             if (child.affectedPaths?.length) lines.push(`  - Affected paths: ${child.affectedPaths.join(", ")}`);
             if (child.tickets?.length) {
@@ -127,14 +132,16 @@ export function buildCollaborationStylePrompt(recommendation) {
  * @param {string} planName
  * @param {string} planBody
  * @param {string} [reviewFeedback]
- * @param {{ collaborationStyle?: "autonomous"|"pair" }} [options]
+ * @param {{ collaborationStyle?: "autonomous"|"pair", workKind?: string }} [options]
  * @returns {string}
  */
 export function buildEngineerRequest(planName, planBody, reviewFeedback, options = {}) {
     const lines = [
         `## Approved Plan: ${planName}`,
         "",
-        "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.",
+        `Execute the following plan step by step. This is a ${
+            formatPlannedWorkLabel(options.workKind).toLowerCase()
+        }. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.`,
         "",
     ];
     if (options.collaborationStyle === "pair") {

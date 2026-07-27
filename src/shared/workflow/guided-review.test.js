@@ -50,22 +50,22 @@ Deno.test("recommendGuidedReview scores complexity and cross-area diffs", () => 
     assertEquals(recommendation.stats.meaningfulAreas.length >= 3, true);
 });
 
-Deno.test("recommendGuidedReview applies child FEATURE and visual path signals precisely", () => {
+Deno.test("recommendGuidedReview applies child Planned Change and visual path signals precisely", () => {
     const projectRecommendation = recommendGuidedReview({
         planAttrs: { classification: "PROJECT", dependencies: ["child"], parentPlan: "epic" },
         planContent: "backend change",
         diffText: "diff --git a/src/core.js b/src/core.js\n+change",
     });
-    assertEquals(projectRecommendation.reasons.includes("child FEATURE dependencies"), false);
-    assertEquals(projectRecommendation.reasons.includes("child FEATURE Epic context"), false);
+    assertEquals(projectRecommendation.reasons.includes("child Planned Change dependencies"), false);
+    assertEquals(projectRecommendation.reasons.includes("child Planned Change Epic context"), false);
 
     const featureRecommendation = recommendGuidedReview({
         planAttrs: { classification: "FEATURE", dependencies: ["child"], parentPlan: "epic" },
         planContent: "backend change",
         diffText: "diff --git a/src/ui/panel.js b/src/ui/panel.js\n+change",
     });
-    assertEquals(featureRecommendation.reasons.includes("child FEATURE dependencies"), true);
-    assertEquals(featureRecommendation.reasons.includes("child FEATURE Epic context"), true);
+    assertEquals(featureRecommendation.reasons.includes("child Planned Change dependencies"), true);
+    assertEquals(featureRecommendation.reasons.includes("child Planned Change Epic context"), true);
     assertEquals(featureRecommendation.reasons.includes("visual or interactive change"), true);
 });
 

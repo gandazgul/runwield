@@ -16,6 +16,7 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
                 order: 2,
                 status: "draft",
                 summary: "Second slice",
+                workKind: "MAINTENANCE",
                 dependencies: ["01-first"],
                 affectedPaths: ["src/second.js"],
             },
@@ -25,6 +26,7 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
     assertStringIncludes(request, "- epic-a/02-second");
     assertStringIncludes(request, "  - Order: 2");
     assertStringIncludes(request, "  - Status: draft");
+    assertStringIncludes(request, "  - Work Kind: MAINTENANCE");
     assertStringIncludes(request, "  - Dependencies: 01-first");
     assertStringIncludes(request, "- Target branch: feature-base");
 });

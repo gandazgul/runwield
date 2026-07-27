@@ -755,7 +755,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
     assertEquals(events, ["worktree_merge_failed"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Feature execution and validation complete")
+            message.includes("Planned change execution and validation complete")
         ),
         true,
     );

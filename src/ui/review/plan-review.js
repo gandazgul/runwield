@@ -173,6 +173,7 @@ export async function submitPlanForReview({
         if (triageMeta.classification) {
             fmOverrides.classification = triageMeta.classification;
         }
+        if (triageMeta.workKind) fmOverrides.workKind = triageMeta.workKind;
         if (triageMeta.complexity) fmOverrides.complexity = triageMeta.complexity;
         if (triageMeta.summary) fmOverrides.summary = triageMeta.summary;
         if (triageMeta.affectedPaths) {
@@ -181,6 +182,7 @@ export async function submitPlanForReview({
     }
 
     const trustedClassification = fmOverrides.classification;
+    const trustedWorkKind = fmOverrides.workKind;
     const planWithFm = injectFrontMatter(body, fmOverrides);
 
     // 4. Start the review surface through an adapter seam.
@@ -231,6 +233,7 @@ export async function submitPlanForReview({
         const approvedPolicy = readApprovedExecutionPolicy(decision);
         const canonicalReviewOverrides = {
             classification: trustedClassification,
+            ...(trustedWorkKind ? { workKind: trustedWorkKind } : {}),
         };
         if (trustedClassification === "PROJECT") {
             Object.assign(canonicalReviewOverrides, {

@@ -90,7 +90,7 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
         "view",
         "cancel",
     ]);
-    assertEquals(messages.some((m) => m.includes("no child FEATURE plans")), true);
+    assertEquals(messages.some((m) => m.includes("no child Planned Change plans")), true);
     assertEquals(slicerPlanName, "epic-a");
     assertEquals(executed, false);
 });
@@ -125,7 +125,7 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
                         name: "epic-b/02-second",
                         path: "plans/epic-b/02-second.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Second child",
                             affectedPaths: [],
@@ -138,7 +138,7 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
                         name: "epic-b/01-first",
                         path: "plans/epic-b/01-first.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "First child",
                             affectedPaths: [],
@@ -161,13 +161,13 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
         "cancel",
     ]);
     assertEquals(prompts[1].options[0].value, "__next_child__");
-    assertEquals(prompts[1].options[0].label, "Execute next incomplete child FEATURE: 02. Second child [draft]");
+    assertEquals(prompts[1].options[0].label, "Execute next incomplete child Planned Change: 02. Second child [draft]");
     assertEquals(prompts[1].options[1].label, "01. epic-b/01-first [verified] — First child");
     assertEquals(prompts[1].options[2].label, "02. epic-b/02-second [draft] — Second child — deps: 01-first");
     assertEquals(prompts[1].options[2].description?.includes("Dependencies: 01-first"), true);
 });
 
-Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels and statuses", async () => {
+Deno.test("runLoadPlanCommand View Epic details includes child Planned Change labels and statuses", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("view", "cancel");
 
@@ -197,7 +197,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
                         name: "epic-view/01-first",
                         path: "plans/epic-view/01-first.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "First child",
                             affectedPaths: [],
@@ -208,7 +208,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
                         name: "epic-view/02-second",
                         path: "plans/epic-view/02-second.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Second child",
                             affectedPaths: [],
@@ -220,13 +220,16 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
         }),
     });
 
-    const detailMessage = messages.find((message) => message.includes("Child FEATURE plans:")) || "";
-    assertEquals(detailMessage.includes("Progress: 1 RunWield verified / 0 User Verified / 2 child FEATUREs"), true);
+    const detailMessage = messages.find((message) => message.includes("Child Planned Change plans:")) || "";
+    assertEquals(
+        detailMessage.includes("Progress: 1 RunWield verified / 0 User Verified / 2 child Planned Changes"),
+        true,
+    );
     assertEquals(detailMessage.includes("epic-view/01-first [verified] — First child"), true);
     assertEquals(detailMessage.includes("epic-view/02-second [ready_for_work] — Second child"), true);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displays details without executing", async () => {
+Deno.test("runLoadPlanCommand child Planned Change detail inspection resolves and displays details without executing", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("pick_child", "epic-inspect/01-child", "view", "back", null, "cancel");
     /** @type {string[]} */
@@ -249,7 +252,7 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
                         body: "## Context\nChild context\n\n## Objective\nChild objective",
                         markdown: "## Context\nChild context\n\n## Objective\nChild objective",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child summary",
                             affectedPaths: [],
@@ -277,7 +280,7 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
                         name: "epic-inspect/01-child",
                         path: "plans/epic-inspect/01-child.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child summary",
                             affectedPaths: [],
@@ -293,14 +296,14 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
         }),
     });
 
-    const detailMessage = messages.find((message) => message.includes("FEATURE: epic-inspect/01-child")) || "";
+    const detailMessage = messages.find((message) => message.includes("Planned Change: epic-inspect/01-child")) || "";
     assertEquals(resolved, ["epic-inspect", "epic-inspect/01-child"]);
     assertEquals(detailMessage.includes("── Context ──\nChild context"), true);
     assertEquals(detailMessage.includes("── Objective ──\nChild objective"), true);
     assertEquals(executed, false);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading", async () => {
+Deno.test("runLoadPlanCommand child Planned Change submenu back returns without loading", async () => {
     const { uiAPI, selections, prompts } = makeUi();
     selections.push("pick_child", "epic-back/01-child", "back", null, "cancel");
     let executed = false;
@@ -331,7 +334,7 @@ Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading
                         name: "epic-back/01-child",
                         path: "plans/epic-back/01-child.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child summary",
                             affectedPaths: [],
@@ -347,8 +350,11 @@ Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading
         }),
     });
 
-    assertEquals(prompts.some((prompt) => prompt.prompt === "What would you like to do with this FEATURE?"), true);
-    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child FEATURE plan:").length, 2);
+    assertEquals(
+        prompts.some((prompt) => prompt.prompt === "What would you like to do with this Planned Change?"),
+        true,
+    );
+    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child Planned Change plan:").length, 2);
     assertEquals(executed, false);
 });
 
@@ -380,8 +386,16 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
                 }),
             findPlansByParent: () =>
                 Promise.resolve([
-                    { name: "epic-done/01-first", path: "", attrs: { classification: "FEATURE", status: "verified" } },
-                    { name: "epic-done/02-second", path: "", attrs: { classification: "FEATURE", status: "draft" } },
+                    {
+                        name: "epic-done/01-first",
+                        path: "",
+                        attrs: { classification: "PLANNED_CHANGE", status: "verified" },
+                    },
+                    {
+                        name: "epic-done/02-second",
+                        path: "",
+                        attrs: { classification: "PLANNED_CHANGE", status: "draft" },
+                    },
                 ]),
             recordPlanEvent: (/** @type {any} */ args) => {
                 recorded = args;
@@ -397,7 +411,10 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
 
     assertEquals(recorded.event, "epic_done_enough");
     assertEquals(recorded.currentStatus, "ready_for_work");
-    assertEquals(messages.some((message) => message.includes("Unverified child FEATURE plans remain visible")), true);
+    assertEquals(
+        messages.some((message) => message.includes("Unverified child Planned Change plans remain visible")),
+        true,
+    );
     assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
 });
 
@@ -433,7 +450,7 @@ Deno.test("runLoadPlanCommand Epic done-enough auto-generates Work Record only a
                         {
                             name: "epic-record-fails/01-first",
                             path: "",
-                            attrs: { classification: "FEATURE", status: "verified" },
+                            attrs: { classification: "PLANNED_CHANGE", status: "verified" },
                         },
                     ]),
                 recordPlanEvent: () => Promise.reject(new Error("lifecycle write failed")),
@@ -487,14 +504,14 @@ Deno.test("runLoadPlanCommand Epic done-enough reports Work Record failure witho
                     {
                         name: "epic-generation-fails/01-first",
                         path: "",
-                        attrs: { classification: "FEATURE", status: "verified" },
+                        attrs: { classification: "PLANNED_CHANGE", status: "verified" },
                     },
                 ]),
             recordPlanEvent: () => {
                 updatedAttrs = {
                     status: "verified",
                     epicCompletionMode: "done_enough",
-                    epicDoneEnoughSummary: "1/1 child FEATURE plans are verified.",
+                    epicDoneEnoughSummary: "1/1 child Planned Change plans are verified.",
                 };
                 return Promise.resolve(updatedAttrs);
             },
@@ -540,7 +557,7 @@ Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
                     {
                         name: "epic-cancel/01-first",
                         path: "",
-                        attrs: { classification: "FEATURE", status: "verified" },
+                        attrs: { classification: "PLANNED_CHANGE", status: "verified" },
                     },
                 ]),
             recordPlanEvent: () => {
@@ -586,12 +603,12 @@ Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", a
                     {
                         name: "epic-verified/01-first",
                         path: "",
-                        attrs: { classification: "FEATURE", status: "verified" },
+                        attrs: { classification: "PLANNED_CHANGE", status: "verified" },
                     },
                     {
                         name: "epic-verified/02-second",
                         path: "",
-                        attrs: { classification: "FEATURE", status: "draft" },
+                        attrs: { classification: "PLANNED_CHANGE", status: "draft" },
                     },
                 ]),
             resetTuiState: () => {},
@@ -635,7 +652,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
     });
 
     assertEquals(messages.some((message) => message.includes("done enough for now")), true);
-    assertEquals(messages.some((message) => message.includes("no child FEATURE plans yet")), true);
+    assertEquals(messages.some((message) => message.includes("no child Planned Change plans yet")), true);
 });
 
 Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () => {
@@ -669,7 +686,7 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
                         name: "epic-c/01-child",
                         path: "plans/epic-c/01-child.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child",
                             affectedPaths: [],
@@ -688,7 +705,7 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
     assertEquals(executed, false);
 });
 
-Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load behavior", async () => {
+Deno.test("runLoadPlanCommand Epic child selection delegates to Planned Change load behavior", async () => {
     const { uiAPI, selections } = makeUi();
     const fixture = makeRuntimeFixture();
     selections.push("pick_child", "epic-d/01-child", "load", "proceed");
@@ -712,7 +729,7 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load beh
                         body: "child body",
                         markdown: "child body",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child",
                             affectedPaths: [],
@@ -740,7 +757,7 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load beh
                         name: "epic-d/01-child",
                         path: "plans/epic-d/01-child.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Child",
                             affectedPaths: [],
@@ -784,7 +801,7 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                         body: "child body",
                         markdown: "child body",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             complexity: "LOW",
                             summary: "Second child",
                             affectedPaths: [],
@@ -812,13 +829,13 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                     {
                         name: "epic-next/03-closed",
                         path: "plans/epic-next/03-closed.md",
-                        attrs: { classification: "FEATURE", status: "closed_without_verification", order: 3 },
+                        attrs: { classification: "PLANNED_CHANGE", status: "closed_without_verification", order: 3 },
                     },
                     {
                         name: "epic-next/02-second",
                         path: "plans/epic-next/02-second.md",
                         attrs: {
-                            classification: "FEATURE",
+                            classification: "PLANNED_CHANGE",
                             status: "ready_for_work",
                             summary: "Second child",
                             order: 2,
@@ -827,7 +844,7 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                     {
                         name: "epic-next/01-first",
                         path: "plans/epic-next/01-first.md",
-                        attrs: { classification: "FEATURE", status: "verified", order: 1 },
+                        attrs: { classification: "PLANNED_CHANGE", status: "verified", order: 1 },
                     },
                 ]),
             executePlan: (/** @type {{ planName: string }} */ options) => {

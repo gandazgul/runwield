@@ -117,7 +117,7 @@ Deno.test("HostedSession treats managed metadata as projection cache, not live r
     session.resetAgentInfoStack("Engineer", "live-model", "live-provider", "engineer");
     session.setRootAgentName("engineer");
     session.setThinkingLevel("high");
-    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "MEDIUM" });
+    session.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
     session.setManagedMetadata({
         runwieldSessionId: "rw-managed-cache",
         projectId: "project-managed-cache",
@@ -137,7 +137,7 @@ Deno.test("HostedSession treats managed metadata as projection cache, not live r
     assertEquals(session.getRootAgentName(), "engineer");
     assertEquals(session.getActiveModelState(), { model: "live-model", provider: "live-provider" });
     assertEquals(session.getThinkingLevel(), "high");
-    assertEquals(session.getWorkflowContext(), { routingIntent: "FEATURE", complexity: "MEDIUM" });
+    assertEquals(session.getWorkflowContext(), { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
 });
 
 Deno.test("HostedSession dehydrates managed sessions by clearing live activation state", () => {
@@ -159,7 +159,7 @@ Deno.test("HostedSession dehydrates managed sessions by clearing live activation
             model: "cached-model",
             provider: "cached-provider",
             thinkingLevel: "medium",
-            workflowContext: { routingIntent: "FEATURE", complexity: "HIGH" },
+            workflowContext: { routingIntent: "PLANNED_CHANGE", complexity: "HIGH" },
             syncState: null,
         },
     });
@@ -170,7 +170,7 @@ Deno.test("HostedSession dehydrates managed sessions by clearing live activation
     session.addSubAgentSession(subAgentSession);
     session.setActiveOnMessage(() => {});
     session.setThinkingLevel("xhigh");
-    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "MEDIUM" });
+    session.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
     session.setActiveExecutionWorkflow({
         planName: "managed-dehydrate-plan",
         triageMeta: {},
@@ -371,7 +371,7 @@ Deno.test("HostedSession hydrates and persists workflow context defensively", ()
         {
             type: "custom",
             customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
-            data: { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "old-plan" },
+            data: { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "old-plan" },
         },
     ];
     const session = new HostedSession({
@@ -381,7 +381,7 @@ Deno.test("HostedSession hydrates and persists workflow context defensively", ()
     });
 
     assertEquals(session.getWorkflowContext(), {
-        routingIntent: "FEATURE",
+        routingIntent: "PLANNED_CHANGE",
         complexity: "MEDIUM",
         planName: "old-plan",
     });
@@ -404,7 +404,7 @@ Deno.test("HostedSession workflow context setters are fail-open after disposal",
     const session = new HostedSession({ id: "disposed-workflow", cwd: Deno.cwd() });
     session.dispose();
 
-    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "LOW" });
+    session.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "LOW" });
     session.setWorkflowPlanName("plan");
 
     assertEquals(session.getWorkflowContext(), null);
@@ -452,10 +452,10 @@ Deno.test("two Hosted Sessions do not share workflow context", () => {
     const alpha = new HostedSession({ id: "workflow-alpha", sessionManager: makeSessionManager("workflow-alpha") });
     const beta = new HostedSession({ id: "workflow-beta", sessionManager: makeSessionManager("workflow-beta") });
 
-    alpha.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "LOW" });
+    alpha.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "LOW" });
     beta.setWorkflowPlanName("beta-plan");
 
-    assertEquals(alpha.getWorkflowContext(), { routingIntent: "FEATURE", complexity: "LOW" });
+    assertEquals(alpha.getWorkflowContext(), { routingIntent: "PLANNED_CHANGE", complexity: "LOW" });
     assertEquals(beta.getWorkflowContext(), { planName: "beta-plan" });
 });
 

@@ -522,8 +522,8 @@ orchestratorTest("dispatchPostTriage keeps planning agent active on stay/save/ha
         await dispatchPostTriage({
             hostedSession: makeHostedSession(),
             triage: {
-                routingIntent: "FEATURE",
-                classification: "FEATURE",
+                routingIntent: "PLANNED_CHANGE",
+                classification: "PLANNED_CHANGE",
                 complexity: "MEDIUM",
                 summary: "plan it",
                 affectedPaths: ["src/a.js"],
@@ -611,8 +611,8 @@ orchestratorTest("dispatchPostTriage executes approved FEATURE plans and runs va
     await dispatchPostTriage({
         hostedSession: makeHostedSession(),
         triage: {
-            routingIntent: "FEATURE",
-            classification: "FEATURE",
+            routingIntent: "PLANNED_CHANGE",
+            classification: "PLANNED_CHANGE",
             complexity: "MEDIUM",
             summary: "feature",
             affectedPaths: ["src/feature.js"],
@@ -624,14 +624,18 @@ orchestratorTest("dispatchPostTriage executes approved FEATURE plans and runs va
             ensurePlansDir: () => Promise.resolve("/plans"),
             runPlanningAgent: (/** @type {any} */ args) => {
                 assertEquals(args.agentName, "planner");
-                assertEquals(args.triageMeta.classification, "FEATURE");
+                assertEquals(args.triageMeta.classification, "PLANNED_CHANGE");
                 return Promise.resolve({ outcome: "approved_execute", planName: "feature-plan" });
             },
             decidePostPlanning: () => ({
                 kind: "execute_plan",
                 payload: {
                     planName: "feature-plan",
-                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE", summary: "feature" },
+                    triageMeta: {
+                        routingIntent: "PLANNED_CHANGE",
+                        classification: "PLANNED_CHANGE",
+                        summary: "feature",
+                    },
                     tasks: [{ task: 1 }],
                 },
             }),
@@ -749,8 +753,8 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEAT
     await dispatchPostTriage({
         hostedSession,
         triage: {
-            routingIntent: "FEATURE",
-            classification: "FEATURE",
+            routingIntent: "PLANNED_CHANGE",
+            classification: "PLANNED_CHANGE",
             complexity: "MEDIUM",
             summary: "feature",
             affectedPaths: ["src/feature.js"],
@@ -765,13 +769,13 @@ orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEAT
                 kind: "execute_plan",
                 payload: {
                     planName: "feature-plan",
-                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
+                    triageMeta: { routingIntent: "PLANNED_CHANGE", classification: "PLANNED_CHANGE" },
                 },
             }),
             executePlan: () => {
                 hostedSession.setActiveExecutionWorkflow({
                     planName: "feature-plan",
-                    triageMeta: { classification: "FEATURE" },
+                    triageMeta: { classification: "PLANNED_CHANGE" },
                     executionAgent: "engineer",
                     executionStarted: true,
                     projectRoot: Deno.cwd(),
@@ -807,8 +811,8 @@ orchestratorTest("dispatchPostTriage ignores stale execution handoff state by us
     await dispatchPostTriage({
         hostedSession: target,
         triage: {
-            routingIntent: "FEATURE",
-            classification: "FEATURE",
+            routingIntent: "PLANNED_CHANGE",
+            classification: "PLANNED_CHANGE",
             complexity: "MEDIUM",
             summary: "feature",
             affectedPaths: ["src/feature.js"],
@@ -823,7 +827,7 @@ orchestratorTest("dispatchPostTriage ignores stale execution handoff state by us
                 kind: "execute_plan",
                 payload: {
                     planName: "feature-plan",
-                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
+                    triageMeta: { routingIntent: "PLANNED_CHANGE", classification: "PLANNED_CHANGE" },
                 },
             }),
             executePlan: () => Promise.resolve({ executionComplete: false }),
@@ -933,8 +937,8 @@ orchestratorTest("readLatestTriageOutcome returns the latest triage_report detai
             role: "toolResult",
             toolName: "triage_report",
             details: {
-                routingIntent: "FEATURE",
-                classification: "FEATURE",
+                routingIntent: "PLANNED_CHANGE",
+                classification: "PLANNED_CHANGE",
                 complexity: "MEDIUM",
                 summary: "second",
                 sessionName: "second feature",
@@ -943,8 +947,8 @@ orchestratorTest("readLatestTriageOutcome returns the latest triage_report detai
         }),
     ];
     assertEquals(readLatestTriageOutcome(messages), {
-        routingIntent: "FEATURE",
-        classification: "FEATURE",
+        routingIntent: "PLANNED_CHANGE",
+        classification: "PLANNED_CHANGE",
         complexity: "MEDIUM",
         summary: "second",
         sessionName: "second feature",
@@ -980,8 +984,8 @@ orchestratorTest("readLatestTriageOutcome ignores stale triage_report before fro
             role: "toolResult",
             toolName: "triage_report",
             details: {
-                routingIntent: "FEATURE",
-                classification: "FEATURE",
+                routingIntent: "PLANNED_CHANGE",
+                classification: "PLANNED_CHANGE",
                 complexity: "MEDIUM",
                 summary: "old",
                 affectedPaths: ["old.js"],

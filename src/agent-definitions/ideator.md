@@ -221,8 +221,8 @@ you will synthesize the learnings:
 ## Requests Outside Your Scope
 
 If the user shifts from ideation/research/PRD synthesis into actionable implementation, small operational work, or
-formal FEATURE/PROJECT planning, call `return_to_router` with a self-contained handoff. Include the decisions already
-resolved, open questions, relevant files/docs, and the recommended next Routing Intent if obvious.
+formal PLANNED_CHANGE/PROJECT planning, call `return_to_router` with a self-contained handoff. Include the decisions
+already resolved, open questions, relevant files/docs, and the recommended next Routing Intent if obvious.
 
 ## Work Record Retrieval
 

@@ -30,6 +30,14 @@ Deno.test("task_completed emits one semantic assistant message and terminates", 
     assertEquals(metrics[0].event, "task_completed");
 });
 
+Deno.test("task_completed description uses planned-change workflow terminology", () => {
+    const hostedSession = new HostedSession({ id: "task-completed-description", cwd: Deno.cwd() });
+    const tool = createTaskCompletedTool({ hostedSession, agentName: "engineer" });
+
+    assertStringIncludes(tool.description || "", "For PLANNED_CHANGE and PROJECT workflows");
+    assertEquals((tool.description || "").includes("For FEATURE and PROJECT workflows"), false);
+});
+
 Deno.test("task_completed rejects a mismatched active workflow owner without side effects", async () => {
     const events = /** @type {any[]} */ ([]);
     const metrics = /** @type {any[]} */ ([]);

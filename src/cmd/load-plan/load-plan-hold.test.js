@@ -3,7 +3,7 @@ import { runLoadPlanCommand } from "./index.js";
 
 import { makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
 
-Deno.test("runLoadPlanCommand draft FEATURE can be put on hold", async () => {
+Deno.test("runLoadPlanCommand draft Planned Change can be put on hold", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("hold");
     let recorded = null;
@@ -20,7 +20,7 @@ Deno.test("runLoadPlanCommand draft FEATURE can be put on hold", async () => {
                     path: "plans/hold-me.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: [],
@@ -58,7 +58,7 @@ Deno.test("runLoadPlanCommand on-hold plan resumes after passing Resume Check", 
                     path: "plans/held-plan.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: [],
@@ -102,7 +102,7 @@ Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () 
                     path: "plans/held-reset.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: [],
@@ -122,7 +122,7 @@ Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () 
     assertEquals(/** @type {any} */ (recorded).event, "hold_reset_to_draft");
 });
 
-Deno.test("runLoadPlanCommand blocks child FEATURE when parent Epic is on hold", async () => {
+Deno.test("runLoadPlanCommand blocks child Planned Change when parent Epic is on hold", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("cancel");
 
@@ -154,7 +154,7 @@ Deno.test("runLoadPlanCommand blocks child FEATURE when parent Epic is on hold",
                             path: "plans/epic/child.md",
                             body: "child body",
                             attrs: {
-                                classification: "FEATURE",
+                                classification: "PLANNED_CHANGE",
                                 complexity: "LOW",
                                 summary: "child",
                                 affectedPaths: [],
@@ -200,7 +200,7 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
                         planName: "epic-hold/child",
                         path: "plans/epic-hold/child.md",
                         body: "child",
-                        attrs: { status: "draft", classification: "FEATURE", summary: "child" },
+                        attrs: { status: "draft", classification: "PLANNED_CHANGE", summary: "child" },
                     },
                 ]),
             recordPlanEvent: (/** @type {any} */ args) => {
@@ -212,10 +212,13 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
     });
 
     assertEquals(/** @type {any} */ (recorded).event, "plan_held");
-    assertEquals(messages.some((message) => message.includes("Child FEATURE Plans will be hidden/blocked")), true);
+    assertEquals(
+        messages.some((message) => message.includes("Child Planned Change Plans will be hidden/blocked")),
+        true,
+    );
 });
 
-Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only warning", async () => {
+Deno.test("runLoadPlanCommand child Planned Change can be put on hold with child-only warning", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("hold", "confirm");
     let recorded = null;
@@ -247,7 +250,7 @@ Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only w
                             path: "plans/epic/child-hold.md",
                             body: "child body",
                             attrs: {
-                                classification: "FEATURE",
+                                classification: "PLANNED_CHANGE",
                                 complexity: "LOW",
                                 summary: "child",
                                 affectedPaths: [],
@@ -265,7 +268,7 @@ Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only w
     });
 
     assertEquals(/** @type {any} */ (recorded).event, "plan_held");
-    assertEquals(messages.some((message) => message.includes("Only this child FEATURE will be held")), true);
+    assertEquals(messages.some((message) => message.includes("Only this child Planned Change will be held")), true);
 });
 
 Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", async () => {
@@ -285,7 +288,7 @@ Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", asy
                     path: "plans/held-warning.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: ["src/a.js"],
@@ -328,7 +331,7 @@ Deno.test("runLoadPlanCommand on-hold resume warning can proceed", async () => {
                     path: "plans/held-warning-proceed.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: ["src/a.js"],
@@ -366,7 +369,7 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
                     path: "plans/held-fail.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: [],
@@ -409,7 +412,7 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                     path: "plans/held-delete-worktree.md",
                     body: "body",
                     attrs: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         complexity: "LOW",
                         summary: "s",
                         affectedPaths: [],

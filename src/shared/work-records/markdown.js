@@ -4,6 +4,7 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
+import { normalizeWorkKind } from "../../constants.js";
 import { normalizeTicketReferences } from "../ticket-references.js";
 import {
     isWorkRecordCompletionMode,
@@ -60,12 +61,16 @@ export function normalizeWorkRecordProvenance(value) {
 /** @param {Record<string, unknown>} attrs */
 export function normalizeWorkRecordFrontMatter(attrs) {
     const provenance = normalizeWorkRecordProvenance(attrs.provenance);
+    const rawWorkKind = normalizeWorkKind(attrs.workKind);
+    const rawScope = asTrimmedString(attrs.scope);
+    const normalizedScope = rawScope === "feature" ? "planned_change" : rawScope;
     /** @type {import('./schema.js').WorkRecordFrontMatter} */
     const normalized = {
         kind: attrs.kind === WORK_RECORD_KIND ? WORK_RECORD_KIND : /** @type {any} */ (attrs.kind),
         recordId: asTrimmedString(attrs.recordId),
         status: /** @type {any} */ (asTrimmedString(attrs.status)),
-        scope: /** @type {any} */ (asTrimmedString(attrs.scope)),
+        scope: /** @type {any} */ (normalizedScope),
+        ...(rawWorkKind ? { workKind: rawWorkKind } : {}),
         origin: /** @type {any} */ (asTrimmedString(attrs.origin)),
         completionMode: /** @type {any} */ (asTrimmedString(attrs.completionMode)),
         createdAt: asTrimmedString(attrs.createdAt),
@@ -200,6 +205,7 @@ export function formatWorkRecordFrontMatter(attrs) {
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.recordId, fm.recordId);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.status, fm.status);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.scope, fm.scope);
+    appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.workKind, fm.workKind);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.origin, fm.origin);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.completionMode, fm.completionMode);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.createdAt, fm.createdAt);

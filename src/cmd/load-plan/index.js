@@ -6,7 +6,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { AGENTS, CLI_BIN } from "../../constants.js";
+import { AGENTS, CLI_BIN, isPlannedChangeClassification } from "../../constants.js";
 import {
     archivePlan as archivePlanFn,
     compareChildPlansByOrder,
@@ -515,13 +515,13 @@ async function putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPl
         const childSummary = children.length > 0 ? `\n\n${formatEpicProgressSummary(children)}` : "";
         const confirmed = await confirmHoldWarning(
             uiAPI,
-            `Child FEATURE Plans will be hidden/blocked while this Epic is on hold. Their statuses will not change.${childSummary}`,
+            `Child Planned Change Plans will be hidden/blocked while this Epic is on hold. Their statuses will not change.${childSummary}`,
         );
         if (!confirmed) return false;
     } else if (plan.attrs.parentPlan) {
         const confirmed = await confirmHoldWarning(
             uiAPI,
-            "Only this child FEATURE will be held. The parent Epic and sibling FEATURE Plans stay active.",
+            "Only this child Planned Change will be held. The parent Epic and sibling Planned Change Plans stay active.",
         );
         if (!confirmed) return false;
     }
@@ -2643,7 +2643,7 @@ function formatChildPlanDescription(child) {
 function formatNextChildLabel(child) {
     const order = child.attrs.order !== undefined ? `${String(child.attrs.order).padStart(2, "0")}. ` : "";
     const summary = child.attrs.summary || child.name;
-    return `Execute next incomplete child FEATURE: ${order}${summary} [${child.attrs.status}]`;
+    return `Execute next incomplete child Planned Change: ${order}${summary} [${child.attrs.status}]`;
 }
 
 /**
@@ -2706,7 +2706,7 @@ function countEpicChildStatuses(children) {
  */
 function formatEpicProgressSummary(children) {
     const counts = countEpicChildStatuses(children);
-    const label = counts.total === 1 ? "child FEATURE" : "child FEATUREs";
+    const label = counts.total === 1 ? "child Planned Change" : "child Planned Changes";
     const parts = [
         `Progress: ${counts.verified} RunWield verified / ${counts.userVerified} User Verified / ${counts.total} ${label}`,
         `${counts.active} active/implemented`,
@@ -2722,9 +2722,9 @@ function formatEpicProgressSummary(children) {
  * @returns {string}
  */
 function formatEpicChildFeatureList(children) {
-    if (children.length === 0) return "Child FEATURE plans:\n  (none)";
+    if (children.length === 0) return "Child Planned Change plans:\n  (none)";
     return [
-        "Child FEATURE plans:",
+        "Child Planned Change plans:",
         ...children.map((child) => `  - ${formatChildPlanLabel(child)}`),
     ].join("\n");
 }
@@ -2748,7 +2748,7 @@ function buildEpicPlanSummary(plan, children) {
 function buildEpicDoneEnoughSummary(children) {
     const counts = countEpicChildStatuses(children);
     const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
-    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child FEATURE${
+    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child Planned Change${
         counts.total === 1 ? "" : "s"
     }, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
 }
@@ -2767,7 +2767,7 @@ function isDoneEnoughEpic(plan) {
  */
 function formatDependencyWarning(unmetDependencies) {
     return [
-        "This child FEATURE declares dependencies that are not verified:",
+        "This child Planned Change declares dependencies that are not verified:",
         "",
         ...unmetDependencies.map((dependency) => {
             if (dependency.state === "missing") return `  - ${dependency.dependency}: missing`;
@@ -2784,7 +2784,7 @@ function formatDependencyWarning(unmetDependencies) {
  * @returns {Promise<boolean>}
  */
 async function confirmChildFeatureDependencies(projectRoot, plan, uiAPI, resolveSiblingChildPlanDependencies) {
-    if (plan.attrs.classification !== "FEATURE" || !plan.attrs.parentPlan) return true;
+    if (!isPlannedChangeClassification(plan.attrs.classification) || !plan.attrs.parentPlan) return true;
     const dependencies = Array.isArray(plan.attrs.dependencies) ? plan.attrs.dependencies : [];
     if (dependencies.length === 0) return true;
 
@@ -2835,7 +2835,7 @@ async function handleEpicPlan({
     if (!isEpicPlan(plan.attrs)) return "continue";
 
     const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
-        child.attrs.classification === "FEATURE"
+        isPlannedChangeClassification(child.attrs.classification)
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
     const isApprovedEpic = plan.attrs.status === "approved";
@@ -2870,7 +2870,7 @@ async function handleEpicPlan({
     if (isDoneEnoughEpic(plan)) {
         const summary = plan.attrs.epicDoneEnoughSummary ? ` ${plan.attrs.epicDoneEnoughSummary}` : "";
         uiAPI.appendSystemMessage(
-            `This Epic is marked done enough for now.${summary} Remaining child FEATURE plans stay visible and loadable.`,
+            `This Epic is marked done enough for now.${summary} Remaining child Planned Change plans stay visible and loadable.`,
             false,
             "RunWield",
         );
@@ -2883,7 +2883,7 @@ async function handleEpicPlan({
 
     if (canReviewWithArchitect) {
         const action = canOpenSlicer
-            ? "Review it with Architect or resume Slicer decomposition to create child FEATURE plans."
+            ? "Review it with Architect or resume Slicer decomposition to create child Planned Change plans."
             : "Review it with Architect to continue planning.";
         uiAPI.appendSystemMessage(
             `This PROJECT Epic is not executable. ${action}`,
@@ -2891,13 +2891,13 @@ async function handleEpicPlan({
             "RunWield",
         );
     } else if (!hasChildren) {
-        uiAPI.appendSystemMessage("This PROJECT Epic has no child FEATURE plans yet.", false, "RunWield");
+        uiAPI.appendSystemMessage("This PROJECT Epic has no child Planned Change plans yet.", false, "RunWield");
     }
 
     while (true) {
         /** @type {Array<{ value: string, label: string }>} */
         const epicOptions = [
-            ...(canPickChild ? [{ value: "pick_child", label: "Pick a child FEATURE plan" }] : []),
+            ...(canPickChild ? [{ value: "pick_child", label: "Pick a child Planned Change plan" }] : []),
             ...(canReviewWithArchitect ? [{ value: "review", label: "Review with Architect" }] : []),
             ...(canOpenSlicer ? [{ value: "slicer", label: "Open or resume Slicer decomposition" }] : []),
             ...(hasChildren && plan.attrs.status === "ready_for_work"
@@ -2957,7 +2957,7 @@ async function handleEpicPlan({
                 [
                     formatEpicProgressSummary(children),
                     "Marking this Epic done enough sets the Epic status to verified for now.",
-                    "Unverified child FEATURE plans remain visible and loadable.",
+                    "Unverified child Planned Change plans remain visible and loadable.",
                 ].join("\n"),
                 false,
                 "RunWield",
@@ -3030,7 +3030,7 @@ async function handleEpicPlan({
                         description: formatChildPlanDescription(child),
                     })),
                 ];
-                const childPlanName = await uiAPI.promptSelect("Load child FEATURE plan:", childOptions);
+                const childPlanName = await uiAPI.promptSelect("Load child Planned Change plan:", childOptions);
                 if (!childPlanName) break;
                 if (childPlanName === "__next_child__") {
                     if (!nextChild) break;
@@ -3039,11 +3039,14 @@ async function handleEpicPlan({
                 }
 
                 while (true) {
-                    const childAction = await uiAPI.promptSelect("What would you like to do with this FEATURE?", [
-                        { value: "load", label: "Load this FEATURE" },
-                        { value: "view", label: "View FEATURE details" },
-                        { value: "back", label: "Back to child list" },
-                    ]);
+                    const childAction = await uiAPI.promptSelect(
+                        "What would you like to do with this Planned Change?",
+                        [
+                            { value: "load", label: "Load this Planned Change" },
+                            { value: "view", label: "View Planned Change details" },
+                            { value: "back", label: "Back to child list" },
+                        ],
+                    );
                     if (!childAction || childAction === "back") break;
 
                     if (childAction === "load") {
@@ -3055,14 +3058,14 @@ async function handleEpicPlan({
                         try {
                             const childPlan = await resolvePlan(projectRoot, String(childPlanName));
                             uiAPI.appendSystemMessage(
-                                `FEATURE: ${childPlan.planName}\n\n${buildPlanSummary(childPlan)}`,
+                                `Planned Change: ${childPlan.planName}\n\n${buildPlanSummary(childPlan)}`,
                                 false,
                                 "Plan",
                             );
                         } catch (err) {
                             const message = err instanceof Error ? err.message : String(err);
                             uiAPI.appendSystemMessage(
-                                `Could not load FEATURE details for ${String(childPlanName)}: ${message}`,
+                                `Could not load Planned Change details for ${String(childPlanName)}: ${message}`,
                                 false,
                                 "RunWield",
                             );
@@ -3290,7 +3293,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 const parentPlan = await resolvePlan(projectRoot, plan.attrs.parentPlan);
                 if (parentPlan.attrs.status === "on_hold") {
                     uiAPI.appendSystemMessage(
-                        `Parent Epic "${parentPlan.planName}" is on hold. Resume the parent before working on child FEATURE "${plan.planName}".`,
+                        `Parent Epic "${parentPlan.planName}" is on hold. Resume the parent before working on child Planned Change "${plan.planName}".`,
                         true,
                         "RunWield",
                     );

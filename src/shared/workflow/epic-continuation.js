@@ -9,7 +9,7 @@ import {
     loadPlan,
     resolveSiblingChildPlanDependencies,
 } from "../../plan-store.js";
-import { AGENTS } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
@@ -77,7 +77,10 @@ export async function resolveEpicContinuation({ cwd, completedPlanName, __deps =
     const resolveDependenciesImpl = __deps.resolveSiblingChildPlanDependencies || resolveSiblingChildPlanDependencies;
     const completed = await loadPlanImpl(cwd, completedPlanName);
     if (!completed) return { kind: "none", reason: "completed_plan_missing", completedPlanName };
-    if (completed.attrs.classification !== "FEATURE" || !TERMINAL_CHILD_STATUSES.has(completed.attrs.status)) {
+    if (
+        !isPlannedChangeClassification(completed.attrs.classification) ||
+        !TERMINAL_CHILD_STATUSES.has(completed.attrs.status)
+    ) {
         return { kind: "none", reason: "completed_plan_not_completed_child_feature", completedPlanName };
     }
     const parentPlanName = typeof completed.attrs.parentPlan === "string" ? completed.attrs.parentPlan.trim() : "";
@@ -89,7 +92,7 @@ export async function resolveEpicContinuation({ cwd, completedPlanName, __deps =
     }
 
     const siblings = (await findPlansByParentImpl(cwd, parentPlanName))
-        .filter((plan) => plan.attrs.classification === "FEATURE")
+        .filter((plan) => isPlannedChangeClassification(plan.attrs.classification))
         .sort(compareChildPlansByOrder);
     const next = siblings.find((plan) => !TERMINAL_CHILD_STATUSES.has(plan.attrs.status));
     if (!next) return { kind: "none", reason: "no_remaining_children", completedPlanName, parentPlanName };
@@ -162,7 +165,7 @@ function buildResumeRequest(planName, attrs) {
     return [
         `## Resuming Epic Child Plan: ${planName}`,
         "",
-        `This child FEATURE was automatically selected from its parent Epic with status: ${attrs.status}.`,
+        `This child Planned Change was automatically selected from its parent Epic with status: ${attrs.status}.`,
         `Continue working on it. The plan is at plans/${planName}.md.`,
         "",
         "## Triage Report",

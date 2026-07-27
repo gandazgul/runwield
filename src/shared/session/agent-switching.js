@@ -26,6 +26,7 @@ const handlerMetadata = new WeakMap();
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
+ * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  * @property {import('./types.js').AgentDefinition} [agentDef]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {string[]} [toolNames]
@@ -77,8 +78,9 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
     const customRootConfigurationProvided = Boolean(
-        options.agentDef || options.customTools || options.toolNames || options.projectStateContext !== undefined ||
-            options.includeEditFallback !== undefined || options.debugLogPath,
+        options.agentDef || options.customTools || options.toolNames || options.triageMeta ||
+            options.projectStateContext !== undefined || options.includeEditFallback !== undefined ||
+            options.debugLogPath,
     );
     const rootOptions = {
         agentName,
@@ -86,6 +88,7 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
         cwd: cwdProvided ? options.cwd : effectiveCwd,
         sessionManager: options.sessionManager,
+        triageMeta: options.triageMeta,
         _agentDefOverride: options.agentDef,
         customTools: options.customTools,
         toolNames: options.toolNames,
@@ -164,6 +167,7 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
  * @property {string} userRequest
  * @property {Array<{base64: string, mimeType: string}>} [images]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
+ * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  * @property {string} [model]
  * @property {boolean} [allowReturnToRouter]
  * @property {string} [cwd]
@@ -196,6 +200,7 @@ export async function runActiveAgentTurn(options, dependencies = {}) {
         userRequest,
         images,
         sessionManager,
+        triageMeta,
         model,
         allowReturnToRouter,
         cwd,
@@ -215,6 +220,7 @@ export async function runActiveAgentTurn(options, dependencies = {}) {
         ...(cwd ? { cwd } : {}),
         ...(forceRebuild ? { forceRebuild } : {}),
         ...(sessionManager ? { sessionManager } : {}),
+        ...(triageMeta ? { triageMeta } : {}),
         ...(agentDef ? { agentDef } : {}),
         ...(customTools ? { customTools } : {}),
         ...(toolNames ? { toolNames } : {}),

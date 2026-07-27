@@ -9,8 +9,8 @@ Deno.test("createTriageReportTool exposes expected metadata", () => {
     assertMatch(tool.description, /Routing Intent/i);
     assertEquals(typeof tool.execute, "function");
     assertEquals(typeof tool.parameters, "object");
-    assert(!("classification" in tool.parameters.properties));
-    assert(tool.parameters.required.includes("routingIntent"));
+    assert("classification" in tool.parameters.properties);
+    assert(!tool.parameters.required.includes("routingIntent"));
     assert(tool.parameters.required.includes("sessionName"));
 });
 
@@ -105,10 +105,10 @@ Deno.test("triage_report remains fail-open when workflow context recording throw
     });
 
     assertEquals(result.terminate, true);
-    assertEquals(result.details.routingIntent, "FEATURE");
+    assertEquals(result.details.routingIntent, "PLANNED_CHANGE");
 });
 
-Deno.test("triage_report execute preserves plan classification only for FEATURE and PROJECT", async () => {
+Deno.test("triage_report execute preserves plan classification only for PLANNED_CHANGE and PROJECT", async () => {
     const tool = createTriageReportTool();
 
     const feature = await /** @type {any} */ (tool.execute)("call-1", {
@@ -133,8 +133,8 @@ Deno.test("triage_report execute preserves plan classification only for FEATURE 
         affectedPaths: ["src/foo.js"],
     });
 
-    assertEquals(feature.details.routingIntent, "FEATURE");
-    assertEquals(feature.details.classification, "FEATURE");
+    assertEquals(feature.details.routingIntent, "PLANNED_CHANGE");
+    assertEquals(feature.details.classification, "PLANNED_CHANGE");
     assertEquals(operation.details.routingIntent, "OPERATION");
     assert(!("classification" in operation.details));
     assertEquals(quickFix.details.routingIntent, "QUICK_FIX");
@@ -144,6 +144,13 @@ Deno.test("triage_report execute preserves plan classification only for FEATURE 
 Deno.test("triage_report execute normalizes legacy classification params", async () => {
     const tool = createTriageReportTool();
 
+    const legacyFeature = await /** @type {any} */ (tool.execute)("call-0", {
+        classification: "FEATURE",
+        complexity: "MEDIUM",
+        summary: "legacy feature",
+        sessionName: "legacy feature",
+        affectedPaths: ["src/foo.js"],
+    });
     const result = await /** @type {any} */ (tool.execute)("call-1", {
         classification: "PROJECT",
         complexity: "HIGH",
@@ -152,6 +159,8 @@ Deno.test("triage_report execute normalizes legacy classification params", async
         affectedPaths: ["src/foo.js"],
     });
 
+    assertEquals(legacyFeature.details.routingIntent, "PLANNED_CHANGE");
+    assertEquals(legacyFeature.details.classification, "PLANNED_CHANGE");
     assertEquals(result.details.routingIntent, "PROJECT");
     assertEquals(result.details.classification, "PROJECT");
 });
