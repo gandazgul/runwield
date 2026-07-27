@@ -68,20 +68,13 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T00:56:36-04:00"
-updatedAt: "2026-07-27T00:20:53.608Z"
-status: "in_progress"
+updatedAt: "2026-07-27T03:57:09.315Z"
+status: "implemented"
 origin: "internal"
+failureReason: "User canceled validation after Semantic Review failure."
 userVerifiedAt: null
-userVerificationNote: null
-humanReviewMode: null
-humanReviewDecision: null
-executionMode: "worktree"
-executionBaselineTree: "fb3c3d75e9987a3777563dc0ec45797c4c21802a"
 worktreeId: "a999678c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-transactional-plan-lifecycle-and-worktree-recove-a999678c"
-worktreeBranch: "runwield/worktree/transactional-plan-lifecycle-and-worktree-recove-a999678c"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "validation_failed"
 ---
 
 # Transactional Plan Lifecycle and Worktree Recovery
