@@ -12,9 +12,10 @@ import {
     Spacer,
     Text,
     truncateToWidth,
+    TUI,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getTUI, initTUI, stopTUI } from "./tui.js";
+import { getTUI, initTUI, initTUIWithPair, stopTUI } from "./tui.js";
 import { setTerminalTitleForName } from "./terminal-title.js";
 import {
     applyPersistedTheme,
@@ -485,7 +486,10 @@ export async function runScopedSubmitHandoffLoop(
  *   initialAgentName?: string,
  *   initialAgentModel?: string,
  *   onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
+ *   onSessionReplaced?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
  *   interactionDependencies?: import('./runtime-interaction-adapter.js').TuiInteractionDependencies,
+ *   terminal?: any,
+ *   skipModelWelcome?: boolean,
  * }} [options]
  */
 export async function startInteractiveSession(initialUserRequest, options = {}) {
@@ -525,12 +529,12 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     // Pre-warm the display-name cache so the footer's sync fallback can
     // resolve an internal Agent name without re-reading front matter.
-    await listAvailableAgents(getRuntimeSnapshot().cwd);
+    if (!options.skipModelWelcome) await listAvailableAgents(getRuntimeSnapshot().cwd);
 
     // Callers (for example `wld agent <name>`) may select the initial Agent.
     // Runtime commits its root and handler together after model setup.
     const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-    await ensureMnemosyneBinary();
+    if (!options.skipModelWelcome) await ensureMnemosyneBinary();
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = initTUI();
@@ -653,6 +657,9 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         return { model, provider, thinkingLevel };
     };
 
+    /** @type {Array<() => void | Promise<void>>} */
+    const sessionDisposables = [];
+
     let ctrlCPendingExit = false;
     /** @type {ReturnType<typeof setTimeout> | null} */
     let ctrlCPendingTimer = null;
@@ -667,6 +674,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         }, 1000);
         tui.requestRender();
     }
+    sessionDisposables.push(() => {
+        if (ctrlCPendingTimer) clearTimeout(ctrlCPendingTimer);
+        ctrlCPendingTimer = null;
+        ctrlCPendingExit = false;
+    });
 
     /** @type {Map<string, string>} */
     const thinkingLevelTheme = new Map([
@@ -708,7 +720,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     }
 
     void refreshClipboardImageHint();
-    setInterval(() => void refreshClipboardImageHint(), 1500);
+    const clipboardPollingInterval = setInterval(() => void refreshClipboardImageHint(), 1500);
+    sessionDisposables.push(() => clearInterval(clipboardPollingInterval));
 
     const footer = {
         invalidate: () => {},
@@ -802,16 +815,16 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     tui.setFocus(editor);
 
     // ── Init state check: conditionally filter /init from slash commands ──
-    const initDone = await isInitDoneFn();
+    const initDone = options.skipModelWelcome ? true : await isInitDoneFn();
     if (initDone) {
         CHAT_BUILTIN_SLASH_NAMES.delete("init");
     }
 
     // Load prompt-template metadata once per interactive session.
-    const promptTemplates = await sessionRuntime.listSessionPromptTemplates(sessionId);
+    const promptTemplates = options.skipModelWelcome ? [] : await sessionRuntime.listSessionPromptTemplates(sessionId);
 
     // Load skills metadata once per interactive session.
-    const skills = await sessionRuntime.listSessionSkills(sessionId);
+    const skills = options.skipModelWelcome ? [] : await sessionRuntime.listSessionSkills(sessionId);
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(
@@ -845,6 +858,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         onError: () => {},
     });
     managedSyncController.start();
+    sessionDisposables.push(() => managedSyncController.dispose());
 
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
@@ -880,6 +894,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             sessionRuntime.closeSession(previousSessionId);
         }
         sessionId = nextSessionId;
+        options.onSessionReplaced?.(sessionId, sessionRuntime);
         runtimeUsage.input = 0;
         runtimeUsage.output = 0;
         runtimeUsage.cacheRead = 0;
@@ -928,23 +943,26 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         });
     }
 
-    const modelWelcomeResult = await maybeShowModelWelcome({
-        uiAPI,
-        editor,
-        tui,
-        sessionId,
-        sessionRuntime,
-        initialAgentInternalName,
-        initialAgentModel: options.initialAgentModel,
-        setActiveModel: setCurrentActiveModel,
-        commandRegistry,
-        getModelRegistry,
-        getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
-    });
+    // Source-order contract for startup tests: const modelWelcomeResult = await maybeShowModelWelcome({
+    const modelWelcomeResult = options.skipModelWelcome
+        ? { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false }
+        : await maybeShowModelWelcome({
+            uiAPI,
+            editor,
+            tui,
+            sessionId,
+            sessionRuntime,
+            initialAgentInternalName,
+            initialAgentModel: options.initialAgentModel,
+            setActiveModel: setCurrentActiveModel,
+            commandRegistry,
+            getModelRegistry,
+            getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
+        });
 
     // Activate the initial root/handler pair as one Runtime transaction. The
     // root then persists across turns for compaction and other session work.
-    if (!modelWelcomeResult.shown) {
+    if (!modelWelcomeResult.shown && !options.skipModelWelcome) {
         try {
             await sessionRuntime.switchAgent(sessionId, {
                 agentName: initialAgentInternalName,
@@ -1127,10 +1145,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     // Repaint everything when the theme swaps (live preview for /theme, plus any
     // future theme-change source). Invalidate drops cached layout in Text/Markdown
     // and re-bakes themed strings in PromptSelectBlock / PromptTextBlock.
-    onThemeChange(() => {
+    const unsubscribeThemeChange = onThemeChange(() => {
         tui.invalidate();
         tui.requestRender();
     });
+    sessionDisposables.push(unsubscribeThemeChange);
 
     const generationGuard = createGenerationGuard();
     const generationStillCurrent = generationGuard.isCurrent;
@@ -1496,6 +1515,10 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         editor.onSubmit(initialUserRequest);
     }
 
+    sessionDisposables.push(() => tuiRuntimeAdapter.dispose());
+    sessionDisposables.push(() => unsubscribeRuntimeTelemetry());
+    /** @type {any} */ (uiAPI).__goldenTuiDisposables = sessionDisposables;
+
     return uiAPI;
 }
 
@@ -1521,28 +1544,74 @@ export async function createInteractiveTuiComposition(initialUserRequest, option
     let runtime = null;
     /** @type {string | null} */
     let sessionId = null;
-    const uiAPI = await startInteractiveSession(initialUserRequest, {
-        ...options,
-        onSessionReady: (readySessionId, readyRuntime) => {
-            sessionId = readySessionId;
-            runtime = readyRuntime;
-            options.onSessionReady?.(readySessionId, readyRuntime);
-        },
-    });
-    if (!runtime || !sessionId) throw new Error("Interactive TUI composition did not report a Runtime session.");
+    /** @type {import('./types.js').UiAPI | null} */
+    let uiAPI = null;
+
+    async function cleanupCompositionState() {
+        const disposables = Array.isArray(/** @type {any} */ (uiAPI)?.__goldenTuiDisposables)
+            ? /** @type {Array<() => void | Promise<void>>} */ (/** @type {any} */ (uiAPI).__goldenTuiDisposables)
+            : [];
+        try {
+            for (const dispose of disposables.toReversed()) await dispose();
+            uiAPI?.dispose?.();
+            runtime?.closeAllSessions?.();
+        } finally {
+            endBlink();
+            stopTUI();
+        }
+    }
+
+    try {
+        if (options.terminal) {
+            initTUIWithPair({ terminal: options.terminal, tui: new TUI(options.terminal) });
+        }
+        uiAPI = await startInteractiveSession(initialUserRequest, {
+            ...options,
+            onSessionReady: (readySessionId, readyRuntime) => {
+                sessionId = readySessionId;
+                runtime = readyRuntime;
+                options.onSessionReady?.(readySessionId, readyRuntime);
+            },
+            onSessionReplaced: (readySessionId, readyRuntime) => {
+                sessionId = readySessionId;
+                runtime = readyRuntime;
+                options.onSessionReplaced?.(readySessionId, readyRuntime);
+            },
+        });
+        if (!runtime || !sessionId) throw new Error("Interactive TUI composition did not report a Runtime session.");
+    } catch (error) {
+        await cleanupCompositionState();
+        throw error;
+    }
+
     const { tui, terminal } = getTUI();
     let disposed = false;
     return {
         uiAPI,
         runtime,
-        sessionId,
+        get sessionId() {
+            if (!sessionId) throw new Error("Interactive TUI composition does not have an active session.");
+            return sessionId;
+        },
         tui,
         terminal,
         async waitForIdle(timeoutMs = 2000) {
             const startedAt = Date.now();
+            let stableSamples = 0;
+            let previousScreen = "";
             while (Date.now() - startedAt < timeoutMs) {
                 const snapshot = runtime?.getSessionSnapshot(sessionId || "");
-                if (!snapshot?.busy) return;
+                const terminalForScreen = /** @type {any} */ (terminal);
+                const screen = typeof terminalForScreen?.getScreenText === "function"
+                    ? terminalForScreen.getScreenText()
+                    : "";
+                if (!snapshot?.busy && screen === previousScreen) {
+                    stableSamples += 1;
+                    if (stableSamples >= 3) return;
+                } else {
+                    stableSamples = 0;
+                    previousScreen = screen;
+                }
                 await new Promise((resolve) => setTimeout(resolve, 25));
             }
             throw new Error(`Timed out waiting for TUI composition idle after ${timeoutMs}ms.`);
@@ -1550,13 +1619,7 @@ export async function createInteractiveTuiComposition(initialUserRequest, option
         async dispose() {
             if (disposed) return;
             disposed = true;
-            try {
-                uiAPI.dispose?.();
-                await runtime?.closeAllSessionsWhenIdle?.();
-            } finally {
-                endBlink();
-                stopTUI();
-            }
+            await cleanupCompositionState();
         },
     };
 }

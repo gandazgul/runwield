@@ -130,6 +130,24 @@ export function createUiApi(
     /** @type {ValidationHandoffBlock | null} */
     let validationPanelBlock = null;
 
+    const removeInputAccessoryResources = () => {
+        if (!inputAccessoryContainer) {
+            keyboardHelp = null;
+            managedSyncStatus = null;
+            return;
+        }
+        if (keyboardHelp) {
+            inputAccessoryContainer.removeChild(keyboardHelp.block);
+            inputAccessoryContainer.removeChild(keyboardHelp.spacer);
+            keyboardHelp = null;
+        }
+        if (managedSyncStatus) {
+            inputAccessoryContainer.removeChild(managedSyncStatus.block);
+            inputAccessoryContainer.removeChild(managedSyncStatus.spacer);
+            managedSyncStatus = null;
+        }
+    };
+
     const renderValidationPanel = () => {
         if (!validationPanelContainer || outputSuppressed) return;
         if (!validationProgress) {
@@ -643,6 +661,7 @@ export function createUiApi(
             for (const id of toolElapsedTimers.keys()) {
                 clearToolElapsedTimer(id);
             }
+            removeInputAccessoryResources();
         },
 
         clearMessages: () => {
@@ -662,8 +681,7 @@ export function createUiApi(
             queuedMessageBlocks.clear();
             activeToolBlocks.clear();
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
-            keyboardHelp = null;
-            managedSyncStatus = null;
+            removeInputAccessoryResources();
             tui.requestRender();
         },
 
@@ -677,8 +695,7 @@ export function createUiApi(
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
             activeToolBlocks.clear();
             queuedMessageBlocks.clear();
-            keyboardHelp = null;
-            managedSyncStatus = null;
+            removeInputAccessoryResources();
             validationProgress = null;
             latestEngineerReport = null;
             latestReviewerReport = null;

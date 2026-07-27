@@ -123,6 +123,10 @@ Deno.test("createTuiManager clears partial state when TUI start fails", () => {
             events.push("start");
             throw new Error("boom");
         }
+
+        stop() {
+            events.push("stop");
+        }
     }
 
     const manager = createTuiManager({
@@ -136,5 +140,5 @@ Deno.test("createTuiManager clears partial state when TUI start fails", () => {
     assertThrows(() => manager.initTUI(), Error, "boom");
     assertThrows(() => manager.getTUI(), Error, "TUI not initialized");
     manager.stopTUI();
-    assertEquals(events, ["start", "restoreTitle"]);
+    assertEquals(events, ["start", "stop", "restoreTitle"]);
 });

@@ -36,6 +36,30 @@ function makeSessionManager(id, cwd, branch = []) {
     };
 }
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retries temp-dir cleanup because SessionRuntime managed-session tests can
+ * finish filesystem checkpointing just before teardown on macOS, causing a
+ * transient ENOTEMPTY during recursive removal.
+ * @param {string} path
+ */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            if (attempt === 4) throw error;
+            await delay(20 * (attempt + 1));
+        }
+    }
+}
+
 /**
  * @typedef {Object} RuntimeFixtureOptions
  * @property {import('./types.js').AgentMessageHandler} [handler]
@@ -314,7 +338,7 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -356,7 +380,7 @@ Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projec
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -432,7 +456,7 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -522,7 +546,7 @@ Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan work
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -1462,7 +1486,7 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
