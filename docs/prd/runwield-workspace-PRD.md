@@ -2,13 +2,13 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-07-22T09:30:00-04:00"
+updatedAt: "2026-07-27T15:30:00-04:00"
 ---
 
 # RunWield Workspace PRD
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-07-22
+**Last Updated:** 2026-07-27
 
 ## 1. Objective
 
@@ -141,6 +141,12 @@ A **Session** is the durable user-facing conversation and workflow thread within
 specialist Agent handoffs and has a stable identity and human-readable Session Name.
 
 An **Agent Session** is an internal specialist invocation within a Session. It is not the main navigation object.
+
+A Session may own multiple ordered private **Session Transcript Segments** backed by separate Pi JSONL files. Workspace
+projects those segments as one continuous owner-visible timeline, while only the current writable segment supplies model
+context. Planning-to-execution and semantic-repair rollovers therefore create fresh bounded model contexts without
+creating new user-visible Sessions or transferring Plan workflow ownership. Disposable read-only Reviewer invocations
+remain internal Agent Sessions and are not transcript segments.
 
 A Session may begin without a Plan for ideation, inquiry, operation, or QUICK_FIX work. When a Plan materializes, the
 Session becomes associated with it and the Plan workflow becomes the primary route. Starting from an existing artifact
@@ -380,9 +386,10 @@ TUI, Workspace, and ACP remain sibling consumers of the adapter-neutral `Session
 its own in-process `SessionHost`; Workspace is not a mandatory Runtime proxy or parent API for TUI or ACP. Cross-process
 correctness comes from shared owner coordination below the adapters.
 
-A stable RunWield Session ID is the durable product identity. It maps to one registered Project and the underlying Pi
-Session Manager identity/JSONL locator. In-process Hosted Session IDs remain runtime implementation details and must not
-be used as cross-process ownership keys.
+A stable RunWield Session ID is the durable product identity. It maps to one registered Project and an ordered manifest
+of Pi Session Manager identities/JSONL locators, with one current writable transcript segment and immutable sealed
+predecessors. In-process Hosted Session IDs remain runtime implementation details and must not be used as cross-process
+ownership keys.
 
 The owner-only SQLite database under `~/.wld/` coordinates Project registration, paired browser devices, stable Session
 identity, activation leases, committed Session generations, Durable Workflow Checkpoints, Plan Workflow Leases,
@@ -394,6 +401,11 @@ Writable Runtime hydration must acquire a Session Activation Lease before constr
 repository effect is durable; fenced SQLite checkpoint/generation publication follows canonical writes. If
 reconciliation finds transcript-ahead/database-behind or uncertain Plan/worktree evidence, Workspace must route to
 explicit recovery rather than claiming that an arbitrary effect can be replayed.
+
+Segment rollover must use the same fenced Session activation and committed-generation boundary. The initial execution
+segment and every semantic repair segment remain attached to the same stable Session and aggregate timeline. Repair
+segments are persisted because they mutate the execution worktree and may require interruption or process-loss recovery;
+isolated Reviewer sessions may remain disposable because they are read-only and never become the active root context.
 
 Workspace should use a native `SessionRuntime` adapter appropriate for browser clients. ACP remains the canonical
 host-agnostic external protocol for editors and replaceable external hosts, but first-party Workspace browser traffic
@@ -558,7 +570,22 @@ Extend the same concepts with:
 - optional external cross-repository search providers;
 - hosted execution only after planning, workflow, isolation, and recovery semantics are proven.
 
-## 13. References
+## 13. Proposed Domain Language
+
+**Workspace Intelligence Search**: Deliberate retrieval over eligible durable artifacts across registered Projects,
+preserving source Project, artifact type, status, and freshness. _Avoid_: Public global search, Session Transcript
+search, unscoped organization access
+
+**Project Evidence Graph**: A rebuildable provenance projection connecting durable project intent, decisions, Plans,
+delivery evidence, and outcomes without replacing source artifacts as project truth. _Avoid_: Plan Evidence Graph,
+Session Transcript graph, source of truth
+
+These terms remain proposed until their respective Workspace capabilities are implemented. A Plan that makes either term
+true must include the relevant `CONTEXT.md` under Files to Modify, add an implementation step that publishes the
+definition and stable relationships, and verify that the glossary update lands with the capability. A Plan implementing
+only Workspace Intelligence Search must not promote Project Evidence Graph prematurely.
+
+## 14. References
 
 - [RunWield Core PRD](./runwield-core-prd.md)
 - [Session Host and ACP PRD](./runwield-acp-session-host-PRD.md)

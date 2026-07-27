@@ -1,6 +1,6 @@
 # Product Requirements Document: Session Context Resilience
 
-Last updated: 2026-07-18 11:23 EDT
+Last updated: 2026-07-27 15:30 EDT
 
 ## Objective
 
@@ -62,6 +62,18 @@ semantics that prove necessary rather than copying its implementation verbatim.
 - If safe continuation cannot be guaranteed, RunWield should stop and explain the condition rather than silently start a
   second unrelated User Request.
 
+### Explicit Context Boundaries Precede Compaction
+
+- Automatic compaction protects one active Agent task whose useful context grows unexpectedly; it is not the default
+  handoff mechanism between workflow phases with known, bounded inputs.
+- When a workflow defines a fresh context boundary, such as Semantic Reviewer feedback returning to Engineer repair,
+  RunWield should activate the workflow-defined successor Session Transcript Segment and seed its bounded context packet
+  instead of compacting and reusing the predecessor transcript.
+- A successor segment remains part of the same stable user-visible Session and preserves workflow ownership even though
+  the model cannot see predecessor segments.
+- Context monitoring and compaction apply independently inside the successor segment if that bounded task later becomes
+  long-running.
+
 ### Failure and Cancellation
 
 - User cancellation must abort active compaction and any associated continuation.
@@ -98,6 +110,8 @@ workflow remain unchanged.
   progress.
 - Measure post-compaction progress and apply a recovery band before another automatic attempt.
 - Continue interrupted work only after the Agent Session is ready and Runtime ownership remains valid.
+- Defer to an explicit workflow-owned segment rollover when the next phase has a defined bounded handoff; do not spend
+  compaction budget summarizing predecessor context that the next phase intentionally excludes.
 - Preserve cancellation, replay, busy-state, and adapter parity through `SessionRuntime`.
 - Provide deterministic tests for trigger, overlap prevention, continuation, ineffective compaction, pause, re-arm,
   cancellation, and failure recovery.
@@ -125,6 +139,8 @@ normalized status and lifecycle events; they do not implement the watchdog or de
 - TUI and ACP receive equivalent semantic events and final Agent Session state.
 - Context intervention does not change Plan Lifecycle or validation outcomes except by allowing the assigned work to
   continue.
+- Known workflow boundaries begin with their specified bounded context instead of inheriting a near-exhausted
+  predecessor transcript.
 
 ## Out of Scope
 
@@ -134,8 +150,11 @@ normalized status and lifecycle events; they do not implement the watchdog or de
 - Persisting arbitrary tool output outside normal Agent Session storage.
 - Treating compaction as durable project memory or a Work Record.
 - General prompt compression unrelated to demonstrated context-health failures.
+- Replacing explicit planning-to-execution or semantic-repair segment boundaries with automatic compaction.
 
 ## Dependencies and Sequencing
 
-This capability can proceed independently of selective model adaptation. Its behavioral harness should feed the broader
-Agent Behavior Evaluation capability described in `docs/prd/agent-behavior-evaluation-prd.md`.
+This capability can proceed independently of selective model adaptation. It must compose with the Session Transcript
+Segment manifest and rollover behavior in ADR-012: the workflow owns deliberate phase boundaries, while Session Context
+Resilience protects unexpectedly long activity inside the current segment. Its behavioral harness should feed the
+broader Agent Behavior Evaluation capability described in `docs/prd/agent-behavior-evaluation-prd.md`.

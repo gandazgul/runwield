@@ -22,9 +22,12 @@ and execution preparation succeed, immediately before the Engineer's first turn.
 Plan, approval annotations and images, and current execution state; it does not copy or summarize planning messages.
 **Approve for Later** does not create an execution segment.
 
-The execution segment remains current through implementation, Workflow Validation, Engineer repairs, interruption
-recovery, and successful validation. Isolated Reviewer sessions do not replace it. The Engineer remains active after
-validation until a new request requires fresh Router triage.
+The initial execution segment remains current through implementation and Workflow Validation until a defined successor
+context boundary is activated. Isolated Reviewer sessions do not replace it. When Semantic Code Review rejects the
+implementation, RunWield seals the current execution or repair segment and activates a fresh persisted semantic repair
+segment under the same stable Session. That segment receives the bounded repair packet, not predecessor model history,
+and remains current through the repair attempt and its recovery boundaries. Each later semantic repair receives another
+successor segment. The Engineer remains active after validation until a new request requires fresh Router triage.
 
 This changes ADR-011's one-to-one mapping between a stable RunWield Session ID and one Pi Session Manager ID/JSONL path:
 the stable Session ID instead owns an ordered set of segment IDs and paths, with one current writable segment. Session
@@ -34,5 +37,10 @@ Activation and Plan Workflow Lease ownership remain keyed to the stable RunWield
 
 Resume, Workspace/TUI projection, context reporting, cross-process generation tracking, image rehydration, and
 transcript search must treat the Session Transcript as an ordered aggregate without injecting sealed segments into
-current model context. Segment rollover must be atomic so failed or canceled execution preparation cannot leave an empty
-execution segment current.
+current model context. Segment rollover must be atomic so failed or canceled execution preparation or repair dispatch
+cannot leave an empty successor segment current.
+
+This creates fresh implementation and semantic-repair contexts without splitting one user workflow into multiple visible
+Sessions, losing earlier owner-visible history, inventing a lossy handoff summary, or changing Plan workflow ownership.
+Reviewer sessions remain disposable because they are read-only and do not own recoverable project effects; Engineer
+repair segments are persisted because they mutate the worktree and must survive interruption and process loss.

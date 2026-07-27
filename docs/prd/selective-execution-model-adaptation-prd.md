@@ -90,6 +90,16 @@ not enter the initial profile merely because little-coder uses them.
 - RunWield may support different profiles for different models; there is no requirement to converge on one universal
   local-model policy.
 
+## Proposed Domain Language
+
+**Model Adaptation Profile**: An explicit Agent/model-preset-bound behavior policy for an evaluated Agent/model
+combination that does not change workflow ownership or lifecycle semantics. _Avoid_: Small-model mode, automatic
+local-model mode, Agent Definition
+
+This term remains proposed until an implementation Plan ships selectable profiles. Planner must then include the
+relevant `CONTEXT.md` under Files to Modify, add an implementation step that publishes the definition and stable
+relationships, and verify that the glossary update lands with the implemented profile behavior.
+
 ## Product Experience
 
 Users should be able to choose a named model preset that clearly states:

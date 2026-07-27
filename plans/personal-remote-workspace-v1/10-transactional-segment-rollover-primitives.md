@@ -1,7 +1,7 @@
 ---
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Add fenced primitives for creating, sealing, synchronizing, and switching the current transcript segment with safe two-store recovery. These backend APIs provide the exact-once rollover foundation used later by Approve & Run."
+summary: "Add fenced primitives for creating, sealing, synchronizing, and switching the current transcript segment with safe two-store recovery. These backend APIs provide the exact-once rollover foundation used by Approve & Run and later semantic-repair context boundaries."
 affectedPaths:
     - "src/shared/owner-coordination/sessions.js"
     - "src/shared/owner-coordination/session-activations.js"
@@ -12,7 +12,7 @@ affectedPaths:
     - "src/shared/workflow/"
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-07-26T20:48:25.345Z"
+updatedAt: "2026-07-27T19:30:00.000Z"
 status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -25,10 +25,11 @@ dependencies:
 
 ## Context
 
-The architecture requires segment rollover at the planning-to-execution handoff and future context boundaries. JSONL
-transcript files and SQLite cannot be committed atomically together, so rollover must use a strict ordering: commit
-canonical transcript/lineage evidence first, then publish manifest/current pointer and generation state under a fenced
-activation transaction, then reconcile transcript-ahead or database-behind crashes conservatively.
+The architecture requires segment rollover at the planning-to-execution handoff and later bounded workflow context
+boundaries, including every semantic-review repair dispatch. JSONL transcript files and SQLite cannot be committed
+atomically together, so rollover must use a strict ordering: commit canonical transcript/lineage evidence first, then
+publish manifest/current pointer and generation state under a fenced activation transaction, then reconcile
+transcript-ahead or database-behind crashes conservatively.
 
 ## Objective
 
@@ -48,7 +49,7 @@ Implement backend rollover primitives so that:
 Add a small, explicit rollover API below `SessionRuntime` that requires the current activation operation capability and
 expected current segment proof. Keep this generic: the API creates and activates a new segment but does not decide why
 the rollover happens or seed Engineer-specific content. Later workflow slices will call these primitives for Approve &
-Run.
+Run and semantic repair dispatch.
 
 ## Files to Modify
 
@@ -80,6 +81,8 @@ Existing functions, modules, or patterns to reuse:
 
 - [ ] Define rollover operation input/output shapes with expected Session generation, current segment ID, predecessor
       evidence, successor kind, and lineage metadata.
+- [ ] Ensure the generic successor-kind and pending-continuation inputs can represent both initial Engineer execution
+      and repeated semantic repair attempts without workflow-specific branching in the rollover layer.
 - [ ] Implement successor transcript creation and lineage synchronization before any SQLite current pointer switch.
 - [ ] Implement predecessor sealing and exact evidence capture for the final committed prefix.
 - [ ] Publish sealed predecessor, successor current pointer, generation update, and pending continuation marker in one
@@ -93,6 +96,8 @@ Existing functions, modules, or patterns to reuse:
 
 - Automated: run `deno task ci`.
 - Automated: crash-point tests should prove safe outcomes for every transition before and after manifest publication.
+- Automated: repeat rollover in one stable Session for planning → execution → semantic repair 1 → semantic repair 2 and
+  prove each predecessor seals exactly once while only the final segment remains current and writable.
 - Automated: projection tests should prove rollover appears as one stable Session with ordered segment history and no
   duplicate events.
 - Automated: activation tests should prove a second surface cannot mutate another segment while rollover is in progress.

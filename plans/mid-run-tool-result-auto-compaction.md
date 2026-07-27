@@ -1,4 +1,5 @@
 ---
+planId: "5cf1e3a4-c0fe-4407-b65f-2a7b2ba927b4"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Make auto-compaction monitor and recover during long Agent Session tool-result loops, not only before user prompts or after full Agent Session completion."
@@ -32,12 +33,16 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:10:26-04:00"
-updatedAt: "2026-07-27T13:15:03.654Z"
+updatedAt: "2026-07-27T13:15:16.684Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-27T13:15:03.654Z"
 userVerifiedAt: null
-userVerificationNote: null
+workRecord:
+    status: "generated"
+    recordId: "dc467de9-9e61-4746-a4c0-c7b3cecae1c9"
+    path: "docs/work-records/2026-07-27-mid-run-tool-result-auto-compaction.md"
+    lastAttemptAt: "2026-07-27T13:15:09.586Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
