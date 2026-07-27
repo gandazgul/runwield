@@ -1,10 +1,6 @@
 ---
 name: ketch
 description: Use this skill when the user asks for current information, facts, or web search results — even if they don't say "search" or "look up". Use when they ask about library APIs, frameworks, or package documentation. Use when they provide a URL and you need the page content as clean markdown. Do not use for file reading, git operations, or anything unrelated to web access.
-compatibility: Requires ketch CLI v0.8.0+ installed and available in PATH. Needs internet access.
-allowed-tools: Bash(ketch:*) Bash(jq:*)
-metadata:
-    version: "1.0"
 ---
 
 # Ketch
