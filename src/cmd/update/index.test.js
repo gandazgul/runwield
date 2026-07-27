@@ -175,6 +175,33 @@ Deno.test("update propagates installer failure exit code", async () => {
     assertEquals(exitCode, 7);
 });
 
+Deno.test("update cleans temp directory before installer failure exit", async () => {
+    /** @type {string[]} */
+    const actions = [];
+    await runUpdateCommand([], {
+        __testDeps: {
+            currentVersion: "v1.0.0",
+            fetch: (url) =>
+                String(url).includes("api.github.com")
+                    ? Promise.resolve(makeJsonResponse({ tag_name: "v2.0.0" }))
+                    : Promise.resolve(makeTextResponse("install")),
+            execPath: () => "/opt/runwield/bin/wld",
+            makeTempDir: () => Promise.resolve("/tmp/runwield-update-test"),
+            writeTextFile: () => Promise.resolve(),
+            command: () => ({ output: () => Promise.resolve({ code: 7 }) }),
+            remove: (path, options) => {
+                actions.push(`remove:${path}:${JSON.stringify(options)}`);
+                return Promise.resolve();
+            },
+            env: {},
+            exit: (code) => {
+                actions.push(`exit:${code}`);
+            },
+        },
+    });
+    assertEquals(actions, ['remove:/tmp/runwield-update-test:{"recursive":true}', "exit:7"]);
+});
+
 Deno.test("update reports fetch failure with exit code 1", async () => {
     /** @type {string[]} */
     const errors = [];

@@ -68,6 +68,8 @@ export async function runUpdateCommand(argv = [], options = {}) {
     }
 
     let tempDir = "";
+    /** @type {number | null} */
+    let exitCode = null;
     try {
         const fetchImpl = deps.fetch || globalThis.fetch;
         const release = await fetchLatestRunWieldRelease({ fetch: fetchImpl });
@@ -98,13 +100,12 @@ export async function runUpdateCommand(argv = [], options = {}) {
             env: commandEnv,
         }).output();
         if (result.code !== 0) {
-            exit(result.code);
-            return;
+            exitCode = result.code;
         }
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         error(`RunWield update failed: ${message}`);
-        exit(1);
+        exitCode = 1;
     } finally {
         if (tempDir) {
             try {
@@ -113,5 +114,9 @@ export async function runUpdateCommand(argv = [], options = {}) {
                 // Best-effort cleanup only.
             }
         }
+    }
+
+    if (exitCode !== null) {
+        exit(exitCode);
     }
 }

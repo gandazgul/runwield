@@ -5,7 +5,7 @@
 
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS } from "../../constants.js";
 import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -63,6 +63,56 @@ const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 /** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
 const REVIEW_INLINE_DIFF_MAX_BYTES = 60 * 1024;
+
+/**
+ * @typedef {Object} BundledPromptFrontMatter
+ * @property {Record<string, unknown>} attrs
+ * @property {string} body
+ */
+
+/** @param {unknown} error */
+function isRecoverableBundledPromptReadError(error) {
+    return error instanceof Deno.errors.NotFound ||
+        (error instanceof TypeError && error.message.includes("Unexpected end of input")) ||
+        (error instanceof Error && error.message.startsWith("Bundled agent asset is missing:"));
+}
+
+/**
+ * @param {unknown} parsed
+ * @returns {BundledPromptFrontMatter}
+ */
+function normalizeBundledPromptFrontMatter(parsed) {
+    if (!parsed || typeof parsed !== "object") return { attrs: {}, body: "" };
+    const attrs = "attrs" in parsed && parsed.attrs && typeof parsed.attrs === "object"
+        ? Object.fromEntries(Object.entries(parsed.attrs))
+        : {};
+    const body = "body" in parsed && typeof parsed.body === "string" ? parsed.body : "";
+    return { attrs, body };
+}
+
+/**
+ * @param {string} relativePath
+ * @param {(path: string) => Promise<string>} readTextFile
+ * @param {typeof ensureBundledAgentDefFile} ensurePromptFile
+ * @returns {Promise<BundledPromptFrontMatter>}
+ */
+async function readBundledPromptFrontMatter(relativePath, readTextFile, ensurePromptFile) {
+    let promptPath = await ensurePromptFile(relativePath);
+    try {
+        return normalizeBundledPromptFrontMatter(extractYaml(await readTextFile(promptPath)));
+    } catch (error) {
+        if (!isRecoverableBundledPromptReadError(error)) throw error;
+        promptPath = await ensurePromptFile(relativePath);
+        try {
+            return normalizeBundledPromptFrontMatter(extractYaml(await readTextFile(promptPath)));
+        } catch (retryError) {
+            if (!isRecoverableBundledPromptReadError(retryError)) throw retryError;
+            return normalizeBundledPromptFrontMatter(
+                extractYaml(await Deno.readTextFile(join(AGENT_DEFS_DIR, relativePath))),
+            );
+        }
+    }
+}
 
 /**
  * @typedef {Object} CapturedProcessStream
@@ -177,16 +227,11 @@ export async function loadReviewerPrompt(
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
-    let reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
-    let raw;
-    try {
-        raw = await readTextFile(reviewerPromptPath);
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-        reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
-        raw = await readTextFile(reviewerPromptPath);
-    }
-    const { attrs, body } = extractYaml(raw);
+    const { attrs, body } = await readBundledPromptFrontMatter(
+        join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE),
+        readTextFile,
+        ensurePromptFile,
+    );
     const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Reviewer";
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
 
@@ -211,9 +256,11 @@ export async function loadManualQaPrompt(
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
-    const promptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, MANUAL_QA_PROMPT_FILE));
-    const raw = await readTextFile(promptPath);
-    const { attrs, body } = extractYaml(raw);
+    const { attrs, body } = await readBundledPromptFrontMatter(
+        join(WORKFLOW_PROMPTS_DIR, MANUAL_QA_PROMPT_FILE),
+        readTextFile,
+        ensurePromptFile,
+    );
     const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Manual QA";
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
 
