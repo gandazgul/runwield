@@ -35,10 +35,8 @@ own release policy and automation.
 
 4. Generate curated release notes.
 
-   - Follow the repository's documented release-note scope. If no repository-specific release-note scope is documented,
-     use commits since the previous stable tag and write notes for users deciding whether to install or upgrade.
-   - Follow the repository's documented note format. If no repository-specific note format is documented, use this
-     RunWield fallback format:
+   - Follow the repository's documented release-note scope and format. If none is documented, use this RunWield fallback
+     format:
      - For Candidate and Stable operations, make notes cumulative from the previous Stable.
      - For later Candidates, also summarize validation-relevant changes since the prior Candidate so testers can see
        what changed between RCs.
@@ -73,7 +71,13 @@ own release policy and automation.
    - If post-publication note editing fails after assets are published, report the release as incomplete with assets
      published and notes pending, including the exact retry command.
 
+## Quality Criteria
+
+- Tag created and pushed for the correct version
+- Release published on the repository's host
+- Release notes in the documented format, user-facing and accurate
+- No side effects if cancelled or failed
+
 If a required CLI tool or credential is missing, halt and inform the user.
 
-Note: no need to store memories for releases generally, only if there's a significant breaking change or durable release
-policy decision that would be useful to recall later.
+Store a memory only when there's a significant breaking change or durable release policy decision worth recalling later.
