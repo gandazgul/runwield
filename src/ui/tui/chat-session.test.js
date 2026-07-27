@@ -10,6 +10,7 @@ import {
     persistThinkingLevel,
     renderClipboardImageHintLines,
     renderFooterWorkflowLabelParts,
+    renderUpdateNoticeLine,
     runScopedSubmitHandoffLoop,
     setActiveModel,
     shouldReplaySessionHistory,
@@ -84,6 +85,54 @@ Deno.test("new TUI Sessions do not opt into managed activation implicitly", asyn
     assertEquals(managedActivationOptionIndex === -1 || managedActivationOptionIndex > switchAgentIndex, true);
     assertEquals(deferOptionIndex === -1 || deferOptionIndex > switchAgentIndex, true);
     assertEquals(modelWelcomeIndex < switchAgentIndex, true);
+});
+
+Deno.test("startup update notice placeholder sits directly under the title line", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const titleIndex = source.indexOf("container.addChild(new Text(titleLine, 0, 0));");
+    const updateNoticeIndex = source.indexOf("container.addChild(updateNoticeText);", titleIndex);
+    const helpIndex = source.indexOf("container.addChild(helpText);", updateNoticeIndex);
+
+    assertEquals(titleIndex >= 0, true);
+    assertEquals(updateNoticeIndex > titleIndex, true);
+    assertEquals(helpIndex > updateNoticeIndex, true);
+});
+
+Deno.test("startup update refresh is not awaited before model welcome", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const refreshIndex = source.indexOf("void refreshUpdateCheckCache({ currentVersion: VERSION }).then");
+    const awaitedRefreshIndex = source.indexOf("await refreshUpdateCheckCache");
+    const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
+
+    assertEquals(refreshIndex >= 0, true);
+    assertEquals(awaitedRefreshIndex, -1);
+    assertEquals(modelWelcomeIndex > refreshIndex, true);
+});
+
+Deno.test("startup update refresh runs only when no fresh cache is available", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const cacheReadIndex = source.indexOf(
+        "const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });",
+    );
+    const cachedBranchIndex = source.indexOf("if (cachedUpdateAvailability) {", cacheReadIndex);
+    const refreshElseIndex = source.indexOf(
+        "} else {\n            void refreshUpdateCheckCache({ currentVersion: VERSION }).then",
+        cachedBranchIndex,
+    );
+
+    assertEquals(cacheReadIndex >= 0, true);
+    assertEquals(cachedBranchIndex > cacheReadIndex, true);
+    assertEquals(refreshElseIndex > cachedBranchIndex, true);
+});
+
+Deno.test("update notice renderer colors only the version", () => {
+    const themeImpl = {
+        fg: (/** @type {string} */ token, /** @type {string} */ text) => `<${token}>${text}</${token}>`,
+    };
+    assertEquals(
+        renderUpdateNoticeLine("v9.8.7", themeImpl),
+        "New version available: <routingQuickFix>v9.8.7</routingQuickFix>. Run `wld update` to install it",
+    );
 });
 
 Deno.test("startup boot banner renders before managed agent activation can block it", async () => {

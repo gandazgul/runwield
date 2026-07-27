@@ -14,19 +14,24 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T16:15:40-04:00"
-updatedAt: "2026-07-27T20:27:22.506Z"
-status: "implemented"
+updatedAt: "2026-07-27T22:09:33.426Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T20:27:22.506Z"
+verifiedAt: "2026-07-27T22:09:33.426Z"
 userVerifiedAt: null
+userVerificationNote: null
 executionReport: "- Implemented shared Stable update-check module with version comparison, global cache helpers, GitHub latest-release fetch, tag-pinned installer URL, and install-dir detection.\n- Added CLI-only `wld update` command plus `wld upgrade` alias; command fetches latest Stable tag, skips already-current installs, downloads matching `install.sh`, derives/preserves `WLD_INSTALL_DIR`, runs installer, and propagates failures.\n- Integrated TUI boot update notice placeholder directly under the title line with cached immediate rendering and non-awaited background refresh; update/upgrade remain absent from slash commands by registry coverage.\n- Added unit/behavior coverage for shared update checks, update command, registry CLI-only alias behavior, and TUI source-order/rendering.\n- Verification passed: requested `deno fmt --check`, `deno lint`, targeted `deno test -A ...`, and full `deno task ci` (1897 passed, 0 failed).\n- Manual CLI help check passed: `deno task cli help update` shows `wld update`, `wld upgrade`, Stable channel, and `WLD_INSTALL_DIR`; interactive TUI/manual installer checks were covered by automated source-order/registry/fake-installer tests rather than executed against a live installer."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-27T22:09:33.256Z"
 executionMode: "worktree"
-executionBaselineTree: "f5d9195302284a7c395d387680d6dee43cdb60a0"
-worktreeId: "ffea5ccd"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-auto-update-and-update-command-ffea5ccd"
-worktreeBranch: "runwield/worktree/auto-update-and-update-command-ffea5ccd"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "83bf3a9ae6558259ec7df4a170115ae4d9a47be6"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "81c5bcc0926448ee5775d6f07460ce99ef469b92"
 ---
 
 # Auto Update Notice and Update Command
