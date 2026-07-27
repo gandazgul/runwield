@@ -46,12 +46,15 @@ const dotOn = [
 
 let blinkInterval: ReturnType<typeof setInterval> | undefined;
 const dot: Text[] = [];
+let activeTui: { requestRender?: () => void } | null = null;
 
 /**
  * Build a centered ASCII logo banner and insert it into the TUI container.
  */
 export function renderBootLogo(container: BootLogoContainer) {
+    endBlink();
     const { tui, terminal } = getTUI();
+    activeTui = tui;
 
     terminal.clearFromCursor();
     terminal.clearScreen();
@@ -83,18 +86,20 @@ export function renderBootLogo(container: BootLogoContainer) {
 
         tui.requestRender();
     }, 1300);
+    if (typeof blinkInterval.unref === "function") blinkInterval.unref();
 }
 
 export function endBlink() {
-    const { tui } = getTUI();
-
     if (blinkInterval !== undefined) {
         clearInterval(blinkInterval);
+        blinkInterval = undefined;
     }
 
     for (let i = 0; i < dot.length; i++) {
         dot[i].setText(theme.fg("mdCode", dotOn[i]));
     }
 
-    tui.requestRender();
+    activeTui?.requestRender?.();
+    dot.length = 0;
+    activeTui = null;
 }

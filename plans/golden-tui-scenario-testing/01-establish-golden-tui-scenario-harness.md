@@ -26,23 +26,27 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:04:06.040-04:00"
-updatedAt: "2026-07-27T00:26:42.615Z"
-status: "implemented"
+updatedAt: "2026-07-27T23:56:42.699Z"
+status: "verified"
 origin: "internal"
 parentPlan: "golden-tui-scenario-testing"
 order: 1
 dependencies:
     []
 implementedAt: "2026-07-27T00:26:42.615Z"
+verifiedAt: "2026-07-27T23:56:42.699Z"
 userVerifiedAt: null
+userVerificationNote: null
 executionReport: "- Implemented Golden TUI harness foundations: xterm import/task, virtual terminal, scenario actor/runner, subprocess isolation, scripted review surface, diagnostics/cleanup helpers, and initial golden scenario definitions/tests.\n- Added TUI lifecycle seams: disposable interactive composition handle, interaction dependency forwarding, safer TUI manager init/dispose, UI API disposal, and boot blink cleanup.\n- Added initial Router-to-Guide, Escape cancellation, `/help`, Plan Review contract, actor, timeout/crash, env isolation, and virtual-terminal coverage.\n- Verification passed: `deno task test:golden-tui`; targeted TUI test command; repeated `deno task test:golden-tui` 3x; full `deno task ci`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "aadedd68f5e218c68efced7a78557c0cff7b28d8"
-worktreeId: "4500afaf"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-golden-tui-scenario-testing-01-establish-golden--4500afaf"
-worktreeBranch: "runwield/worktree/golden-tui-scenario-testing-01-establish-golden--4500afaf"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "88548b58716f818ec205ebf444002048a8787c64"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "d41e09f544bca0c27a54fbcf98cfe0bc5326c552"
 ---
 
 # Establish Golden TUI Scenario Harness
