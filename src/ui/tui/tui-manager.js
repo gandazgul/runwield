@@ -54,8 +54,15 @@ export function createTuiManager({
             crashGuardsInstalled = true;
             return tuiInstance;
         } catch (error) {
+            if (crashGuardsInstalled) {
+                try {
+                    uninstallCrashGuards();
+                } catch {
+                    // Preserve the original construction/start failure.
+                }
+            }
             try {
-                if (started && typeof tuiInstance?.stop === "function") tuiInstance.stop();
+                if (typeof tuiInstance?.stop === "function") tuiInstance.stop();
             } catch {
                 // Preserve the original construction/start failure.
             }
