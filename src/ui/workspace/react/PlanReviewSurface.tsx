@@ -709,7 +709,9 @@ function readInitialExecutionPolicy(payload, parsedFrontmatter) {
     const frontmatter = payload?.frontmatter && typeof payload.frontmatter === "object"
         ? payload.frontmatter
         : parsedFrontmatter || {};
-    const classification = readScalar(payload?.classification) || readScalar(frontmatter.classification) || "FEATURE";
+    const classification = normalizePlanReviewClassification(
+        readScalar(payload?.classification) || readScalar(frontmatter.classification) || "PLANNED_CHANGE",
+    );
     const executionPolicy = payload?.executionPolicy && typeof payload.executionPolicy === "object"
         ? payload.executionPolicy
         : {};
@@ -722,10 +724,15 @@ function readInitialExecutionPolicy(payload, parsedFrontmatter) {
         readCollaborationRecommendation(frontmatter.collaborationRecommendation) || "autonomous";
     return {
         classification,
-        canSelectExecutionPolicy: classification === "FEATURE",
+        canSelectExecutionPolicy: classification === "PLANNED_CHANGE",
         executionAgent,
         collaborationRecommendation: executionAgent === "engineer" ? "autonomous" : collaborationRecommendation,
     };
+}
+
+function normalizePlanReviewClassification(value) {
+    const scalar = readScalar(value);
+    return scalar === "FEATURE" ? "PLANNED_CHANGE" : scalar;
 }
 
 function readScalar(value) {

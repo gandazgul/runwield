@@ -60,7 +60,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     const result = await runManualQaChecklistPrompt({
         hostedSession,
         name: "settings-panel",
-        classification: "FEATURE",
+        classification: "PLANNED_CHANGE",
         context: "## Verification Plan\n- Manual: save settings and reload",
         cwd: "/repo",
         __deps: {
@@ -79,7 +79,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     assertEquals(invocation.includeEditFallback, false);
     assertEquals(Object.hasOwn(invocation, "useRootSession"), false);
     assertStringIncludes(invocation.userRequest, "Name: settings-panel");
-    assertStringIncludes(invocation.userRequest, "Classification: FEATURE");
+    assertStringIncludes(invocation.userRequest, "Classification: PLANNED_CHANGE");
     assertStringIncludes(invocation.userRequest, "save settings and reload");
 });
 
@@ -110,7 +110,7 @@ Deno.test("runManualQaChecklistPrompt persists visible checklist for resume repl
     await runManualQaChecklistPrompt({
         hostedSession: session,
         name: "settings-panel",
-        classification: "FEATURE",
+        classification: "PLANNED_CHANGE",
         context: "context",
         cwd: Deno.cwd(),
         __deps: {
@@ -132,7 +132,7 @@ Deno.test("runManualQaChecklistPrompt persists visible checklist for resume repl
             agentName: "Operator",
             text: "Manual verification steps for settings-panel",
             name: "settings-panel",
-            classification: "FEATURE",
+            classification: "PLANNED_CHANGE",
         },
     }]);
 });
@@ -142,7 +142,7 @@ Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     const readPaths = [];
     const reviewerDef = await loadReviewerPrompt(
         (path) => {
-            readPaths.push(path);
+            readPaths.push(String(path));
             return Promise.resolve([
                 "---",
                 "name: Reviewer",
@@ -195,6 +195,28 @@ Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed
     ]);
     assertEquals(readAttempts, 2);
     assertStringIncludes(reviewerDef.systemPrompt, "Recovered prompt");
+});
+
+Deno.test("loadReviewerPrompt retries transient partial prompt reads", async () => {
+    let readAttempts = 0;
+    const reviewerDef = await loadReviewerPrompt(
+        () => {
+            readAttempts++;
+            if (readAttempts === 1) return Promise.resolve("---\nname: Reviewer");
+            return Promise.resolve([
+                "---",
+                "name: Reviewer",
+                "---",
+                "",
+                "Recovered after partial read.",
+                "",
+            ].join("\n"));
+        },
+        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
+    );
+
+    assertEquals(readAttempts, 2);
+    assertEquals(reviewerDef.systemPrompt, "Recovered after partial read.");
 });
 
 Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", async () => {

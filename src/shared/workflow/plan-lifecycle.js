@@ -8,6 +8,7 @@
  */
 
 import { dirname, join } from "@std/path";
+import { isPlannedChangeClassification } from "../../constants.js";
 import {
     findPlansByParent,
     isPlanDependencySatisfiedStatus,
@@ -558,13 +559,15 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "validation_passed") {
         const executionMode = normalizeExecutionMode(details.executionMode ?? updates.executionMode);
         const deliveryEvidence = normalizeDeliveryEvidence(details.deliveryEvidence);
-        if (updates.classification === "FEATURE") {
+        if (isPlannedChangeClassification(updates.classification)) {
             if (!executionMode) {
-                throw new Error("Invalid Plan Lifecycle transition: FEATURE validation_passed requires executionMode.");
+                throw new Error(
+                    "Invalid Plan Lifecycle transition: planned change validation_passed requires executionMode.",
+                );
             }
             if (!deliveryEvidence) {
                 throw new Error(
-                    "Invalid Plan Lifecycle transition: FEATURE validation_passed requires deliveryEvidence.",
+                    "Invalid Plan Lifecycle transition: planned change validation_passed requires deliveryEvidence.",
                 );
             }
             if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
@@ -657,7 +660,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 
 /** @param {import('../../plan-store.js').PlanFrontMatter} attrs */
 function hasModeAppropriateDeliveryEvidence(attrs) {
-    if (attrs.classification !== "FEATURE") return true;
+    if (!isPlannedChangeClassification(attrs.classification)) return true;
     const executionMode = normalizeExecutionMode(attrs.executionMode);
     const deliveryEvidence = normalizeDeliveryEvidence(attrs.deliveryEvidence);
     if (!executionMode || !deliveryEvidence) return false;
@@ -703,7 +706,7 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
         currentStatus: "ready_for_work",
         details: {
             triageMeta: parent.attrs,
-            epicDoneEnoughSummary: `All ${children.length} child FEATURE plans are completed after ${planName}.`,
+            epicDoneEnoughSummary: `All ${children.length} child planned change plans are completed after ${planName}.`,
             now: details.now,
         },
     });
@@ -795,7 +798,7 @@ export async function stageValidationPassedInExecutionWorktree({
         const deliveryEvidence = normalizeDeliveryEvidence(
             details.deliveryEvidence ?? executionPlan.attrs.deliveryEvidence,
         );
-        if (executionPlan.attrs.classification === "FEATURE") {
+        if (isPlannedChangeClassification(executionPlan.attrs.classification)) {
             if (!executionMode || !deliveryEvidence) {
                 throw new Error(
                     `Cannot reuse verified Plan ${planName} from execution worktree: Delivery Evidence is missing.`,

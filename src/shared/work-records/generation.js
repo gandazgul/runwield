@@ -3,7 +3,7 @@
  * Generate canonical internal Work Records from completed Plans.
  */
 
-import { AGENTS } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import {
     compareChildPlansByOrder,
     ensurePlanIdentity,
@@ -36,7 +36,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {import('../../plan-store.js').PlanFrontMatter} attrs
  * @property {string} body
  * @property {string} markdown
- * @property {"feature"|"epic"} [scope]
+ * @property {"planned_change"|"epic"} [scope]
  * @property {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} [completionMode]
  * @property {string} [closureReason]
  * @property {string} [executionReport]
@@ -164,11 +164,13 @@ export function deriveWorkRecordCompletionMode(source) {
 
 /**
  * @param {WorkRecordSource} source
- * @returns {"feature"|"epic"|""}
+ * @returns {"planned_change"|"epic"|""}
  */
 export function deriveWorkRecordScope(source) {
     if (isEpicPlan(source.attrs)) return "epic";
-    if (source.attrs.classification === "FEATURE" && !isChildFeaturePlan(source)) return "feature";
+    if (isPlannedChangeClassification(source.attrs.classification) && !isChildFeaturePlan(source)) {
+        return "planned_change";
+    }
     return "";
 }
 
@@ -287,7 +289,7 @@ export function attachEpicChildren(sources) {
     return sources.map((source) => {
         if (!isEpicPlan(source.attrs)) return source;
         const children = sources.filter((candidate) =>
-            candidate.attrs.classification === "FEATURE" && candidate.attrs.parentPlan === source.name
+            isPlannedChangeClassification(candidate.attrs.classification) && candidate.attrs.parentPlan === source.name
         ).sort(compareChildPlansByOrder);
         return { ...source, children };
     });
@@ -416,7 +418,7 @@ export function synthesizeWorkRecordSections(source) {
         }`
         : source.attrs.summary || `Completed ${title}.`;
     const childLines = (source.children || [])
-        .filter((child) => child.attrs.classification === "FEATURE")
+        .filter((child) => isPlannedChangeClassification(child.attrs.classification))
         .map((child) =>
             `- ${child.name}: ${child.attrs.status}${
                 child.attrs.summary ? ` — ${stripMarkdown(child.attrs.summary)}` : ""
@@ -587,7 +589,8 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
             kind: "work_record",
             recordId: options.idGenerator ? options.idGenerator() : crypto.randomUUID(),
             status: "approved",
-            scope: /** @type {"feature"|"epic"} */ (source.scope),
+            scope: /** @type {"planned_change"|"epic"} */ (source.scope),
+            workKind: source.attrs.workKind,
             origin: "internal",
             completionMode:
                 /** @type {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} */ (source

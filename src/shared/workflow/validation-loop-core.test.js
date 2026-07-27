@@ -82,7 +82,7 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
     assertEquals(reviewCalls, 0);
     assertEquals(mergeCalls, 0);
     assertEquals(manualQaArgs.name, "p");
-    assertEquals(manualQaArgs.classification, "FEATURE");
+    assertEquals(manualQaArgs.classification, "PLANNED_CHANGE");
     assertEquals(manualQaArgs.context, "# Plan");
     assertEquals(manualQaArgs.cwd, projectRoot);
     assertEquals(

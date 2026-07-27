@@ -72,6 +72,8 @@ Deno.test("buildPullRevisionRequest includes structured metadata and redacts sec
     assert(request.includes("Title: Demo Plan"));
     assert(request.includes("Summary: Demo summary"));
     assert(request.includes("Status: draft"));
+    assert(request.includes("Classification: PLANNED_CHANGE"));
+    assert(!request.includes("Classification: FEATURE"));
     assert(request.includes("Affected paths: src/demo.js, src/demo.test.js"));
     assert(request.includes("Pulled revision: 2"));
     assert(request.includes("Feedback"));

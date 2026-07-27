@@ -6,7 +6,7 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { AGENTS } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlans } from "../../plan-store.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
@@ -81,9 +81,9 @@ const TICKET_REFERENCE_SCHEMA = Type.Object({
 });
 
 const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
-    title: Type.String({ description: "Child FEATURE title." }),
+    title: Type.String({ description: "Child planned change title." }),
     order: Type.Number({ description: "1-based integer execution order from the agreed slice sequence." }),
-    summary: Type.String({ description: "Brief child FEATURE summary." }),
+    summary: Type.String({ description: "Brief child planned change summary." }),
     dependencies: Type.Array(Type.String(), { description: "Child plan dependencies, if any." }),
     affectedPaths: Type.Array(Type.String(), { description: "Expected affected paths." }),
     tickets: Type.Optional(Type.Array(TICKET_REFERENCE_SCHEMA, {
@@ -108,14 +108,27 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
         description: "Whether the dev server is expected to support hot module reload.",
     })),
     worktreeBaseBranch: Type.Optional(Type.Union([
-        Type.String({ description: "Target branch this child FEATURE should execute from and merge back into." }),
-        Type.Null({ description: "Do not inherit the parent Epic target branch for this child FEATURE." }),
+        Type.String({
+            description: "Target branch this child planned change should execute from and merge back into.",
+        }),
+        Type.Null({ description: "Do not inherit the parent Epic target branch for this child planned change." }),
     ])),
-    content: Type.String({ description: "Complete child FEATURE plan markdown body without YAML front matter." }),
+    workKind: Type.Optional(Type.Union([
+        Type.Literal("BUG_FIX"),
+        Type.Literal("FEATURE"),
+        Type.Literal("REFACTOR"),
+        Type.Literal("MAINTENANCE"),
+    ], {
+        description:
+            "Child Work Kind. Set for new child planned changes based on the work's nature; omit only to preserve an existing child draft's Work Kind.",
+    })),
+    content: Type.String({
+        description: "Complete child planned change plan markdown body without YAML front matter.",
+    }),
 });
 
 /**
- * Materialize a Slicer decomposition draft into child FEATURE plan files.
+ * Materialize a Slicer decomposition draft into child planned change plan files.
  *
  * @param {Object} opts
  * @param {string} opts.cwd - Project root.
@@ -162,10 +175,10 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
         name: "slicer_finalize_decomposition",
         label: "Finalize Epic Decomposition",
         description:
-            "Materialize child FEATURE draft plans and finalize the current Epic decomposition after explicit user confirmation.",
+            "Materialize child planned change draft plans and finalize the current Epic decomposition after explicit user confirmation.",
         parameters: Type.Object({
             children: Type.Optional(Type.Array(CHILD_DESCRIPTOR_SCHEMA, {
-                description: "Child FEATURE plan descriptors to create or update before finalizing.",
+                description: "Child planned change plan descriptors to create or update before finalizing.",
             })),
             confirmation: Type.String({
                 description: "A short statement that the user explicitly confirmed finalizing decomposition.",
@@ -199,15 +212,15 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                 });
 
                 const children = (await findChildren(cwd, planName)).filter((child) =>
-                    child.attrs.classification === "FEATURE"
+                    isPlannedChangeClassification(child.attrs.classification)
                 );
                 if (children.length === 0) {
-                    throw new Error("At least one child FEATURE plan is required to finalize decomposition.");
+                    throw new Error("At least one child planned change plan is required to finalize decomposition.");
                 }
 
                 const childNames = children.map((child) => child.name);
                 const writeSummary = writeResults.length === 0
-                    ? "No child FEATURE drafts were written."
+                    ? "No child planned change drafts were written."
                     : writeResults.map((result) => `${result.action}: ${result.name}`).join("\n");
 
                 if (epic.attrs.status === "ready_for_work") {
@@ -215,7 +228,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                         content: [{
                             type: "text",
                             text:
-                                `${writeSummary}\nEpic already ready_for_work with ${children.length} child FEATURE plan(s).`,
+                                `${writeSummary}\nEpic already ready_for_work with ${children.length} child planned change plan(s).`,
                         }],
                         details: { status: "ready_for_work", children: childNames, writeResults, error: "" },
                     };
@@ -248,7 +261,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
 
 /**
  * @param {{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }} child
- * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, dependencies: string[], affectedPaths: string[], tickets?: import('../ticket-references.js').TicketReference[] }}
+ * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, workKind: string | undefined, dependencies: string[], affectedPaths: string[], tickets?: import('../ticket-references.js').TicketReference[] }}
  */
 function summarizeChild(child) {
     return {
@@ -256,6 +269,7 @@ function summarizeChild(child) {
         order: child.attrs.order,
         status: child.attrs.status,
         summary: child.attrs.summary,
+        workKind: child.attrs.workKind,
         dependencies: Array.isArray(child.attrs.dependencies) ? child.attrs.dependencies : [],
         affectedPaths: Array.isArray(child.attrs.affectedPaths) ? child.attrs.affectedPaths : [],
         tickets: Array.isArray(child.attrs.tickets) ? child.attrs.tickets : undefined,
@@ -337,7 +351,7 @@ export async function runSlicerAgent({
         if (!epic) throw new Error(`Epic plan not found: ${planName}`);
         if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
         const children = (await findChildren(projectRoot, planName))
-            .filter((child) => child.attrs.classification === "FEATURE")
+            .filter((child) => isPlannedChangeClassification(child.attrs.classification))
             .map(summarizeChild);
         boundary = beginSlicerContextPhase({ planName, hostedSession, sessionManager });
 

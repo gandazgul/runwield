@@ -33,7 +33,7 @@ const INTERNAL_ATTRS = {
     kind: "work_record",
     recordId: "11111111-1111-4111-8111-111111111111",
     status: "approved",
-    scope: "feature",
+    scope: "planned_change",
     origin: "internal",
     completionMode: "verified",
     createdAt: "2026-07-14T08:32:00-04:00",
@@ -265,7 +265,7 @@ Deno.test("default Recorder generation invokes the Recorder prompt boundary", as
         attrs: /** @type {any} */ ({ classification: "FEATURE", status: "verified", summary: "Feature." }),
         body: "# Feature\n\n## Plan\n\nBody",
         markdown: "",
-        scope: "feature",
+        scope: "planned_change",
         completionMode: "verified",
     }, {
         runRecorderPrompt: (prompt) => {
@@ -417,7 +417,7 @@ Deno.test("targeted Work Record auto-generation writes standalone FEATURE record
     }
 });
 
-Deno.test("targeted Work Record auto-generation resolves child FEATURE to terminal parent Epic", async () => {
+Deno.test("targeted Work Record auto-generation resolves child Planned Change to terminal parent Epic", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nBody", {
@@ -580,7 +580,7 @@ Deno.test("Work Record recorder prompt includes the task completion report as so
         relativePath: "plans/reported.md",
         path: "/tmp/reported.md",
         planId: "plan-reported",
-        scope: "feature",
+        scope: "planned_change",
         completionMode: "verified",
         executionReport: "- Implemented.\n- Verified.",
         attrs: {
@@ -890,7 +890,7 @@ Deno.test("Work Record index document uses compact summary metadata and tags onl
     assertEquals(document.includes("Reuse this pattern."), false);
     assertEquals(tags.includes(`work-record:${INTERNAL_ATTRS.recordId}`), true);
     assertEquals(tags.includes("status:approved"), true);
-    assertEquals(tags.includes("scope:feature"), true);
+    assertEquals(tags.includes("scope:planned_change"), true);
     assertEquals(tags.includes("origin:internal"), true);
     assertEquals(tags.includes("completion:verified"), true);
     assertEquals(tags.includes("archived:false"), true);

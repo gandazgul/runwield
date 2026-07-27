@@ -70,7 +70,7 @@ function buildToolParams(agentName) {
 function buildToolDescription() {
     return "Declare that you have finished your assigned execution task, whether it succeeded, failed, " +
         "or is blocked. " +
-        "For FEATURE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
+        "For PLANNED_CHANGE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
         "For OPERATION work, the Operator must self-verify before calling this tool and no RunWield validation loop runs afterward. " +
         "For QUICK_FIX work, the Engineer must verify before calling this tool; RunWield then runs no-plan Mechanical Validation. " +
         "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible " +

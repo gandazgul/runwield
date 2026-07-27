@@ -1,6 +1,6 @@
 /** @module shared/workflow/collaboration-pull */
 
-import { AGENTS, CLI_BIN } from "../../constants.js";
+import { AGENTS, CLI_BIN, normalizePlanClassification } from "../../constants.js";
 import { redactSecrets } from "../collaboration/capabilities.js";
 
 /**
@@ -66,6 +66,7 @@ export function buildPullRevisionRequest(context) {
     const title = String(context.title || context.attrs.title || context.attrs.summary || context.planName);
     const summary = context.attrs.summary ? String(context.attrs.summary) : "(not provided)";
     const localStatus = context.attrs.status ? String(context.attrs.status) : "draft";
+    const classification = normalizePlanClassification(context.attrs.classification || "PLANNED_CHANGE");
     const text = [
         "## Collaborative Planning Pull Revision Request",
         "",
@@ -78,7 +79,7 @@ export function buildPullRevisionRequest(context) {
         `Title: ${title}`,
         `Summary: ${summary}`,
         `Status: ${localStatus}`,
-        `Classification: ${context.attrs.classification || "FEATURE"}`,
+        `Classification: ${classification}`,
         `Affected paths: ${formatListValue(context.attrs.affectedPaths)}`,
         "",
         "## Remote Revision Context",
