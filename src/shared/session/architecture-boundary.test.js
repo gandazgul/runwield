@@ -32,6 +32,7 @@ async function productionJavaScriptFiles(path) {
  * @property {string} label
  * @property {RegExp} pattern
  * @property {(path: string) => boolean} [allowPath]
+ * @property {(path: string, source: string) => string} [sourceForRule]
  */
 
 /**
@@ -50,7 +51,8 @@ async function findViolations(roots, rules, options = {}) {
             const source = await Deno.readTextFile(file);
             for (const rule of rules) {
                 if (rule.allowPath?.(path)) continue;
-                if (rule.pattern.test(source)) violations.push(`${path}: ${rule.label}`);
+                const ruleSource = rule.sourceForRule?.(path, source) || source;
+                if (rule.pattern.test(ruleSource)) violations.push(`${path}: ${rule.label}`);
             }
         }
     }
@@ -74,9 +76,18 @@ function resolvedImportTargets(file, source) {
     return targets;
 }
 
-/** @param {string} path */
-function isWorkspaceSessionContinuation(path) {
-    return path === "src/ui/workspace/server/session-continuation.js";
+/**
+ * Workspace timeline projection needs `getRunWieldSessionDir` to locate committed transcript files for read-only
+ * projection. It must not import other root-session internals or use root-session as a writable Runtime escape hatch.
+ * @param {string} path
+ * @param {string} source
+ */
+function sourceWithoutApprovedWorkspaceRootSessionDirImport(path, source) {
+    if (path !== "src/ui/workspace/server/session-continuation.js") return source;
+    return source.replace(
+        /^import \{ getRunWieldSessionDir \} from "\.\.\/\.\.\/\.\.\/shared\/session\/root-session\.js";\n/m,
+        "",
+    );
 }
 
 Deno.test("core has no consumer presentation knowledge", async () => {
@@ -118,13 +129,12 @@ Deno.test("TUI, ACP, Workspace, commands, and scripts use the public Runtime sur
         {
             label: "root-session internal access",
             pattern: /getRootAgentSession|getRootSessionManager|createRootSessionManager|openPersistedRootSession/,
-            allowPath: isWorkspaceSessionContinuation,
         },
         { label: "session implementation import", pattern: /shared\/session\/session\.js/ },
         {
             label: "session internal import",
             pattern: /shared\/session\/(?:agent-handler|agent-switching|root-session|hosted-session|session-host)\.js/,
-            allowPath: isWorkspaceSessionContinuation,
+            sourceForRule: sourceWithoutApprovedWorkspaceRootSessionDirImport,
         },
         { label: "Runtime host escape", pattern: /\.sessionHost\b|\.getSession\s*\(/ },
         { label: "Runtime event producer escape", pattern: /\.emitSessionEvent\s*\(/ },
@@ -197,6 +207,14 @@ Deno.test("non-owning Session generation synchronization remains read-only", asy
         const source = await Deno.readTextFile(file);
         if (/SessionManager\.open|openPersistedRootSession/.test(source)) {
             violations.push(`${path}: managed Session synchronization opens writable transcript state`);
+        }
+        if (
+            /\b(?:runtime|sessionRuntime|options\.runtime)\.(?:loadSession|adoptManagedSession|promptSession|promptManagedSession)\s*\(/
+                .test(
+                    source,
+                )
+        ) {
+            violations.push(`${path}: managed Session synchronization hydrates or prompts through Runtime`);
         }
     }
 
