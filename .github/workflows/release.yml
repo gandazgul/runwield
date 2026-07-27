@@ -148,6 +148,11 @@ jobs:
               with:
                   deno-version: v2.9.3
 
+            - name: Generate version file
+              env:
+                  WLD_BUILD_VERSION: ${{ needs.metadata.outputs.build_version }}
+              run: deno run -A scripts/write-version.js
+
             - name: Cache dependencies
               run: deno cache scripts/compile.js src/cli.js
 
