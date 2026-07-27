@@ -113,7 +113,8 @@
         "typescript": "npm:typescript@^5.9.3",
         "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.3",
         "react/jsx-runtime": "npm:react@^19.2.7/jsx-runtime",
-        "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime"
+        "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime",
+        "@xterm/headless": "npm:@xterm/headless@5.5.0"
     },
     "tasks": {
         "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q test",
@@ -145,7 +146,8 @@
         "release:promote": "deno run -A scripts/release.js promote",
         "release:stable": "deno run -A scripts/release.js stable",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
-        "prototype": "deno run -A scripts/run-prototype.js"
+        "prototype": "deno run -A scripts/run-prototype.js",
+        "test:golden-tui": "deno run -A scripts/write-version.js && deno test -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
     },
     "fmt": {
         "lineWidth": 120,

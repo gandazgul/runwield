@@ -58,6 +58,7 @@
  *   isOutputSuppressed?: () => boolean,
  *   suppressOutput?: () => void,
  *   abortActivePrompt?: () => void,
+ *   dispose?: () => void,
  * }} UiAPI
  */
 
