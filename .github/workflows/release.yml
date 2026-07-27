@@ -35,7 +35,7 @@ jobs:
               id: metadata
               run: |
                   deno task release:metadata --tag "$GITHUB_REF_NAME" > metadata.json
-                  deno eval --allow-read --allow-env --allow-write '
+                  deno eval '
                     const metadata = JSON.parse(await Deno.readTextFile("metadata.json"));
                     if (metadata.tag !== Deno.env.get("GITHUB_REF_NAME")) throw new Error("metadata tag mismatch");
                     const lines = [
