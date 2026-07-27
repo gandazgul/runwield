@@ -1,12 +1,12 @@
-# Releasing RunWield
+# Releasing wld
 
-This document is WLD's release policy. It is intentionally repository-specific: the bundled `/release` prompt must read
-this file when releasing this repository, but WLD users releasing other repositories must follow their own repository's
+This document is wld's release policy. It is intentionally repository-specific: the bundled `/release` prompt must read
+this file when releasing this repository, but wld users releasing other repositories must follow their own repository's
 release policy and automation.
 
 ## Release operations
 
-WLD supports three release operations:
+wld supports three release operations:
 
 - **Create Candidate** — publish a prerelease build for dogfooding and validation.
 - **Promote Candidate** — rebuild the exact Candidate source commit with Stable identity and publish it as Stable.
@@ -32,10 +32,20 @@ current Stable channel. To dogfood a Candidate explicitly, install by tag:
 bash install.sh vX.Y.Z-rc.N
 ```
 
+## Required tools and authentication
+
+Release operators need:
+
+- `git` with push access to this repository.
+- `deno` matching the repository toolchain.
+- `gh` authenticated to GitHub with permission to read releases before tagging, verify Candidate releases during
+  promotion, and edit release notes after CI publishes assets (`gh auth status` should pass for the target account).
+- Standard build/archive tools used by the release workflow and local checks, including `tar`, `zstd`, and `sha256sum`.
+
 ## Required local state
 
-Create Candidate and direct Stable operations run from a clean `main` checkout whose `HEAD` matches its upstream. Before
-tagging, the release command must also run the remote submodule pin proof:
+Create Candidate and direct Stable operations run from a clean `main` checkout whose `HEAD` matches its upstream and the
+current `origin/main` tip. Before tagging, the release command must also run the remote submodule pin proof:
 
 ```bash
 deno task submodules:check:remote
@@ -73,7 +83,7 @@ push remote tags, create host releases, or leave repository files behind.
 ## Candidate promotion
 
 1. Select the Candidate tag to promote.
-2. Verify the Candidate GitHub release is published as a prerelease and includes every expected WLD asset.
+2. Verify the Candidate GitHub release is published as a prerelease and includes every expected wld asset.
 3. Generate Stable release notes cumulative from the previous Stable. Remove Candidate-specific warnings, but do not
    treat promotion as an empty release merely because the source commit is unchanged from the Candidate.
 4. Run `deno task release:promote --candidate <candidate-tag> --dry-run` and inspect the Candidate source commit and

@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 
-Deno.test("release prompt starts with the three generic release choices before WLD policy discovery", async () => {
+Deno.test("release prompt starts with the three release choices before policy discovery", async () => {
     const prompt = await Deno.readTextFile("src/prompt-templates/release.md");
     const choiceIndex = prompt.indexOf("What kind of release operation should I run?");
     const discoveryIndex = prompt.indexOf("Discover the repository's release policy");
@@ -10,16 +10,23 @@ Deno.test("release prompt starts with the three generic release choices before W
     assertStringIncludes(prompt, "Create Candidate");
     assertStringIncludes(prompt, "Promote Candidate");
     assertStringIncludes(prompt, "Create Stable Directly");
-    assertStringIncludes(prompt, "This prompt is generic");
-    assertStringIncludes(prompt, "If this repository is not WLD");
+    assertStringIncludes(prompt, "You are running inside the wld harness");
+    assertStringIncludes(prompt, "Follow repository-specific policy first");
+    assertStringIncludes(prompt, "If no repository-specific release-note scope is documented");
+    assertStringIncludes(prompt, "RunWield fallback format");
+    assertStringIncludes(prompt, "make notes cumulative from the previous Stable");
+    assertStringIncludes(prompt, "validation-relevant changes since the prior Candidate");
+    assertStringIncludes(prompt, "shared Candidate source commit");
+    assertStringIncludes(prompt, "empty release");
+    assertStringIncludes(prompt, "When the repository policy says CI creates the host release");
     assertEquals(prompt.includes("tools:"), false);
 });
 
-Deno.test("WLD release policy distinguishes repository-specific policy from generic WLD usage", async () => {
+Deno.test("wld release policy distinguishes repository-specific policy from generic wld usage", async () => {
     const policy = await Deno.readTextFile("RELEASING.md");
 
-    assertStringIncludes(policy, "This document is WLD's release policy");
-    assertStringIncludes(policy, "WLD users releasing other repositories");
+    assertStringIncludes(policy, "This document is wld's release policy");
+    assertStringIncludes(policy, "wld users releasing other repositories");
     assertMatch(policy, /repository's\s+release policy and automation/);
     assertStringIncludes(policy, "The Candidate tag is the canonical source reference");
     assertStringIncludes(policy, "Do not store a duplicate source commit hash");
@@ -29,6 +36,8 @@ Deno.test("WLD release policy distinguishes repository-specific policy from gene
         "must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`",
     );
     assertStringIncludes(policy, "bash install.sh vX.Y.Z-rc.N");
+    assertStringIncludes(policy, "gh auth status");
+    assertStringIncludes(policy, "permission to read releases before tagging");
 });
 
 Deno.test("release workflow is tag-only and channel-safe", async () => {
@@ -40,6 +49,7 @@ Deno.test("release workflow is tag-only and channel-safe", async () => {
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
     assertStringIncludes(workflow, "config.schema.json");
+    assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
     assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
 });
@@ -54,7 +64,7 @@ Deno.test("release CLI does not own host release creation or notes editing", asy
     assertStringIncludes(script, '"view",');
 });
 
-Deno.test("README links to WLD release policy", async () => {
+Deno.test("README links to wld release policy", async () => {
     const readme = await Deno.readTextFile("README.md");
     assertStringIncludes(readme, "[RELEASING.md](RELEASING.md)");
 });
