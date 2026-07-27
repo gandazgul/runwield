@@ -77,6 +77,36 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     assertEquals(typeof scopedDispatchArgs.__deps.createAgentHandler, "function");
 });
 
+Deno.test("agent-handler propagates Router handoff returned by triage dispatch", async () => {
+    const triage = {
+        routingIntent: "OPERATION",
+        complexity: "LOW",
+        summary: "dependency update needs code repair",
+        affectedPaths: [],
+    };
+    const handler = createAgentHandler("router", {
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestTriageOutcome: () => triage,
+        dispatchPostTriage: () =>
+            Promise.resolve({
+                kind: "handoff",
+                agentName: "router",
+                userRequest: "This needs fresh triage as QUICK_FIX.",
+            }),
+        readLatestPlanOutcome: () => {
+            throw new Error("Router handoff should short-circuit later workflow outcomes");
+        },
+    });
+
+    const result = await handler("upgrade deps", [], /** @type {any} */ ({}));
+
+    assertEquals(result, {
+        kind: "handoff",
+        agentName: "router",
+        userRequest: "This needs fresh triage as QUICK_FIX.",
+    });
+});
+
 Deno.test("agent-handler passes agent definition overrides and custom tools to root turns", async () => {
     /** @type {any} */
     let captured = null;
