@@ -71,9 +71,10 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
     }
 });
 
-Deno.test("ux:new-user image provisions npm for required agent-browser helper", async () => {
+Deno.test("ux:new-user image provisions Node 24 for required agent-browser helper", async () => {
     const containerfile = await Deno.readTextFile("Containerfile.wld-ux");
-    assertStringIncludes(containerfile, "\n        npm \\");
+    assertStringIncludes(containerfile, "https://deb.nodesource.com/node_24.x");
+    assertStringIncludes(containerfile, "node --version");
     assertStringIncludes(containerfile, "command -v wld mnemosyne cymbal agent-browser snip");
 });
 
