@@ -9,18 +9,20 @@
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { ROUTING_INTENTS } from "../constants.js";
+import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS } from "../constants.js";
 import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
-const PLAN_CLASSIFICATIONS = ["FEATURE", "PROJECT"];
-
 const TOOL_PARAMS = Type.Object({
-    routingIntent: StringEnum(ROUTING_INTENTS, {
+    routingIntent: Type.Optional(StringEnum(ROUTING_INTENTS, {
         description:
-            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. FEATURE: needs a feature plan. PROJECT: architecture/Epic plan. Router calls must provide this field; legacy direct calls may be normalized internally.",
-    }),
+            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. PLANNED_CHANGE: reviewed executable planned work. FEATURE is accepted only as a legacy planned-change workflow label. PROJECT: architecture/Epic plan. Router calls should provide this field; legacy direct calls may provide classification instead.",
+    })),
+    classification: Type.Optional(StringEnum(ROUTING_INTENTS, {
+        description:
+            "Legacy compatibility field. Use routingIntent for new calls. FEATURE here is accepted and normalized to PLANNED_CHANGE.",
+    })),
     complexity: StringEnum(["LOW", "MEDIUM", "HIGH"], {
         description: "How complex is this request?",
     }),
@@ -33,18 +35,13 @@ const TOOL_PARAMS = Type.Object({
     }),
     affectedPaths: Type.Array(Type.String(), {
         description:
-            "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION/OPERATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 implementation/test paths, FEATURE/PROJECT: 3-8 paths.",
+            "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION/OPERATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 implementation/test paths, PLANNED_CHANGE/PROJECT: 3-8 paths.",
     }),
+    workKind: Type.Optional(StringEnum(["BUG_FIX", "FEATURE", "REFACTOR", "MAINTENANCE"], {
+        description:
+            "Optional Work Kind for PLANNED_CHANGE. BUG_FIX for planned bug fixes, FEATURE for new/enhanced functionality, REFACTOR for structural changes, MAINTENANCE for upkeep.",
+    })),
 });
-
-/**
- * @param {unknown} value
- * @returns {string | null}
- */
-function normalizeRoutingIntent(value) {
-    if (typeof value !== "string") return null;
-    return ROUTING_INTENTS.includes(value) ? value : null;
-}
 
 /**
  * @param {Record<string, unknown>} params
@@ -71,10 +68,19 @@ function normalizeTriageParams(params) {
         sessionName: normalizeSessionName(params),
     };
 
-    if (PLAN_CLASSIFICATIONS.includes(routingIntent)) {
-        normalized.classification = routingIntent;
+    if (routingIntent === "PLANNED_CHANGE") {
+        normalized.classification = "PLANNED_CHANGE";
+    } else if (routingIntent === "PROJECT") {
+        normalized.classification = "PROJECT";
     } else {
         delete normalized.classification;
+    }
+
+    const workKind = normalizeWorkKind(params.workKind);
+    if (workKind && routingIntent === "PLANNED_CHANGE") {
+        normalized.workKind = workKind;
+    } else {
+        delete normalized.workKind;
     }
 
     return normalized;
@@ -103,7 +109,7 @@ export function createTriageReportTool(
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             const details = normalizeTriageParams(/** @type {Record<string, unknown>} */ (params));
-            const { routingIntent, complexity, summary } = details;
+            const { routingIntent, complexity, summary, workKind } = details;
 
             try {
                 hostedSession?.setWorkflowTriageContext?.({ routingIntent, complexity });
@@ -113,7 +119,9 @@ export function createTriageReportTool(
 
             emitSystemStatus(
                 hostedSession || undefined,
-                `Routing Intent: ${routingIntent}, Complexity: ${complexity}. Summary: ${summary}`,
+                `Routing Intent: ${routingIntent}${
+                    workKind ? `, Work Kind: ${workKind}` : ""
+                }, Complexity: ${complexity}. Summary: ${summary}`,
                 { header: "Triage" },
             );
 
@@ -124,6 +132,7 @@ export function createTriageReportTool(
                     routingIntent,
                     complexity,
                     classification: details.classification,
+                    workKind: details.workKind,
                     affectedPaths: details.affectedPaths,
                     affectedPathCount: Array.isArray(details.affectedPaths) ? details.affectedPaths.length : 0,
                     hasSessionName: Boolean(details.sessionName),

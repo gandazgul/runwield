@@ -4,7 +4,7 @@
  */
 
 import { findWorkRecordById, listWorkRecords } from "./store.js";
-import { isCurrentWorkRecord, workRecordNotices } from "./list.js";
+import { formatWorkRecordScopeLabel, isCurrentWorkRecord, workRecordNotices } from "./list.js";
 import {
     getWorkRecordIndexCollectionName,
     isWorkRecordIndexEmpty,
@@ -22,6 +22,7 @@ import {
  * @property {string} summary
  * @property {string} status
  * @property {string} scope
+ * @property {string|undefined} [workKind]
  * @property {string} origin
  * @property {string} completionMode
  * @property {string[]} sourcePlans
@@ -38,6 +39,7 @@ export function formatHydratedWorkRecord(record) {
         summary: record.summary,
         status: record.attrs.status,
         scope: record.attrs.scope,
+        workKind: record.attrs.workKind,
         origin: record.attrs.origin,
         completionMode: record.attrs.completionMode,
         sourcePlans: record.attrs.provenance?.sourcePlans || [],
@@ -183,7 +185,9 @@ export function formatWorkRecordSearchResult(result) {
         `- ${result.title}`,
         `  recordId: ${result.recordId}`,
         `  status: ${result.status}`,
+        `  work: ${formatWorkRecordScopeLabel(result.scope, result.workKind)}`,
         `  scope: ${result.scope}`,
+        ...(result.workKind ? [`  workKind: ${result.workKind}`] : []),
         `  origin: ${result.origin}`,
         `  completionMode: ${result.completionMode}`,
     ];
@@ -227,7 +231,9 @@ export function formatWorkRecordReadResult(result) {
         `[RunWield] Work Record: ${result.title}`,
         `recordId: ${result.recordId}`,
         `status: ${result.status}`,
+        `work: ${formatWorkRecordScopeLabel(result.scope, result.workKind)}`,
         `scope: ${result.scope}`,
+        ...(result.workKind ? [`workKind: ${result.workKind}`] : []),
         `origin: ${result.origin}`,
         `completionMode: ${result.completionMode}`,
     ];

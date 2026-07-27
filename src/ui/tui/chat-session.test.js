@@ -217,7 +217,7 @@ Deno.test("footer workflow label formats eligible routing context and theme toke
         { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "my-awesome-plan" },
         80,
     );
-    assertEquals(getFooterWorkflowLabelText(parts), "Planner - Medium Feature - my-awesome-plan");
+    assertEquals(getFooterWorkflowLabelText(parts), "Planner - Medium Planned Change - my-awesome-plan");
     assertEquals(parts.map((part) => part.token), [
         "accent",
         "dim",
@@ -265,10 +265,10 @@ Deno.test("footer label truncation preserves the left side", () => {
         { displayName: "Planner", agentName: "planner" },
         { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name" },
         "~/project (main)",
-        41,
+        80,
     );
     assertEquals(line.left, "~/project (main)");
-    assertEquals(getFooterWorkflowLabelText(line.rightParts), "Planner - Medium Feature");
+    assertEquals(getFooterWorkflowLabelText(line.rightParts), "Planner - Medium Planned Change - very-long-plan-name");
 });
 
 Deno.test("footer location follows active worktree execution context", () => {

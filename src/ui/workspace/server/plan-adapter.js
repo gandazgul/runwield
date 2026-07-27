@@ -54,7 +54,7 @@ export const STATUS_META = {
     ready_for_decomposition: {
         status: "ready_for_decomposition",
         label: "Ready for Decomposition",
-        description: "Epics ready for child FEATURE slicing.",
+        description: "Epics ready for child Planned Change slicing.",
     },
     ready_for_work: {
         status: "ready_for_work",
@@ -276,7 +276,7 @@ export function serializePlanSummary(resource) {
         status,
         statusLabel: statusOption(status).label,
         actions: lifecycleActionsForAttrs(attrs),
-        classification: attrs.classification || "FEATURE",
+        classification: attrs.classification || "PLANNED_CHANGE",
         title: attrs.title || resource.planName || resource.name,
         summary: attrs.summary || "",
         complexity: attrs.complexity || "",

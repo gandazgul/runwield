@@ -318,7 +318,7 @@ orchestrator, classifier, triager
 
 **Operator**: The execution Agent for `OPERATION` work. _Avoid_: Executor, fixer, worker
 
-**Planner**: The planning Agent for `FEATURE` work. _Avoid_: Designer, strategist
+**Planner**: The planning Agent for `PLANNED_CHANGE` work. _Avoid_: Designer, strategist
 
 **Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
 

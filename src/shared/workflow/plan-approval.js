@@ -15,12 +15,12 @@ export const PLAN_APPROVAL_ACTIONS = Object.freeze({
 
 /**
  * @param {unknown} classification
- * @returns {"PROJECT"|"FEATURE"|""}
+ * @returns {"PROJECT"|"PLANNED_CHANGE"|""}
  */
 function normalizePlanClassification(classification) {
     const value = String(classification || "").trim().replace(/^['\"]|['\"]$/g, "").toUpperCase();
     if (value === "PROJECT") return "PROJECT";
-    if (value === "FEATURE") return "FEATURE";
+    if (value === "PLANNED_CHANGE" || value === "FEATURE") return "PLANNED_CHANGE";
     return "";
 }
 
@@ -60,7 +60,7 @@ export function normalizePlanApprovalAction({ classification, action }) {
     if (planClassification === "PROJECT" && requestedAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE) {
         return PLAN_APPROVAL_ACTIONS.DECOMPOSE;
     }
-    if (planClassification === "FEATURE" && requestedAction === PLAN_APPROVAL_ACTIONS.RUN) {
+    if (planClassification === "PLANNED_CHANGE" && requestedAction === PLAN_APPROVAL_ACTIONS.RUN) {
         return PLAN_APPROVAL_ACTIONS.RUN;
     }
     return PLAN_APPROVAL_ACTIONS.LATER;
