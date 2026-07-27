@@ -109,6 +109,22 @@ Deno.test("startup update refresh is not awaited before model welcome", async ()
     assertEquals(modelWelcomeIndex > refreshIndex, true);
 });
 
+Deno.test("startup update refresh runs only when no fresh cache is available", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const cacheReadIndex = source.indexOf(
+        "const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });",
+    );
+    const cachedBranchIndex = source.indexOf("if (cachedUpdateAvailability) {", cacheReadIndex);
+    const refreshElseIndex = source.indexOf(
+        "} else {\n            void refreshUpdateCheckCache({ currentVersion: VERSION }).then",
+        cachedBranchIndex,
+    );
+
+    assertEquals(cacheReadIndex >= 0, true);
+    assertEquals(cachedBranchIndex > cacheReadIndex, true);
+    assertEquals(refreshElseIndex > cachedBranchIndex, true);
+});
+
 Deno.test("update notice renderer colors only the version", () => {
     const themeImpl = {
         fg: (/** @type {string} */ token, /** @type {string} */ text) => `<${token}>${text}</${token}>`,
