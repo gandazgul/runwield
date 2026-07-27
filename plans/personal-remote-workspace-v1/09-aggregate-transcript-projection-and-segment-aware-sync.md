@@ -16,7 +16,7 @@ affectedPaths:
     - "src/ui/workspace/server/session-continuation.js"
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-07-26T20:48:25.344Z"
+updatedAt: "2026-07-27T19:30:00.000Z"
 status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -38,7 +38,8 @@ writable Pi Session Manager.
 
 Implement aggregate, non-mutating transcript projection so that:
 
-- sealed planning segments plus the committed prefix of the current segment render as one ordered Session timeline;
+- all sealed planning, execution, and semantic repair segments plus the committed prefix of the current segment render
+  as one ordered Session timeline;
 - event IDs, cursor IDs, image references, and deduplication keys include stable segment identity;
 - readers validate the complete manifest and evidence before emitting any part of a generation;
 - missing, mutated, truncated, or branch-ambiguous sealed segments fail closed;
@@ -102,6 +103,8 @@ Existing functions, modules, or patterns to reuse:
 
 - Automated: run `deno task ci`.
 - Automated: projection tests should prove complete failure before emission when any sealed segment evidence is invalid.
+- Automated: projection tests should cover repeated execution-to-semantic-repair rollovers without exposing repair
+  segments as separate Sessions or leaking predecessor messages into current model context.
 - Automated: TUI sync tests should prove unseen events append across segment changes without `session_replaced`,
   duplicate replay, or lost drafts/attachments.
 - Automated: ACP tests should prove transport-facing IDs do not become current Pi segment IDs.

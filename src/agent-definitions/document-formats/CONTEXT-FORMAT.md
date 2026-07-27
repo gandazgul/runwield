@@ -13,7 +13,7 @@
 
 **Invoice**: A request for payment sent to a customer after delivery. _Avoid_: Bill, payment request
 
-**Customer**: A person or organization that places orders. _Avoid_: Client, buyer, account
+**Customer**: A person or organization that places orders.
 
 ## Relationships
 
@@ -30,8 +30,8 @@
   stable domain facts, not code ownership, module dependencies, implementation flow, or architectural decisions.
 - **Describe current truth only.** Proposed terms and relationships belong in PRDs and Plans until the implementation
   that makes them true updates `CONTEXT.md` in the same change.
-- **Resolve ambiguity in place.** Put rejected or overloaded aliases in the term's `_Avoid_` list. Do not add example
-  dialogue, discussion history, or a resolved-ambiguity log.
+- **Use `_Avoid_` only when it prevents real ambiguity.** Keep rejected or overloaded aliases beside the affected term,
+  but omit the list when ordinary synonyms cannot plausibly change meaning.
 - **Only include terms specific to this project's context.** General programming concepts (timeouts, error types,
   utility patterns) don't belong even if the project uses them extensively. Before adding a term, ask: is this a concept
   unique to this context, or a general programming concept? Only the former belongs.

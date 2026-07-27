@@ -215,6 +215,8 @@ Workflow Validation requirements:
 - run semantic review against the approved Plan
 - optionally run human code review according to settings
 - run repair loops in the execution worktree when validation or review fails
+- start each semantic-review repair in a fresh persisted transcript segment under the same stable Session, seeded with
+  the bounded review issue packet rather than the predecessor Engineer transcript
 - merge validated work back into the primary checkout
 - record `validation_passed` only after validation and merge-back succeed
 - record `validation_failed` or `worktree_merge_failed` while preserving recoverable state
@@ -442,12 +444,15 @@ Runtime boundary described in [runwield-acp-session-host-PRD.md](./runwield-acp-
 Core requirements for that layer:
 
 - assign a stable RunWield Session ID above Pi Session Manager IDs and in-process Hosted Session IDs;
-- map each stable Session to one Project and Pi transcript locator in an owner-only SQLite database under `~/.wld/`;
+- map each stable Session to one Project and an ordered manifest of Pi transcript segments in an owner-only SQLite
+  database under `~/.wld/`, with exactly one current writable segment;
 - keep canonical Plans, PRDs, ADRs, Work Records, source code, worktree registry evidence, and private Session
   Transcripts outside the owner coordination database;
 - acquire a fenced **Session Activation Lease** before any process opens or mutates a writable Pi `SessionManager` for
   an existing Session;
 - publish committed Session generations only after the corresponding transcript or repository effects are durable;
+- support transactional successor-segment rollover for planning-to-execution and semantic-repair context boundaries
+  without changing stable Session or Plan Workflow Lease ownership;
 - provide a genuinely non-mutating transcript reader for idle non-owners to project unseen stable entries without
   migrating or rewriting JSONL;
 - persist typed **Durable Workflow Checkpoints** for Plan review, Feedback, **Approve & Run**, **Approve for Later**,

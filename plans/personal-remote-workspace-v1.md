@@ -23,7 +23,7 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T22:32:43-04:00"
-updatedAt: "2026-07-26T20:48:25.394Z"
+updatedAt: "2026-07-27T19:30:00.000Z"
 status: "ready_for_work"
 origin: "internal"
 humanReviewMode: null
@@ -95,6 +95,8 @@ The resulting system must let the owner:
 - preserve one Session's Plan workflow ownership while its active process or current transcript segment changes;
 - keep the Planner conversation visible to the owner while starting Engineer from a fresh execution segment containing
   only the approved Plan, approval annotations and images, and current execution state;
+- start each semantic-review repair in a fresh persisted repair segment with a bounded issue packet instead of reusing
+  an exhausted Engineer context, while keeping the same stable Session and Plan workflow owner;
 - continue browser-owned work after browser disconnection through completion or the next durable human gate;
 - recover conservatively from process, transcript, worktree, or coordination failures without replaying uncertain side
   effects;
@@ -282,12 +284,19 @@ worktree state, and execution ownership. It neither copies Planner messages nor 
 made. Approval images must resolve across the segment transition without granting Engineer access to the planning
 segment's model history.
 
-The execution segment remains current through implementation, isolated Reviewer passes, CI and semantic/human review
-repairs, merge recovery, interruption, and successful Workflow Validation. Reviewer work uses disposable isolated Agent
-Sessions and never replaces the root segment. Successful validation leaves Engineer as the active Agent; only a later
-new User Request invokes Router for fresh Triage. A crash after segment activation but before Engineer's first turn
-resumes the typed pending Engineer continuation exactly once, while a crash after uncertain model, tool, command, or
-filesystem effects routes to recovery in the same execution segment.
+The initial execution segment remains current through implementation and isolated Reviewer passes. A semantic rejection
+uses the same generic rollover transaction to seal the current execution or repair segment and activate a fresh
+persisted semantic repair segment. The new segment is seeded with the frozen Plan requirements, current execution state,
+complete open Review Issues, applicable prior repair claims, and bounded repository/diff access—not the predecessor
+Engineer transcript or Reviewer history. It remains current for that repair attempt; another semantic rejection creates
+another successor repair segment.
+
+Reviewer work uses disposable isolated Agent Sessions and never replaces the root segment. Repair work is not
+disposable: it mutates the execution worktree and must support interruption, uncertain-effect recovery, and aggregate
+owner-visible history. Successful validation leaves Engineer as the active Agent in the latest execution or repair
+segment; only a later new User Request invokes Router for fresh Triage. A crash after any segment activation but before
+Engineer's first turn resumes the typed pending Engineer continuation exactly once, while a crash after uncertain model,
+tool, command, or filesystem effects routes to recovery in the activated segment.
 
 ### Plan workflow ownership
 
@@ -488,12 +497,12 @@ Existing functions, modules, or patterns to reuse:
 - Automated: migrate legacy one-locator catalog rows to ordinal-zero segments, reconstruct linked segments from embedded
   private lineage after owner-database loss, reject ambiguous or cyclic lineage, and prevent lazy cataloging from
   exposing an orphaned execution JSONL as a separate user-visible Session.
-- Automated: project sealed planning plus current execution segments as one ordered transcript with segment-namespaced
-  event IDs and cursor continuity across rollover; duplicate Pi entry IDs, missing/mutated sealed segments, branch
-  ambiguity, and partial evidence must fail before any events are emitted.
+- Automated: project sealed planning, execution, and semantic repair segments plus the current segment as one ordered
+  transcript with segment-namespaced event IDs and cursor continuity across rollover; duplicate Pi entry IDs,
+  missing/mutated sealed segments, branch ambiguity, and partial evidence must fail before any events are emitted.
 - Automated: prove context estimation, compaction, writable hydration, model/thinking changes, and Engineer prompts use
-  only the current execution segment even while transcript search/export and owner-visible timelines include all
-  segments.
+  only the current execution or semantic repair segment even while transcript search/export and owner-visible timelines
+  include all segments.
 - Automated: exercise crash points after transcript/artifact commit but before SQLite publication, after checkpoint
   resolution but before consumption, during activation heartbeat loss, and during Plan/worktree transitions. Expected
   outcomes are deterministic reconciliation or explicit recovery, never duplicated continuation.
@@ -501,13 +510,15 @@ Existing functions, modules, or patterns to reuse:
   different Session, and cannot be bypassed through CLI, Workspace lifecycle handlers, ACP, validation, or recovery.
 - Automated: prove duplicate browser interaction submissions, reconnect retries, stale fencing tokens, and process
   restart cannot consume one checkpoint or activate one execution segment twice.
-- Automated: exercise Approve & Run crash points before readiness, after the execution JSONL is created, after lineage
-  is synchronized, after the manifest pointer changes, before Engineer's first turn, during validation repair, and after
-  successful validation. Expected outcomes are no segment, removable/recoverable orphan, exact-once Engineer
-  continuation, or same-segment recovery—never Planner-context leakage or duplicate execution.
+- Automated: exercise Approve & Run and semantic-repair rollover crash points before readiness, after the successor
+  JSONL is created, after lineage is synchronized, after the manifest pointer changes, before Engineer's first turn,
+  during validation repair, and after successful validation. Expected outcomes are no segment, removable/recoverable
+  orphan, exact-once Engineer continuation, or activated-segment recovery—never predecessor-context leakage or duplicate
+  execution.
 - Automated: prove **Approve for Later** creates no execution segment, approval annotations/images cross the handoff,
-  isolated Reviewer work never changes the current root segment, validation repairs resume Engineer, and successful
-  validation persists Engineer rather than switching back to Planner.
+  isolated Reviewer work never changes the current root segment, semantic feedback transactionally activates a fresh
+  repair segment, interrupted repair resumes that segment, and successful validation persists Engineer rather than
+  switching back to Planner.
 - Automated: prove an idle TUI notices a browser/ACP Session generation or segment change, reads the aggregate without
   writable `SessionManager.open()`, replays only unseen namespaced events, refreshes summaries, and preserves unsent
   editor content and attachments without a `session_replaced` transition.

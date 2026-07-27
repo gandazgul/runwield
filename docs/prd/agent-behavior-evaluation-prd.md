@@ -90,6 +90,15 @@ can show that they improve the target Agent contract without causing unacceptabl
   become the common evaluation core merely because an external harness uses Python.
 - Public external benchmarks complement RunWield-native Agent contract evaluation; they do not replace it.
 
+## Proposed Domain Language
+
+**Agent Behavior Evaluation**: A repeatable evaluation of whether an Agent/model configuration fulfills its RunWield
+role contract and reaches the expected workflow outcome. _Avoid_: Generic model benchmark, model leaderboard, unit test
+
+This term remains proposed until an implementation Plan ships the evaluation capability. Planner must then include the
+relevant `CONTEXT.md` under Files to Modify, add an implementation step that publishes the definition and stable
+relationships, and verify that the glossary update lands with the implemented evaluation behavior.
+
 ## Initial Evaluation Portfolio
 
 ### WLD-Native End-to-End Workflows

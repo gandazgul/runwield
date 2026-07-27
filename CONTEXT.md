@@ -26,8 +26,8 @@ _Avoid_: Shell, console
 **Headless Mode**: The non-interactive RunWield execution surface that emits machine-readable Agent Session events for
 external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
 
-**Agent Client Protocol (ACP)**: The editor-oriented JSON-RPC protocol RunWield may implement to expose a long-lived
-coding Agent surface to IDEs and external hosts. _Avoid_: Agent Control Protocol, Agent Communication Protocol
+**Agent Client Protocol (ACP)**: The editor-oriented JSON-RPC protocol RunWield implements for IDEs and external hosts.
+_Avoid_: Agent Control Protocol, Agent Communication Protocol
 
 **Session Host**: The non-TUI runtime boundary that owns one or more live RunWield Sessions and exposes them to external
 clients. _Avoid_: TUI backend, daemon, adapter
@@ -62,7 +62,7 @@ query
 ### Triage & Classification
 
 **Triage**: Structured classification of a User Request by workflow type and complexity, usually performed by the
-Router. _Avoid_: Assessment, evaluation, analysis
+Router.
 
 **Triage Report**: The structured output of Triage containing routing intent, complexity, summary, affected paths, and
 an optional auto-generated Session Name. _Avoid_: Triage result, classification result
@@ -71,9 +71,9 @@ an optional auto-generated Session Name. _Avoid_: Triage result, classification 
 likely blast radius without reproducing, instrumenting, or fixing the issue. _Avoid_: Diagnosis, debugging,
 mini-debugger
 
-**Routing Intent**: The top-level intent emitted by Triage that decides which Agent receives the User Request:
-`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `PLANNED_CHANGE`, or `PROJECT`; legacy `FEATURE` inputs normalize to
-`PLANNED_CHANGE`. _Avoid_: Classification, route type, request kind, category
+**Routing Intent**: The Triage field selecting the workflow and Agent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
+`PLANNED_CHANGE`, or `PROJECT`; legacy `FEATURE` normalizes to `PLANNED_CHANGE`. _Avoid_: Classification, route type,
+request kind, category
 
 **INQUIRY**: The fallback Routing Intent for non-materializing understanding work such as questions about repository
 state, architecture, Plans, history, trade-offs, or casual discussion. _Avoid_: Question, investigation, research task
@@ -87,12 +87,11 @@ _Avoid_: QUICK_FIX, feature, coding task
 **QUICK_FIX**: A Routing Intent for a bounded code implementation with no planning phase and no Plan file. _Avoid_:
 Operational, hotfix, patch, feature
 
-**PLANNED_CHANGE**: A Routing Intent and executable Plan Classification for material code work that needs a reviewed
-Plan before implementation, regardless of whether the requested work is a bug fix, new functionality, refactor, or
-maintenance. _Avoid_: FEATURE when referring to workflow, planned feature
+**PLANNED_CHANGE**: The Routing Intent and executable Plan Classification for material code work requiring a reviewed
+Plan, independent of Work Kind. _Avoid_: FEATURE when referring to workflow, planned feature
 
-**Work Kind**: Plan Front Matter describing the nature of requested work independently from Plan Classification, such as
-`BUG_FIX`, `FEATURE`, `REFACTOR`, or `MAINTENANCE`. _Avoid_: Routing Intent, Plan Classification
+**Work Kind**: The Plan Front Matter field describing requested work as `BUG_FIX`, `FEATURE`, `REFACTOR`, or
+`MAINTENANCE`, independently from Plan Classification. _Avoid_: Routing Intent, Plan Classification
 
 **BUG_FIX**: A Work Kind for correcting behavior that fails existing intended or specified behavior. _Avoid_: QUICK_FIX,
 PLANNED_CHANGE
@@ -102,22 +101,20 @@ PLANNED_CHANGE
 **Legacy FEATURE Classification**: The old Routing Intent and Plan Classification value that means PLANNED_CHANGE rather
 than necessarily new functionality. _Avoid_: Enhancement, new feature
 
-**PROJECT**: A Routing Intent and Plan file type for Epic-scale work that is too large to execute directly. A PROJECT
-Plan is an Epic container that the Architect designs and the Slicer decomposes into independently executable child
-PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor, task DAG
+**PROJECT**: The Routing Intent and non-executable Epic Plan Classification for work the Architect designs and the
+Slicer decomposes into child PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor, task DAG
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
 **Affected Paths**: The ordered set of files identified during Triage as the likely vertical slice for a User Request.
-_Avoid_: Impacted files, file list
 
 **Vertical Slice**: A narrow, end-to-end trace through the codebase from entry point to boundary for one request.
 _Avoid_: Cross-section, code path
 
 ### External Work Sources
 
-**External Work Source**: A non-RunWield system such as Jira, GitHub Issues, or a Notion work database that owns demand
-management for requested work. _Avoid_: RunWield tracker, Plan store, execution system
+**External Work Source**: A non-RunWield system that owns demand management for requested work. _Avoid_: RunWield
+tracker, Plan store, execution system
 
 **Ticket**: A demand-management item in an External Work Source that may relate to zero or more Plans without
 participating in Plan Lifecycle. _Avoid_: Plan, User Request, Task
@@ -142,13 +139,11 @@ Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
 **Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
 Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
 
-**Direct Delivery**: The default RunWield delivery mode that stages verified Plan metadata with validated implementation
-work and merges both into the local target branch without a Forge Change Request. _Avoid_: Local review, unreviewed
-delivery
+**Direct Delivery**: The default delivery mode that merges validated implementation and verified Plan metadata into the
+local target branch without a Forge Change Request. _Avoid_: Local review, unreviewed delivery
 
-**Change Request Delivery**: An explicitly selected RunWield delivery mode that publishes a validated implementation
-candidate without terminal Plan metadata and waits for a proven Forge Change Request merge before verifying the
-canonical Plan. _Avoid_: PR mode, remote merge-back, Direct Delivery
+**Change Request Delivery**: An explicitly selected delivery mode that verifies the canonical Plan only after a proven
+Forge merge of the validated Publication Candidate. _Avoid_: PR mode, remote merge-back, Direct Delivery
 
 **Dual Review**: A Change Request Delivery policy that requires both RunWield's local human code review and review on
 the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
@@ -165,9 +160,8 @@ diary, duplicate Plan
 **Draft Work Record**: An external, manual, or imported Work Record awaiting human review before default search and
 Agent retrieval. _Avoid_: Approved record, generated internal record, memory
 
-**Pending Verification Work Record**: An internal Work Record generated before Plan verification from Guided Review
-analysis that is not eligible for default search or Agent retrieval until the Plan reaches a terminal completion
-outcome. _Avoid_: Draft Work Record, approved record, review guide
+**Pending Verification Work Record**: An internal Work Record generated before a terminal Plan outcome and excluded from
+default search or Agent retrieval until then. _Avoid_: Draft Work Record, approved record, review guide
 
 **Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
 Archived record, deleted record, draft record
@@ -184,9 +178,8 @@ file-level code evidence when constructed from existing code. _Avoid_: Line refe
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
 
-**Plan Classification**: The `classification` Front Matter field for Plan files, limited to lifecycle/workflow shapes
-such as `PLANNED_CHANGE` and `PROJECT`; legacy `FEATURE` means `PLANNED_CHANGE`. _Avoid_: Routing intent, request type,
-work kind
+**Plan Classification**: The Plan Front Matter workflow shape, limited to `PLANNED_CHANGE` and `PROJECT`; legacy
+`FEATURE` means `PLANNED_CHANGE`. _Avoid_: Routing intent, request type, work kind
 
 **Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
 `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified`, `closed_without_verification`, or `on_hold`.
@@ -198,9 +191,9 @@ _Avoid_: Phase, stage
 **Plan Event**: A recorded workflow fact that the Plan Lifecycle uses to transition a Plan. _Avoid_: Next step, status
 update
 
-**Plan Workflow Lease**: A durable local ownership claim that permits exactly one Session at a time to drive
-consequential Plan workflow actions across TUI, Workspace, ACP, and other hosts. An uncertain or stale lease requires
-explicit recovery or takeover rather than silent deletion. _Avoid_: Shared Plan Lock, worktree registry lock, mutex
+**Plan Workflow Lease**: A durable claim permitting exactly one Session at a time to drive consequential Plan workflow
+actions; uncertain ownership requires explicit recovery or takeover. _Avoid_: Shared Plan Lock, worktree registry lock,
+mutex
 
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
@@ -211,9 +204,8 @@ continue through readiness, execution, and Workflow Validation. _Avoid_: Approve
 **Approve for Later**: A Plan review outcome that approves and prepares the Plan as Ready For Work without authorizing
 immediate execution. _Avoid_: Save draft, approve and run
 
-**Ready For Work**: The executable Plan Status for PLANNED_CHANGE Plans, meaning the Plan is approved and every
-pre-execution prerequisite is satisfied; for an Epic it means decomposition is finalized and child PLANNED_CHANGE Plans
-can be selected, while the Epic itself remains non-executable. _Avoid_: Approved, runnable
+**Ready For Work**: The Plan Status meaning execution prerequisites are satisfied; PLANNED_CHANGE Plans are executable,
+while Epics expose their finalized child Plans but remain non-executable. _Avoid_: Approved, runnable
 
 **Readiness Gate**: The classification-aware lifecycle step after approval that promotes PLANNED_CHANGE Plans to Ready
 For Work and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, execution check
@@ -224,9 +216,8 @@ plan, invalid plan
 **In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work.
 _Avoid_: Running plan, active plan
 
-**On-Hold Plan**: A non-verified Plan intentionally deferred because priorities changed or the user changed their mind
-for now, suppressed from normal active-work prompts while preserving the prior Plan Status and pre-hold staleness
-baseline needed to resume through a Resume Check. _Avoid_: Archived plan, canceled plan, completed plan
+**On-Hold Plan**: A deferred non-verified Plan that preserves its prior Plan Status and staleness baseline for a future
+Resume Check. _Avoid_: Archived plan, canceled plan, completed plan
 
 **Resume Check**: The pre-resume inspection for an On-Hold Plan that checks staleness and worktree risk before restoring
 the held Plan Status. _Avoid_: Workflow Validation, plan validation, verify-and-resume
@@ -242,9 +233,8 @@ Completed plan, done plan
 **Verified Plan**: A Plan whose execution and Workflow Validation both finished successfully. _Avoid_: Completed plan,
 done plan
 
-**Closed Without Verification Plan**: A terminal Plan whose work is no longer active because the user manually accepted,
-verified outside RunWield, or chose not to require Workflow Validation. _Avoid_: Verified plan, archived plan, on-hold
-plan
+**Closed Without Verification Plan**: A terminal Plan accepted without successful RunWield Workflow Validation. _Avoid_:
+Verified plan, archived plan, on-hold plan
 
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
@@ -255,9 +245,8 @@ approved Plan. _Avoid_: Local Human Code Review, Forge review, automated tests
 **Local Human Code Review**: The optional RunWield gate where a person reviews the implementation diff before delivery.
 _Avoid_: Semantic Code Review, Forge review, Plan Review Loop
 
-**Review Issue Ledger**: The temporary Workflow Validation record of Semantic Code Review requirement coverage, blocking
-Review Issues, Engineer repair claims, and Reviewer re-verification for one implementation attempt. _Avoid_: Review log,
-durable Plan history, Work Record
+**Review Issue Ledger**: The temporary per-attempt record of requirement coverage, Review Issues, repair claims, and
+Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
 
 **Review Issue**: A blocking Semantic Code Review finding that shows the implementation fails an unambiguous approved
 Plan requirement and must be repaired before approval. _Avoid_: Review Advisory, style note, suggestion
@@ -271,55 +260,47 @@ participating in Plan Lifecycle. _Avoid_: Plan, Work Item, chat transcript
 **Plannotator**: The browser-based artifact review UI where users approve, return feedback, or annotate Plans, Work
 Records, and code-review diffs. _Avoid_: Plan-only review UI, approval screen
 
-**Guided Review**: A Plannotator code-review explainer for a PR or local diff that presents the change in conceptual
-order using prose, callouts, Mermaid diagrams, optional sandboxed visual widgets, and live annotatable diffs. _Avoid_:
-Guide, review summary, file-order review
+**Guided Review**: A Plannotator explanation of a PR or local diff presented in conceptual order with supporting prose
+and visual aids. _Avoid_: Guide, review summary, file-order review
 
 **Guided Review Policy**: The validation-time setting that decides whether RunWield never, conditionally, or always
 generates a Guided Review for a human code review. _Avoid_: Diff size setting, guide preference
 
-**Guided Review Widget**: An exceptional sandboxed HTML/CSS/JavaScript visual aid embedded in a Guided Review when
-prose, Mermaid diagrams, and live diffs are insufficient to explain highly visual or interactive behavior. Widgets must
-not have external network access; local images/icons/CSS are served only through an explicit local asset allowlist
-rather than broad same-origin access. _Avoid_: Default review block, arbitrary app extension, generated production UI
+**Guided Review Widget**: A sandboxed interactive visual aid used when prose, diagrams, and live diffs cannot adequately
+explain a Guided Review. _Avoid_: Default review block, arbitrary app extension, generated production UI
 
-**Plan Board**: A browser-based local UI over the current checkout's `plans/` directory that displays Plans by Plan
-Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
-truth. _Avoid_: Remote plan database, hosted board, task board
+**Plan Board**: A browser surface for inspecting and editing Plans while repository Plan files remain canonical.
+_Avoid_: Remote plan database, hosted board, task board
 
-**Workspace**: The browser-based RunWield environment for working across registered Projects, Agent Sessions, Plans,
-PRDs, ADRs, Work Records, review surfaces, and related project knowledge while preserving repository artifacts as their
-canonical source of truth. _Avoid_: Project root, browser IDE, database-only knowledge base, replacement for Plans
+**Workspace**: The browser environment for RunWield Sessions, workflows, and durable artifacts across registered
+Projects while repository artifacts remain canonical. _Avoid_: Project root, browser IDE, database-only knowledge base,
+replacement for Plans
 
-**Project**: A trusted repository or project directory registered in Workspace as a boundary for Sessions, artifacts,
-code access, and RunWield workflows. This is distinct from the uppercase `PROJECT` Routing Intent. _Avoid_: Workspace,
-workspace root, project space
+**Project**: A trusted repository or directory registered in Workspace as a boundary for Sessions, artifacts, code, and
+workflows, distinct from the uppercase `PROJECT` Routing Intent. _Avoid_: Workspace, workspace root, project space
 
-**Attention Dashboard**: The default Workspace home that aggregates work needing user judgment, running Sessions, Ready
-For Work Plans, and recent outcomes across Projects. _Avoid_: Project grid, task board, notifications page
+**Attention Dashboard**: The Workspace surface aggregating work needing user judgment and active or recent workflow
+state across Projects. _Avoid_: Project grid, task board, notifications page
 
-**Code Surface**: The subordinate code-server screen for inspecting or manually changing a Project's main checkout;
-manual changes and commits remain the developer's responsibility and do not transfer ownership of RunWield Plan
-worktrees. _Avoid_: Workspace shell, Plan worktree editor, Agent terminal
+**Code Surface**: The Workspace surface for inspecting or manually changing a Project's main checkout. _Avoid_:
+Workspace shell, Plan worktree editor, Agent terminal
 
-**RunWield Design System**: The shared browser UI language of tokens, components, layout patterns, and interaction rules
-that governs Workspace, Plannotator, and future RunWield web surfaces. _Avoid_: Workspace styles, style guide, UI kit
+**RunWield Design System**: The shared tokens, components, and interaction language governing RunWield browser surfaces.
+_Avoid_: Workspace styles, style guide, UI kit
 
-**Plan Card**: A Plan Board representation of a top-level Plan. Epic Plan Cards summarize child PLANNED_CHANGE Plan
-progress and open an Epic detail view rather than flattening every child PLANNED_CHANGE Plan onto the main board by
-default. _Avoid_: Task card, ticket
+**Plan Card**: A Plan Board representation of a top-level Plan or Epic and its lifecycle state. _Avoid_: Task card,
+ticket
 
-**Plan Editor**: The Plan Board editing surface for a Plan's markdown body. Workflow-critical Front Matter changes are
-made through structured controls or Plan Lifecycle actions, not by default raw YAML editing. _Avoid_: Raw Plan file
-editor, Front Matter editor
+**Plan Editor**: The Plan Board surface for editing Plan markdown while workflow-critical Front Matter remains governed
+by structured Plan Lifecycle actions. _Avoid_: Raw Plan file editor, Front Matter editor
 
-**Plan UI Server**: An ephemeral local web server started by RunWield, for example through `wld plans ui`, that serves
-the Plan Board and reads or writes Plan files in the current checkout. _Avoid_: Hosted collaboration service, daemon
+**Plan UI Server**: The local server that backs Plan Board access to Plan files in the current checkout. _Avoid_: Hosted
+collaboration service, daemon
 
 **Feedback**: Structured user annotations returned when a Plan is denied or re-opened in Plannotator. _Avoid_: Comments,
 notes
 
-**Revision**: A single planning pass that updates a Plan in response to Feedback. _Avoid_: Iteration, amendment
+**Revision**: A single planning pass that updates a Plan in response to Feedback.
 
 **Resume**: Re-entering workflow for an existing Plan or session instead of starting from a fresh User Request. _Avoid_:
 Continue, reopen, pick up
@@ -341,9 +322,8 @@ orchestrator, classifier, triager
 
 **Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
 
-**Guide**: The read-mostly Agent for `INQUIRY` work that answers questions directly and discusses ideas without
-materializing Plans, code, or documentation or running a Socratic interview. _Avoid_: Explainer, investigator,
-researcher
+**Guide**: The read-mostly Agent for `INQUIRY` work that answers directly without materializing artifacts or running a
+Socratic interview. _Avoid_: Explainer, investigator, researcher
 
 **Ideator**: The strategic product and research Agent that conducts Socratic interviews to sharpen vague ideas before
 planning or implementation. _Avoid_: General helper, explainer, guide
@@ -351,24 +331,13 @@ planning or implementation. _Avoid_: General helper, explainer, guide
 **Slicer**: The Agent that helps decompose an approved PROJECT Epic into child PLANNED_CHANGE Plans and can materialize
 those plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
-**Recorder**: The future Agent that generates Work Records from verified planned work. _Avoid_: Reviewer, summarizer,
-auditor
+**Recorder**: The Agent that generates Work Records from completed planned work. _Avoid_: Reviewer, summarizer, auditor
 
-**Work Record Search Tool**: The future tool that lets planning Agents retrieve relevant current Work Records and lets
-Guide answer project-history inquiries across Work Record statuses with prominent status notices. _Avoid_: Memory
+**Work Record Search Tool**: The tool for retrieving relevant Work Records with their status notices. _Avoid_: Memory
 recall, plan search, Engineer context tool
 
-**Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts in the active Project, including Work
-Records, Plans, PRDs, ADRs, and approved project documentation. _Avoid_: Session Transcript search, automatic context
-injection, code search
-
-**Project Evidence Graph**: A rebuildable provenance projection connecting durable project intent, decisions, Plans,
-delivery evidence, and outcomes for citation-backed retrieval while leaving source artifacts authoritative. _Avoid_:
-Plan Evidence Graph, Session Transcript graph, source of truth
-
-**Workspace Intelligence Search**: Deliberate Agent retrieval over eligible durable artifacts across registered Projects
-the user may access, with source Project, artifact type, status, and freshness preserved. _Avoid_: Public global search,
-Session Transcript search, unscoped organization access
+**Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts within the active Project. _Avoid_:
+Session Transcript search, automatic context injection, code search
 
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
@@ -403,31 +372,16 @@ _Avoid_: Agent name, file name
 **Agent Session**: One invocation of an Agent with merged Agent Definition data, bound tools, extensions, and message
 history. _Avoid_: Run, interaction, conversation
 
-**Model Adaptation Profile**: An explicit Agent/model-preset-bound behavior policy that adjusts model-facing scaffolding
-for an evaluated Agent/model combination without changing workflow ownership or lifecycle semantics. _Avoid_:
-Small-model mode, automatic local-model mode, Agent Definition
-
-**Agent Behavior Evaluation**: A repeatable evaluation of whether an Agent/model configuration fulfills its RunWield
-role contract and reaches the expected workflow outcome. _Avoid_: Generic model benchmark, model leaderboard, unit test
-
-**Research Evidence Set**: An experimental, opt-in Ideator Agent Session artifact containing source references,
-qualified notes, and short supporting excerpts for source-heavy research. It survives compaction and resume but is not
-project Memory or a durable artifact. _Avoid_: Claim ledger, Work Record Provenance, research note, project evidence
-store
-
-**Agent Handler**: The runtime handler for the active Agent that runs one Agent Session turn, applies any explicit Agent
-Definition or workflow-scoped Custom Tools, and interprets workflow Custom Tool outcomes. _Avoid_: Agent-specific
-handler, special agent handler
+**Agent Handler**: The runtime handler that runs an active Agent Session turn and interprets workflow Custom Tool
+outcomes. _Avoid_: Agent-specific handler, special agent handler
 
 ### Execution & Tools
 
 **Workflow Orchestrator**: The runtime coordinator that consumes workflow Custom Tool outcomes and starts the next Agent
 Session. _Avoid_: Router, dispatcher agent
 
-**Workflow Decision**: An ephemeral runtime instruction with `kind` and `payload` fields that tells workflow callers
-what to do next after interpreting tool outcomes, Agent Session results, or Plan Status; it does not change Plan Status
-directly and carries semantic reason codes rather than user-facing text. _Avoid_: Workflow Outcome, status update,
-lifecycle event
+**Workflow Decision**: An ephemeral semantic instruction telling workflow callers what to do next without directly
+changing Plan Status. _Avoid_: Workflow Outcome, status update, lifecycle event
 
 **Delegated Agent Session**: A disposable context-isolated Agent Session that receives a bounded brief from a parent
 Agent Session and returns only its result. _Avoid_: Context-free session, Task worker, workflow handoff
@@ -435,9 +389,8 @@ Agent Session and returns only its result. _Avoid_: Context-free session, Task w
 **Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
 executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
 
-**Child PLANNED_CHANGE Plan**: A PLANNED_CHANGE Plan with a `parentPlan` pointer to an Epic. It follows the normal
-PLANNED_CHANGE lifecycle and is the executable unit produced by decomposition. _Avoid_: Child FEATURE Plan, subtask,
-ticket, DAG node
+**Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to an Epic through `parentPlan`. _Avoid_: Child
+FEATURE Plan, subtask, ticket, DAG node
 
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
@@ -464,9 +417,8 @@ _Avoid_: Classification tool, triage result tool
 **Plan-Written Tool**: The `plan_written` Custom Tool that starts the Review Loop and returns the Plan outcome. _Avoid_:
 Review tool, approval tool
 
-**Return-to-Router Tool**: The `return_to_router` Custom Tool that lets a user-facing Agent hand an out-of-scope
-interactive conversation back to Router with a self-contained Triage prompt. _Avoid_: Handoff tool, switch-agent tool,
-agent router
+**Return-to-Router Tool**: The `return_to_router` Custom Tool that returns an out-of-scope conversation to Router with a
+self-contained Triage prompt. _Avoid_: Handoff tool, switch-agent tool, agent router
 
 **User-Interview Tool**: The `user_interview` Custom Tool for structured clarification questions. _Avoid_: Question
 tool, clarification form
@@ -474,11 +426,11 @@ tool, clarification form
 **Vision Fallback**: A configured vision-capable model used only when the active Agent model is text-only and needs a
 textual description of an attached image. _Avoid_: Image mode, multimodal router, vision agent
 
-**See-Image Tool**: The `see_image` Custom Tool that sends a retained image attachment to the Vision Fallback and
-returns a textual description to a text-only Agent model. _Avoid_: Screenshot plugin, image reader, OCR tool
+**See-Image Tool**: The `see_image` Custom Tool that returns a Vision Fallback description of a retained image to a
+text-only Agent. _Avoid_: Screenshot plugin, image reader, OCR tool
 
-**Code-Batch Tool**: The proposed RunWield Custom Tool that batches bounded Cymbal `show` and `outline` reads for fewer
-Agent roundtrips while leaving Cymbal CLI commands as raw primitives. _Avoid_: Multi-search tool, smart project snapshot
+**Code-Batch Tool**: The Custom Tool that batches bounded Cymbal `show` and `outline` reads. _Avoid_: Multi-search tool,
+smart project snapshot
 
 ### Memory & Persistence
 
@@ -591,10 +543,7 @@ command definition, prompt command
 - The execution segment receives the approved Plan, approval annotations, and execution state without inheriting
   planning messages.
 - The Engineer remains the execution owner through Workflow Validation, repairs, recovery, and successful validation.
-- The **Project Evidence Graph** is derived from durable artifacts and delivery evidence and never replaces them as
-  sources of truth.
-- **Project Knowledge Search** retrieves durable artifacts within one Project; **Workspace Intelligence Search**
-  retrieves eligible durable artifacts across registered Projects.
+- **Project Knowledge Search** retrieves durable artifacts within one Project.
 - The **RunWield Design System** governs **Workspace**, **Plan Board**, and **Plannotator** browser surfaces.
 - Every **Agent Session** loads exactly one merged **Agent Definition**.
 - An **Agent** may load one or more **Skills** without changing work ownership or Agent Session identity.

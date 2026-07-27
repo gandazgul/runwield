@@ -31,7 +31,7 @@ affectedPaths:
     - "src/acp/server.test.js"
     - "docs/sessions.md"
 createdAt: "2026-07-20T23:46:14-04:00"
-updatedAt: "2026-07-21T17:06:39.007Z"
+updatedAt: "2026-07-27T19:30:00.000Z"
 status: "ready_for_work"
 origin: "internal"
 ---
@@ -62,6 +62,11 @@ a released Pi interface satisfies the dependency contract below.
 The user also chose to derive trigger, recovery, and re-arm behavior from the active model context window and Pi's
 existing effective `compaction.reserveTokens`, without introducing competing percentage settings.
 
+Known workflow phase changes are a separate concern. Planning-to-execution and semantic-review-to-Engineer-repair use
+explicit fresh Session Transcript Segments with bounded seed packets. This Plan protects unexpectedly long activity
+inside whichever segment is current; it must not compact and reuse a predecessor transcript when the workflow requires
+transactional segment rollover.
+
 ## Objective
 
 After the public Pi prerequisite is available, add automatic context resilience for root and transient Agent Sessions.
@@ -69,6 +74,9 @@ RunWield will detect pressure at a completed internal turn, prevent another prov
 compaction per Hosted Session, verify recovered headroom, and continue the same assignment without a second User Request
 or workflow dispatch. Failed or ineffective recovery must pause automatic intervention and leave the Session usable and
 cancelable with actionable status instead of causing a compaction loop or provider context-window error.
+
+The coordinator operates only within the current transcript segment. Explicit workflow-owned rollover takes precedence
+and resets context-health state for the activated successor segment.
 
 ## Approach
 
@@ -95,6 +103,8 @@ and wrap one RunWield Agent invocation from pre-request pressure checking throug
 `session.js` remains responsible for Agent construction and subscription, while the new module owns the context-health
 state machine. A Hosted-Session-level arbiter coordinates all root and concurrent transient Agent Sessions so only one
 manual or automatic compaction can run for that Hosted Session; each Agent Session retains its own pressure/pause state.
+Segment rollover disposes or detaches predecessor monitoring and initializes clean state for the successor; it does not
+request a predecessor compaction or continuation.
 
 For context window `W` and effective reserve `R`, use the user-approved policy:
 
@@ -273,6 +283,9 @@ Existing functions, modules, or patterns to reuse:
       policy.
 - [ ] Step 11: Cover manual `/compact` re-arm, update Session documentation, run focused tests, then run the complete
       RunWield quality gate.
+- [ ] Step 12: Add segment-boundary composition coverage proving a workflow-owned rollover suppresses predecessor
+      compaction/continuation, initializes context monitoring for the successor, and leaves stable Session/workflow
+      ownership unchanged.
 
 ## Verification Plan
 
@@ -334,6 +347,9 @@ Existing functions, modules, or patterns to reuse:
 - Adapter parity: feed the same canonical events to TUI and ACP fixtures. Assert one displayed text per event and ACP
   `_meta` contains only `type`, `status`, `reason`, `usagePercent`, and `recoveredPercent` in addition to standard
   Runtime metadata.
+- Segment-boundary composition: place the execution segment near pressure, dispatch a semantic repair rollover, and
+  assert no predecessor compaction or hidden continuation occurs; the fresh repair segment starts with clean
+  context-health state and remains independently protected if its own usage later crosses threshold.
 
 ## Edge Cases & Considerations
 
@@ -355,6 +371,8 @@ Existing functions, modules, or patterns to reuse:
   needed by the compaction summary or continuation.
 - A waiting Agent Session holds no Hosted Session compaction lease and starts no provider call. On lease acquisition it
   remeasures because another Agent Session's compaction does not change its isolated context.
+- Explicit workflow context boundaries outrank compaction. Never delay or replace a safely authorized successor-segment
+  rollover merely to summarize context the successor is forbidden to inherit.
 - User cancellation wins every race and must not be reported as ineffective recovery or trigger re-arm. It retains the
   established behavior of discarding queued user steering/follow-up messages. Manual `/compact` remains available after
   pause when the shared arbiter is free and must not produce duplicate automatic status.
