@@ -563,18 +563,21 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     if (!suppressStartupHeader) {
         const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });
-        if (cachedUpdateAvailability?.available) {
-            updateNoticeText.setText(renderUpdateNoticeLine(cachedUpdateAvailability.latestVersion));
-        }
-        void refreshUpdateCheckCache({ currentVersion: VERSION }).then((availability) => {
-            if (!availability.available) {
-                updateNoticeText.setText("");
-                tui.requestRender();
-                return;
+        if (cachedUpdateAvailability) {
+            if (cachedUpdateAvailability.available) {
+                updateNoticeText.setText(renderUpdateNoticeLine(cachedUpdateAvailability.latestVersion));
             }
-            updateNoticeText.setText(renderUpdateNoticeLine(availability.latestVersion));
-            tui.requestRender();
-        }).catch(() => {});
+        } else {
+            void refreshUpdateCheckCache({ currentVersion: VERSION }).then((availability) => {
+                if (!availability.available) {
+                    updateNoticeText.setText("");
+                    tui.requestRender();
+                    return;
+                }
+                updateNoticeText.setText(renderUpdateNoticeLine(availability.latestVersion));
+                tui.requestRender();
+            }).catch(() => {});
+        }
 
         // Render the logo first
         renderBootLogo(container);
