@@ -6,7 +6,7 @@ Deno.test("managed sync controller inspects immediately and then polls managed d
     const callbacks = [];
     let calls = 0;
     const runtime = {
-        getSessionSnapshot: () => ({ managed: { dormant: true } }),
+        isManagedSessionDormant: () => true,
         synchronizeManagedSession: () => {
             calls++;
             return Promise.resolve();
@@ -35,7 +35,7 @@ Deno.test("managed sync controller skips unmanaged sessions and respects pause",
     const callbacks = [];
     let calls = 0;
     const runtime = {
-        getSessionSnapshot: () => ({ managed: null }),
+        isManagedSessionDormant: () => false,
         synchronizeManagedSession: () => {
             calls++;
             return Promise.resolve();
@@ -66,7 +66,7 @@ Deno.test("managed sync controller pause waits for in-flight refresh and dispose
     const refreshStarted = Promise.resolve();
     let calls = 0;
     const runtime = {
-        getSessionSnapshot: () => ({ managed: { dormant: true } }),
+        isManagedSessionDormant: () => true,
         synchronizeManagedSession: async () => {
             calls++;
             await refreshStarted;

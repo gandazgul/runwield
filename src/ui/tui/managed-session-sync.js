@@ -55,8 +55,7 @@ export function createManagedSessionSyncController(options) {
         if (disposed || paused || inFlight || options.isPaused?.()) return;
         const sessionId = options.getSessionId();
         if (!sessionId) return;
-        const snapshot = options.runtime.getSessionSnapshot(sessionId);
-        if (!snapshot?.managed?.dormant) return;
+        if (!options.runtime.isManagedSessionDormant(sessionId)) return;
         inFlight = true;
         inFlightPromise = (async () => {
             try {

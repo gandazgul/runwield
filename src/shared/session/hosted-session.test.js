@@ -107,6 +107,91 @@ Deno.test("HostedSession keeps user model overrides independent from agent model
     assertEquals(session.getActiveModelState(), { model: "openai/default", provider: "openai" });
 });
 
+Deno.test("HostedSession treats managed metadata as projection cache, not live runtime authority", () => {
+    const session = new HostedSession({
+        id: "managed-cache",
+        cwd: "/work/managed-cache",
+        sessionManager: makeSessionManager("managed-cache-manager"),
+    });
+
+    session.resetAgentInfoStack("Engineer", "live-model", "live-provider", "engineer");
+    session.setRootAgentName("engineer");
+    session.setThinkingLevel("high");
+    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "MEDIUM" });
+    session.setManagedMetadata({
+        runwieldSessionId: "rw-managed-cache",
+        projectId: "project-managed-cache",
+        piSessionId: "pi-managed-cache",
+        transcriptPath: "/work/managed-cache/session.jsonl",
+        generation: 4,
+        name: "Managed Cache",
+        activeAgent: "router",
+        model: "cached-model",
+        provider: "cached-provider",
+        thinkingLevel: "low",
+        workflowContext: { routingIntent: "INQUIRY", complexity: "LOW" },
+        syncState: null,
+    });
+
+    assertEquals(session.getManagedMetadata()?.activeAgent, "router");
+    assertEquals(session.getRootAgentName(), "engineer");
+    assertEquals(session.getActiveModelState(), { model: "live-model", provider: "live-provider" });
+    assertEquals(session.getThinkingLevel(), "high");
+    assertEquals(session.getWorkflowContext(), { routingIntent: "FEATURE", complexity: "MEDIUM" });
+});
+
+Deno.test("HostedSession dehydrates managed sessions by clearing live activation state", () => {
+    const rootManager = makeSessionManager("managed-dehydrate-manager");
+    const rootAgentSession = makeDisposableSession("managed-root-agent");
+    const subAgentSession = makeDisposableSession("managed-sub-agent");
+    const session = new HostedSession({
+        id: "managed-dehydrate",
+        cwd: "/work/managed-dehydrate",
+        sessionManager: rootManager,
+        managed: {
+            runwieldSessionId: "rw-managed-dehydrate",
+            projectId: "project-managed-dehydrate",
+            piSessionId: "pi-managed-dehydrate",
+            transcriptPath: "/work/managed-dehydrate/session.jsonl",
+            generation: 5,
+            name: "Managed Dehydrate",
+            activeAgent: "router",
+            model: "cached-model",
+            provider: "cached-provider",
+            thinkingLevel: "medium",
+            workflowContext: { routingIntent: "FEATURE", complexity: "HIGH" },
+            syncState: null,
+        },
+    });
+
+    session.resetAgentInfoStack("Engineer", "live-model", "live-provider", "engineer");
+    session.setRootAgentName("engineer");
+    session.setRootAgentSession(rootAgentSession);
+    session.addSubAgentSession(subAgentSession);
+    session.setActiveOnMessage(() => {});
+    session.setThinkingLevel("xhigh");
+    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "MEDIUM" });
+    session.setActiveExecutionWorkflow({
+        planName: "managed-dehydrate-plan",
+        triageMeta: {},
+        executionAgent: "engineer",
+    });
+
+    session.dehydrateManagedSession();
+
+    assertEquals(rootManager.disposed, true);
+    assertEquals(rootAgentSession.disposed, true);
+    assertEquals(subAgentSession.disposed, true);
+    assertEquals(session.getRootSessionManager(), null);
+    assertEquals(session.getRootAgentName(), null);
+    assertEquals(session.getActiveAgentName(), "");
+    assertEquals(session.getActiveModelState(), { model: "", provider: "" });
+    assertEquals(session.getThinkingLevel(), "off");
+    assertEquals(session.getWorkflowContext(), null);
+    assertEquals(session.getActiveExecutionWorkflow(), null);
+    assertEquals(session.getManagedMetadata()?.activeAgent, "router");
+});
+
 Deno.test("two Hosted Sessions do not share session-scoped runtime state", () => {
     const alphaRoot = makeDisposableSession("alpha-root");
     const betaRoot = makeDisposableSession("beta-root");

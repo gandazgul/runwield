@@ -316,6 +316,11 @@ export class HostedSession {
     setRootSessionManager(sessionManager) {
         this.assertActive();
         this.rootSessionManager = sessionManager;
+        if (sessionManager) {
+            this.workflowContext = readPersistedWorkflowContext(
+                /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (sessionManager),
+            );
+        }
     }
 
     getRootSessionManager() {
@@ -326,12 +331,6 @@ export class HostedSession {
     setManagedMetadata(metadata) {
         this.assertActive();
         this.managed = metadata ? { ...metadata } : null;
-        if (metadata?.workflowContext !== undefined) this.workflowContext = metadata.workflowContext;
-        if (metadata?.activeAgent !== undefined) this.rootAgentName = metadata.activeAgent;
-        if (metadata?.thinkingLevel) this.activeThinkingLevel = /** @type {ThinkingLevel} */ (metadata.thinkingLevel);
-        if (metadata?.model || metadata?.provider) {
-            this.setActiveModelState(metadata.model || "", metadata.provider || "");
-        }
     }
 
     getManagedMetadata() {
@@ -365,9 +364,16 @@ export class HostedSession {
         this.interactionAdapter?.cancelAll?.();
         this.activeInteractions.clear();
         this.rootAgentSession = null;
+        this.rootAgentName = null;
+        this.agentInfoStack = [];
+        this.userModelOverrideId = "";
+        this.userModelOverrideProvider = "";
+        this.userModelOverride = false;
+        this.activeThinkingLevel = "off";
         this.subAgentSessions.clear();
         this.delegatedReaderCount = 0;
         this.delegatedWriterActive = false;
+        this.workflowContext = null;
         this.activeExecutionWorkflow = null;
         this.activeTurnId = null;
     }

@@ -309,6 +309,7 @@ export class SessionRuntime {
         if (!session) return null;
         const sessionManager = session.getRootSessionManager();
         const managed = session.getManagedMetadata?.() || null;
+        const managedDormant = Boolean(managed && !sessionManager);
         const pendingManagedIntent = session.getPendingManagedTurnIntent?.() || {};
         const pendingAgentName = pendingManagedIntent.agentName || "";
         const rawSessionManagerId = sessionManager?.getSessionId?.();
@@ -317,10 +318,14 @@ export class SessionRuntime {
             : typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
             : null;
-        const workflowContext = session.getWorkflowContext() || managed?.workflowContext || null;
+        const workflowContext = session.getWorkflowContext() || (managedDormant ? managed?.workflowContext : null) ||
+            null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
         const contextCapacity = getRuntimeContextCapacity(session);
         const activeModelState = session.getActiveModelState();
+        const managedModel = managedDormant ? managed?.model || "" : "";
+        const managedProvider = managedDormant ? managed?.provider || "" : "";
+        const managedThinkingLevel = managedDormant ? managed?.thinkingLevel || "" : "";
         return {
             id: session.id,
             cwd: session.cwd,
@@ -345,18 +350,19 @@ export class SessionRuntime {
                             ...(managed.syncState.message ? { message: managed.syncState.message } : {}),
                         }
                         : null,
-                    dormant: !sessionManager,
+                    dormant: managedDormant,
                 }
                 : null,
-            activeAgent: pendingAgentName || session.getRootAgentName() || managed?.activeAgent || null,
+            activeAgent: pendingAgentName || session.getRootAgentName() ||
+                (managedDormant ? managed?.activeAgent || null : null),
             activeAgentInfo: pendingAgentName
                 ? { displayName: pendingAgentName, model: "", provider: "", agentName: pendingAgentName }
                 : session.getActiveAgentInfo(),
             activeModel: {
-                model: pendingManagedIntent.model || activeModelState.model,
-                provider: pendingManagedIntent.provider || activeModelState.provider,
+                model: pendingManagedIntent.model || activeModelState.model || managedModel,
+                provider: pendingManagedIntent.provider || activeModelState.provider || managedProvider,
             },
-            thinkingLevel: pendingManagedIntent.thinkingLevel || session.getThinkingLevel(),
+            thinkingLevel: pendingManagedIntent.thinkingLevel || managedThinkingLevel || session.getThinkingLevel(),
             busy: session.isTurnActive() || (this.#busyOperationDepths.get(session.id) || 0) > 0,
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
@@ -364,6 +370,48 @@ export class SessionRuntime {
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             ...contextCapacity,
         };
+    }
+
+    /**
+     * Return the Runtime-owned active agent, never the dormant managed projection
+     * cache. Dormant local intent is allowed because it is a live user command
+     * waiting for activation; committed transcript markers are applied only by
+     * hydration paths before activation.
+     *
+     * @param {string} sessionId
+     * @returns {string | null}
+     */
+    getRuntimeActiveAgentName(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const pendingAgentName = session.getPendingManagedTurnIntent?.()?.agentName || "";
+        if (pendingAgentName) return pendingAgentName;
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager?.()) return null;
+        return session.getRootAgentName() || null;
+    }
+
+    /**
+     * Return the live execution workflow owned by Runtime, never a display
+     * snapshot. Managed dormant sessions have no live execution workflow until
+     * activation hydrates one explicitly.
+     *
+     * @param {string} sessionId
+     * @returns {Record<string, any> | null}
+     */
+    getRuntimeActiveExecutionWorkflow(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const workflow = session.getActiveExecutionWorkflow?.() || null;
+        return workflow ? { ...workflow } : null;
+    }
+
+    /**
+     * @param {string} sessionId
+     * @returns {boolean}
+     */
+    isManagedSessionDormant(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        return Boolean(session?.getManagedMetadata?.() && !session.getRootSessionManager?.());
     }
 
     /**
@@ -914,8 +962,8 @@ export class SessionRuntime {
                 session.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
             }
             if (pendingIntent.thinkingLevel) session.setThinkingLevel(pendingIntent.thinkingLevel);
-            const agentName = options.agentName || pendingIntent.agentName || managed.activeAgent ||
-                await this.#resolveResumeAgentName(sessionManager);
+            const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);
+            const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;
             const pendingModel = pendingIntent.model || pendingIntent.provider
                 ? pendingIntent.provider && pendingIntent.model
                     ? `${pendingIntent.provider}/${pendingIntent.model}`
@@ -935,7 +983,7 @@ export class SessionRuntime {
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
             const nextManaged = {
                 ...managed,
-                activeAgent: session.getRootAgentName?.() || agentName || managed.activeAgent || null,
+                activeAgent: session.getRootAgentName?.() || agentName || null,
                 workflowContext: session.getWorkflowContext?.() || managed.workflowContext || null,
             };
             session.dehydrateManagedSession();
@@ -1133,8 +1181,13 @@ export class SessionRuntime {
         if (!session) return { ok: false, error: "not_found" };
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         const levels = /** @type {const} */ (["off", "minimal", "low", "medium", "high", "xhigh"]);
+        const managed = session.getManagedMetadata?.() || null;
+        const managedDormant = Boolean(managed && !session.getRootSessionManager?.());
+        const currentLevel = managedDormant && managed?.thinkingLevel
+            ? managed.thinkingLevel
+            : session.getThinkingLevel();
         const next = rootAgentSession?.cycleThinkingLevel?.() ??
-            levels[(levels.indexOf(session.getThinkingLevel()) + 1) % levels.length];
+            levels[(levels.indexOf(/** @type {any} */ (currentLevel)) + 1) % levels.length];
         if (next === undefined) {
             this.#emitSessionEvent(sessionId, {
                 type: RuntimeEventTypes.SYSTEM_STATUS,
@@ -1971,33 +2024,6 @@ export class SessionRuntime {
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
                 }
-                if (summary.activeAgent) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.AGENT_CHANGED,
-                        messageId: `managed-sync-agent-${projected.generation}`,
-                        agentName: summary.activeAgent,
-                        model: summary.model || undefined,
-                    });
-                }
-                if (summary.model) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.MODEL_CHANGED,
-                        model: summary.model,
-                        provider: summary.provider || undefined,
-                    });
-                }
-                if (summary.thinkingLevel) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.THINKING_LEVEL_CHANGED,
-                        thinkingLevel: summary.thinkingLevel,
-                    });
-                }
-                if (summary.workflowContext) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
-                        workflowContext: summary.workflowContext,
-                    });
-                }
                 if (summary.attention) {
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
@@ -2549,6 +2575,7 @@ export class SessionRuntime {
         let aborted = false;
         let operationCanceled = false;
         let agentCanceled = false;
+        const turnActive = session.isTurnActive();
         try {
             operationCanceled = Boolean(session.cancelActiveInteractions?.());
             const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
@@ -2558,7 +2585,7 @@ export class SessionRuntime {
             }
             this.clearQueuedMessages(session.id, "session_cancel");
             agentCanceled = this.#abortActiveSession(session);
-            if (agentCanceled) session.suppressNextAgentStoppedAttention();
+            if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
             aborted = operationCanceled || agentCanceled;
         } finally {
             this.#emitSessionEvent(session.id, {

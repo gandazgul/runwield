@@ -178,7 +178,7 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
     return {
         id: sessionId,
         cwd: snapshot.cwd,
-        getActiveAgentName: () => runtime.getSessionSnapshot(sessionId)?.activeAgent || null,
+        getActiveAgentName: () => runtime.getRuntimeActiveAgentName(sessionId),
         switchAgent: (agentName, options = {}) => runtime.switchAgent(sessionId, { agentName, ...options }),
         executePlan: (options) =>
             deps.executePlan ? /** @type {any} */ (deps.executePlan)(options) : runtime.executePlan(sessionId, options),
@@ -194,7 +194,7 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
             deps.runSlicerAgent
                 ? /** @type {any} */ (deps.runSlicerAgent)(options)
                 : runtime.runSlicerAgent(sessionId, options),
-        getActiveExecutionWorkflow: () => runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow || null,
+        getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
         setActiveExecutionWorkflow: (workflow) => {
             runtime.setActiveExecutionWorkflow(sessionId, workflow);
         },
