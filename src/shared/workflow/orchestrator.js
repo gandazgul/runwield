@@ -46,6 +46,7 @@ import {
     runPlanningAgent,
     runSlicerAgent,
 } from "./workflow.js";
+import { readLatestReturnToRouterOutcome } from "./workflow-results.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
@@ -61,6 +62,15 @@ export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./valida
  */
 
 const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
+
+/**
+ * @param {import('./workflow-results.js').ReturnToRouterOutcome | null} outcome
+ * @returns {{ kind: "handoff", agentName: string, userRequest: string } | null}
+ */
+function toRouterHandoff(outcome) {
+    if (!outcome) return null;
+    return { kind: "handoff", agentName: outcome.agentName, userRequest: outcome.reason };
+}
 
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
@@ -221,6 +231,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession) {
  *   probeGitRepository?: typeof probeGitRepository,
  *   hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
  *   confirmNonGitQuickFixExecution?: typeof confirmNonGitQuickFixExecution,
+ *   readLatestReturnToRouterOutcome?: typeof readLatestReturnToRouterOutcome,
  * }} [args.__deps]
  */
 export async function dispatchPostTriage(
@@ -246,9 +257,15 @@ export async function dispatchPostTriage(
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmQuickFix = __deps?.confirmNonGitQuickFixExecution || confirmNonGitQuickFixExecution;
+    const readLatestReturnToRouterOutcomeImpl = __deps?.readLatestReturnToRouterOutcome ||
+        readLatestReturnToRouterOutcome;
     /** @param {string} agentName */
     const activateAgent = async (agentName) => {
         await switchActiveAgentImpl(hostedSession, { agentName });
+    };
+    const getPreTurnMessageCount = () => {
+        const rootAgentSession = /** @type {any} */ (hostedSession.getRootAgentSession?.());
+        return rootAgentSession?.agent?.state?.messages?.length ?? 0;
     };
 
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
@@ -282,12 +299,15 @@ export async function dispatchPostTriage(
 
         await activateAgent(agentName);
 
-        await runRootTurnImpl({
+        const preTurnCount = getPreTurnMessageCount();
+        const messages = await runRootTurnImpl({
             hostedSession,
             agentName,
             userRequest: decoratedRequest,
             images,
         });
+        const routerHandoff = readLatestReturnToRouterOutcomeImpl(messages, preTurnCount);
+        if (routerHandoff) return toRouterHandoff(routerHandoff);
         return;
     }
 
@@ -299,12 +319,15 @@ export async function dispatchPostTriage(
 
         await activateAgent(AGENTS.OPERATOR);
 
+        const preTurnCount = getPreTurnMessageCount();
         const messages = await runRootTurnImpl({
             hostedSession,
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
         });
+        const routerHandoff = readLatestReturnToRouterOutcomeImpl(messages, preTurnCount);
+        if (routerHandoff) return toRouterHandoff(routerHandoff);
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         await recordWorkflowMetricImpl({
             category: "execution",
@@ -348,12 +371,15 @@ export async function dispatchPostTriage(
 
         await activateAgent(AGENTS.ENGINEER);
 
+        const preTurnCount = getPreTurnMessageCount();
         const messages = await runRootTurnImpl({
             hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,
             images,
         });
+        const routerHandoff = readLatestReturnToRouterOutcomeImpl(messages, preTurnCount);
+        if (routerHandoff) return toRouterHandoff(routerHandoff);
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         if (!completed) {
             await recordWorkflowMetricImpl({

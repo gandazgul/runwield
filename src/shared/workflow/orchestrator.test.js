@@ -220,6 +220,63 @@ orchestratorTest("dispatchPostTriage routes OPERATION to Operator without valida
     );
 });
 
+orchestratorTest("dispatchPostTriage returns Router handoff when Operator calls return_to_router", async () => {
+    const { messages } = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+    let taskCompletedRead = false;
+
+    const result = await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
+        triage: {
+            routingIntent: "OPERATION",
+            complexity: "LOW",
+            summary: "update dependencies",
+            affectedPaths: ["deno.json"],
+        },
+        userRequest: "upgrade deps",
+        images: [],
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            readLatestTaskCompletedOutcome: () => {
+                taskCompletedRead = true;
+                return false;
+            },
+            runRootTurn: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "return_to_router",
+                        details: {
+                            agentName: "router",
+                            reason: "This OPERATION now needs code repair as QUICK_FIX.",
+                        },
+                    }]),
+                ),
+            recordWorkflowMetric: () => Promise.resolve(null),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
+        }),
+    });
+
+    assertEquals(result, {
+        kind: "handoff",
+        agentName: "router",
+        userRequest: "This OPERATION now needs code repair as QUICK_FIX.",
+    });
+    assertEquals(activeAgents, ["operator"]);
+    assertEquals(taskCompletedRead, false);
+    assertEquals(
+        messages.some((/** @type {string} */ message) => message.includes("Operator stopped without task_completed")),
+        false,
+    );
+});
+
 orchestratorTest(
     "dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion",
     async () => {
