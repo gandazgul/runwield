@@ -22,11 +22,24 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T21:10:30-04:00"
-updatedAt: "2026-07-27T01:13:53.008Z"
-status: "ready_for_work"
+updatedAt: "2026-07-27T22:15:29.153Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-27T19:46:02.671Z"
+verifiedAt: "2026-07-27T22:15:29.153Z"
 userVerifiedAt: null
 userVerificationNote: null
+executionReport: "- Implemented PLANNED_CHANGE taxonomy and Work Kind support across routing constants, triage normalization, workflow dispatch/context, Plan front matter/store/lifecycle/execution, Slicer child materialization, Engineer handoffs, Work Records, TUI/Workspace labels, Router/agent prompts, and current docs/glossary.\n- Preserved legacy compatibility: routingIntent/classification FEATURE and Work Record scope feature normalize to planned-change semantics while Work Kind FEATURE remains distinct.\n- Updated focused tests and compatibility expectations for triage, orchestrator, Plan Store/lifecycle/execution, Slicer/workflow, Work Records, TUI/session context, review transport, and router-eval scoring.\n- Manual checks: simulated new planned bug-fix Plan front matter (`classification: PLANNED_CHANGE`, `workKind: BUG_FIX`), legacy `classification: FEATURE` parsing to `PLANNED_CHANGE`, and legacy Work Record `scope: feature` parsing to `planned_change`.\n- Verification passed: `deno task ci` (includes submodule check, type check, Workspace check, lint, and full test suite: 1878 passed)."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-27T22:11:50.016Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "58d9e695e1c3aff7d8e23e840cd503ec4c052084"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "ece27d04bdc0c8a84cfd0250bf2e84cfdb7728f0"
 ---
 
 # Planned Change and Work Kind Transition
