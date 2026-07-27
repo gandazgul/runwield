@@ -116,15 +116,16 @@
         "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q test",
+        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q test",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",
+        "language-policy:check": "deno run -A scripts/check-language-policy.js",
         "test": "deno run -A scripts/write-version.js && snip run -- deno test -A --parallel --no-check",
         "lint": "snip run -- deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
-        "check": "deno run -A scripts/write-version.js && snip run -- deno check --doc src/**/*.js src/**/*.jsx scripts/**/*.js",
+        "check": "deno run -A scripts/write-version.js && snip run -- sh -c 'deno check --doc src/**/*.js src/**/*.jsx scripts/**/*.js $(find src -path src/ui/workspace -prune -o \\( -name \"*.ts\" -o -name \"*.tsx\" \\) -print)'",
         "workspace:dev": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173",
         "workspace:remote": "deno run -A src/ui/workspace/remote-server.js",
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
