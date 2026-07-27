@@ -47,6 +47,7 @@ function makeContext(overrides = {}) {
         tui: { id: "tui" },
         sessionStartedAt: "2026-06-15T00:00:00.000Z",
         originalHandleInput: () => {},
+        notifyRunWieldEvent: () => {},
         builtinNames: new Set(["known"]),
         promptTemplateByName: new Map(),
         skills: [],
@@ -147,6 +148,7 @@ Deno.test("handleSlashCommand dispatches built-in commands through the Runtime c
     assertEquals(ctx.records.commandDeps.tui, ctx.tui);
     assertEquals(ctx.records.commandDeps.sessionId, ctx.sessionId);
     assertEquals(ctx.records.commandDeps.sessionRuntime, ctx.sessionRuntime);
+    assertEquals(ctx.records.commandDeps.notifyRunWieldEvent, ctx.notifyRunWieldEvent);
     assertEquals(ctx.records.canceledSessionIds, []);
     assertEquals(ctx.records.swaps, 0);
 });

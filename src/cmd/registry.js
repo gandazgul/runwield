@@ -91,6 +91,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
+ * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {boolean} [skipPostLoginSetup]
  * @property {Record<string, unknown>} [__testDeps]
  */
