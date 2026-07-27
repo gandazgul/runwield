@@ -768,6 +768,91 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
     assertEquals(activateIndex > agentSelectionIndex, true);
 });
 
+Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
+    const nextMethodIndex = source.indexOf("async createInteractiveSession(options)", promptManagedIndex);
+    const promptManagedBody = source.slice(promptManagedIndex, nextMethodIndex);
+    const inspectIndex = promptManagedBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
+    const acquireIndex = promptManagedBody.indexOf("acquireSessionActivation({", inspectIndex);
+    const userMessageIndex = promptManagedBody.indexOf("type: RuntimeEventTypes.USER_MESSAGE", acquireIndex);
+    const hydratedIndex = promptManagedBody.indexOf(
+        'changeSessionActivationPhase(activeProof, "hydrated")',
+        acquireIndex,
+    );
+    const openIndex = promptManagedBody.indexOf("await this.#openPersistedRootSession({", hydratedIndex);
+    const resumeAgentIndex = promptManagedBody.indexOf("await this.#resolveResumeAgentName(sessionManager)", openIndex);
+    const activateIndex = promptManagedBody.indexOf(
+        "await this.#activateSessionAgent(hostedSession, {",
+        resumeAgentIndex,
+    );
+    const promptIndex = promptManagedBody.indexOf(
+        "const result = await this.promptSession(sessionId, {",
+        activateIndex,
+    );
+    const checkpointIndex = promptManagedBody.indexOf(
+        'changeSessionActivationPhase(activeProof, "checkpointing")',
+        promptIndex,
+    );
+    const publishIndex = promptManagedBody.indexOf("publishGenerationAndRelease(activeProof", checkpointIndex);
+    const recoveryIndex = promptManagedBody.indexOf("markSessionUncertain(activeProof", publishIndex);
+
+    assertEquals(promptManagedIndex >= 0, true);
+    assertEquals(inspectIndex >= 0, true);
+    assertEquals(acquireIndex > inspectIndex, true);
+    assertEquals(userMessageIndex > acquireIndex, true);
+    assertEquals(hydratedIndex > userMessageIndex, true);
+    assertEquals(openIndex > hydratedIndex, true);
+    assertEquals(resumeAgentIndex > openIndex, true);
+    assertEquals(activateIndex > resumeAgentIndex, true);
+    assertEquals(promptIndex > activateIndex, true);
+    assertEquals(checkpointIndex > promptIndex, true);
+    assertEquals(publishIndex > checkpointIndex, true);
+    assertEquals(recoveryIndex > publishIndex, true);
+});
+
+Deno.test("SessionRuntime managed workflow operations acquire activation before hydration and checkpoint before publish", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const managedOperationIndex = source.indexOf("async #runWorkflowOperation(");
+    const nextMethodIndex = source.indexOf("async executePlan(sessionId, options)", managedOperationIndex);
+    const operationBody = source.slice(managedOperationIndex, nextMethodIndex);
+    const inspectIndex = operationBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
+    const acquireIndex = operationBody.indexOf("acquireSessionActivation({", inspectIndex);
+    const hydratedIndex = operationBody.indexOf('changeSessionActivationPhase(activeProof, "hydrated")', acquireIndex);
+    const openIndex = operationBody.indexOf("await this.#openPersistedRootSession({", hydratedIndex);
+    const persistedAgentIndex = operationBody.indexOf(
+        "const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);",
+        openIndex,
+    );
+    const agentSelectionIndex = operationBody.indexOf(
+        "const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;",
+        persistedAgentIndex,
+    );
+    const activateIndex = operationBody.indexOf("await this.#activateSessionAgent(session, {", agentSelectionIndex);
+    const turningIndex = operationBody.indexOf('changeSessionActivationPhase(activeProof, "turning")', activateIndex);
+    const operationIndex = operationBody.indexOf("const result = await operation();", turningIndex);
+    const checkpointIndex = operationBody.indexOf(
+        'changeSessionActivationPhase(activeProof, "checkpointing")',
+        operationIndex,
+    );
+    const publishIndex = operationBody.indexOf("publishGenerationAndRelease(activeProof", checkpointIndex);
+    const cacheFallbackIndex = operationBody.indexOf("|| managed.activeAgent", persistedAgentIndex);
+
+    assertEquals(managedOperationIndex >= 0, true);
+    assertEquals(inspectIndex >= 0, true);
+    assertEquals(acquireIndex > inspectIndex, true);
+    assertEquals(hydratedIndex > acquireIndex, true);
+    assertEquals(openIndex > hydratedIndex, true);
+    assertEquals(persistedAgentIndex > openIndex, true);
+    assertEquals(agentSelectionIndex > persistedAgentIndex, true);
+    assertEquals(cacheFallbackIndex, -1);
+    assertEquals(activateIndex > agentSelectionIndex, true);
+    assertEquals(turningIndex > activateIndex, true);
+    assertEquals(operationIndex > turningIndex, true);
+    assertEquals(checkpointIndex > operationIndex, true);
+    assertEquals(publishIndex > checkpointIndex, true);
+});
+
 Deno.test("SessionRuntime owns user-turn submission normalization for unmanaged sessions", async () => {
     /** @type {string[]} */
     const receivedRequests = [];
