@@ -18,6 +18,11 @@ miss any items."
 
 **After:** "Verify each item individually. No skipping."
 
+**But keep intentional attention anchors:** Terse end-of-prompt "Important Rules" sections that restate critical
+guidance are not redundant — they are an intentional attention anchor that improves reliability across model quality
+tiers (SOTA, open-source, and smaller models). Optimize verbose explanatory duplication elsewhere, but do not remove
+critical restatements merely because they repeat earlier content.
+
 ### Remove Noise
 
 State only requirements the model doesn't already know.
@@ -26,6 +31,11 @@ State only requirements the model doesn't already know.
 
 **After:** "Write a detailed walkthrough: what changed, line numbers, analysis of the flow, data transformations,
 dependencies."
+
+**Don't describe unavailable capabilities.** Describe only what the agent can actually do in its current workflow. Do
+not mention unavailable tools as negative alternatives, obsolete/legacy mechanisms, internal bypasses, or backward-
+looking compatibility behavior — unless the agent must act on that history. Every sentence about something the agent
+doesn't have or can't do is noise that dilutes the instructions that matter.
 
 ### Sharpen Instructions
 
@@ -45,6 +55,7 @@ These must stay:
 - Critical rules and constraints
 - Output format requirements (if parsed programmatically)
 - Behavioral guardrails
+- Terse end-of-prompt "Important Rules" sections (attention anchors — keep even when they restate earlier guidance)
 
 ### Write Clean Prose
 
@@ -99,3 +110,4 @@ exact schema; for human-readable output, describe what to include.
 - [ ] Instructions are tight — direct, not hedged
 - [ ] Load-bearing content preserved
 - [ ] Written in tight prose, not "correction" style
+- [ ] Intentional attention anchors (end-of-prompt restatements) kept, not removed as redundant
