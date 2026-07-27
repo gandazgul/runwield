@@ -36,14 +36,52 @@ export function createTuiManager({
     let tuiInstance = null;
     /** @type {any | null} */
     let terminalInstance = null;
+    let started = false;
+    let crashGuardsInstalled = false;
+
+    /**
+     * @param {{ terminal: any, tui: any }} pair
+     */
+    function startPair(pair) {
+        terminalInstance = pair.terminal;
+        tuiInstance = pair.tui;
+        try {
+            if (typeof tuiInstance.start === "function") {
+                tuiInstance.start();
+            }
+            started = true;
+            installCrashGuards();
+            crashGuardsInstalled = true;
+            return tuiInstance;
+        } catch (error) {
+            try {
+                if (started && typeof tuiInstance?.stop === "function") tuiInstance.stop();
+            } catch {
+                // Preserve the original construction/start failure.
+            }
+            tuiInstance = null;
+            terminalInstance = null;
+            started = false;
+            crashGuardsInstalled = false;
+            throw error;
+        }
+    }
 
     function initTUI() {
         if (tuiInstance) return tuiInstance;
-        terminalInstance = new TerminalCtor();
-        tuiInstance = new TuiCtor(terminalInstance);
-        tuiInstance.start();
-        installCrashGuards();
-        return tuiInstance;
+        const terminal = new TerminalCtor();
+        const tui = new TuiCtor(terminal);
+        return startPair({ terminal, tui });
+    }
+
+    /**
+     * Install an explicit Terminal/TUI pair, primarily for deterministic tests.
+     *
+     * @param {{ terminal: any, tui: any }} pair
+     */
+    function initTUIWithPair(pair) {
+        if (tuiInstance) return tuiInstance;
+        return startPair(pair);
     }
 
     function getTUI() {
@@ -54,16 +92,27 @@ export function createTuiManager({
     }
 
     function stopTUI() {
-        restoreTitle();
-        uninstallCrashGuards();
-        if (tuiInstance) {
-            if (typeof tuiInstance.stop === "function") {
-                tuiInstance.stop();
+        try {
+            restoreTitle();
+        } catch {
+            // Terminal title restoration is best effort.
+        }
+        if (crashGuardsInstalled) {
+            try {
+                uninstallCrashGuards();
+            } finally {
+                crashGuardsInstalled = false;
             }
-            tuiInstance = null;
-            terminalInstance = null;
+        }
+        const tui = tuiInstance;
+        tuiInstance = null;
+        terminalInstance = null;
+        const wasStarted = started;
+        started = false;
+        if (tui && wasStarted && typeof tui.stop === "function") {
+            tui.stop();
         }
     }
 
-    return { initTUI, getTUI, stopTUI };
+    return { initTUI, initTUIWithPair, getTUI, stopTUI };
 }

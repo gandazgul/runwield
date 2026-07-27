@@ -14,7 +14,7 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { initTUI } from "./tui.js";
+import { getTUI, initTUI, stopTUI } from "./tui.js";
 import { setTerminalTitleForName } from "./terminal-title.js";
 import {
     applyPersistedTheme,
@@ -485,6 +485,7 @@ export async function runScopedSubmitHandoffLoop(
  *   initialAgentName?: string,
  *   initialAgentModel?: string,
  *   onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
+ *   interactionDependencies?: import('./runtime-interaction-adapter.js').TuiInteractionDependencies,
  * }} [options]
  */
 export async function startInteractiveSession(initialUserRequest, options = {}) {
@@ -834,6 +835,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         runtime: sessionRuntime,
         sessionId: sessionId,
         uiAPI,
+        interactionDependencies: options.interactionDependencies,
         onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
     });
     const managedSyncController = createManagedSessionSyncController({
@@ -869,12 +871,12 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     /**
      * @param {string} nextSessionId
-     * @param {{ oldRetired?: boolean }} [options]
+     * @param {{ oldRetired?: boolean }} [replaceOptions]
      */
-    function replaceRuntimeSession(nextSessionId, options = {}) {
+    function replaceRuntimeSession(nextSessionId, replaceOptions = {}) {
         const previousSessionId = sessionId;
         tuiRuntimeAdapter.dispose();
-        if (!options.oldRetired && previousSessionId !== nextSessionId) {
+        if (!replaceOptions.oldRetired && previousSessionId !== nextSessionId) {
             sessionRuntime.closeSession(previousSessionId);
         }
         sessionId = nextSessionId;
@@ -888,6 +890,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             runtime: sessionRuntime,
             sessionId: sessionId,
             uiAPI,
+            interactionDependencies: options.interactionDependencies,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
         pastedImages.length = 0;
@@ -1494,4 +1497,66 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     }
 
     return uiAPI;
+}
+
+/**
+ * Disposable interactive TUI composition seam for deterministic scenario tests.
+ * It preserves SessionRuntime and owner-coordination authority by delegating to
+ * the production startup path, then adds explicit lifecycle controls around it.
+ *
+ * @param {string | null} initialUserRequest
+ * @param {Parameters<typeof startInteractiveSession>[1]} [options]
+ * @returns {Promise<{
+ *   uiAPI: import('./types.js').UiAPI,
+ *   runtime: SessionRuntime,
+ *   sessionId: string,
+ *   tui: any,
+ *   terminal: any,
+ *   waitForIdle: (timeoutMs?: number) => Promise<void>,
+ *   dispose: () => Promise<void>,
+ * }>}
+ */
+export async function createInteractiveTuiComposition(initialUserRequest, options = {}) {
+    /** @type {SessionRuntime | null} */
+    let runtime = null;
+    /** @type {string | null} */
+    let sessionId = null;
+    const uiAPI = await startInteractiveSession(initialUserRequest, {
+        ...options,
+        onSessionReady: (readySessionId, readyRuntime) => {
+            sessionId = readySessionId;
+            runtime = readyRuntime;
+            options.onSessionReady?.(readySessionId, readyRuntime);
+        },
+    });
+    if (!runtime || !sessionId) throw new Error("Interactive TUI composition did not report a Runtime session.");
+    const { tui, terminal } = getTUI();
+    let disposed = false;
+    return {
+        uiAPI,
+        runtime,
+        sessionId,
+        tui,
+        terminal,
+        async waitForIdle(timeoutMs = 2000) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < timeoutMs) {
+                const snapshot = runtime?.getSessionSnapshot(sessionId || "");
+                if (!snapshot?.busy) return;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            throw new Error(`Timed out waiting for TUI composition idle after ${timeoutMs}ms.`);
+        },
+        async dispose() {
+            if (disposed) return;
+            disposed = true;
+            try {
+                uiAPI.dispose?.();
+                await runtime?.closeAllSessionsWhenIdle?.();
+            } finally {
+                endBlink();
+                stopTUI();
+            }
+        },
+    };
 }

@@ -27,6 +27,17 @@ export function initTUI() {
 }
 
 /**
+ * Install an explicit Terminal/TUI pair for deterministic composition tests.
+ * Production callers should continue to use initTUI().
+ *
+ * @param {{ terminal: any, tui: TUI }} pair
+ * @returns {TUI}
+ */
+export function initTUIWithPair(pair) {
+    return tuiManager.initTUIWithPair(pair);
+}
+
+/**
  * Get the current TUI instance.
  * @returns {{ tui: TUI, terminal: ProcessTerminal }}
  */

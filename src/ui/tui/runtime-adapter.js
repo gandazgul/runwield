@@ -24,6 +24,7 @@ const activeAdapters = new WeakMap();
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
  * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
+ * @property {import('./runtime-interaction-adapter.js').TuiInteractionDependencies} [interactionDependencies]
  * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  */
@@ -47,6 +48,7 @@ export function attachTuiRuntimeAdapter({
     runtime,
     sessionId,
     uiAPI,
+    interactionDependencies,
     notifyRunWieldEvent = notifyRunWieldEventQuietly,
     onSessionReplaced,
 }) {
@@ -63,7 +65,7 @@ export function attachTuiRuntimeAdapter({
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
     const thinkingMessages = new Map();
-    const interactionAdapter = createTuiInteractionAdapter(uiAPI);
+    const interactionAdapter = createTuiInteractionAdapter(uiAPI, interactionDependencies);
     runtime.setInteractionAdapter(sessionId, interactionAdapter);
 
     const initialSnapshot = runtime.getSessionSnapshot(sessionId);
