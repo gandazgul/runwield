@@ -34,6 +34,8 @@ const REQUIRED_BUNDLED_BINARY_ASSET_INCLUDES = Object.freeze([
  * @typedef {Object} RunResult
  * @property {boolean} success
  * @property {number} code
+ * @property {string} stdout
+ * @property {string} stderr
  */
 
 /**
@@ -50,8 +52,14 @@ async function run(command, args, options = {}) {
         stdout: options.stdout || "inherit",
         stderr: options.stderr || "inherit",
     });
-    const { success, code } = await child.output();
-    return { success, code };
+    const output = await child.output();
+    const decoder = new TextDecoder();
+    return {
+        success: output.success,
+        code: output.code,
+        stdout: options.stdout === "piped" ? decoder.decode(output.stdout) : "",
+        stderr: options.stderr === "piped" ? decoder.decode(output.stderr) : "",
+    };
 }
 
 /**
@@ -59,14 +67,16 @@ async function run(command, args, options = {}) {
  * @param {string} command
  * @param {string[]} args
  * @param {Deno.CommandOptions} [options]
- * @returns {Promise<void>}
+ * @param {typeof run} [runner]
+ * @returns {Promise<RunResult>}
  */
-async function mustRun(label, command, args, options = {}) {
+async function mustRun(label, command, args, options = {}, runner = run) {
     console.log(`\n==> ${label}`);
-    const result = await run(command, args, options);
+    const result = await runner(command, args, options);
     if (!result.success) {
         throw new Error(`${label} failed with exit code ${result.code}.`);
     }
+    return result;
 }
 
 /** @param {ReadableStream<Uint8Array> | null} stream @param {(text: string) => void} onText */
@@ -405,22 +415,113 @@ export async function smokeTestBinaryReviewSurface(binaryPath, root) {
     }
 }
 
-export async function main() {
-    const tempDir = await Deno.makeTempDir({ prefix: "wld-release-check-" });
+/**
+ * @param {string[]} args
+ * @returns {{ buildVersion: string | undefined }}
+ */
+export function parseReleaseCheckOptions(args = []) {
+    /** @type {{ buildVersion: string | undefined }} */
+    const options = { buildVersion: undefined };
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === "--build-version") options.buildVersion = args[++index];
+        else throw new Error(`Unknown release check argument: ${arg}`);
+    }
+    if (options.buildVersion !== undefined && !options.buildVersion) {
+        throw new Error("--build-version requires a value.");
+    }
+    return options;
+}
+
+/**
+ * @param {string} output
+ * @param {string} expectedVersion
+ */
+export function assertBinaryVersionOutput(output, expectedVersion) {
+    if (!output.includes(`runwield ${expectedVersion} (`)) {
+        throw new Error(
+            `Release binary reported the wrong version. Expected ${expectedVersion}; output was:\n${output}`,
+        );
+    }
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<{ exists: boolean, content: string }>}
+ */
+async function snapshotFile(path) {
+    try {
+        return { exists: true, content: await Deno.readTextFile(path) };
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return { exists: false, content: "" };
+        throw error;
+    }
+}
+
+/**
+ * @param {string} path
+ * @param {{ exists: boolean, content: string }} snapshot
+ */
+async function restoreFile(path, snapshot) {
+    if (snapshot.exists) {
+        await Deno.writeTextFile(path, snapshot.content);
+        return;
+    }
+    await Deno.remove(path).catch((error) => {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    });
+}
+
+/**
+ * @typedef {Object} ReleaseCheckOptions
+ * @property {string} [buildVersion]
+ * @property {string} [rootDir]
+ * @property {typeof run} [run]
+ * @property {(options?: { prefix?: string }) => Promise<string>} [makeTempDir]
+ * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} [remove]
+ * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBundledAgentReferenceExtraction]
+ * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryReviewSurface]
+ */
+
+/**
+ * @param {ReleaseCheckOptions} [options]
+ */
+export async function runReleaseCheck(options = {}) {
+    const tempDir = await (options.makeTempDir || Deno.makeTempDir)({ prefix: "wld-release-check-" });
+    const rootDir = options.rootDir || ".";
+    const versionPath = join(rootDir, "src", "shared", "version.js");
+    const versionSnapshot = await snapshotFile(versionPath);
     const binaryName = Deno.build.os === "windows" ? "wld.exe" : "wld";
     const output = join(tempDir, binaryName);
+    const runner = options.run || run;
+    const bundledReferenceSmoke = options.smokeTestBundledAgentReferenceExtraction ||
+        smokeTestBundledAgentReferenceExtraction;
+    const reviewSmoke = options.smokeTestBinaryReviewSurface || smokeTestBinaryReviewSurface;
 
     try {
         assertRequiredBundledAssetsConfigured();
-        await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output]);
-        await mustRun("Smoke test release binary", output, ["--version"]);
-        await smokeTestBundledAgentReferenceExtraction(output, tempDir);
-        await smokeTestBinaryReviewSurface(output, tempDir);
+        const compileEnv = options.buildVersion ? { WLD_BUILD_VERSION: options.buildVersion } : undefined;
+        await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output], {
+            cwd: rootDir,
+            env: compileEnv,
+        }, runner);
+        const smoke = await mustRun("Smoke test release binary", output, ["--version"], {
+            stdout: "piped",
+            stderr: "piped",
+        }, runner);
+        if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
+        await bundledReferenceSmoke(output, tempDir);
+        await reviewSmoke(output, tempDir);
     } finally {
-        await Deno.remove(tempDir, { recursive: true }).catch((error) => {
+        await restoreFile(versionPath, versionSnapshot);
+        await (options.remove || Deno.remove)(tempDir, { recursive: true }).catch((error) => {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
     }
+}
+
+export async function main(args = Deno.args) {
+    await runReleaseCheck(parseReleaseCheckOptions(args));
 }
 
 if (import.meta.main) await main();
