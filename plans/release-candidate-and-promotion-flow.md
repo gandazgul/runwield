@@ -20,11 +20,21 @@ affectedPaths:
     - "scripts/release-check.test.js"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-26T18:50:18-04:00"
-status: "draft"
+updatedAt: "2026-07-26T23:18:46.013Z"
+status: "in_progress"
+origin: "internal"
+userVerifiedAt: null
+userVerificationNote: null
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "678b590b2177fbb690fad035e13f5364ad707770"
+worktreeId: "c4ad153f"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-release-candidate-and-promotion-flow-c4ad153f"
+worktreeBranch: "runwield/worktree/release-candidate-and-promotion-flow-c4ad153f"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Release Candidate and Promotion Flow
@@ -138,6 +148,8 @@ Existing functions, modules, or patterns to reuse:
   version writer.
 - `scripts/release-check.js` — preserve its standalone compile, bundled Markdown extraction, and real Workspace review
   smoke tests while adding release-identity verification and cleanup.
+- `scripts/check-submodule-fetchability.js` and the `submodules:check:remote` task — reuse the committed remote pin
+  proof from local release preflight without copying its network implementation into the new release CLI.
 - `.github/workflows/release.yml` — retain the existing source-quality, qualification, five-target build, packaging,
   checksums, schema asset, and `softprops/action-gh-release` stages.
 - `install.sh` — reuse its existing positional version support for Candidate dogfooding; default `/releases/latest`
@@ -173,12 +185,13 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Add exact non-interactive command contracts: `deno task release:candidate --tag vX.Y.Z-rc.N [--dry-run]`,
       `deno task release:promote --candidate vX.Y.Z-rc.N [--dry-run]`, and
       `deno task release:stable --tag vX.Y.Z [--dry-run]`. Candidate/direct Stable preflight the clean checkout at
-      synchronized `main`; promotion fetches tags, verifies the selected Candidate is a successful prerelease with the
-      complete WLD asset set, resolves its peeled commit, and qualifies that source in a temporary detached release
-      worktree with Stable build identity. Perform every check before creating an annotated local tag; push only that
-      tag; record only `Promoted-From: <Candidate tag>` as source provenance in the Stable annotation (no duplicate
-      commit field); and make `--dry-run` perform read-only preflight and print the proposed tag target/push without
-      tag, push, host-release, or repository-file side effects.
+      synchronized `main` and run the existing `submodules:check:remote` proof before qualification; promotion fetches
+      tags, verifies the selected Candidate is a successful prerelease with the complete WLD asset set, resolves its
+      peeled commit, and qualifies that source in a temporary detached release worktree with Stable build identity.
+      Perform every check before creating an annotated local tag; push only that tag; record only
+      `Promoted-From: <Candidate tag>` as source provenance in the Stable annotation (no duplicate commit field); and
+      make `--dry-run` perform read-only preflight and print the proposed tag target/push without tag, push,
+      host-release, or repository-file side effects.
 - [ ] Add `deno task release:metadata --tag <tag>` as a side-effect-free CI contract that writes exactly one JSON object
       to stdout with `{ tag, kind, buildVersion, prerelease, makeLatest }` and sends any diagnostics to stderr. Keep
       Prompt Template text passive: do not add `tools:` support to Prompt Template parsing and do not let local, home,
@@ -257,14 +270,12 @@ Existing functions, modules, or patterns to reuse:
 
 ## Edge Cases & Considerations
 
-- The working tree contains unrelated changes in `CONTEXT.md`, `Containerfile.wld-ux`, and
-  `scripts/install-platforms.test.js`; execution must occur in the Plan worktree and must not overwrite or absorb those
-  primary-checkout edits.
-- Concurrent uncommitted work is restoring the previously planned local/remote submodule-check split and also adds an
-  unrelated UX task in `deno.json`, which this feature must modify for release tasks. Once that work is committed,
-  execution must re-read and preserve its final `submodules:check`, `submodules:check:remote`, and `release:check`
-  contracts rather than reverting or duplicating them. Any remaining remote-fetchability drift should be handled as a
-  separate repair unless it directly blocks release qualification.
+- The working tree contains unrelated Runtime/TUI changes outside this Plan's affected paths; execution must occur in
+  the Plan worktree and must not overwrite or absorb those primary-checkout edits.
+- The local/remote submodule-check split and multi-target UX tasks are now committed in the baseline. Preserve the
+  existing `submodules:check`, `submodules:check:remote`, UX, and `release:check` tasks when adding release tasks. WLD's
+  local Candidate/direct-Stable preflight should invoke the existing remote-fetchability task rather than duplicate its
+  implementation; tag CI's recursive submodule checkout remains its remote pin-availability proof.
 - GitHub release publication precedes Operator's notes edit by design. The release may briefly exist with default/empty
   notes; completion reporting and recovery must distinguish successful assets from pending notes without deleting or
   recreating the release. Temporary notes must remain untracked and be removed afterward; no changelog/release-note file
