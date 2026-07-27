@@ -12,7 +12,7 @@ export const WORK_RECORD_STATUSES = Object.freeze([
     "superseded",
 ]);
 
-export const WORK_RECORD_SCOPES = Object.freeze(["feature", "epic", "quick_fix"]);
+export const WORK_RECORD_SCOPES = Object.freeze(["planned_change", "feature", "epic", "quick_fix"]);
 export const WORK_RECORD_ORIGINS = Object.freeze(["internal", "external"]);
 export const WORK_RECORD_COMPLETION_MODES = Object.freeze([
     "verified",
@@ -33,6 +33,7 @@ export const WORK_RECORD_FRONT_MATTER_KEYS = Object.freeze({
     recordId: "recordId",
     status: "status",
     scope: "scope",
+    workKind: "workKind",
     origin: "origin",
     completionMode: "completionMode",
     createdAt: "createdAt",
@@ -62,7 +63,8 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  * @property {"work_record"} kind
  * @property {string} recordId
  * @property {"pending_verification"|"draft"|"approved"|"superseded"} status
- * @property {"feature"|"epic"|"quick_fix"} scope
+ * @property {"planned_change"|"feature"|"epic"|"quick_fix"} scope
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind]
  * @property {"internal"|"external"} origin
  * @property {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} completionMode
  * @property {string} createdAt

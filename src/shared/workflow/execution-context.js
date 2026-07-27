@@ -2,6 +2,7 @@
  * Fail-closed resolver for Workflow Validation execution context.
  */
 
+import { isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import {
     findById as findWorktreeRegistryEntryById,
@@ -159,7 +160,7 @@ export async function resolveValidationExecutionContext({
     const realPathFn = __deps.realPath || realPath;
     const plan = await loadPlanFn(projectRoot, planName);
     const attrs = plan?.attrs || triageMeta || {};
-    if (!plan && attrs.classification === "FEATURE") {
+    if (!plan && isPlannedChangeClassification(attrs.classification)) {
         await recordResolutionMetric({
             recordWorkflowMetric: recordMetricFn,
             cwd: projectRoot,
@@ -168,10 +169,10 @@ export async function resolveValidationExecutionContext({
         });
         return blocked(
             "missing_plan",
-            `Plan ${planName} could not be loaded; Workflow Validation requires a canonical implemented FEATURE Plan.`,
+            `Plan ${planName} could not be loaded; Workflow Validation requires a canonical implemented planned-change Plan.`,
         );
     }
-    if (attrs.classification !== "FEATURE") {
+    if (!isPlannedChangeClassification(attrs.classification)) {
         return {
             kind: "ok",
             context: {

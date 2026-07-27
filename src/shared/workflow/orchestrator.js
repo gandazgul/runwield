@@ -10,8 +10,8 @@
  * IDEATION  → Ideator
  * OPERATION → Operator
  * QUICK_FIX → Engineer → on `task_completed`, runs no-plan Mechanical Validation
- * FEATURE   → Planner  → on `approved_execute`, runs `executePlan`
- * PROJECT   → Architect → on `approved_decompose`, starts Slicer decomposition
+ * PLANNED_CHANGE → Planner  → on `approved_execute`, runs `executePlan`
+ * PROJECT        → Architect → on `approved_decompose`, starts Slicer decomposition
  *
  * After dispatch, the specialist remains the active root agent so follow-up
  * messages can continue the same topic with useful context. Users can start a
@@ -23,7 +23,7 @@
  * iterates without rebuilding LLM context.
  */
 
-import { AGENTS, ROUTING_INTENTS } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification, normalizeRoutingIntent } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { switchActiveAgent } from "../session/agent-switching.js";
@@ -53,15 +53,14 @@ export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./valida
 
 /**
  * @typedef {Object} TriageOutcome
- * @property {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} routingIntent
- * @property {"FEATURE" | "PROJECT" | undefined} [classification]
+ * @property {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT"} routingIntent
+ * @property {"PLANNED_CHANGE" | "FEATURE" | "PROJECT" | undefined} [classification]
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind]
  * @property {"LOW" | "MEDIUM" | "HIGH"} complexity
  * @property {string} summary
  * @property {string} [sessionName]
  * @property {string[]} affectedPaths
  */
-
-const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
 
 /**
  * @param {import('./workflow-results.js').ReturnToRouterOutcome | null} outcome
@@ -128,12 +127,12 @@ async function confirmNonGitQuickFixExecution(hostedSession, projectRoot) {
 
 /**
  * @param {unknown} value
- * @returns {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT" | null}
+ * @returns {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "PLANNED_CHANGE" | "PROJECT" | null}
  */
 function asRoutingIntent(value) {
-    if (typeof value !== "string") return null;
-    if (!ROUTING_INTENTS.includes(value)) return null;
-    return /** @type {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} */ (value);
+    const normalized = normalizeRoutingIntent(value);
+    if (!normalized) return null;
+    return /** @type {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "PLANNED_CHANGE" | "PROJECT"} */ (normalized);
 }
 
 /**
@@ -161,8 +160,10 @@ function normalizeTriageOutcome(details) {
         delete outcome.sessionName;
     }
 
-    if (PLAN_ROUTING_INTENTS.includes(routingIntent)) {
-        outcome.classification = /** @type {"FEATURE" | "PROJECT"} */ (routingIntent);
+    if (routingIntent === "PLANNED_CHANGE") {
+        outcome.classification = "PLANNED_CHANGE";
+    } else if (routingIntent === "PROJECT") {
+        outcome.classification = "PROJECT";
     } else {
         delete outcome.classification;
     }
@@ -202,6 +203,7 @@ function buildTriageBlock(triage) {
         `- Routing Intent: ${triage.routingIntent}`,
     ];
     if (triage.classification) lines.push(`- Plan Classification: ${triage.classification}`);
+    if (triage.workKind) lines.push(`- Work Kind: ${triage.workKind}`);
     if (triage.sessionName) lines.push(`- Session Name: ${triage.sessionName}`);
     lines.push(
         `- Complexity: ${triage.complexity}`,
@@ -238,7 +240,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession) {
 
 /**
  * Dispatch the next Agent based on a Triage Report's Routing Intent, then
- * (for FEATURE/PROJECT) execute the approved plan.
+ * (for PLANNED_CHANGE/PROJECT) execute the approved plan.
  *
  * @param {Object} args
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
@@ -312,7 +314,7 @@ export async function dispatchPostTriage(
         ? AGENTS.OPERATOR
         : normalizedTriage.routingIntent === "QUICK_FIX"
         ? AGENTS.ENGINEER
-        : normalizedTriage.routingIntent === "FEATURE"
+        : isPlannedChangeClassification(normalizedTriage.routingIntent)
         ? AGENTS.PLANNER
         : AGENTS.ARCHITECT;
     await recordWorkflowMetricImpl({
@@ -460,9 +462,9 @@ export async function dispatchPostTriage(
         return;
     }
 
-    if (normalizedTriage.routingIntent === "FEATURE" || normalizedTriage.routingIntent === "PROJECT") {
-        const isFeature = normalizedTriage.routingIntent === "FEATURE";
-        const agentName = isFeature ? AGENTS.PLANNER : AGENTS.ARCHITECT;
+    if (isPlannedChangeClassification(normalizedTriage.routingIntent) || normalizedTriage.routingIntent === "PROJECT") {
+        const isPlannedChange = isPlannedChangeClassification(normalizedTriage.routingIntent);
+        const agentName = isPlannedChange ? AGENTS.PLANNER : AGENTS.ARCHITECT;
         const ensurePlansDirImpl = __deps?.ensurePlansDir || ensurePlansDir;
         const runPlanningAgentImpl = __deps?.runPlanningAgent || runPlanningAgent;
         const executePlanImpl = __deps?.executePlan || executePlan;

@@ -59,10 +59,13 @@ docs/work-records/2026-07-14-work-records-design.md
 Every Work Record has required `scope`:
 
 ```yaml
-scope: feature | epic | quick_fix
+scope: planned_change | epic | quick_fix
+workKind: BUG_FIX | FEATURE | REFACTOR | MAINTENANCE # optional for planned_change
 ```
 
-- `feature`: a completed standalone FEATURE Plan or external/manual work assessed as feature-sized.
+- `planned_change`: a completed standalone Planned Change Plan or external/manual work assessed as
+  planned-executable-sized. Legacy `scope: planned_change` is accepted and displayed neutrally as planned-change scope
+  unless `workKind: FEATURE` is present.
 - `epic`: a completed PROJECT Epic record, including child-feature outcome detail when useful.
 - `quick_fix`: an explicitly requested record for no-plan QUICK_FIX work.
 
@@ -195,7 +198,7 @@ Minimal internal generated Work Record:
 kind: work_record
 recordId: 11111111-1111-4111-8111-111111111111
 status: approved
-scope: feature
+scope: planned_change
 origin: internal
 completionMode: verified
 createdAt: 2026-07-14T08:32:00-04:00
@@ -219,7 +222,7 @@ Example closed-without-verification record:
 kind: work_record
 recordId: 33333333-3333-4333-8333-333333333333
 status: approved
-scope: feature
+scope: planned_change
 origin: internal
 completionMode: closed_without_verification
 createdAt: 2026-07-14T08:32:00-04:00
@@ -265,24 +268,24 @@ Recorder is the future Agent responsible for Work Record generation.
 
 Automatic generation targets:
 
-- standalone top-level FEATURE Plan reaching `verified`
-- top-level FEATURE Plan reaching `user_verified` or `closed_without_verification`
+- standalone top-level Planned Change Plan reaching `verified`
+- top-level Planned Change Plan reaching `user_verified` or `closed_without_verification`
 - PROJECT Epic reaching `verified`
 - PROJECT Epic marked `done_enough`
 - PROJECT Epic reaching `user_verified` or `closed_without_verification`
 
 Automatic generation does not target:
 
-- child FEATURE Plans under an Epic by default
+- child Planned Change Plans under an Epic by default
 - normal no-plan QUICK_FIX sessions by default
 
 For Epics:
 
 - generate one longer Epic Work Record
 - include a clear overall Summary
-- include detail about child FEATURE outcomes when needed
-- aggregate direct Ticket References from the Epic first, then child FEATURE Plans in deterministic order, deduplicating
-  by exact trimmed URL with first object winning
+- include detail about child Planned Change outcomes when needed
+- aggregate direct Ticket References from the Epic first, then child Planned Change Plans in deterministic order,
+  deduplicating by exact trimmed URL with first object winning
 - include active, unfinished, and archived children in the provenance aggregation boundary
 - do not generate one Work Record per child Plan by default
 
@@ -308,15 +311,15 @@ Work Record generation is best-effort and must not block Plans from reaching `ve
 V1 generation is completion-driven, not session-boundary driven. Automatic hooks run after the terminal event is already
 durable:
 
-- after successful FEATURE Workflow Validation and merge-back/in-place `validation_passed` persistence;
+- after successful Planned Change Workflow Validation and merge-back/in-place `validation_passed` persistence;
 - after `wld load-plan` records `epic_done_enough`;
 - after Workspace records a canonical `manual_closed_without_verification` action;
-- after a child FEATURE validation causes its parent Epic to become `done_enough`.
+- after a child Planned Change validation causes its parent Epic to become `done_enough`.
 
-For verified FEATURE plans, Manual QA checklist generation and Work Record generation start together after the Plan is
-terminal. Manual QA runs through the hosted session prompt; Recorder runs through a separate non-interactive Agent
-Session, so the two handoffs can overlap safely. RunWield waits for both handoffs, then prints a concise Work Record
-result.
+For verified Planned Change Plans, Manual QA checklist generation and Work Record generation start together after the
+Plan is terminal. Manual QA runs through the hosted session prompt; Recorder runs through a separate non-interactive
+Agent Session, so the two handoffs can overlap safely. RunWield waits for both handoffs, then prints a concise Work
+Record result.
 
 Automatic generation is controlled by `workRecords.autoGenerateOnPlanCompletion`, defaulting to enabled. Only literal
 nested `false` disables automatic generation. Disabling the setting does not affect canonical Markdown storage, `wld wr`
@@ -333,8 +336,8 @@ and backfill/index-rebuild guidance for failures. These failures never roll back
 
 ### Plan Backlink Metadata
 
-Only the top-level source Plan/Epic gets a Work Record backlink. Child FEATURE Plans under an Epic do not get their own
-pointer by default.
+Only the top-level source Plan/Epic gets a Work Record backlink. Child Planned Change Plans under an Epic do not get
+their own pointer by default.
 
 Absence of `workRecord` front matter on a completed top-level Plan/Epic means the Work Record is missing/eligible for
 generation.

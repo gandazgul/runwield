@@ -15,7 +15,7 @@
 import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
+import { CLI_BIN, normalizePlanClassification, normalizeWorkKind, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
@@ -39,7 +39,8 @@ import {
 
 /**
  * @typedef {{
- *   classification?: "QUICK_FIX" | "FEATURE" | "PROJECT",
+ *   classification?: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT",
+ *   workKind?: "BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE",
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
  *   affectedPaths?: string[],
@@ -159,15 +160,20 @@ function reviewContextDetails(reviewResult) {
  * @returns {Promise<TriageMeta>}
  */
 async function resolveTriageMeta(triageMeta, planName, cwd) {
+    let meta = triageMeta || {};
     try {
         const plan = await loadPlan(cwd, planName);
         if (plan?.attrs) {
-            return /** @type {TriageMeta} */ ({ ...triageMeta, ...plan.attrs });
+            meta = /** @type {TriageMeta} */ ({ ...triageMeta, ...plan.attrs });
         }
     } catch {
         /* ignore */
     }
-    return triageMeta || {};
+    return /** @type {TriageMeta} */ ({
+        ...meta,
+        classification: normalizePlanClassification(meta.classification),
+        workKind: normalizeWorkKind(meta.workKind),
+    });
 }
 
 /**
@@ -420,7 +426,11 @@ export function createPlanWrittenTool(
                 );
             }
 
-            const approvedMeta = /** @type {TriageMeta} */ (reviewResult.planAttrs || effectiveMeta);
+            const approvedMeta = /** @type {TriageMeta} */ ({
+                ...(reviewResult.planAttrs || effectiveMeta),
+                classification: normalizePlanClassification((reviewResult.planAttrs || effectiveMeta).classification),
+                workKind: normalizeWorkKind((reviewResult.planAttrs || effectiveMeta).workKind),
+            });
             const action = normalizePlanApprovalAction({
                 classification: approvedMeta.classification,
                 action: reviewResult.approvalAction,

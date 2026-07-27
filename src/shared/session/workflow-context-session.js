@@ -4,7 +4,7 @@
  * Persists RunWield workflow footer context in Pi's append-only session stream.
  */
 
-import { COMPLEXITIES, ROUTING_INTENTS } from "../../constants.js";
+import { COMPLEXITIES, normalizeRoutingIntent } from "../../constants.js";
 
 export const WORKFLOW_CONTEXT_CUSTOM_TYPE = "runwield.workflow_context";
 
@@ -21,8 +21,8 @@ export const WORKFLOW_CONTEXT_CUSTOM_TYPE = "runwield.workflow_context";
  */
 export function normalizeWorkflowRoutingIntent(value) {
     if (typeof value !== "string") return "";
-    const normalized = value.trim().toUpperCase();
-    return ROUTING_INTENTS.includes(normalized) ? normalized : "";
+    const normalized = normalizeRoutingIntent(value.trim().toUpperCase());
+    return normalized || "";
 }
 
 /**

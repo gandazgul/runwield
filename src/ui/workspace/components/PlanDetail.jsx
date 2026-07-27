@@ -65,7 +65,8 @@ const METADATA_LABELS = Object.freeze({
     [FM.planId]: "Plan ID",
     [RESOURCE_METADATA_KEYS.relativePath]: "Path",
     [FM.origin]: "Origin",
-    [FM.classification]: "Classification",
+    [FM.classification]: "Plan Classification",
+    [FM.workKind]: "Work Kind",
     [FM.complexity]: "Complexity",
     [FM.summary]: "Summary",
     [FM.affectedPaths]: "Affected paths",
@@ -110,7 +111,7 @@ const METADATA_GROUPS = Object.freeze([
     },
     {
         title: "Planning",
-        keys: [FM.classification, FM.complexity, FM.summary, FM.affectedPaths, FM.createdAt, FM.updatedAt],
+        keys: [FM.classification, FM.workKind, FM.complexity, FM.summary, FM.affectedPaths, FM.createdAt, FM.updatedAt],
     },
     {
         title: "Hierarchy & dependencies",
@@ -186,6 +187,7 @@ function planMetadata(plan) {
         [RESOURCE_METADATA_KEYS.relativePath]: plan.relativePath,
         [FM.status]: source[FM.status] ?? plan.status,
         [FM.classification]: source[FM.classification] ?? plan.classification,
+        [FM.workKind]: source[FM.workKind] ?? plan.workKind,
         [FM.complexity]: source[FM.complexity] ?? plan.complexity,
         [FM.summary]: source[FM.summary] ?? plan.summary,
         [FM.tickets]: source[FM.tickets],
@@ -488,10 +490,10 @@ function EpicDetailSections({ epic, url }) {
                             ))}
                         </ul>
                     )
-                    : <p className="empty">No child FEATURE Plan dependencies declared.</p>}
+                    : <p className="empty">No child planned change Plan dependencies declared.</p>}
             </section>
             <section className="child-plan-section">
-                <h3>Child FEATURE Plans</h3>
+                <h3>Child Planned Change Plans</h3>
                 {visibleColumns.length
                     ? (
                         <div className="status-board child-status-board">
@@ -500,7 +502,7 @@ function EpicDetailSections({ epic, url }) {
                             ))}
                         </div>
                     )
-                    : <p className="empty">No child FEATURE Plans are attached to this Epic.</p>}
+                    : <p className="empty">No child planned change Plans are attached to this Epic.</p>}
             </section>
         </>
     );

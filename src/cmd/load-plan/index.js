@@ -6,7 +6,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { AGENTS, CLI_BIN } from "../../constants.js";
+import { AGENTS, CLI_BIN, isPlannedChangeClassification } from "../../constants.js";
 import {
     archivePlan as archivePlanFn,
     compareChildPlansByOrder,
@@ -2784,7 +2784,7 @@ function formatDependencyWarning(unmetDependencies) {
  * @returns {Promise<boolean>}
  */
 async function confirmChildFeatureDependencies(projectRoot, plan, uiAPI, resolveSiblingChildPlanDependencies) {
-    if (plan.attrs.classification !== "FEATURE" || !plan.attrs.parentPlan) return true;
+    if (!isPlannedChangeClassification(plan.attrs.classification) || !plan.attrs.parentPlan) return true;
     const dependencies = Array.isArray(plan.attrs.dependencies) ? plan.attrs.dependencies : [];
     if (dependencies.length === 0) return true;
 
@@ -2835,7 +2835,7 @@ async function handleEpicPlan({
     if (!isEpicPlan(plan.attrs)) return "continue";
 
     const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
-        child.attrs.classification === "FEATURE"
+        isPlannedChangeClassification(child.attrs.classification)
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
     const isApprovedEpic = plan.attrs.status === "approved";

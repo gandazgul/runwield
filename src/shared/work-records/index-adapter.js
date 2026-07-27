@@ -73,6 +73,7 @@ export function buildWorkRecordIndexTags(record) {
     const tags = [
         `status:${record.attrs.status}`,
         `scope:${record.attrs.scope}`,
+        ...(record.attrs.workKind ? [`workKind:${record.attrs.workKind}`] : []),
         `origin:${record.attrs.origin}`,
         `completion:${record.attrs.completionMode}`,
         `archived:${record.attrs.archivedAt ? "true" : "false"}`,

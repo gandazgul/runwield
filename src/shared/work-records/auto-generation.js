@@ -3,6 +3,7 @@
  * Targeted Work Record auto-generation after terminal Plan outcomes.
  */
 
+import { isPlannedChangeClassification } from "../../constants.js";
 import {
     findPlansByParent,
     isChildFeaturePlan,
@@ -62,7 +63,9 @@ async function withEpicChildren(cwd, source) {
         if (loaded) children.push(buildActiveWorkRecordSource(child.name, loaded));
     }
     for (const child of await listArchivedPlans(cwd)) {
-        if (child.attrs.classification !== "FEATURE" || child.attrs.parentPlan !== source.name) continue;
+        if (!isPlannedChangeClassification(child.attrs.classification) || child.attrs.parentPlan !== source.name) {
+            continue;
+        }
         const loaded = await loadArchivedPlan(cwd, child.name);
         if (!loaded) continue;
         children.push({

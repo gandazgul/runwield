@@ -11,7 +11,7 @@ affectedPaths:
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
-# Optional: target execution branch for child FEATURE plans when explicitly requested by the user.
+# Optional: target execution branch for child Planned Change Plans when explicitly requested by the user.
 # worktreeBaseBranch: "feature/base-branch"
 createdAt: "<ISO-8601 timestamp>"
 status: "draft"
@@ -49,8 +49,8 @@ Existing functions, modules, or patterns to reuse:
 - Manual: precise user flows / checks
 - Expected results for key scenarios
 - For Epics with browser UI scope: do not set Epic-level `executionAgent`, `collaborationRecommendation`, or `frontend`.
-  Describe which child FEATURE slices will need Frontend Engineer ownership and headed browser verification; the Slicer
-  assigns canonical ownership on executable child FEATURE Plans.
+  Describe which child planned change slices will need Frontend Engineer ownership and headed browser verification; the
+  Slicer assigns canonical ownership on executable child Planned Change Plans.
 
 ## Edge Cases & Considerations
 

@@ -1,6 +1,7 @@
 export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     planId: "planId",
     classification: "classification",
+    workKind: "workKind",
     complexity: "complexity",
     summary: "summary",
     affectedPaths: "affectedPaths",

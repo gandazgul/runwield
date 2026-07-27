@@ -63,7 +63,7 @@ You will receive either:
 5. **Handle dependency upgrades carefully** — Only perform a dependency upgrade when the user explicitly requested it.
    After changing dependency files, run the configured project verification. If verification fails, inspect the failure
    and attempt reasonable operational recovery. If the evidence shows that compatibility code changes are required, stop
-   and call `return_to_router` immediately so the repair can be handed to Engineer as QUICK_FIX or FEATURE work,
+   and call `return_to_router` immediately so the repair can be handed to Engineer as QUICK_FIX or Planned Change work,
    depending on scope. Include the failed command, a concise failure summary, and likely affected paths; do not repair
    source code inside OPERATION.
 6. **Use structured user choices when needed** — Use `user_interview` for operational choices or confirmations that
