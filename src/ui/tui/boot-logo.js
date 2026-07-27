@@ -40,10 +40,12 @@ const dotOn = [
     "   ▓▓▓▓▓▓▓            ▓▓▓▓▓▓▓          ▓▓▓▓▓▓▓",
 ];
 
-/** @type {ReturnType<typeof setInterval>} */
-let blinkInterval;
+/** @type {ReturnType<typeof setInterval> | null} */
+let blinkInterval = null;
 /** @type {Text[]} */
 const dot = [];
+/** @type {import("@earendil-works/pi-tui").TUI | null} */
+let activeTui = null;
 
 /**
  * Build a centered ASCII logo banner and insert it into the TUI container.
@@ -51,7 +53,9 @@ const dot = [];
  * @param {import("@earendil-works/pi-tui").Container} container
  */
 export function renderBootLogo(container) {
+    endBlink();
     const { tui, terminal } = getTUI();
+    activeTui = tui;
 
     terminal.clearFromCursor();
     terminal.clearScreen();
@@ -83,16 +87,20 @@ export function renderBootLogo(container) {
 
         tui.requestRender();
     }, 1300);
+    if (typeof blinkInterval.unref === "function") blinkInterval.unref();
 }
 
 export function endBlink() {
-    const { tui } = getTUI();
-
-    clearInterval(blinkInterval);
+    if (blinkInterval !== null) {
+        clearInterval(blinkInterval);
+        blinkInterval = null;
+    }
 
     for (let i = 0; i < dot.length; i++) {
         dot[i].setText(theme.fg("mdCode", dotOn[i]));
     }
 
-    tui.requestRender();
+    activeTui?.requestRender?.();
+    dot.length = 0;
+    activeTui = null;
 }

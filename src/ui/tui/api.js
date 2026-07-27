@@ -660,6 +660,34 @@ export function createUiApi(
             validationPanelBlock = null;
             validationReportOrder = 0;
             queuedMessageBlocks.clear();
+            activeToolBlocks.clear();
+            for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
+            keyboardHelp = null;
+            managedSyncStatus = null;
+            tui.requestRender();
+        },
+
+        dispose: () => {
+            if (activePromptCancel) {
+                activePromptCancel();
+                activePromptCancel = null;
+            }
+            stopBusyFrameTimer();
+            restoreFocusedCursorAfterBusy();
+            for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
+            activeToolBlocks.clear();
+            queuedMessageBlocks.clear();
+            keyboardHelp = null;
+            managedSyncStatus = null;
+            validationProgress = null;
+            latestEngineerReport = null;
+            latestReviewerReport = null;
+            validationPanelBlock = null;
+            validationReportOrder = 0;
+            validationPanelContainer?.clear?.();
+            activeInteractionContainer?.clear?.();
+            spinner.setBusy(false, spinner.tasks);
+            tui.setFocus(null);
             tui.requestRender();
         },
 

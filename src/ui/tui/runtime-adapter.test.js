@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { mapRuntimeEventToAcpUpdate } from "../../acp/event-mapper.js";
+import { RuntimeInteractionTypes } from "../../shared/session/session-runtime-interactions.js";
 import { createSessionRuntimeEvent, RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 
@@ -649,4 +650,34 @@ Deno.test("a second TUI adapter for one Runtime session fails instead of duplica
         "thinking:end",
         "assistant:Engineer:still active",
     ]);
+});
+
+Deno.test("attachTuiRuntimeAdapter forwards composition-owned interaction dependencies", async () => {
+    const { runtime, sessionId, interactionAdapters } = makeRuntimeHarness("session-deps");
+    const { uiAPI } = makeUi();
+    /** @type {any[]} */
+    const calls = [];
+    const adapter = attachTuiRuntimeAdapter({
+        runtime,
+        sessionId,
+        uiAPI,
+        interactionDependencies: {
+            submitPlanForReview: (request) => {
+                calls.push(request);
+                return Promise.resolve({ canceled: false, approved: true, feedback: "", approvalAction: "later" });
+            },
+        },
+    });
+    try {
+        const result = await interactionAdapters.at(-1).requestInteraction({
+            type: RuntimeInteractionTypes.PLAN_REVIEW,
+            prompt: "Review",
+            _meta: { cwd: Deno.cwd(), planName: "golden" },
+        });
+        assertEquals(result.outcome, "accepted");
+        assertEquals(calls.length, 1);
+        assertEquals(calls[0].planName, "golden");
+    } finally {
+        adapter.dispose();
+    }
 });
