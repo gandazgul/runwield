@@ -31,7 +31,7 @@ import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } 
  */
 function formatChildProgress(children) {
     const { verified, active, failed, onHold, remaining, total } = countChildPlanProgress(children);
-    const label = total === 1 ? "feature" : "features";
+    const label = total === 1 ? "Planned Change" : "Planned Changes";
     const parts = [`${verified}/${total} ${label} verified`];
     if (active > 0) parts.push(`${active} active/implemented`);
     if (onHold > 0) parts.push(`${onHold} on hold`);
@@ -187,7 +187,7 @@ export async function runPlansCommand(argv, options = {}) {
             console.log(`    Done enough: ${epic.attrs.epicDoneEnoughSummary}`);
         }
         if (children.length > 0) {
-            console.log("    Features:");
+            console.log("    Planned Changes:");
             for (const child of children) {
                 printChildPlan(child);
             }

@@ -75,9 +75,9 @@ When applicable, include an explicit step that updates `CONTEXT.md` in the same 
     externally blocked.
   - PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
     execution policy belongs only on child Planned Change Plans.
-  - Legacy `frontend: true` on legacy FEATURE Plans is still accepted as Frontend Engineer/autonomous compatibility
-    metadata, but new Plans should use canonical `executionAgent` / `collaborationRecommendation` instead. Legacy
-    `frontend: false` remains Engineer compatibility metadata and is distinct from an absent canonical owner.
+  - Legacy `frontend: true` on legacy Planned Change Plans is still accepted as Frontend Engineer/autonomous
+    compatibility metadata, but new Plans should use canonical `executionAgent` / `collaborationRecommendation` instead.
+    Legacy `frontend: false` remains Engineer compatibility metadata and is distinct from an absent canonical owner.
 
 ## Edge Cases & Considerations
 

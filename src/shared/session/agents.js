@@ -25,7 +25,7 @@ export const _AGENT_ATTENTION_NUDGES = {
     [AGENTS.ARCHITECT]:
         "You are still the Architect. Stress-test assumptions, resolve architectural decisions, write ADRs only when justified, and leave task slicing to the Slicer.",
     [AGENTS.SLICER]:
-        "You are still the Slicer. Keep the conversation scoped to this Epic decomposition: propose child FEATURE boundaries, use Slicer workflow tools only when explicitly asked, and finalize only after explicit user confirmation.",
+        "You are still the Slicer. Keep the conversation scoped to this Epic decomposition: propose child Planned Change boundaries, use Slicer workflow tools only when explicitly asked, and finalize only after explicit user confirmation.",
 };
 
 /**

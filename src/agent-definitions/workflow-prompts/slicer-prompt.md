@@ -74,7 +74,7 @@ advance. If it cannot complete the operation, explain the actual blocker once, p
 offer the most useful next step. A tool rejection is a recoverable workflow state, not a reason to become adversarial or
 end the collaboration.
 
-## Child FEATURE Plan Format
+## Child Planned Change Plan Format
 
 Create standalone Planned Change Plans using `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/planner-plan-format.md` as the
 canonical structure.
@@ -93,6 +93,11 @@ Each child descriptor must include:
 - `order` — stable 1-based integer execution order from the agreed slice sequence. Preserve existing `order` values when
   updating drafts; only renumber when the user explicitly changes the sequence.
 - `summary` — one or two sentences explaining the child slice.
+- `workKind` — child Work Kind (`BUG_FIX`, `FEATURE`, `REFACTOR`, or `MAINTENANCE`). Set it for each new child based on
+  the child slice's actual work nature. Use any Epic or triage Work Kind as the default only when it truly applies to
+  that child; otherwise choose the more specific child kind. When updating an existing child draft, preserve its current
+  Work Kind unless the user changes the slice's nature; omit `workKind` in the descriptor to preserve the existing child
+  value.
 - `dependencies` — durable sibling child plan identifiers when sequencing matters; otherwise an empty array. Use the
   exact generated child plan name (`epic-name/01-child-slug`) or exact sibling child segment (`01-child-slug`),
   including the two-digit `order` prefix that RunWield writes into child filenames. Derive the segment from the child

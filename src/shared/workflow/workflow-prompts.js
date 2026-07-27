@@ -11,6 +11,7 @@ import { formatPlannedWorkLabel } from "../../constants.js";
  * @property {number} [order]
  * @property {string} [status]
  * @property {string} [summary]
+ * @property {string} [workKind]
  * @property {string[]} [dependencies]
  * @property {string[]} [affectedPaths]
  * @property {import('../ticket-references.js').TicketReference[]} [tickets]
@@ -67,6 +68,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         lines.push("## Triage Report");
         lines.push("## Triage Metadata");
         if (triageMeta.classification) lines.push(`- Classification: ${triageMeta.classification}`);
+        if (triageMeta.workKind) lines.push(`- Work Kind: ${triageMeta.workKind}`);
         if (triageMeta.complexity) lines.push(`- Complexity: ${triageMeta.complexity}`);
         if (triageMeta.summary) lines.push(`- Summary: ${triageMeta.summary}`);
         if (triageMeta.affectedPaths?.length) {
@@ -94,6 +96,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
             if (child.order !== undefined) lines.push(`  - Order: ${child.order}`);
             if (child.status) lines.push(`  - Status: ${child.status}`);
             if (child.summary) lines.push(`  - Summary: ${child.summary}`);
+            if (child.workKind) lines.push(`  - Work Kind: ${child.workKind}`);
             if (child.dependencies?.length) lines.push(`  - Dependencies: ${child.dependencies.join(", ")}`);
             if (child.affectedPaths?.length) lines.push(`  - Affected paths: ${child.affectedPaths.join(", ")}`);
             if (child.tickets?.length) {

@@ -9,6 +9,7 @@ import {
     materializeSlicerDraft,
     openSlicerDecomposition,
     readLatestPlanOutcome,
+    runPlanningAgent,
     runSlicerAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
@@ -39,6 +40,31 @@ function loadedCanonicalPlanSource(planName) {
         }),
     );
 }
+
+Deno.test("runPlanningAgent forwards triage metadata into the planning root", async () => {
+    const hostedSession = makeHostedSession();
+    const triageMeta = /** @type {any} */ ({
+        classification: "PLANNED_CHANGE",
+        workKind: "BUG_FIX",
+        summary: "Fix settings persistence",
+    });
+    let capturedOptions;
+
+    await runPlanningAgent({
+        agentName: "planner",
+        initialRequest: "Plan the fix",
+        triageMeta,
+        hostedSession,
+        __deps: {
+            runActiveAgentTurn: (options) => {
+                capturedOptions = options;
+                return Promise.resolve([]);
+            },
+        },
+    });
+
+    assertEquals(/** @type {any} */ (capturedOptions).triageMeta, triageMeta);
+});
 
 Deno.test("HostedSession scopes active execution workflow independently", () => {
     const sessionA = new HostedSession({ id: "workflow-a", cwd: "/project-a" });
@@ -1800,12 +1826,14 @@ Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
 Deno.test("buildSlicerRequest includes triage report fields when present", () => {
     const text = buildSlicerRequest("my-plan", {
         classification: "PROJECT",
+        workKind: "REFACTOR",
         complexity: "HIGH",
         summary: "Initialize RunWield",
         affectedPaths: ["src/foo.js", "src/bar.js"],
     });
     assertStringIncludes(text, "Triage Report");
     assertStringIncludes(text, "Classification: PROJECT");
+    assertStringIncludes(text, "Work Kind: REFACTOR");
     assertStringIncludes(text, "Complexity: HIGH");
     assertStringIncludes(text, "Summary: Initialize RunWield");
     assertStringIncludes(text, "src/foo.js, src/bar.js");
@@ -2263,22 +2291,32 @@ Deno.test("createSlicerFinalizeTool leaves already finalized Epics ready without
     });
 });
 
-Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async () => {
+Deno.test("materializeSlicerDraft delegates child Planned Change draft writes without forcing parent Work Kind", async () => {
     /** @type {Array<{ cwd: string, epicPlanName: string, descriptors: unknown[] }>} */
     const calls = [];
-    const children = [{
+    const children = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */ ([{
         sequence: 1,
         title: "Draft child",
         summary: "Draft summary",
         affectedPaths: ["src/plan-store.js"],
         dependencies: [],
         content: "# Draft child",
-    }];
+    }, {
+        sequence: 2,
+        title: "Explicit Work Kind child",
+        summary: "Explicit summary",
+        affectedPaths: ["src/constants.js"],
+        dependencies: ["01-draft-child"],
+        workKind: "MAINTENANCE",
+        content: "# Explicit child",
+    }]);
     const result = await materializeSlicerDraft({
         cwd: "/repo",
         epicPlanName: "epic-a",
         children,
         parentWorktreeBaseBranch: "feature-base",
+        // Regression: an omitted child workKind must remain omitted so saveChildFeaturePlans
+        // can preserve an existing child value or keep a new child neutral.
         __deps: {
             saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
                 calls.push({ cwd, epicPlanName, descriptors });
@@ -2302,7 +2340,10 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
     assertEquals(calls, [{
         cwd: "/repo",
         epicPlanName: "epic-a",
-        descriptors: [{ ...children[0], worktreeBaseBranch: "feature-base" }],
+        descriptors: [
+            { ...children[0], worktreeBaseBranch: "feature-base" },
+            { ...children[1], worktreeBaseBranch: "feature-base" },
+        ],
     }]);
     assertEquals(result[0].name, "epic-a/01-draft-child");
 });

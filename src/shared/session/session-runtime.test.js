@@ -9,6 +9,21 @@ import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
+/** @param {string} path */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            const isRetryable = error instanceof Error &&
+                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
+            if (!isRetryable || attempt === 4) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+    }
+}
+
 /**
  * @param {string} id
  * @param {string} cwd
@@ -314,7 +329,7 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -356,7 +371,7 @@ Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projec
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -432,7 +447,7 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });
@@ -522,7 +537,7 @@ Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan work
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 });

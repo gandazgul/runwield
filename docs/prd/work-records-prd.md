@@ -64,13 +64,13 @@ workKind: BUG_FIX | FEATURE | REFACTOR | MAINTENANCE # optional for planned_chan
 ```
 
 - `planned_change`: a completed standalone Planned Change Plan or external/manual work assessed as
-  planned-executable-sized. Legacy `scope: planned_change` is accepted and displayed neutrally as planned-change scope
-  unless `workKind: FEATURE` is present.
-- `epic`: a completed PROJECT Epic record, including child-feature outcome detail when useful.
+  planned-executable-sized. Legacy `scope: feature` is accepted and normalized to planned-change scope, displayed
+  neutrally unless `workKind: FEATURE` is present.
+- `epic`: a completed PROJECT Epic record, including child Planned Change outcome detail when useful.
 - `quick_fix`: an explicitly requested record for no-plan QUICK_FIX work.
 
-External/manual records still receive a scope. Recorder should assess the appropriate scope; most external records are
-expected to be `feature`.
+External/manual records still receive a scope. Recorder should assess the appropriate scope; most external planned-work
+records are expected to be `planned_change`.
 
 ### Origin and Provenance
 
@@ -185,7 +185,7 @@ Guidance:
 - Do not create a full implementation diary.
 - `## Deviations from Plan` is rare for internal workflow records and should only appear when Recorder detects a
   meaningful deviation.
-- `## Deferred Work` is mainly for Epics, done-enough completion, or skipped child features.
+- `## Deferred Work` is mainly for Epics, done-enough completion, or skipped child Planned Changes.
 - `## Future Planning Notes` should contain only concrete reusable lessons, not speculation.
 - Recorder should keep `## Summary` concise by instruction rather than hard tooling enforcement.
 
@@ -208,7 +208,7 @@ provenance:
     sourcePlans:
         - 22222222-2222-4222-8222-222222222222
 ---
-# Example Feature Outcome
+# Example Planned Change Outcome
 
 ## Summary
 
@@ -515,7 +515,7 @@ Index entries should include compact searchable text, not the full body:
 
 ```text
 Title: <H1>
-Scope: feature
+Scope: planned_change
 Origin: internal
 Completion: verified
 Summary:
@@ -539,7 +539,7 @@ Tags should mirror useful fields for filtering, including:
 - `status:superseded`
 - `origin:internal`
 - `origin:external`
-- `scope:feature`
+- `scope:planned_change`
 - `scope:epic`
 - `scope:quick_fix`
 - `completion:verified`
