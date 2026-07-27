@@ -189,7 +189,8 @@ function characterizePublicContextResilienceContract(api) {
 }
 
 Deno.test("selected public Pi AgentSession contract lacks the required completed-turn stop and recovery hook", async () => {
-    const denoConfig = JSON.parse(await Deno.readTextFile("deno.json"));
+    const repositoryRoot = new URL("../../../", import.meta.url);
+    const denoConfig = JSON.parse(await Deno.readTextFile(new URL("deno.json", repositoryRoot)));
     assertEquals(
         denoConfig.imports["@earendil-works/pi-coding-agent"],
         `npm:@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}`,
