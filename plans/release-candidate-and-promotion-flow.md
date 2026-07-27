@@ -1,4 +1,5 @@
 ---
+planId: "8fda9ae2-072a-4c8e-91dd-c635c67ffb14"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Add a candidate-first-capable release workflow with explicit Operator choices, portable release policy, deterministic WLD tagging and promotion, and CI-enforced Candidate versus Stable publication semantics."
@@ -21,13 +22,17 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T18:50:18-04:00"
-updatedAt: "2026-07-27T04:07:36.467Z"
+updatedAt: "2026-07-27T04:07:49.569Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T00:07:26.470Z"
 verifiedAt: "2026-07-27T04:07:36.467Z"
 userVerifiedAt: null
-userVerificationNote: null
+workRecord:
+    status: "generated"
+    recordId: "ebea1860-80bb-4dff-bcd7-87e95a942bbf"
+    path: "docs/work-records/2026-07-27-candidate-first-release-and-promotion-workflow.md"
+    lastAttemptAt: "2026-07-27T04:07:42.506Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-27T04:07:36.195Z"
