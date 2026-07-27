@@ -5,7 +5,7 @@
 
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification, normalizePlanClassification } from "../../constants.js";
 import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -159,6 +159,32 @@ function formatCapturedProcessOutput(stdout, stderr) {
 }
 
 /**
+ * @param {string} relativePath
+ * @param {(path: string) => Promise<string>} readTextFile
+ * @param {typeof ensureBundledAgentDefFile} ensurePromptFile
+ * @returns {Promise<{ attrs: Record<string, unknown>, body: string }>}
+ */
+async function readBundledPromptYaml(relativePath, readTextFile, ensurePromptFile) {
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            const promptPath = await ensurePromptFile(relativePath);
+            const raw = await readTextFile(promptPath);
+            if (!raw.trim()) throw new TypeError("Prompt file was empty during bundled prompt load");
+            return extractYaml(raw);
+        } catch (error) {
+            lastError = error;
+            const isRetryable = error instanceof Deno.errors.NotFound ||
+                (error instanceof TypeError &&
+                    /Unexpected end of input|Prompt file was empty/i.test(error.message));
+            if (!isRetryable || attempt === 2) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
+/**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
  * Normal agent definitions are wrapped with RunWield' shared system prompt, which
  * advertises skills, memory, and exploration tools. Semantic review is a
@@ -177,16 +203,11 @@ export async function loadReviewerPrompt(
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
-    let reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
-    let raw;
-    try {
-        raw = await readTextFile(reviewerPromptPath);
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-        reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
-        raw = await readTextFile(reviewerPromptPath);
-    }
-    const { attrs, body } = extractYaml(raw);
+    const { attrs, body } = await readBundledPromptYaml(
+        join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE),
+        readTextFile,
+        ensurePromptFile,
+    );
     const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Reviewer";
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
 
@@ -234,7 +255,7 @@ export async function loadManualQaPrompt(
  * @param {Object} args
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {string} args.name
- * @param {"QUICK_FIX"|"FEATURE"} args.classification
+ * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
  * @param {string} args.context
  * @param {string} args.cwd
  * @param {{
@@ -254,10 +275,11 @@ export async function runManualQaChecklistPrompt({
     const loadPrompt = __deps?.loadManualQaPrompt || loadManualQaPrompt;
     const runIsolatedAgentSessionImpl = __deps?.runIsolatedAgentSession || runIsolatedAgentSession;
     const agentDef = await loadPrompt();
+    const normalizedClassification = classification === "FEATURE" ? "PLANNED_CHANGE" : classification;
     const userRequest = [
         "Prepare the post-verification checklist from this source material.",
         `Name: ${name}`,
-        `Classification: ${classification}`,
+        `Classification: ${normalizedClassification}`,
         "",
         "### Source context",
         context,
@@ -277,7 +299,7 @@ export async function runManualQaChecklistPrompt({
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} */ (
                 hostedSession.getRootSessionManager?.()
             ),
-            { agentName: "Operator", text: checklistText, name, classification },
+            { agentName: "Operator", text: checklistText, name, classification: normalizedClassification },
         );
     }
     return messages;
@@ -290,7 +312,7 @@ export async function runManualQaChecklistPrompt({
  * @param {Object} args
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {string} args.name
- * @param {"QUICK_FIX"|"FEATURE"} args.classification
+ * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
  * @param {string} args.context
  * @param {string} args.cwd
  * @param {typeof runManualQaChecklistPrompt} args.runPrompt
@@ -335,7 +357,7 @@ async function runFeaturePostVerificationHandoffs({
     const manualQaPromise = presentManualQaChecklist({
         hostedSession,
         name: planName,
-        classification: "FEATURE",
+        classification: "PLANNED_CHANGE",
         context: planContent,
         cwd: projectRoot,
         runPrompt: runManualQaChecklistPrompt,
@@ -1067,6 +1089,16 @@ export function shouldContinueParentEpicAfterValidation(triageMeta) {
     return isPlannedChangeClassification(triageMeta?.classification) &&
         typeof parentPlan === "string" &&
         parentPlan.trim().length > 0;
+}
+
+/** @param {unknown} classification */
+function formatValidationClassificationDisplay(classification) {
+    if (typeof classification !== "string" || !classification.trim()) return "Plan";
+    const normalized = normalizePlanClassification(classification);
+    if (normalized === "PLANNED_CHANGE") return "Planned change";
+    if (normalized === "QUICK_FIX") return "Quick fix";
+    if (normalized === "PROJECT") return "Project";
+    return "Plan";
 }
 
 /**
@@ -2283,9 +2315,7 @@ export async function runValidationLoop({
     }
 
     if (executionComplete) {
-        const triageClassificationDisplay = triageMeta?.classification
-            ? triageMeta.classification.toLocaleLowerCase().replace(/^([a-z])/, (c) => c.toUpperCase())
-            : "Plan";
+        const triageClassificationDisplay = formatValidationClassificationDisplay(triageMeta?.classification);
         let cleanupMergedWorktrees = true;
         const maxMergeRepairAttempts = 2;
         const maxTargetAdvanceRetries = 3;
@@ -2930,11 +2960,11 @@ export async function runValidationLoop({
                 progress = updateValidationProgress(progress, {
                     outcome: "running",
                     stage: "manual_qa",
-                    message: "Preparing FEATURE manual QA checklist.",
+                    message: "Preparing Planned Change manual QA checklist.",
                 });
                 emitRunWieldSystemStatus(
                     hostedSession,
-                    "Preparing FEATURE manual QA checklist.",
+                    "Preparing Planned Change manual QA checklist.",
                     "info",
                     progress,
                 );

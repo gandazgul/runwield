@@ -46,7 +46,7 @@ Return only structured JSON with this shape:
   fallback.
 - For `done_enough` Epics, summarize the overall Epic outcome and include Deferred Work only when child outcomes or the
   done-enough summary identify useful remaining work.
-- For Epics, mention child FEATURE outcomes only when they clarify the durable result or deferred scope.
+- For Epics, mention child Planned Change outcomes only when they clarify the durable result or deferred scope.
 - Prefer stable file-level evidence only when the caller asks for evidence notes; avoid line numbers by default.
 - Whether the human reviewed the code or not is irrelevant; the Work Record should summarize the durable outcome, not
   the review process.

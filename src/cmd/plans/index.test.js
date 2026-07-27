@@ -207,7 +207,7 @@ Deno.test("runPlansCommand prints plan entries", async () => {
     assertEquals(logs.some((m) => m.includes("p1")), true);
 });
 
-Deno.test("runPlansCommand prints one Epic with child FEATURE hierarchy and verified progress", async () => {
+Deno.test("runPlansCommand prints one Epic with child Planned Change hierarchy and verified progress", async () => {
     const logs = await capturePlansOutput([
         {
             name: "big-project",
@@ -250,7 +250,7 @@ Deno.test("runPlansCommand prints one Epic with child FEATURE hierarchy and veri
 
     assertEquals(logs.some((m) => m.includes("Epics:")), true);
     assertEquals(logs.some((m) => m.includes("big-project")), true);
-    assertEquals(logs.some((m) => m.includes("Progress: 1/2 features verified")), true);
+    assertEquals(logs.some((m) => m.includes("Progress: 1/2 Planned Changes verified")), true);
     assertEquals(logs.some((m) => m.includes("- big-project/01-first")), true);
     assertEquals(logs.some((m) => m.includes("Worktree: merged (feature/first)")), true);
 });
@@ -309,14 +309,14 @@ Deno.test("runPlansCommand marks done-enough Epic while keeping remaining child 
     ]);
 
     assertEquals(
-        logs.some((m) => m.includes("Progress: 1/3 features verified") && m.includes("done enough for now")),
+        logs.some((m) => m.includes("Progress: 1/3 Planned Changes verified") && m.includes("done enough for now")),
         true,
     );
     assertEquals(logs.some((m) => m.includes("Done enough: Done enough: 1/3 verified.")), true);
     assertEquals(logs.some((m) => m.includes("- done-enough-epic/02-second")), true);
 });
 
-Deno.test("runPlansCommand keeps orphan child FEATURE plans visible", async () => {
+Deno.test("runPlansCommand keeps orphan child Planned Change plans visible", async () => {
     const logs = await capturePlansOutput([
         {
             name: "missing-parent/01-orphan",
@@ -336,7 +336,7 @@ Deno.test("runPlansCommand keeps orphan child FEATURE plans visible", async () =
     assertEquals(logs.some((m) => m.includes("missing-parent/01-orphan")), true);
 });
 
-Deno.test("runPlansCommand renders standalone FEATURE plans separately", async () => {
+Deno.test("runPlansCommand renders standalone Planned Change plans separately", async () => {
     const logs = await capturePlansOutput([
         {
             name: "standalone-feature",
@@ -425,7 +425,9 @@ Deno.test("runPlansCommand groups held top-level plans at bottom and keeps held 
     const onHoldIndex = logs.findIndex((message) => message.includes("On Hold:"));
     assertEquals(onHoldIndex >= 0, true);
     assertEquals(
-        logs.some((message) => message.includes("Progress: 0/1 feature verified") && message.includes("1 on hold")),
+        logs.some((message) =>
+            message.includes("Progress: 0/1 Planned Change verified") && message.includes("1 on hold")
+        ),
         true,
     );
     assertEquals(logs.some((message) => message.includes("Held from: ready_for_work")), true);

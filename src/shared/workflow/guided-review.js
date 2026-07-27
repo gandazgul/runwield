@@ -114,11 +114,11 @@ export function recommendGuidedReview({ planAttrs, planContent = "", diffText, u
     }
     if (isChildFeaturePlan(attrs) && hasDeclaredDependencies(attrs)) {
         score += 2;
-        reasons.push("child FEATURE dependencies");
+        reasons.push("child Planned Change dependencies");
     }
     if (isChildFeaturePlan(attrs)) {
         score += 1;
-        reasons.push("child FEATURE Epic context");
+        reasons.push("child Planned Change Epic context");
     }
     if (stats.meaningfulAreas.length >= 3) {
         score += 2;

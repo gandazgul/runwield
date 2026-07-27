@@ -417,7 +417,7 @@ Deno.test("targeted Work Record auto-generation writes standalone FEATURE record
     }
 });
 
-Deno.test("targeted Work Record auto-generation resolves child FEATURE to terminal parent Epic", async () => {
+Deno.test("targeted Work Record auto-generation resolves child Planned Change to terminal parent Epic", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nBody", {

@@ -1,6 +1,6 @@
 ---
 name: Frontend Engineer
-description: "Browser UI execution specialist for approved visual and interactive FEATURE plans, validation repairs, and routed UI quick fixes."
+description: "Browser UI execution specialist for approved visual and interactive Planned Change plans, validation repairs, and routed UI quick fixes."
 temperature: 0.4
 tools:
     - read

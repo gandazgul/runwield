@@ -39,7 +39,7 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     assertEquals(executed, true);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE with verified dependencies executes without warning", async () => {
+Deno.test("runLoadPlanCommand child Planned Change with verified dependencies executes without warning", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("proceed");
     let executed = false;
@@ -87,7 +87,7 @@ Deno.test("runLoadPlanCommand child FEATURE with verified dependencies executes 
     assertEquals(executed, true);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE warns for unverified dependencies and can proceed", async () => {
+Deno.test("runLoadPlanCommand child Planned Change warns for unverified dependencies and can proceed", async () => {
     const { uiAPI, selections, messages, prompts } = makeUi();
     selections.push("proceed", "proceed");
     let executed = false;
@@ -136,7 +136,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for unverified dependencies an
     assertEquals(executed, true);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE warns for missing dependencies", async () => {
+Deno.test("runLoadPlanCommand child Planned Change warns for missing dependencies", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("proceed", "proceed");
     let executed = false;
@@ -182,7 +182,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for missing dependencies", asy
     assertEquals(executed, true);
 });
 
-Deno.test("runLoadPlanCommand child FEATURE dependency warning can be canceled", async () => {
+Deno.test("runLoadPlanCommand child Planned Change dependency warning can be canceled", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("cancel");
     let executed = false;

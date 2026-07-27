@@ -47,6 +47,27 @@ function settingsTest(testDefinition, fn) {
     );
 }
 
+/**
+ * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
+ * filesystem metadata settles after settings writes. Retry boundedly so cleanup
+ * flakiness does not fail otherwise successful settings tests.
+ *
+ * @param {string} path
+ */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            const isRetryable = error instanceof Error &&
+                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
+            if (!isRetryable || attempt === 4) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+    }
+}
+
 settingsTest({
     name: "getCustomSetting parses JSONC with comments",
     async fn() {
@@ -279,8 +300,8 @@ settingsTest("getResolvedVisionFallbackModelSetting prefers active preset over t
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -354,8 +375,8 @@ settingsTest(
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(tempProject, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(tempProject);
         }
     },
 );
@@ -382,8 +403,8 @@ settingsTest(
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(tempProject, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(tempProject);
         }
     },
 );
@@ -407,8 +428,8 @@ settingsTest("shouldCleanupMergedWorktrees defaults true and honors false settin
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
         __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -439,8 +460,8 @@ settingsTest("compaction token setters persist globally and preserve sibling com
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
         __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -467,8 +488,8 @@ settingsTest("compaction token setters reject invalid values before writing", as
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
         __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -500,8 +521,8 @@ settingsTest("getGuidedReviewMode defaults auto, honors overrides, and rejects i
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
         __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -530,8 +551,8 @@ settingsTest("getCodeReviewMode defaults none, honors overrides, and rejects inv
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
         __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -554,8 +575,8 @@ settingsTest("Plan Server URL setting uses global value and project override pre
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
@@ -605,11 +626,11 @@ settingsTest("Plan Server URL setting stores only the normalized server URL", as
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 });
 
 Deno.test("cleanup temp dirs", async () => {
-    await Deno.remove(TEMP_DIR, { recursive: true });
+    await removeTempDir(TEMP_DIR);
 });

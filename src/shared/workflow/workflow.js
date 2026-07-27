@@ -295,7 +295,7 @@ export async function finalizePlanImplementation({
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta: _triageMeta, sessionManager, hostedSession, images, __deps },
+    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images, __deps },
 ) {
     const runActiveAgentTurn = __deps?.runActiveAgentTurn ||
         (await import("../session/agent-switching.js")).runActiveAgentTurn;
@@ -307,6 +307,7 @@ export async function runPlanningAgent(
         userRequest: initialRequest,
         images,
         sessionManager,
+        triageMeta,
         allowReturnToRouter: false,
     });
 

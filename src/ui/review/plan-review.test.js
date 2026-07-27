@@ -48,6 +48,7 @@ Deno.test("submitPlanForReview updates metadata and records approval", async () 
             planPath,
             triageMeta: {
                 classification: "FEATURE",
+                workKind: "BUG_FIX",
                 complexity: "MEDIUM",
                 summary: "Add the thing",
                 affectedPaths: ["src/a.js"],
@@ -57,11 +58,13 @@ Deno.test("submitPlanForReview updates metadata and records approval", async () 
 
         const parsed = parsePlanFrontMatter(await Deno.readTextFile(planPath));
         assertEquals(parsed.attrs.classification, "PLANNED_CHANGE");
+        assertEquals(parsed.attrs.workKind, "BUG_FIX");
         assertEquals(parsed.attrs.complexity, "MEDIUM");
         assertEquals(result.approved, true);
         assertEquals(result.feedback, "looks good");
         assertEquals(result.approvalAction, "run");
         assertEquals(result.planAttrs?.classification, "PLANNED_CHANGE");
+        assertEquals(result.planAttrs?.workKind, "BUG_FIX");
         assertEquals(result.planAttrs?.complexity, "MEDIUM");
         assertEquals(harness.events.map((event) => event.event), ["review_approved"]);
         assertEquals(harness.stops(), 1);
