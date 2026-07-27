@@ -15,7 +15,8 @@ import {
     listPromptTemplates,
     listSkills,
     runIsolatedAgentSession,
-    steerRootSessionWithTarget,
+    steerActiveSessionWithTarget,
+    steerAgentSessionWithTarget,
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
 import {
@@ -69,7 +70,7 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {(mode: import('./root-session.js').RootSessionStartMode, cwd: string) => Promise<any>} [createRootSessionManager]
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
  * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
- * @property {typeof steerRootSessionWithTarget} [steerRootSessionWithTarget]
+ * @property {typeof steerActiveSessionWithTarget} [steerActiveSessionWithTarget]
  * @property {import('../owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
  * @property {'workspace' | 'tui' | 'acp' | 'test'} [ownerProcessKind]
  * @property {string} [ownerInstanceId]
@@ -250,15 +251,15 @@ export class SessionRuntime {
     #openPersistedRootSession;
     /** @type {(sessionManager: any) => Promise<string>} */
     #resolveResumeAgentName;
-    /** @type {typeof steerRootSessionWithTarget} */
-    #steerRootSessionWithTarget;
+    /** @type {typeof steerActiveSessionWithTarget} */
+    #steerActiveSessionWithTarget;
     /** @type {Map<string, Set<SessionRuntimeEventListener>>} */
     #eventListeners;
     /** @type {Map<string, Promise<void>>} */
     #turnSettlements;
     /** @type {Map<string, RuntimeQueuedMessageState[]>} */
     #queuedMessages;
-    /** @type {Map<string, QueueSourceSubscription>} */
+    /** @type {Map<string, Map<import('@earendil-works/pi-coding-agent').AgentSession, QueueSourceSubscription>>} */
     #queueSourceSubscriptions;
     /** @type {Map<string, number>} */
     #busyOperationDepths;
@@ -281,7 +282,7 @@ export class SessionRuntime {
         this.#createRootSessionManager = options.createRootSessionManager || createRootSessionManager;
         this.#openPersistedRootSession = options.openPersistedRootSession || openPersistedRootSession;
         this.#resolveResumeAgentName = options.resolveResumeAgentName || resolveResumeAgentName;
-        this.#steerRootSessionWithTarget = options.steerRootSessionWithTarget || steerRootSessionWithTarget;
+        this.#steerActiveSessionWithTarget = options.steerActiveSessionWithTarget || steerActiveSessionWithTarget;
         this.#eventListeners = new Map();
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
@@ -514,14 +515,17 @@ export class SessionRuntime {
      * @param {import('@earendil-works/pi-coding-agent').AgentSession} sourceSession
      */
     #ensureQueueSourceSubscription(hostedSession, sourceSession) {
-        const current = this.#queueSourceSubscriptions.get(hostedSession.id);
-        if (current?.sourceSession === sourceSession) return;
-        current?.unsubscribe();
+        let subscriptions = this.#queueSourceSubscriptions.get(hostedSession.id);
+        if (!subscriptions) {
+            subscriptions = new Map();
+            this.#queueSourceSubscriptions.set(hostedSession.id, subscriptions);
+        }
+        if (subscriptions.has(sourceSession)) return;
         const unsubscribe = sourceSession.subscribe((event) => {
             if (event.type !== "queue_update") return;
             this.#reconcileQueuedMessages(hostedSession, sourceSession, event.steering);
         });
-        this.#queueSourceSubscriptions.set(hostedSession.id, { sourceSession, unsubscribe });
+        subscriptions.set(sourceSession, { sourceSession, unsubscribe });
     }
 
     /**
@@ -546,10 +550,13 @@ export class SessionRuntime {
      * @param {import('@earendil-works/pi-coding-agent').AgentSession} sourceSession
      */
     #removeQueueSourceSubscription(sessionId, sourceSession) {
-        const subscription = this.#queueSourceSubscriptions.get(sessionId);
-        if (subscription?.sourceSession !== sourceSession) return;
+        const subscriptions = this.#queueSourceSubscriptions.get(sessionId);
+        if (!subscriptions) return;
+        const subscription = subscriptions.get(sourceSession);
+        if (!subscription) return;
         subscription.unsubscribe();
-        this.#queueSourceSubscriptions.delete(sessionId);
+        subscriptions.delete(sourceSession);
+        if (subscriptions.size === 0) this.#queueSourceSubscriptions.delete(sessionId);
     }
 
     /**
@@ -583,9 +590,9 @@ export class SessionRuntime {
     }
 
     /**
-     * Queue a steering message in the active root AgentSession and publish the
-     * resulting core state. Adapters should render QUEUED_MESSAGE_CHANGED rather
-     * than subscribing to AgentSession directly.
+     * Queue a steering message in the active foreground AgentSession and publish
+     * the resulting core state. Adapters should render QUEUED_MESSAGE_CHANGED
+     * rather than subscribing to AgentSession directly.
      *
      * @param {string} sessionId
      * @param {string} text
@@ -597,13 +604,15 @@ export class SessionRuntime {
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession");
         if (managedRejection) return { ...managedRejection, queued: false };
+        const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
-        if (!rootSession?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
+        const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
+        if (!expectedTarget?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
 
-        this.#ensureQueueSourceSubscription(hostedSession, rootSession);
-        const sourceSession = await this.#steerRootSessionWithTarget(hostedSession, text, images);
+        this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
+        const sourceSession = await this.#steerActiveSessionWithTarget(hostedSession, text, images);
         if (!sourceSession) {
-            this.#removeQueueSourceSubscription(hostedSession.id, rootSession);
+            this.#removeQueueSourceSubscription(hostedSession.id, expectedTarget);
             return { ok: true, queued: false, reason: "not_streaming" };
         }
 
@@ -738,8 +747,10 @@ export class SessionRuntime {
         try {
             for (const message of sourceMessages) {
                 if (message.id === selected.id) continue;
-                const requeued = await this.#steerRootSessionWithTarget(hostedSession, message.text, message.images);
-                if (!requeued) throw new Error("root session stopped streaming while restoring its queue");
+                const requeued = await steerAgentSessionWithTarget(sourceSession, message.text, message.images);
+                if (requeued !== sourceSession) {
+                    throw new Error("source session stopped streaming while restoring its queue");
+                }
             }
             for (const followUp of cleared.followUp || []) await sourceSession.followUp(followUp);
         } catch (error) {
@@ -1600,8 +1611,8 @@ export class SessionRuntime {
         if (closed) {
             this.#emitSessionEvent(id, { type: RuntimeEventTypes.SESSION_CLOSED });
             this.#eventListeners.delete(id);
-            const queueSubscription = this.#queueSourceSubscriptions.get(id);
-            queueSubscription?.unsubscribe();
+            const queueSubscriptions = this.#queueSourceSubscriptions.get(id);
+            for (const queueSubscription of queueSubscriptions?.values() || []) queueSubscription.unsubscribe();
             this.#queueSourceSubscriptions.delete(id);
             this.#queuedMessages.delete(id);
             this.#busyOperationDepths.delete(id);

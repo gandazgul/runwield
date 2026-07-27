@@ -76,6 +76,7 @@ import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
+import { installEarlySteeringInterruption } from "./early-steering.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 
@@ -527,8 +528,34 @@ export function abortActiveSession(hostedSession) {
 }
 
 /**
+ * Steer a concrete AgentSession and return the session that accepted the message.
+ *
+ * @param {any} session
+ * @param {string | import('./types.js').ImageAttachment[]} [text]
+ * @param {import('./types.js').ImageAttachment[]} [images]
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
+ */
+export async function steerAgentSessionWithTarget(session, text, images) {
+    if (!session) return null;
+    if (!session.isStreaming) return null;
+    const activeModel = session.model || { input: ["text", "image"] };
+    const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
+        ? await resolveVisionFallbackModel(session.modelRegistry)
+        : undefined;
+    const prepared = prepareImagesForModel({
+        text: /** @type {string} */ (text),
+        images,
+        activeModel,
+        fallbackModelRef: fallback?.modelRef,
+    });
+    if (!prepared.ok) throw new Error(prepared.message);
+    await session.steer(prepared.text, prepared.images && prepared.images.length > 0 ? prepared.images : undefined);
+    return session;
+}
+
+/**
  * Steer the root (user-facing) session with a message injected between tool calls.
- * Sub-agent sessions spawned by tools are intentionally excluded.
+ * Foreground sub-agent steering uses steerActiveSessionWithTarget instead.
  *
  * @param {import('./hosted-session.js').HostedSession | string} hostedSession
  * @param {string | import('./types.js').ImageAttachment[]} [text]
@@ -549,22 +576,30 @@ export async function steerRootSession(hostedSession, text, images) {
  */
 export async function steerRootSessionWithTarget(hostedSession, text, images) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
-    const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
-    if (!session) return null;
-    if (!session.isStreaming) return null;
-    const activeModel = session.model || { input: ["text", "image"] };
-    const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
-        ? await resolveVisionFallbackModel(session.modelRegistry)
-        : undefined;
-    const prepared = prepareImagesForModel({
-        text: /** @type {string} */ (text),
+    return await steerAgentSessionWithTarget(
+        /** @type {any} */ (targetHostedSession.getRootAgentSession()),
+        text,
         images,
-        activeModel,
-        fallbackModelRef: fallback?.modelRef,
-    });
-    if (!prepared.ok) throw new Error(prepared.message);
-    await session.steer(prepared.text, prepared.images && prepared.images.length > 0 ? prepared.images : undefined);
-    return session;
+    );
+}
+
+/**
+ * Steer the current foreground session if it is streaming, otherwise the streaming root session.
+ *
+ * @param {import('./hosted-session.js').HostedSession | string} hostedSession
+ * @param {string | import('./types.js').ImageAttachment[]} [text]
+ * @param {import('./types.js').ImageAttachment[]} [images]
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
+ */
+export async function steerActiveSessionWithTarget(hostedSession, text, images) {
+    const targetHostedSession = requireHostedSession(hostedSession, "steerActiveSessionWithTarget");
+    const activeSession = /** @type {any} */ (targetHostedSession.getActiveSteeringTargetSession?.());
+    if (activeSession?.isStreaming) return await steerAgentSessionWithTarget(activeSession, text, images);
+    return await steerAgentSessionWithTarget(
+        /** @type {any} */ (targetHostedSession.getRootAgentSession()),
+        text,
+        images,
+    );
 }
 
 /**
@@ -1742,6 +1777,7 @@ export async function buildAgentSession({
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+    installEarlySteeringInterruption(/** @type {any} */ (session));
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
     const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
@@ -2443,7 +2479,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -2511,6 +2547,9 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
         const meta = rootSessionMetadata.get(existing);
         try {
             meta?.subscriberState.unsubscribe();
+        } catch (_e) { /* ignore */ }
+        try {
+            if (meta?.steeringTargetId) targetHostedSession.popSteeringTargetSession(meta.steeringTargetId);
         } catch (_e) { /* ignore */ }
         try {
             existing.dispose();
@@ -2589,6 +2628,9 @@ export async function ensureRootAgentSession(opts) {
         try {
             existingMeta?.subscriberState.unsubscribe();
         } catch (_e) { /* ignore */ }
+        try {
+            if (existingMeta?.steeringTargetId) hostedSession.popSteeringTargetSession(existingMeta.steeringTargetId);
+        } catch (_e) { /* ignore */ }
         rootSessionMetadata.delete(existing);
     }
 
@@ -2601,6 +2643,7 @@ export async function ensureRootAgentSession(opts) {
     );
 
     hostedSession.setRootAgentSession(session);
+    const steeringTargetId = hostedSession.pushSteeringTargetSession(session);
     hostedSession.setRootAgentName(opts.agentName);
     if (opts.activeHandler) hostedSession.setActiveOnMessage(opts.activeHandler);
     recordActiveAgent(
@@ -2622,6 +2665,7 @@ export async function ensureRootAgentSession(opts) {
         contextProjection,
         imageMode,
         visionFallbackModelRef,
+        steeringTargetId,
     });
 
     return session;
@@ -2799,6 +2843,7 @@ export async function runIsolatedAgentSession(opts) {
     /** @type {SubscriberState | undefined} */
     let subscriberState;
     let agentInfoId = "";
+    let steeringTargetId = "";
     let registeredSubAgent = false;
     const abortChild = () => {
         try {
@@ -2819,6 +2864,7 @@ export async function runIsolatedAgentSession(opts) {
             resolvedModel?.provider || "",
             opts.agentName,
         );
+        steeringTargetId = hostedSession.pushSteeringTargetSession(session);
         opts.signal?.addEventListener("abort", abortChild, { once: true });
         opts.signal?.throwIfAborted();
         return await runPromptFn({
@@ -2836,6 +2882,11 @@ export async function runIsolatedAgentSession(opts) {
         });
     } finally {
         opts.signal?.removeEventListener("abort", abortChild);
+        if (steeringTargetId) {
+            try {
+                hostedSession.popSteeringTargetSession(steeringTargetId);
+            } catch (_e) { /* ignore */ }
+        }
         if (agentInfoId) {
             try {
                 hostedSession.popAgentInfo(agentInfoId);

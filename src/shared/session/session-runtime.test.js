@@ -1358,6 +1358,107 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(runtime.getQueuedMessages(sessionId), []);
 });
 
+Deno.test("SessionRuntime steers active foreground sub-agent before streaming root and reconciles source queue", async () => {
+    const sessionHost = new SessionHost();
+    const rootSession = makeSteeringAgentSession();
+    const foregroundSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.addSubAgentSession(foregroundSession);
+    const targetId = hostedSession.pushSteeringTargetSession(foregroundSession);
+    /** @type {Array<{ status: string, text: string }>} */
+    const queueEvents = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) {
+            queueEvents.push({ status: event.status, text: event.message.text });
+        }
+    });
+
+    const steered = await runtime.steerSession(sessionId, "review this edge case", []);
+    assertEquals(steered.queued, true);
+    assertEquals(rootSession.getSteeringMessages(), []);
+    assertEquals(foregroundSession.getSteeringMessages(), ["review this edge case"]);
+
+    foregroundSession.consumeNextSteering();
+    assertEquals(queueEvents, [
+        { status: "queued", text: "review this edge case" },
+        { status: "consumed", text: "review this edge case" },
+    ]);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+
+    hostedSession.popSteeringTargetSession(targetId);
+    hostedSession.removeSubAgentSession(foregroundSession);
+});
+
+Deno.test("SessionRuntime keeps queue subscriptions for multiple steering source sessions", async () => {
+    const sessionHost = new SessionHost();
+    const rootSession = makeSteeringAgentSession();
+    const foregroundSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    /** @type {string[]} */
+    const consumedTexts = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED && event.status === "consumed") {
+            consumedTexts.push(event.message.text);
+        }
+    });
+
+    await runtime.steerSession(sessionId, "root pending", []);
+    const targetId = hostedSession.pushSteeringTargetSession(foregroundSession);
+    await runtime.steerSession(sessionId, "foreground pending", []);
+
+    rootSession.consumeNextSteering();
+    foregroundSession.consumeNextSteering();
+
+    assertEquals(consumedTexts, ["root pending", "foreground pending"]);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+    hostedSession.popSteeringTargetSession(targetId);
+});
+
+Deno.test("SessionRuntime dequeue restores remaining steering onto original source when foreground changes", async () => {
+    const sessionHost = new SessionHost();
+    const rootSession = makeSteeringAgentSession();
+    const foregroundSession = makeSteeringAgentSession();
+    const otherForegroundSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    const foregroundTargetId = hostedSession.pushSteeringTargetSession(foregroundSession);
+    await runtime.steerSession(sessionId, "keep on child", []);
+    await runtime.steerSession(sessionId, "recall from child", []);
+    hostedSession.popSteeringTargetSession(foregroundTargetId);
+    const otherTargetId = hostedSession.pushSteeringTargetSession(otherForegroundSession);
+
+    const dequeued = await runtime.dequeueLastQueuedMessage(sessionId);
+
+    assertEquals(dequeued.message?.text, "recall from child");
+    assertEquals(foregroundSession.getSteeringMessages(), ["keep on child"]);
+    assertEquals(otherForegroundSession.getSteeringMessages(), []);
+    assertEquals(runtime.getQueuedMessages(sessionId).map((message) => message.text), ["keep on child"]);
+    hostedSession.popSteeringTargetSession(otherTargetId);
+});
+
+Deno.test("SessionRuntime falls back to root when foreground steering target stopped streaming", async () => {
+    const sessionHost = new SessionHost();
+    const rootSession = makeSteeringAgentSession();
+    const foregroundSession = makeSteeringAgentSession();
+    foregroundSession.isStreaming = false;
+    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    const targetId = hostedSession.pushSteeringTargetSession(foregroundSession);
+
+    const steered = await runtime.steerSession(sessionId, "root instead", []);
+    assertEquals(steered.queued, true);
+    assertEquals(rootSession.getSteeringMessages(), ["root instead"]);
+    assertEquals(foregroundSession.getSteeringMessages(), []);
+
+    hostedSession.popSteeringTargetSession(targetId);
+});
+
 Deno.test("SessionRuntime cancellation emits cancellation and dequeues pending messages", async () => {
     const agentSession = makeSteeringAgentSession();
     const runtime = makeRuntime({ agentSession, abortActiveSession: () => true });
