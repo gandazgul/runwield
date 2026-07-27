@@ -32,14 +32,12 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:10:26-04:00"
-updatedAt: "2026-07-27T01:10:37.235Z"
+updatedAt: "2026-07-27T03:20:22.803Z"
 status: "implemented"
 origin: "internal"
-failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: src/shared/session/session-runtime.test.js"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-mid-run-tool-result-auto-compaction-843f49e8"
-worktreeBranch: "runwield/worktree/mid-run-tool-result-auto-compaction-843f49e8"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+failureReason: "Target branch main advanced before publication; rerun Workflow Validation."
+worktreeId: "843f49e8"
+worktreeStatus: "validation_failed"
 routingIntent: "FEATURE"
 ---
 
