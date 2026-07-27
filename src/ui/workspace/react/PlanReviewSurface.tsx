@@ -533,8 +533,8 @@ function ExecutionPolicyControls({
                 onChange={onAgentChange}
                 disabled={disabled}
                 options={[
-                    { value: "frontend-engineer", label: "Frontend Engineer" },
                     { value: "engineer", label: "Engineer" },
+                    { value: "frontend-engineer", label: "Frontend Engineer" },
                 ]}
             />
             <SegmentedPolicyControl
