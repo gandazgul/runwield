@@ -99,6 +99,19 @@ Deno.test("startup boot banner renders before managed agent activation can block
     assertEquals(bootBannerIndex < switchAgentIndex, true);
 });
 
+Deno.test("empty-directory hint is suppressed while first-run model setup is still required", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
+    const emptyDirectoryHintIndex = source.indexOf("EMPTY_PROJECT_DIRECTORY_WELCOME_BODY", modelWelcomeIndex);
+    const emptyDirectoryConditionStart = source.lastIndexOf("if (", emptyDirectoryHintIndex);
+    const emptyDirectoryConditionEnd = source.indexOf(") {", emptyDirectoryConditionStart);
+    const emptyDirectoryCondition = source.slice(emptyDirectoryConditionStart, emptyDirectoryConditionEnd);
+
+    assertEquals(modelWelcomeIndex >= 0, true);
+    assertEquals(emptyDirectoryHintIndex > modelWelcomeIndex, true);
+    assertEquals(emptyDirectoryCondition.includes("!modelWelcomeResult.noModel"), true);
+});
+
 Deno.test("pasted images remain pending when managed startup is dormant", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
     const pasteHandlerIndex = source.indexOf("async function handleImagePaste(image)");

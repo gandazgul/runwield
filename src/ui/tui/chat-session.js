@@ -1465,7 +1465,10 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         cancelRuntimeSession: () => sessionRuntime.cancelSession(sessionId).aborted,
     });
 
-    if (!suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest) {
+    if (
+        !suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest &&
+        !modelWelcomeResult.noModel
+    ) {
         uiAPI.appendSystemMessage(
             EMPTY_PROJECT_DIRECTORY_WELCOME_BODY,
             false,
