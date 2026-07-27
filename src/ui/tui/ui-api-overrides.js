@@ -61,6 +61,36 @@ export function installUiApiOverrides({
         }
     };
 
+    const basePromptSelect = uiAPI.promptSelect?.bind(uiAPI);
+    if (basePromptSelect) {
+        uiAPI.promptSelect = async (...args) => {
+            const wasDisabled = editor.disableSubmit === true;
+            editor.disableSubmit = true;
+            tui.requestRender();
+            try {
+                return await basePromptSelect(...args);
+            } finally {
+                editor.disableSubmit = wasDisabled;
+                tui.requestRender();
+            }
+        };
+    }
+
+    const basePromptText = uiAPI.promptText?.bind(uiAPI);
+    if (basePromptText) {
+        uiAPI.promptText = async (...args) => {
+            const wasDisabled = editor.disableSubmit === true;
+            editor.disableSubmit = true;
+            tui.requestRender();
+            try {
+                return await basePromptText(...args);
+            } finally {
+                editor.disableSubmit = wasDisabled;
+                tui.requestRender();
+            }
+        };
+    }
+
     uiAPI.showModelSelector = () => {
         return new Promise((resolve) => {
             const settingsManager = getSettingsManagerImpl();
