@@ -1,4 +1,5 @@
 ---
+planId: "1d626bc7-e1de-4efc-b427-df70239333a3"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Deliver live steering messages to the current foreground Agent Session, including Reviewer and delegated sessions, at the earliest safe tool boundary."
@@ -15,14 +16,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T12:10:11-04:00"
-updatedAt: "2026-07-27T16:42:22.083Z"
+updatedAt: "2026-07-27T16:42:33.594Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T16:26:46.211Z"
 verifiedAt: "2026-07-27T16:42:22.083Z"
 userVerifiedAt: null
-userVerificationNote: null
 executionReport: "- Implemented foreground steering target stack in `HostedSession`, root/isolated session push-pop lifetimes, and active-target steering while preserving root-only helpers.\n- Added early steering interruption guard that forces sequential tool execution and skips later requested tools when steering is pending.\n- Updated `SessionRuntime` steering/queue source handling, documentation terminology, and targeted session tests.\n- Verification passed: `deno test -A src/shared/session/early-steering.test.js src/shared/session/session-runtime.test.js src/shared/session/session-prompt.test.js src/shared/session/session-catalog.test.js`.\n- Verification passed: `deno task ci` (one intermediate run hit a transient cwd cleanup failure in `settings.test.js`; immediate rerun passed cleanly)."
+workRecord:
+    status: "generated"
+    recordId: "114c6d68-3d33-48b1-b7fc-c36a8a54f9ab"
+    path: "docs/work-records/2026-07-27-early-foreground-steering-delivered.md"
+    lastAttemptAt: "2026-07-27T16:42:27.488Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
