@@ -202,6 +202,9 @@ export function createAgentHandler(agentName, __deps) {
             if (/** @type {any} */ (validationResult)?.epicContinuation) {
                 return { kind: "complete", validationResult };
             }
+            if (/** @type {any} */ (validationResult)?.kind === "handoff") {
+                return /** @type {any} */ (validationResult);
+            }
             return { kind: "complete" };
         }
 
