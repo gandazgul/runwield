@@ -108,6 +108,44 @@ Deno.test("active and isolated Agents have exactly one production lifecycle boun
     assertEquals(violations, []);
 });
 
+Deno.test("command surfaces do not use SessionSnapshot as active runtime authority", async () => {
+    const violations = await findViolations(["src/cmd"], [
+        {
+            label: "active Agent read from display SessionSnapshot",
+            pattern: /getSessionSnapshot\s*\([^)]*\)\?\.activeAgent\b/,
+        },
+        {
+            label: "active execution workflow read from display SessionSnapshot",
+            pattern: /getSessionSnapshot\s*\([^)]*\)\?\.activeExecutionWorkflow\b/,
+        },
+    ]);
+
+    assertEquals(violations, []);
+});
+
+Deno.test("managed projection caches do not drive live activation transitions", async () => {
+    const runtimeSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
+    const workflowOperationIndex = runtimeSource.indexOf("async #runWorkflowOperation(");
+    const promptManagedIndex = runtimeSource.indexOf("async promptManagedSession(");
+    const activationTail = promptManagedIndex >= 0
+        ? runtimeSource.slice(workflowOperationIndex, promptManagedIndex)
+        : runtimeSource.slice(workflowOperationIndex);
+    const hostedSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/hosted-session.js"));
+    const setManagedIndex = hostedSource.indexOf("setManagedMetadata(metadata)");
+    const getManagedIndex = hostedSource.indexOf("getManagedMetadata()", setManagedIndex);
+    const setManagedBody = hostedSource.slice(setManagedIndex, getManagedIndex);
+
+    assertEquals(workflowOperationIndex >= 0, true);
+    assertEquals(/const agentName = [^\n]*managed\.activeAgent/.test(activationTail), false);
+    assertEquals(/\|\|\s*managed\.activeAgent/.test(activationTail), false);
+    assertEquals(/RuntimeEventTypes\.AGENT_CHANGED/.test(activationTail), false);
+    assertEquals(setManagedIndex >= 0, true);
+    assertEquals(
+        /\brootAgentName\b|\bworkflowContext\b|\bactiveThinkingLevel\b|setActiveModelState/.test(setManagedBody),
+        false,
+    );
+});
+
 Deno.test("SessionRuntime does not expose compatibility object APIs", () => {
     const methods = Object.getOwnPropertyNames(SessionRuntime.prototype);
     assertEquals(methods.includes("createSession"), false);

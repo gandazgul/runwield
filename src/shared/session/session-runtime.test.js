@@ -628,6 +628,49 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
     assertEquals(snapshot?.thinkingLevel, "high");
 });
 
+Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({
+        id: "managed-authority-separation",
+        cwd: Deno.cwd(),
+        sessionManager: null,
+        managed: {
+            runwieldSessionId: "rw-authority-separation",
+            projectId: "project-authority-separation",
+            piSessionId: "pi-authority-separation",
+            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            generation: 9,
+            acknowledgedGeneration: 9,
+            name: "Managed Authority Separation",
+            activeAgent: "router",
+            model: "cached-model",
+            provider: "cached-provider",
+            thinkingLevel: "medium",
+            workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+        },
+    });
+    const runtime = makeRuntime({ sessionHost });
+
+    assertEquals(runtime.isManagedSessionDormant(session.id), true);
+    assertEquals(runtime.getRuntimeActiveAgentName(session.id), null);
+    assertEquals(runtime.getRuntimeActiveExecutionWorkflow(session.id), null);
+    assertEquals(runtime.getSessionSnapshot(session.id)?.activeAgent, "router");
+    assertEquals(runtime.getSessionSnapshot(session.id)?.activeModel, {
+        model: "cached-model",
+        provider: "cached-provider",
+    });
+    assertEquals(runtime.getSessionSnapshot(session.id)?.thinkingLevel, "medium");
+    assertEquals(runtime.getSessionSnapshot(session.id)?.workflowContext, {
+        routingIntent: "FEATURE",
+        complexity: "LOW",
+    });
+
+    await runtime.switchAgent(session.id, { agentName: "engineer" });
+
+    assertEquals(runtime.getRuntimeActiveAgentName(session.id), "engineer");
+    assertEquals(runtime.getSessionSnapshot(session.id)?.activeAgent, "engineer");
+});
+
 Deno.test("SessionRuntime defers reload and rejects compaction for dormant managed Sessions", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
@@ -700,6 +743,29 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
     assertEquals(resumeFallbackIndex > agentSelectionIndex, true);
     assertEquals(activateIndex > resumeFallbackIndex, true);
     assertEquals(consumeIntentIndex > activateIndex, true);
+});
+
+Deno.test("SessionRuntime managed operation prefers persisted active agent over stale catalog summary", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const managedOperationIndex = source.indexOf("async #runWorkflowOperation(");
+    const openIndex = source.indexOf("await this.#openPersistedRootSession({", managedOperationIndex);
+    const persistedAgentIndex = source.indexOf(
+        "const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);",
+        openIndex,
+    );
+    const agentSelectionIndex = source.indexOf(
+        "const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;",
+        persistedAgentIndex,
+    );
+    const cacheFallbackIndex = source.indexOf("|| managed.activeAgent", persistedAgentIndex);
+    const activateIndex = source.indexOf("await this.#activateSessionAgent(session, {", agentSelectionIndex);
+
+    assertEquals(managedOperationIndex >= 0, true);
+    assertEquals(openIndex > managedOperationIndex, true);
+    assertEquals(persistedAgentIndex > openIndex, true);
+    assertEquals(agentSelectionIndex > persistedAgentIndex, true);
+    assertEquals(cacheFallbackIndex, -1);
+    assertEquals(activateIndex > agentSelectionIndex, true);
 });
 
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
@@ -1216,6 +1282,21 @@ Deno.test("SessionRuntime marks aborted agent turns to suppress agent-stopped at
     assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
     assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), true);
     assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), false);
+});
+
+Deno.test("SessionRuntime suppresses attention when Esc races with turn completion", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({
+        sessionHost,
+        agentSession: makeSteeringAgentSession(),
+        abortActiveSession: () => false,
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.beginTurn("racing-turn");
+
+    assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: false });
+    assertEquals(hostedSession.consumeSuppressedAgentStoppedAttention(), true);
 });
 
 Deno.test("SessionRuntime cancellation owns active compaction and publishes one operation event", async () => {

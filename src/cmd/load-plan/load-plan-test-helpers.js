@@ -86,6 +86,10 @@ export function makeRuntimeFixture(options = {}) {
                         activeExecutionWorkflow: state.workflow,
                     }
                     : null,
+            /** @param {string} id */
+            getRuntimeActiveAgentName: (id) => id === sessionId ? state.activeAgent : null,
+            /** @param {string} id */
+            getRuntimeActiveExecutionWorkflow: (id) => id === sessionId ? state.workflow : null,
             /** @param {string} _id @param {{ agentName: string }} request */
             switchAgent: (_id, request) => {
                 state.activeAgent = request.agentName;

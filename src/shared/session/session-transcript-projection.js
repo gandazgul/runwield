@@ -454,6 +454,27 @@ export async function projectCommittedTranscript(options) {
 }
 
 /**
+ * Extract facts whose authority comes from the already-verified committed
+ * transcript prefix. Callers may use these only in phases where committed JSONL
+ * is the active source of truth, such as idle continuation gates or hydration.
+ *
+ * @param {{ snapshot?: Record<string, any> | null } | null | undefined} projection
+ * @returns {{ activeAgent: string | null, workflowContext: unknown | null, model: string | null, provider: string | null, thinkingLevel: string | null }}
+ */
+export function getCommittedTranscriptAuthorityFacts(projection) {
+    const snapshot = projection?.snapshot || {};
+    return {
+        activeAgent: typeof snapshot.activeAgent === "string" && snapshot.activeAgent ? snapshot.activeAgent : null,
+        workflowContext: snapshot.workflowContext || null,
+        model: typeof snapshot.model === "string" && snapshot.model ? snapshot.model : null,
+        provider: typeof snapshot.provider === "string" && snapshot.provider ? snapshot.provider : null,
+        thinkingLevel: typeof snapshot.thinkingLevel === "string" && snapshot.thinkingLevel
+            ? snapshot.thinkingLevel
+            : null,
+    };
+}
+
+/**
  * @param {string} transcriptPath
  */
 export async function syncTranscriptFileAndParent(transcriptPath) {
