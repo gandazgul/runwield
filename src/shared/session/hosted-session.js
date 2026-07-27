@@ -64,6 +64,12 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  */
 
 /**
+ * @typedef {Object} SteeringTargetRecord
+ * @property {string} steeringTargetId
+ * @property {DisposableLike} session
+ */
+
+/**
  * @typedef {Object} MinimalSessionManagerLike
  * @property {() => string} [getSessionId]
  * @property {() => string} [getCwd]
@@ -198,6 +204,9 @@ export class HostedSession {
         this.rootAgentName = null;
         /** @type {Set<DisposableLike>} */
         this.subAgentSessions = new Set();
+        /** @type {SteeringTargetRecord[]} */
+        this.steeringTargetStack = [];
+        this.steeringTargetSequence = 0;
         this.delegatedReaderCount = 0;
         this.delegatedWriterActive = false;
         this.projectStateContext = "";
@@ -376,6 +385,7 @@ export class HostedSession {
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;
         this.activeTurnId = null;
+        this.steeringTargetStack = [];
     }
 
     /** @param {unknown} eventSink */
@@ -469,6 +479,30 @@ export class HostedSession {
 
     getSubAgentSessions() {
         return new Set(this.subAgentSessions);
+    }
+
+    /** @param {DisposableLike} session */
+    pushSteeringTargetSession(session) {
+        this.assertActive();
+        const steeringTargetId = `steering-target-${++this.steeringTargetSequence}`;
+        this.steeringTargetStack.push({ steeringTargetId, session });
+        return steeringTargetId;
+    }
+
+    /** @param {string} steeringTargetId */
+    popSteeringTargetSession(steeringTargetId) {
+        this.assertActive();
+        if (!steeringTargetId) {
+            this.steeringTargetStack.pop();
+            return;
+        }
+        const index = this.steeringTargetStack.findIndex((entry) => entry.steeringTargetId === steeringTargetId);
+        if (index >= 0) this.steeringTargetStack.splice(index, 1);
+    }
+
+    getActiveSteeringTargetSession() {
+        if (this.steeringTargetStack.length === 0) return null;
+        return this.steeringTargetStack[this.steeringTargetStack.length - 1].session;
     }
 
     /**
@@ -689,6 +723,7 @@ export class HostedSession {
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;
         this.activeTurnId = null;
+        this.steeringTargetStack = [];
         this.managed = null;
         this.disposed = true;
     }

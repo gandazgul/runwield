@@ -8,6 +8,7 @@ import {
     listPromptTemplates,
     listSkills,
     readGlobalAgentMd,
+    steerActiveSessionWithTarget,
     steerRootSession,
     steerRootSessionWithTarget,
 } from "./session.js";
@@ -387,4 +388,36 @@ Deno.test("steerRootSession sends image content only while root is streaming", a
         images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
     }]);
     assertEquals(await steerRootSessionWithTarget(hostedSession, "targeted"), session);
+});
+
+Deno.test("steerActiveSessionWithTarget prefers streaming foreground target and keeps root helper root-only", async () => {
+    const calls = /** @type {string[]} */ ([]);
+    const root = /** @type {any} */ ({
+        isStreaming: true,
+        model: { input: ["text"] },
+        steer(/** @type {string} */ text) {
+            calls.push(`root:${text}`);
+            return Promise.resolve();
+        },
+    });
+    const foreground = /** @type {any} */ ({
+        isStreaming: true,
+        model: { input: ["text"] },
+        steer(/** @type {string} */ text) {
+            calls.push(`foreground:${text}`);
+            return Promise.resolve();
+        },
+    });
+    const hostedSession = new HostedSession({ id: "active-steer-catalog", cwd: Deno.cwd() });
+    hostedSession.setRootAgentSession(root);
+    const targetId = hostedSession.pushSteeringTargetSession(foreground);
+
+    assertEquals(await steerActiveSessionWithTarget(hostedSession, "active"), foreground);
+    assertEquals(await steerRootSessionWithTarget(hostedSession, "root"), root);
+    assertEquals(calls, ["foreground:active", "root:root"]);
+
+    foreground.isStreaming = false;
+    assertEquals(await steerActiveSessionWithTarget(hostedSession, "fallback"), root);
+    assertEquals(calls.at(-1), "root:fallback");
+    hostedSession.popSteeringTargetSession(targetId);
 });
