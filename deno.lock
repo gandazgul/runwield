@@ -46,8 +46,10 @@
     "npm:@codemirror/view@^6.43.6": "6.43.6",
     "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.1.1",
     "npm:@earendil-works/pi-agent-core@0.80.5": "0.80.5",
+    "npm:@earendil-works/pi-agent-core@0.82.1": "0.82.1",
     "npm:@earendil-works/pi-ai@0.80.5": "0.80.5",
     "npm:@earendil-works/pi-coding-agent@0.80.5": "0.80.5",
+    "npm:@earendil-works/pi-coding-agent@0.82.1": "0.82.1",
     "npm:@earendil-works/pi-tui@0.80.5": "0.80.5",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
@@ -1074,7 +1076,17 @@
     "@earendil-works/pi-agent-core@0.80.5": {
       "integrity": "sha512-413NZ5BEwSdL+BAtoBlk7hcA3UGvltcdAPtFoMZ1uqLZRNIoFU0WhNXGwv5Sp1SPBmMR6MAc3neoA+MdOlWJ2w==",
       "dependencies": [
-        "@earendil-works/pi-ai",
+        "@earendil-works/pi-ai@0.80.5",
+        "ignore",
+        "typebox",
+        "yaml@2.9.0"
+      ]
+    },
+    "@earendil-works/pi-agent-core@0.82.1": {
+      "integrity": "sha512-Z3kloziJIE2dmrisRckZX8zDca/gIv9/YdFAzeoqpHiLV2wsni6bL4hInNSjVKLbqT+4kqLIkph2JQLKvSepjg==",
+      "dependencies": [
+        "@earendil-works/pi-ai@0.82.1",
+        "diff@8.0.4",
         "ignore",
         "typebox",
         "yaml@2.9.0"
@@ -1097,12 +1109,56 @@
       ],
       "bin": true
     },
+    "@earendil-works/pi-ai@0.82.1": {
+      "integrity": "sha512-3WFYRhEp3lQB3444EhPMBcM7zSaEUE3eJgHOR7s4081NLqbw/FsWilIKWXSua0Gv3sRr7m9xMidR3pPDE7jI/A==",
+      "dependencies": [
+        "@anthropic-ai/sdk",
+        "@aws-sdk/client-bedrock-runtime",
+        "@google/genai",
+        "@mistralai/mistralai",
+        "@opentelemetry/api",
+        "@smithy/node-http-handler@4.7.3",
+        "http-proxy-agent",
+        "https-proxy-agent",
+        "openai",
+        "partial-json",
+        "typebox"
+      ],
+      "bin": true
+    },
     "@earendil-works/pi-coding-agent@0.80.5": {
       "integrity": "sha512-GPYFuHw1BN+3m5Gzw1HGH41WdFDzbplLauS0zYSf1ZOkgKFd6wtEAcjchB/vmz9YtTGbQOwECbsVj6GxZxungA==",
       "dependencies": [
-        "@earendil-works/pi-agent-core",
-        "@earendil-works/pi-ai",
-        "@earendil-works/pi-tui",
+        "@earendil-works/pi-agent-core@0.80.5",
+        "@earendil-works/pi-ai@0.80.5",
+        "@earendil-works/pi-tui@0.80.5",
+        "@silvia-odwyer/photon-node",
+        "chalk",
+        "cross-spawn",
+        "diff@8.0.4",
+        "glob",
+        "highlight.js@10.7.3",
+        "hosted-git-info",
+        "ignore",
+        "jiti",
+        "minimatch",
+        "proper-lockfile",
+        "semver@7.8.0",
+        "typebox",
+        "undici",
+        "yaml@2.9.0"
+      ],
+      "optionalDependencies": [
+        "@mariozechner/clipboard"
+      ],
+      "bin": true
+    },
+    "@earendil-works/pi-coding-agent@0.82.1": {
+      "integrity": "sha512-zbkAhoIuDPMF3pKuja0ajZabrMWU29FUMV9A/XMXT/XC1yXs5xt6t6t13GogQFsDrDqbFP4DkZQO1w8rWRAzYA==",
+      "dependencies": [
+        "@earendil-works/pi-agent-core@0.82.1",
+        "@earendil-works/pi-ai@0.82.1",
+        "@earendil-works/pi-tui@0.82.1",
         "@silvia-odwyer/photon-node",
         "chalk",
         "cross-spawn",
@@ -1126,6 +1182,13 @@
     },
     "@earendil-works/pi-tui@0.80.5": {
       "integrity": "sha512-raxEUD2CvCDNJuOWEAI+xD7vmxCrGH0NYb31+GQDdL1q9WXn5+uNLgP1vkJfOsTvf9k5zU5sNFA06oBIcWSYtQ==",
+      "dependencies": [
+        "get-east-asian-width",
+        "marked@18.0.5"
+      ]
+    },
+    "@earendil-works/pi-tui@0.82.1": {
+      "integrity": "sha512-9yN8hALfKaxZq7n54EMxqhFCWnMi6LHkraMJ/1YjHiATq75XrI6XDMVppn9EDtiK7Fks8hUe1SDXUTrIvwRWfQ==",
       "dependencies": [
         "get-east-asian-width",
         "marked@18.0.5"
@@ -6454,8 +6517,10 @@
       "npm:@codemirror/view@^6.43.6",
       "npm:@deno/astro-adapter@0.6",
       "npm:@earendil-works/pi-agent-core@0.80.5",
+      "npm:@earendil-works/pi-agent-core@0.82.1",
       "npm:@earendil-works/pi-ai@0.80.5",
       "npm:@earendil-works/pi-coding-agent@0.80.5",
+      "npm:@earendil-works/pi-coding-agent@0.82.1",
       "npm:@earendil-works/pi-tui@0.80.5",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
