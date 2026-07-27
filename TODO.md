@@ -2,11 +2,9 @@
 
 ## Bugs
 
-- [x] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
-      memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
-- [x] CONTEXT-FORMAT file is not extracted on a fresh install.
-- [x] The footer CWD and branch needs to be updates when working in a worktree. Currently it shows the main branch and
-      the main CWD even when in a worktree.
+- [ ] P0 Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s ·
+      tokens unavailable · cost unavailable"
+
 - [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
 - [ ] Implement auto update and wld update
@@ -15,13 +13,13 @@
       the user type a command. Then store the choice.
 - [ ] Give prompt templates a front matter option to specify the wld agent to use as well as a model, thinking and
       temperature override
-- [x] Investigate notification sounds
-- [x] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
-      then that main's HEAD is not the same as the plan's base commit, then that the plan's base commit is an ancestor
-      of main's HEAD. If any of these checks fail, it should dispatch engineer back to fix the merge issues before
-      checking again.
-- [ ] the login URLs from /login subscription models are split and only the first line is used when users clicks, the
-      rest of the url appears as just text. User has to copy and paste on the browser. Fix the formatting.
+- [ ] this should be true for all repos runwield touches: [6702] 2026-07-27 13:21:06 - RunWield lifecycle repair
+      ownership invariant (2026-07-27): LLM agents must never repair deterministic Plan/worktree bookkeeping such as
+      status, verifiedAt, executionMode, Delivery Evidence, worktree id/path/branch/base/status, registry state, or
+      publication-attempt metadata. Those fields are RunWield-owned protected state and transitions must be mechanical,
+      typed, transactional, and tested. Dispatch Engineer only for genuine source-level or semantic merge conflict
+      resolution; RunWield must perform pre/post-repair lifecycle bookkeeping itself and must not ask an agent to edit
+      protected Plan front matter.
 - [ ] plans/session-runtime-acp-mvp/01-acp-sdk-and-stdio-entrypoint-skeleton.md says status: verified but still has
       worktreeStatus: merge_conflict and a failure reason about overlapping uncommitted\
       primary-checkout changes. That conflicts with the normal lifecycle expectation that verified worktree-backed plans
@@ -29,10 +27,6 @@
 - [ ] MAke the last assistant message pinned to the top of the input. During validation this gets replaced by the
       validation card so you dont have 2 pins. Also in the validation card put the reviewer findings above the
       engineer's task_completed result.
-- [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens
-      unavailable · cost unavailable"
-- [x] silly message just say nothing if its not an epic: RunWield Epic continuation complete:
-      completed_plan_has_no_parent_epic.
 - [ ] in the code review surface allow the side bars to be collapsed.
   - [ ] ![alt text](image.png) the inline comments overflow the container they should wrap and have padding
 - [ ] The /share link is not the preview link, is should be.
