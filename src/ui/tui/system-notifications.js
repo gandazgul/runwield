@@ -10,19 +10,21 @@ const EVENT_LABELS = {
     agentStopped: "Agent stopped",
     planWritten: "Plan ready",
     userInterview: "Input requested",
+    compactionFinished: "Compaction finished",
 };
 
 const EVENT_MESSAGES = {
     agentStopped: "The agent has stopped and is waiting for you.",
     planWritten: "A plan is ready for review or approval.",
     userInterview: "The agent is asking you a question.",
+    compactionFinished: "The /compact command finished. Return to view the result.",
 };
 
 const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
 const TERMINAL_BELL_BYTES = new Uint8Array([7]);
 
 /**
- * @typedef {"agentStopped" | "planWritten" | "userInterview"} NotificationEventName
+ * @typedef {"agentStopped" | "planWritten" | "userInterview" | "compactionFinished"} NotificationEventName
  */
 
 /**
@@ -34,6 +36,7 @@ const TERMINAL_BELL_BYTES = new Uint8Array([7]);
  * @property {boolean} [agentStopped]
  * @property {boolean} [planWritten]
  * @property {boolean} [userInterview]
+ * @property {boolean} [compactionFinished]
  */
 
 /**
@@ -241,6 +244,7 @@ export function resolveNotificationSettings(raw) {
             agentStopped: eventsRaw.agentStopped !== false,
             planWritten: eventsRaw.planWritten !== false,
             userInterview: eventsRaw.userInterview !== false,
+            compactionFinished: eventsRaw.compactionFinished !== false,
         },
         terminalBell: record.terminalBell !== false,
     };
@@ -552,7 +556,8 @@ function normalizeLabel(value) {
  * @returns {eventName is NotificationEventName}
  */
 function isKnownEvent(eventName) {
-    return eventName === "agentStopped" || eventName === "planWritten" || eventName === "userInterview";
+    return eventName === "agentStopped" || eventName === "planWritten" || eventName === "userInterview" ||
+        eventName === "compactionFinished";
 }
 
 /**
