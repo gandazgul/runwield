@@ -1,6 +1,7 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import {
+    assertBinaryVersionOutput,
     assertExtractedBundledAgentReferenceFiles,
     assertRequiredBundledAssetsConfigured,
     assertReviewAssetsLoad,
@@ -8,6 +9,7 @@ import {
     collectExtractedBundledMarkdownFiles,
     collectNestedReviewAssetUrls,
     collectReviewAssetUrls,
+    parseReleaseCheckOptions,
     readReviewUrl,
 } from "./release-check.js";
 
@@ -27,6 +29,20 @@ async function collectMarkdownFiles(rootDir, relativeDir = "") {
     }
     return files.sort();
 }
+
+Deno.test("parseReleaseCheckOptions accepts explicit build identity", () => {
+    assertEquals(parseReleaseCheckOptions(["--build-version", "v1.2.3-rc.1"]), { buildVersion: "v1.2.3-rc.1" });
+    assertEquals(parseReleaseCheckOptions([]), { buildVersion: undefined });
+});
+
+Deno.test("assertBinaryVersionOutput requires the requested release identity", () => {
+    assertBinaryVersionOutput("runwield v1.2.3-rc.1 (x86_64-unknown-linux-gnu)\n", "v1.2.3-rc.1");
+    assertThrows(
+        () => assertBinaryVersionOutput("runwield v1.2.3 (x86_64-unknown-linux-gnu)\n", "v1.2.3-rc.1"),
+        Error,
+        "wrong version",
+    );
+});
 
 Deno.test("release compile includes required bundled markdown and theme assets", () => {
     assertRequiredBundledAssetsConfigured();

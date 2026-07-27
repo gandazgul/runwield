@@ -108,6 +108,14 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     }
 });
 
+Deno.test("loadAgentDef loads Operator with structured interview capability", async () => {
+    const def = await loadAgentDef("operator");
+
+    assert(def.tools.includes("task_completed"));
+    assert(def.tools.includes("user_interview"));
+    assert(def.systemPrompt.includes("Use `user_interview` for operational choices or confirmations"));
+});
+
 Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", async () => {
     const def = await loadAgentDef("guide");
 

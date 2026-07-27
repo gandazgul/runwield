@@ -1,65 +1,73 @@
 ---
-description: Generates a changelog and publishes a release on GitHub or GitLab, automatically handling versioning.
+description: Orchestrates a repository release by discovering its release policy, asking for the release kind, and following repository-owned automation.
 ---
 
 # Release
 
-Generate a changelog and publish a new release for this repository.
+Orchestrate a release for the current repository. This prompt is generic: it must discover and follow the repository's
+own release policy instead of assuming WLD's release process applies everywhere.
 
 ## Execution Steps
 
-1. Determine the Git Host (GitHub vs GitLab)
+1. Choose the release operation first.
 
-   - Run `git remote -v`. If the URL contains `github.com` or `gitlab.com`, proceed.
-   - If it is a custom domain, check for host-specific files (e.g., use `ls -a` to look for a `.github/` directory or a
-     `.gitlab-ci.yml` file).
-   - If you still cannot definitively determine the host, use the `user_interview` tool to ask the user: "Is this
-     repository hosted on GitHub or GitLab?"
+   - Use `user_interview` immediately with one multiple-choice question: "What kind of release operation should I run?"
+   - The choices must be exactly:
+     - `create_candidate` — Create Candidate
+     - `promote_candidate` — Promote Candidate
+     - `create_stable_direct` — Create Stable Directly
+   - If the user cancels, stop without running commands.
 
-2. Determine the Versioning Scheme
+2. Discover the repository's release policy and automation for the selected operation.
 
-   - Run `git tag --sort=-v:refname | head -n 5` to look at recent tags.
-   - If the project uses SemVer (e.g., `v1.2.3`), analyze the git log since the last tag. Bump the version according to
-     Semantic Versioning rules (Major for breaking, Minor for features, Patch for fixes).
-   - If the version is SemVer but starts with a 0, then the minor bumps are for major breaking changes and the patch
-     bumps are for everything else (features and patches).
-   - If the project uses CalVer (e.g., `vYYYY.M.D.N`), generate the next sequential date-based tag for today.
-   - If there are no tags, check `package.json` or `deno.json` for a version string. If still completely ambiguous, use
-     `user_interview` to ask the user which format to use.
+   - Look for `RELEASING.md`, `docs/releasing.md`, `docs/release.md`, package scripts/tasks, release scripts, and CI/CD
+     workflows.
+   - Distinguish repository-specific policy from this prompt's generic guidance. If this repository is not WLD, do not
+     apply WLD's Candidate tag grammar, promotion commands, GitHub latest rules, or post-publication notes process
+     unless the repository's own policy says to do so.
+   - If policy and automation conflict, or the selected operation is unsupported, stop and report the contradiction
+     instead of improvising.
 
-3. Generate the Changelog
+3. Determine host and release mechanics only after policy discovery.
 
-   - Generate a markdown changelog based on the commits since the last tag, but write it for people deciding whether to
-     install or upgrade `wld`, not for maintainers reviewing every commit.
-   - Start with a short **What's New** section:
-     - Include only the most important user-facing changes.
-     - Describe outcomes and workflows in plain language, e.g. "RunWield can now recover interrupted plan worktrees"
-       instead of listing internal files, refactors, or implementation details.
-     - Group related commits into one meaningful capability when possible.
-     - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
-       behavior.
-   - Then include a **Detailed Changelog** section for maintainers who want the fuller history. Keep it concise, and
-     organize it into these subsections when relevant:
-     - **New Features**
-     - **Bug Fixes and Improvements**
-     - **Breaking Changes**
-   - If there are no meaningful user-facing changes, say that plainly in **What's New** and put the technical commit
-     summary in **Detailed Changelog**.
+   - Inspect `git remote -v` and host-specific files such as `.github/` or `.gitlab-ci.yml`.
+   - Prefer repository-owned commands over hand-written release steps.
+   - If host or versioning is still ambiguous after discovery, ask a focused `user_interview` question.
 
-4. Tag and Push
+4. Generate curated release notes.
 
-   - Stage any version file changes (if you bumped `package.json`), commit them, and create the new git tag.
-   - Push the commit and the tag to the remote.
+   - Follow the repository's release-note scope. If the repository is silent, use commits since the previous stable tag
+     and write notes for users deciding whether to install or upgrade.
+   - Start with **What's New** for important user-facing outcomes in plain language.
+   - Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and **Breaking
+     Changes** when relevant.
+   - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
+     behavior.
+   - Keep notes in a temporary file unless repository policy explicitly requires committing them.
 
-5. Publish the Release
+5. Confirm before irreversible side effects.
 
-   - Execute the release using the appropriate CLI, passing the changelog as the release notes:
-     - For GitHub: use the `gh release create` command.
-     - For GitLab: use the `glab release create` command.
+   - Summarize the chosen operation, source commit/tag, target tag/version, release notes location, and exact
+     repository-owned command(s) to run.
+   - Use `user_interview` for a yes/no confirmation before creating or pushing a tag, publishing a release, or starting
+     another irreversible operation.
+   - If not confirmed, stop without side effects.
 
-6. Monitor the CI/CD run for errors and if necesary fix them.
+6. Execute and monitor.
 
-If a required CLI tool is missing, halt and inform the user.
+   - Run the repository-owned release command or documented manual sequence for the selected operation.
+   - Monitor CI/CD and release publication to completion.
+   - If CI/CD fails, investigate and repair only issues in the release scope; otherwise report the exact failure and
+     recovery command.
 
-Note: no need to store memories for releases generally, only if there's a significant breaking change that would be
-useful to recall later.
+7. Complete release notes after publication when repository policy requires it.
+
+   - For WLD, CI creates the GitHub release and uploads assets first; then Operator edits the published release with the
+     curated temporary notes and verifies the notes landed.
+   - If post-publication note editing fails after assets are published, report the release as incomplete with assets
+     published and notes pending, including the exact retry command.
+
+If a required CLI tool or credential is missing, halt and inform the user.
+
+Note: no need to store memories for releases generally, only if there's a significant breaking change or durable release
+policy decision that would be useful to recall later.

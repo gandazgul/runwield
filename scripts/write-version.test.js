@@ -2,8 +2,8 @@
  * @module scripts/write-version.test
  */
 
-import { assertEquals } from "@std/assert";
-import { getGitHubTagName, resolveBuildVersion, writeVersionFile } from "./write-version.js";
+import { assertEquals, assertThrows } from "@std/assert";
+import { getExplicitBuildVersion, getGitHubTagName, resolveBuildVersion, writeVersionFile } from "./write-version.js";
 
 /**
  * @param {Record<string, string | undefined>} values
@@ -37,6 +37,34 @@ Deno.test("getGitHubTagName falls back to parsing GITHUB_REF tag refs", () => {
     }));
 
     assertEquals(tag, "release/v1.2.3");
+});
+
+Deno.test("getExplicitBuildVersion accepts stable and candidate release identities", () => {
+    assertEquals(getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3" })), "v1.2.3");
+    assertEquals(getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3-rc.1" })), "v1.2.3-rc.1");
+    assertEquals(getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "   " })), undefined);
+});
+
+Deno.test("getExplicitBuildVersion rejects unsafe explicit identities", () => {
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "abc123" })), Error, "WLD_BUILD_VERSION");
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3-rc.0" })), Error, "positive");
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3/bad" })), Error, "WLD_BUILD_VERSION");
+});
+
+Deno.test("resolveBuildVersion uses explicit build version before GitHub tag and git metadata", () => {
+    const version = resolveBuildVersion({
+        readEnv: env({
+            WLD_BUILD_VERSION: "v2.0.0-rc.1",
+            GITHUB_REF_TYPE: "tag",
+            GITHUB_REF_NAME: "v2.0.0",
+        }),
+        runGit: git({
+            "describe --tags --exact-match HEAD": "v1.9.0",
+            "rev-parse --short HEAD": "abc1234",
+        }),
+    });
+
+    assertEquals(version, "v2.0.0-rc.1");
 });
 
 Deno.test("resolveBuildVersion uses GitHub tag before git metadata", () => {
