@@ -72,8 +72,8 @@ likely blast radius without reproducing, instrumenting, or fixing the issue. _Av
 mini-debugger
 
 **Routing Intent**: The top-level intent emitted by Triage that decides which Agent receives the User Request:
-`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`. _Avoid_: Classification, route type, request
-kind, category
+`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `PLANNED_CHANGE`, or `PROJECT`; legacy `FEATURE` inputs normalize to
+`PLANNED_CHANGE`. _Avoid_: Classification, route type, request kind, category
 
 **INQUIRY**: The fallback Routing Intent for non-materializing understanding work such as questions about repository
 state, architecture, Plans, history, trade-offs, or casual discussion. _Avoid_: Question, investigation, research task
@@ -87,12 +87,24 @@ _Avoid_: QUICK_FIX, feature, coding task
 **QUICK_FIX**: A Routing Intent for a bounded code implementation with no planning phase and no Plan file. _Avoid_:
 Operational, hotfix, patch, feature
 
-**FEATURE**: A Routing Intent and Plan file type for new functionality that requires a reviewed implementation Plan.
-_Avoid_: Enhancement, change request
+**PLANNED_CHANGE**: A Routing Intent and executable Plan Classification for material code work that needs a reviewed
+Plan before implementation, regardless of whether the requested work is a bug fix, new functionality, refactor, or
+maintenance. _Avoid_: FEATURE when referring to workflow, planned feature
+
+**Work Kind**: Plan Front Matter describing the nature of requested work independently from Plan Classification, such as
+`BUG_FIX`, `FEATURE`, `REFACTOR`, or `MAINTENANCE`. _Avoid_: Routing Intent, Plan Classification
+
+**BUG_FIX**: A Work Kind for correcting behavior that fails existing intended or specified behavior. _Avoid_: QUICK_FIX,
+PLANNED_CHANGE
+
+**FEATURE Work Kind**: A Work Kind for adding or enhancing functionality. _Avoid_: PLANNED_CHANGE, planned work
+
+**Legacy FEATURE Classification**: The old Routing Intent and Plan Classification value that means PLANNED_CHANGE rather
+than necessarily new functionality. _Avoid_: Enhancement, new feature
 
 **PROJECT**: A Routing Intent and Plan file type for Epic-scale work that is too large to execute directly. A PROJECT
 Plan is an Epic container that the Architect designs and the Slicer decomposes into independently executable child
-FEATURE Plans. _Avoid_: Initiative, refactor, task DAG
+PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor, task DAG
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
@@ -172,8 +184,9 @@ file-level code evidence when constructed from existing code. _Avoid_: Line refe
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
 
-**Plan Classification**: The `classification` Front Matter field for Plan files, limited to Plan-producing work such as
-`FEATURE` and `PROJECT`. _Avoid_: Routing intent, request type, route category
+**Plan Classification**: The `classification` Front Matter field for Plan files, limited to lifecycle/workflow shapes
+such as `PLANNED_CHANGE` and `PROJECT`; legacy `FEATURE` means `PLANNED_CHANGE`. _Avoid_: Routing intent, request type,
+work kind
 
 **Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
 `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified`, `closed_without_verification`, or `on_hold`.
@@ -198,12 +211,12 @@ continue through readiness, execution, and Workflow Validation. _Avoid_: Approve
 **Approve for Later**: A Plan review outcome that approves and prepares the Plan as Ready For Work without authorizing
 immediate execution. _Avoid_: Save draft, approve and run
 
-**Ready For Work**: The executable Plan Status for FEATURE Plans, meaning the Plan is approved and every pre-execution
-prerequisite is satisfied; for an Epic it means decomposition is finalized and child FEATURE Plans can be selected,
-while the Epic itself remains non-executable. _Avoid_: Approved, runnable
+**Ready For Work**: The executable Plan Status for PLANNED_CHANGE Plans, meaning the Plan is approved and every
+pre-execution prerequisite is satisfied; for an Epic it means decomposition is finalized and child PLANNED_CHANGE Plans
+can be selected, while the Epic itself remains non-executable. _Avoid_: Approved, runnable
 
-**Readiness Gate**: The classification-aware lifecycle step after approval that promotes FEATURE Plans to Ready For Work
-and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, execution check
+**Readiness Gate**: The classification-aware lifecycle step after approval that promotes PLANNED_CHANGE Plans to Ready
+For Work and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, execution check
 
 **Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully. _Avoid_: Rejected
 plan, invalid plan
@@ -292,9 +305,9 @@ worktrees. _Avoid_: Workspace shell, Plan worktree editor, Agent terminal
 **RunWield Design System**: The shared browser UI language of tokens, components, layout patterns, and interaction rules
 that governs Workspace, Plannotator, and future RunWield web surfaces. _Avoid_: Workspace styles, style guide, UI kit
 
-**Plan Card**: A Plan Board representation of a top-level Plan. Epic Plan Cards summarize child FEATURE Plan progress
-and open an Epic detail view rather than flattening every child FEATURE Plan onto the main board by default. _Avoid_:
-Task card, ticket
+**Plan Card**: A Plan Board representation of a top-level Plan. Epic Plan Cards summarize child PLANNED_CHANGE Plan
+progress and open an Epic detail view rather than flattening every child PLANNED_CHANGE Plan onto the main board by
+default. _Avoid_: Task card, ticket
 
 **Plan Editor**: The Plan Board editing surface for a Plan's markdown body. Workflow-critical Front Matter changes are
 made through structured controls or Plan Lifecycle actions, not by default raw YAML editing. _Avoid_: Raw Plan file
@@ -335,8 +348,8 @@ researcher
 **Ideator**: The strategic product and research Agent that conducts Socratic interviews to sharpen vague ideas before
 planning or implementation. _Avoid_: General helper, explainer, guide
 
-**Slicer**: The Agent that helps decompose an approved PROJECT Epic into child FEATURE Plans and can materialize those
-plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
+**Slicer**: The Agent that helps decompose an approved PROJECT Epic into child PLANNED_CHANGE Plans and can materialize
+those plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
 **Recorder**: The future Agent that generates Work Records from verified planned work. _Avoid_: Reviewer, summarizer,
 auditor
@@ -419,11 +432,12 @@ lifecycle event
 **Delegated Agent Session**: A disposable context-isolated Agent Session that receives a bounded brief from a parent
 Agent Session and returns only its result. _Avoid_: Context-free session, Task worker, workflow handoff
 
-**Epic**: A PROJECT Plan that contains design and decomposition context for child FEATURE Plans rather than executable
-implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
+**Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
+executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
 
-**Child FEATURE Plan**: A FEATURE Plan with a `parentPlan` pointer to an Epic. It follows the normal FEATURE lifecycle
-and is the executable unit produced by decomposition. _Avoid_: Subtask, ticket, DAG node
+**Child PLANNED_CHANGE Plan**: A PLANNED_CHANGE Plan with a `parentPlan` pointer to an Epic. It follows the normal
+PLANNED_CHANGE lifecycle and is the executable unit produced by decomposition. _Avoid_: Child FEATURE Plan, subtask,
+ticket, DAG node
 
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
@@ -524,7 +538,8 @@ command definition, prompt command
   delivery truth.
 - **Tickets** and **Plans** have a many-to-many relationship expressed through **Ticket References**.
 - A completed **Plan** carries its **Ticket References** into its **Work Record** as durable demand provenance.
-- An Epic **Work Record** aggregates and deduplicates **Ticket References** from the Epic and all child FEATURE Plans.
+- An Epic **Work Record** aggregates and deduplicates **Ticket References** from the Epic and all child PLANNED_CHANGE
+  Plans.
 - A **Ticket Reference** is provenance and navigation only; it does not make either system authoritative over the
   other's lifecycle or instruct a **Forge** to close a Ticket.
 - One provider may act as both an **External Work Source** for Tickets and a **Forge** for code delivery without joining
@@ -572,11 +587,13 @@ command definition, prompt command
   **Empty Project Directory** emits an empty **Affected Paths** list until files exist.
 - **Diagnostic Triage** is a read-only specialization of **Triage** used for unknown-cause broken behavior; it still
   emits a normal **Routing Intent** rather than a bug-specific intent.
+- **Work Kind** describes whether planned work is a bug fix, feature, refactor, or maintenance item; **Routing Intent**
+  describes the workflow ceremony needed.
 - An **OPERATION** is executed directly by the **Operator** and creates no **Plan**.
-- A **FEATURE** is planned by the **Planner**, reviewed through one **Review Loop**, and executed by the **Engineer**
-  after approval.
+- A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through one **Review Loop**, and executed by the
+  **Engineer** after approval.
 - A **PROJECT** is planned by the **Architect** as an **Epic**, decomposed by the **Slicer** into one or more **Child
-  FEATURE Plans**, and executed by loading those child FEATURE Plans independently.
+  PLANNED_CHANGE Plans**, and executed by loading those child PLANNED_CHANGE Plans independently.
 - A **Plan** has exactly one **Plan Status**, exactly one **Origin**, and one **Front Matter** block.
 - A **Plan Event** is the only way workflow code should ask the **Plan Lifecycle** to change Plan Status.
 - A **Plan Workflow Lease** allows one workflow-owning Session to mutate a Plan's lifecycle, execution, validation, or
@@ -677,12 +694,13 @@ command definition, prompt command
   and successful validation; isolated Reviewer work does not replace or inherit the Engineer's active segment.
 - Once a Plan exists, its detail, associated Session activity, review, changes, validation, recovery, and related
   artifacts appear in one unified Plan-centered workflow surface rather than separate Plan and chat destinations.
-- An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
-- A **Child FEATURE Plan** follows the normal FEATURE lifecycle and may list sibling FEATURE dependencies.
-- An **On-Hold Plan** can be an **Epic**; its **Child FEATURE Plans** inherit on-hold visibility without mutating their
-  own Plan Status, remain displayed under the held Epic in Plan listings, and require resuming the parent Epic before
-  loading.
-- An on-hold **Child FEATURE Plan** whose parent **Epic** is still active remains displayed under that Epic with
+- An **Epic** has zero or more **Child PLANNED_CHANGE Plans** discovered by their `parentPlan` Front Matter pointer.
+- A **Child PLANNED_CHANGE Plan** follows the normal PLANNED_CHANGE lifecycle and may list sibling PLANNED_CHANGE
+  dependencies.
+- An **On-Hold Plan** can be an **Epic**; its **Child PLANNED_CHANGE Plans** inherit on-hold visibility without mutating
+  their own Plan Status, remain displayed under the held Epic in Plan listings, and require resuming the parent Epic
+  before loading.
+- An on-hold **Child PLANNED_CHANGE Plan** whose parent **Epic** is still active remains displayed under that Epic with
   `on_hold` status instead of moving to a separate held-child list.
 - A parent **Agent Session** can invoke zero or more **Delegated Agent Sessions**, none of which inherit the parent's
   conversation history.
@@ -691,7 +709,7 @@ command definition, prompt command
 - An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
   Validation**.
 - **Workflow Validation** runs after completed executable Plan loops. For PROJECT Epics, validation occurs on child
-  FEATURE Plans; the Epic itself is a decomposition container.
+  PLANNED_CHANGE Plans; the Epic itself is a decomposition container.
 - `OPERATION` work is owned by the **Operator** and ends when the **Operator** emits **Task Completion** after any
   needed self-verification.
 - Dependency updates may be `OPERATION` work only when the user explicitly asks for them and self-verification passes
@@ -766,8 +784,12 @@ command definition, prompt command
   **Local Memory** and **Team Memory** define audience independently.
 - "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
   captures demand, while a **Plan** belongs to RunWield and governs software delivery.
-- "change request" could mean a requested FEATURE or a GitHub/GitLab review object; resolved: use **FEATURE** for the
-  Routing Intent and **Forge Change Request** for a pull request or merge request.
+- "feature" was used for both planned executable workflow and new-functionality work; resolved: use **PLANNED_CHANGE**
+  for the Routing Intent and Plan Classification, and **FEATURE Work Kind** only for the nature of requested work.
+- "bug" could mean either a workflow path or the nature of work; resolved: use **BUG_FIX** as a **Work Kind**, not a
+  separate Routing Intent or Plan flow.
+- "change request" could mean requested planned work or a GitHub/GitLab review object; resolved: use **PLANNED_CHANGE**
+  for planned executable workflow and **Forge Change Request** for a pull request or merge request.
 - "local code review" could mean automated semantic checking or human diff review; resolved: **Semantic Code Review**
   remains part of Workflow Validation, while **Local Human Code Review** is optional and **Dual Review** combines it
   with Forge review.
@@ -788,6 +810,6 @@ command definition, prompt command
   context-isolated from its parent but still receives dedicated system instructions, a bounded brief, and repository
   context.
 - `PROJECT` previously also referred to legacy task-table and DAG execution; resolved: every **PROJECT** Plan is an
-  **Epic** decomposed into **Child FEATURE Plans**.
+  **Epic** decomposed into **Child PLANNED_CHANGE Plans**.
 - `frontend: true` previously conflated touching frontend code, requiring browser verification, and preferring live
   collaboration; resolved product language separates **Frontend Engineer** ownership from optional **Pair Execution**.

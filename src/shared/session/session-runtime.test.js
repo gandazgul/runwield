@@ -768,6 +768,81 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
     assertEquals(activateIndex > agentSelectionIndex, true);
 });
 
+Deno.test("SessionRuntime owns user-turn submission normalization for unmanaged sessions", async () => {
+    /** @type {string[]} */
+    const receivedRequests = [];
+    const runtime = makeRuntime({
+        handler: (request) => {
+            receivedRequests.push(request);
+            return Promise.resolve({ kind: "complete" });
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
+
+    const result = await runtime.promptUserTurn(sessionId, {
+        initialRequest: "  hello from editor  ",
+        initialImages: [],
+    });
+
+    assertEquals(receivedRequests, ["hello from editor"]);
+    assertEquals(result, {
+        ok: true,
+        turns: 1,
+        handoffs: 0,
+        handoffLimitReached: false,
+        managed: false,
+        submittedRequest: "hello from editor",
+        restoreDraft: false,
+        historyText: "hello from editor",
+    });
+});
+
+Deno.test("SessionRuntime owns managed submission blocking messages", () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({
+        id: "managed-submission-block",
+        cwd: Deno.cwd(),
+        sessionManager: null,
+        managed: {
+            runwieldSessionId: "rw-managed-submission-block",
+            projectId: "project-managed-submission-block",
+            piSessionId: "pi-managed-submission-block",
+            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            generation: 2,
+            acknowledgedGeneration: 2,
+            name: "Managed Submission Block",
+            activeAgent: "router",
+            workflowContext: null,
+            syncState: {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: "active_elsewhere",
+                localGeneration: 2,
+                latestGeneration: 2,
+                owningSurfaceKind: "workspace",
+            },
+        },
+    });
+    const runtime = makeRuntime({ sessionHost });
+
+    assertEquals(
+        runtime.getUserTurnSubmissionBlockMessage(session.id),
+        "This managed Session is active in workspace. Wait for it to finish before sending from this surface.",
+    );
+
+    session.setManagedMetadata({
+        .../** @type {NonNullable<ReturnType<typeof session.getManagedMetadata>>} */ (session.getManagedMetadata()),
+        syncState: {
+            type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+            status: "degraded",
+            localGeneration: 2,
+            latestGeneration: 3,
+            message: "Refresh failed.",
+        },
+    });
+
+    assertEquals(runtime.getUserTurnSubmissionBlockMessage(session.id), "Refresh failed.");
+});
+
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
     const runtime = makeRuntime();
     const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
