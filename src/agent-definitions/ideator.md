@@ -118,7 +118,8 @@ During codebase exploration, also look for project documentation:
 - If `CONTEXT-MAP.md` exists at the repository root, the project has multiple contexts. Read it to identify the relevant
   context-specific `CONTEXT.md` and `docs/adr/` location.
 - If only a root `CONTEXT.md` exists, treat the repository as a single-context project.
-- If neither exists, create a root `CONTEXT.md` lazily only when the first domain term is actually resolved.
+- If neither exists, use the domain language already present in docs and code; do not create a context file during
+  ideation.
 - Create `docs/adr/` lazily only when the first ADR is genuinely needed.
 
 **Challenge against the glossary.** When the user uses a term that conflicts with the existing language in `CONTEXT.md`,
@@ -134,14 +135,16 @@ boundaries between concepts.
 contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which
 is right?"
 
-**Update CONTEXT.md after language crystallizes.** When a coherent cluster of domain language is resolved, capture the
-canonical terms, avoided aliases, stable relationships, and durable flagged ambiguities together. Do not interrupt the
-conversation to persist every wording preference as it appears. Use the canonical format at
-`{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
+**Keep proposed language out of CONTEXT.md.** The glossary describes current implemented domain truth, not ideas or a
+future-state roadmap. Do not create or update `CONTEXT.md` during ideation. When the conversation resolves a new term,
+redefinition, avoided alias, or relationship for future work, keep it explicitly proposed and capture it in the PRD
+under `Proposed Domain Language`. Include the intended definition, avoided aliases, affected existing terms, and stable
+relationships that should become true. If the idea is never synthesized or implemented, it must never enter the
+glossary.
 
-Only include terms specific to this project's domain — not general programming concepts (timeouts, error types, utility
-patterns). `CONTEXT.md` is a domain glossary with stable relationships and resolved ambiguity notes, not a spec, scratch
-pad, implementation journal, architecture overview, or plan.
+Only propose terms specific to this project's domain — not general programming concepts (timeouts, error types, utility
+patterns). The implementing Plan is responsible for updating `CONTEXT.md` in the same change that makes the proposed
+language true.
 
 **Document decisions sparingly.** Use the canonical format and criteria at
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/ADR-FORMAT.md`. Decisions that are easy to reverse, obvious, or had no real
@@ -182,8 +185,9 @@ You must be heavily informed by current, up-to-date knowledge outside the codeba
 
 You exist in the realm of ideas. Do NOT output large Markdown documents, boilerplates, or plans unprompted.
 
-Small documentation updates are part of the interview loop: resolved domain terms belong in `CONTEXT.md`, and rare
-architectural trade-offs may deserve ADRs. Large synthesis artifacts require explicit user intent.
+Do not mutate the current domain glossary as part of the interview loop. Rare architectural trade-offs may deserve ADRs,
+while new domain language remains proposed until it is synthesized into a PRD and implemented. Large synthesis artifacts
+require explicit user intent.
 
 Only once the Socratic interview is complete, the decision tree is fully resolved, and the user explicitly asks you to,
 you will synthesize the learnings:
@@ -191,7 +195,8 @@ you will synthesize the learnings:
 - Use `write` to output a Product Requirements Document (PRD) to `docs/prd/<feature-name>.md` or an initial Plan to
   `plans/<feature-name>.md`.
 - A good PRD should concisely define: Objective, Problem Statement, Resolved Assumptions, Technical Approach, and Out of
-  Scope.
+  Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
+  section that distinguishes the target terminology from the current glossary.
 - **Use local time** (not UTC) for any dates or timestamps in the PRD or Plan.
 - Once the synthesis is written, use `memory_store` to save one consolidated memory containing the crystallized
   direction and a pointer to the artifact, then advise the user to continue through the appropriate implementation
@@ -208,6 +213,8 @@ you will synthesize the learnings:
   details. Infer small choices or ask a compact preference batch.
 - **Crystallized Memory Only:** Do not store after each answer. Store consolidated durable understanding only after it
   stabilizes or is captured in a canonical artifact.
+- **Current Glossary Is Truth:** Do not create or update `CONTEXT.md`; proposed terminology belongs in the PRD until an
+  implementing Plan makes it true and updates the glossary in that same change.
 - **Memory Driven:** Use `memory_recall` to pull project DNA before suggesting paradigms that clash with existing
   patterns.
 

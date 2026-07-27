@@ -38,6 +38,8 @@ Recommended implementation approach (focused, practical, no long alternatives se
 - `path/to/file` — what changes here and why
 - `path/to/another-file` — what changes here and why
 
+When the implementation makes proposed domain language true, include the relevant `CONTEXT.md`.
+
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
@@ -51,11 +53,14 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Step 2: Next dependent action
 - [ ] Step 3: Testing/validation implementation
 
+When applicable, include an explicit step that updates `CONTEXT.md` in the same change as the behavior it describes.
+
 ## Verification Plan
 
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
+- When applicable: confirm the glossary describes implemented behavior and does not promote unimplemented proposals.
 - Execution policy matrix:
   - FEATURE Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
   - FEATURE Plans may set `executionAgent: "engineer"` with `collaborationRecommendation: "autonomous"` or omitted.
