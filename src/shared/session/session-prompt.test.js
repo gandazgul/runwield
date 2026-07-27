@@ -701,6 +701,8 @@ sessionPromptTest(
             "Reader A",
             "Reader B",
         ]);
+        const activeBeforeRelease = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession());
+        assertEquals(activeBeforeRelease?.id, "Reader B");
 
         releasePrompt["Reader A"]();
         await readerA;
@@ -710,13 +712,52 @@ sessionPromptTest(
             "Reader B",
         ]);
         assertEquals(hostedSession.getActiveAgentName(), "Reader B");
+        const activeAfterReaderA = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession());
+        assertEquals(activeAfterReaderA?.id, "Reader B");
 
         releasePrompt["Reader B"]();
         await readerB;
 
         assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
+        assertEquals(hostedSession.getActiveSteeringTargetSession(), null);
     },
 );
+
+sessionPromptTest("runIsolatedAgentSession pops foreground steering target when prompt errors", async () => {
+    const hostedSession = makeHostedRuntimeSession("run-error-pop");
+    const childSession = makeRuntimeAgentSession("error-child");
+
+    await assertRejects(
+        () =>
+            runIsolatedAgentSession({
+                hostedSession,
+                agentName: "delegated",
+                userRequest: "fail",
+                _buildAgentSession: () =>
+                    Promise.resolve({
+                        session: childSession,
+                        agentDef: {
+                            name: "delegated",
+                            displayName: "Delegated Agent",
+                            model: "",
+                            description: "Test agent",
+                            tools: [],
+                            systemPrompt: "system",
+                        },
+                        promptState: { text: "system" },
+                        resolvedModel: { provider: "test", id: "model", input: ["text"] },
+                    }),
+                _attachSessionEventSubscribers: makeAttachStub(),
+                _runPrompt: () => Promise.reject(new Error("boom")),
+            }),
+        Error,
+        "boom",
+    );
+
+    assertEquals(hostedSession.getActiveSteeringTargetSession(), null);
+    assertEquals(hostedSession.getSubAgentSessions().size, 0);
+    assertEquals(childSession.disposeCalls, 1);
+});
 
 sessionPromptTest("runNonInteractiveAgentPrompt forwards an explicit thinking-level override", async () => {
     const childSession = makeRuntimeAgentSession("non-interactive-thinking");
