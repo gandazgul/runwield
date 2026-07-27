@@ -9,6 +9,16 @@ Deno.test("VirtualTerminal captures writes in normalized viewport text", async (
     assert(terminal.getScreenText().includes("world"));
 });
 
+Deno.test("VirtualTerminal captures the active viewport after scrollback", async () => {
+    const terminal = new VirtualTerminal({ columns: 20, rows: 3 });
+    terminal.write("one\r\ntwo\r\nthree\r\nfour\r\nfive");
+    await terminal.flush();
+    const screenText = terminal.getScreenText();
+    assert(!screenText.includes("one"));
+    assert(screenText.includes("three"));
+    assert(screenText.includes("five"));
+});
+
 Deno.test("VirtualTerminal sends input and resize through terminal callbacks", () => {
     const terminal = new VirtualTerminal({ columns: 20, rows: 4 });
     /** @type {string[]} */

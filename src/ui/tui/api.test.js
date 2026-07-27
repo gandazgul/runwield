@@ -3,6 +3,7 @@ import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import {
     KeyboardHelpBlock,
+    ManagedSyncStatusBlock,
     PromptSelectBlock,
     SpinnerBlock,
     SystemMessageBlock,
@@ -187,6 +188,24 @@ Deno.test("createUiApi toggles one transient keyboard-help block outside the mes
     ui.hideKeyboardHelp();
     assertEquals(inputAccessory.children, ["unrelated"]);
     assertEquals(renders() > 0, true);
+});
+
+Deno.test("createUiApi clearMessages removes input accessory resources", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const inputAccessory = makeContainer();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock(), inputAccessory));
+
+    ui.showKeyboardHelp({ title: "Keyboard shortcuts", items: [{ key: "?", description: "show help" }] });
+    ui.setManagedSyncStatus({ status: "behind", owningSurfaceKind: "workspace", owningSurfaceLabel: "Workspace" });
+    assertEquals(inputAccessory.children.some((/** @type {any} */ child) => child instanceof KeyboardHelpBlock), true);
+    assertEquals(
+        inputAccessory.children.some((/** @type {any} */ child) => child instanceof ManagedSyncStatusBlock),
+        true,
+    );
+
+    ui.clearMessages();
+
+    assertEquals(inputAccessory.children, []);
 });
 
 Deno.test("createUiApi adds and removes exact queued-message blocks by runtime id", () => {
@@ -512,12 +531,16 @@ Deno.test("createUiApi dispose clears prompts, timers, focus, and validation con
     const prompt = ui.promptText("Prompt", { persistResult: false });
     assertNotEquals(focus(), null);
     ui.updateValidationProgress?.({ outcome: "running", stage: "testing", message: "Testing" });
+    ui.showKeyboardHelp?.({ title: "Keyboard shortcuts", items: [{ key: "?", description: "show help" }] });
+    ui.setManagedSyncStatus?.({ status: "behind", owningSurfaceKind: "workspace", owningSurfaceLabel: "Workspace" });
     ui.startToolExecution?.("tool-1", "bash", "bash");
+    assertEquals(inputAccessoryContainer.children.length, 4);
     ui.dispose?.();
 
     assertEquals(await prompt, null);
     assertEquals(focus(), null);
     assertEquals(validationPanelContainer.children.length, 0);
     assertEquals(activeInteractionContainer.children.length, 0);
+    assertEquals(inputAccessoryContainer.children, []);
     assertEquals(ui.getActiveToolBlock?.("tool-1"), undefined);
 });

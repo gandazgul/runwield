@@ -71,7 +71,18 @@ export class VirtualTerminal {
     /** @param {string} data */
     write(data) {
         this.writes += data;
-        this._pendingWrites.push(new Promise((resolve) => this._xterm.write(data, resolve)));
+        this._pendingWrites.push(
+            new Promise((resolve) => {
+                let settled = false;
+                const finish = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve();
+                };
+                this._xterm.write(data, finish);
+                setTimeout(finish, 10);
+            }),
+        );
     }
 
     /** @param {string} data */
@@ -115,16 +126,21 @@ export class VirtualTerminal {
 
     getViewportLines() {
         const buffer = this._xterm.buffer.active;
+        const viewportY = Number(buffer.viewportY || 0);
         /** @type {string[]} */
         const lines = [];
         for (let i = 0; i < this._rows; i++) {
-            lines.push(buffer.getLine(i)?.translateToString(true) || "");
+            lines.push(buffer.getLine(viewportY + i)?.translateToString(true) || "");
         }
         return lines;
     }
 
     getScreenText() {
         return normalizeScreenText(this.getViewportLines().join("\n"));
+    }
+
+    getScrollbackText() {
+        return normalizeScreenText(this.writes);
     }
 
     clearLine() {

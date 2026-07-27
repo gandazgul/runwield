@@ -4,3 +4,4 @@ export { runGoldenChild, sanitizeGoldenChildEnv } from "./subprocess-runner.js";
 export { createGoldenIsolatedEnvironment } from "./isolated-environment.js";
 export { ScriptedReviewSurface } from "./scripted-review-surface.js";
 export { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
+export { runGoldenScenarioChildProcess } from "./child-protocol.js";
