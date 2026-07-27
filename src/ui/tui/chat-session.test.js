@@ -375,7 +375,7 @@ Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async (
         },
         getSessionSnapshot: () => ({ queuedMessages: [] }),
         /** @param {string} sessionId @param {any} options */
-        promptSession: (sessionId, options) => {
+        promptUserTurn: (sessionId, options) => {
             calls.push({ sessionId, options, subscribed: Boolean(listener) });
             return Promise.resolve({ ok: true });
         },

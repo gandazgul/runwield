@@ -146,6 +146,14 @@ Deno.test("managed projection caches do not drive live activation transitions", 
     );
 });
 
+Deno.test("TUI submission flow does not branch on managed SessionSnapshot projection", async () => {
+    const source = await Deno.readTextFile(join(REPO_ROOT, "src/ui/tui/chat-session.js"));
+
+    assertEquals(/getRuntimeSnapshot\(\)\.managed\b/.test(source), false);
+    assertEquals(/promptManagedSession\s*\(/.test(source), false);
+    assertEquals(/promptSession\s*\(sessionId/.test(source), false);
+});
+
 Deno.test("SessionRuntime does not expose compatibility object APIs", () => {
     const methods = Object.getOwnPropertyNames(SessionRuntime.prototype);
     assertEquals(methods.includes("createSession"), false);

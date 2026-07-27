@@ -415,6 +415,29 @@ export class SessionRuntime {
     }
 
     /**
+     * Return the user-facing reason a new root turn should not be submitted
+     * right now. Runtime owns this decision because it depends on managed
+     * coordination state, not on display snapshots.
+     *
+     * @param {string} sessionId
+     * @returns {string | null}
+     */
+    getUserTurnSubmissionBlockMessage(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        const syncState = session?.getManagedMetadata?.()?.syncState || null;
+        if (!syncState) return null;
+        if (syncState.status === "active_elsewhere") {
+            return `This managed Session is active in ${
+                syncState.owningSurfaceKind || "another surface"
+            }. Wait for it to finish before sending from this surface.`;
+        }
+        if (syncState.status === "blocked" || syncState.status === "degraded") {
+            return syncState.message || "This managed Session needs recovery before accepting new input.";
+        }
+        return null;
+    }
+
+    /**
      * @param {string} sessionId
      * @returns {import('./session-runtime-events.js').RuntimeQueuedMessage[]}
      */
@@ -2092,6 +2115,47 @@ export class SessionRuntime {
             _meta: { managed: true, runwieldSessionId: cataloged.runwieldSessionId },
         });
         return { sessionId: hostedSession.id, cwd: hostedSession.cwd, runwieldSessionId: cataloged.runwieldSessionId };
+    }
+
+    /**
+     * Submit one user turn through the Runtime-owned authority path. Consumers
+     * provide the user's raw editor text; Runtime decides whether the session is
+     * managed, which generation fence applies, and how text should be normalized
+     * before the active root receives it.
+     *
+     * @param {string} sessionId
+     * @param {PromptSessionOptions} options
+     * @returns {Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, managed: boolean, submittedRequest: string, restoreDraft: boolean, historyText?: string }>}
+     */
+    async promptUserTurn(sessionId, options) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
+        const managed = hostedSession.getManagedMetadata?.() || null;
+        const isManaged = Boolean(managed);
+        const submittedRequest = isManaged ? options.initialRequest : options.initialRequest.trim();
+        const requestOptions = { ...options, initialRequest: submittedRequest };
+        const buildResult = (
+            /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }} */ result,
+        ) => ({
+            ...result,
+            managed: isManaged,
+            submittedRequest,
+            restoreDraft: isManaged && Boolean(result.error),
+            ...(result.ok && submittedRequest.trim() ? { historyText: submittedRequest.trim() } : {}),
+        });
+
+        if (!managed) return buildResult(await this.promptSession(sessionId, requestOptions));
+
+        const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
+        const expectedGeneration = Number.isSafeInteger(expectedGenerationSource)
+            ? /** @type {number} */ (expectedGenerationSource)
+            : 0;
+        return buildResult(
+            await this.promptManagedSession(sessionId, {
+                ...requestOptions,
+                expectedGeneration,
+            }),
+        );
     }
 
     /**
