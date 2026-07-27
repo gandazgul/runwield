@@ -535,7 +535,7 @@ export function abortActiveSession(hostedSession) {
  * @param {import('./types.js').ImageAttachment[]} [images]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
  */
-async function steerConcreteSessionWithTarget(session, text, images) {
+export async function steerAgentSessionWithTarget(session, text, images) {
     if (!session) return null;
     if (!session.isStreaming) return null;
     const activeModel = session.model || { input: ["text", "image"] };
@@ -576,7 +576,7 @@ export async function steerRootSession(hostedSession, text, images) {
  */
 export async function steerRootSessionWithTarget(hostedSession, text, images) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
-    return await steerConcreteSessionWithTarget(
+    return await steerAgentSessionWithTarget(
         /** @type {any} */ (targetHostedSession.getRootAgentSession()),
         text,
         images,
@@ -594,8 +594,8 @@ export async function steerRootSessionWithTarget(hostedSession, text, images) {
 export async function steerActiveSessionWithTarget(hostedSession, text, images) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerActiveSessionWithTarget");
     const activeSession = /** @type {any} */ (targetHostedSession.getActiveSteeringTargetSession?.());
-    if (activeSession?.isStreaming) return await steerConcreteSessionWithTarget(activeSession, text, images);
-    return await steerConcreteSessionWithTarget(
+    if (activeSession?.isStreaming) return await steerAgentSessionWithTarget(activeSession, text, images);
+    return await steerAgentSessionWithTarget(
         /** @type {any} */ (targetHostedSession.getRootAgentSession()),
         text,
         images,
