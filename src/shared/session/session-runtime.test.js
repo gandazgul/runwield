@@ -1537,7 +1537,7 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
             store.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await Deno.remove(home, { recursive: true }).catch(() => {});
         }
     });
 });

@@ -32,12 +32,21 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:10:26-04:00"
-updatedAt: "2026-07-27T03:20:22.803Z"
-status: "implemented"
+updatedAt: "2026-07-27T13:15:03.654Z"
+status: "verified"
 origin: "internal"
-failureReason: "Target branch main advanced before publication; rerun Workflow Validation."
-worktreeId: "843f49e8"
-worktreeStatus: "validation_failed"
+verifiedAt: "2026-07-27T13:15:03.654Z"
+userVerifiedAt: null
+userVerificationNote: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "4a9c7e40ebebc21fc136fbaaf9010787145d4e3c"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "e12e080c25f565854ed39a433f0e53db94399b3f"
 routingIntent: "FEATURE"
 ---
 
