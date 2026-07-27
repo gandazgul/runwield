@@ -209,7 +209,7 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_execute");
-    assertEquals(result.details.triageMeta.classification, "FEATURE");
+    assertEquals(result.details.triageMeta.classification, "PLANNED_CHANGE");
     assertEquals(result.terminate, true);
     assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);

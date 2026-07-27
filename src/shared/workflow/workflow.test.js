@@ -2289,7 +2289,7 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
                     action: "created",
                     dependencies: [],
                     metadata: {
-                        classification: "FEATURE",
+                        classification: "PLANNED_CHANGE",
                         status: "draft",
                         parentPlan: "epic-a",
                         affectedPaths: ["src/plan-store.js"],

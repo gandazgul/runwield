@@ -76,11 +76,12 @@ Router emits one canonical **Routing Intent**:
 - `IDEATION`: strategic/product exploration and Socratic shaping, handled by Ideator.
 - `OPERATION`: direct non-code repository or environment operation, handled by Operator.
 - `QUICK_FIX`: bounded no-plan code implementation, handled by Engineer with Mechanical Validation only.
-- `FEATURE`: planned executable work, handled by Planner.
+- `PLANNED_CHANGE`: planned executable work, handled by Planner. Work Kind (`BUG_FIX`, `FEATURE`, `REFACTOR`,
+  `MAINTENANCE`) records the nature of the work; legacy `FEATURE` routing/classification normalizes here.
 - `PROJECT`: Epic-scale work, handled by Architect and Slicer.
 
-Only `FEATURE` and `PROJECT` are Plan-producing classifications. Older `classification` values are treated as legacy
-compatibility input and normalized into `routingIntent`.
+Only `PLANNED_CHANGE` and `PROJECT` are Plan-producing classifications. Older `classification` values are treated as
+legacy compatibility input and normalized into `routingIntent`.
 
 ### 3.3 Router Tool: `triage_report`
 
@@ -107,7 +108,7 @@ Post-triage dispatch:
 - `IDEATION` -> Ideator
 - `OPERATION` -> Operator
 - `QUICK_FIX` -> Engineer, then no-plan Mechanical Validation after `task_completed`
-- `FEATURE` -> Planner and Plan workflow
+- `PLANNED_CHANGE` -> Planner and Plan workflow
 - `PROJECT` -> Architect and Epic Plan workflow, then Slicer after approval
 
 After dispatch, the specialist remains the active root Agent.
@@ -184,12 +185,12 @@ Current key events:
 
 Lifecycle requirements:
 
-- FEATURE Plans reach `ready_for_work` after approval and readiness.
+- Planned Change Plans reach `ready_for_work` after approval and readiness.
 - PROJECT Epics reach `ready_for_decomposition` after approval.
 - Slicer finalization moves Epics to `ready_for_work` for child Plan selection.
 - PROJECT Epics are containers and are not directly executed as implementation work.
-- Child FEATURE Plans execute and validate independently.
-- FEATURE Plans reach `verified` only through Workflow Validation.
+- Child Planned Change Plans execute and validate independently.
+- Planned Change Plans reach `verified` only through Workflow Validation.
 - Epics may also reach `verified` through the existing `epic_done_enough` event.
 - `closed_without_verification` is a terminal manual closure outcome distinct from `verified`.
 - `on_hold` is paused-but-resumable and preserves held-from metadata.
@@ -502,7 +503,7 @@ Current Core metrics:
 
 - Router produces correct Routing Intent without excessive exploration.
 - Plans reach review quickly and with enough context for approval.
-- Approved FEATURE Plans reach `verified` after validation.
+- Approved Planned Change Plans reach `verified` after validation.
 - Recovery paths preserve enough state to continue safely after failed execution, validation, or merge-back.
 - QUICK_FIX runs remain bounded and validate mechanically without unnecessary Plan ceremony.
 - Local Workspace manages Plans without corrupting front matter or bypassing lifecycle rules.

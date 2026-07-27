@@ -105,10 +105,10 @@ Deno.test("triage_report remains fail-open when workflow context recording throw
     });
 
     assertEquals(result.terminate, true);
-    assertEquals(result.details.routingIntent, "FEATURE");
+    assertEquals(result.details.routingIntent, "PLANNED_CHANGE");
 });
 
-Deno.test("triage_report execute preserves plan classification only for FEATURE and PROJECT", async () => {
+Deno.test("triage_report execute preserves plan classification only for PLANNED_CHANGE and PROJECT", async () => {
     const tool = createTriageReportTool();
 
     const feature = await /** @type {any} */ (tool.execute)("call-1", {
@@ -133,8 +133,8 @@ Deno.test("triage_report execute preserves plan classification only for FEATURE 
         affectedPaths: ["src/foo.js"],
     });
 
-    assertEquals(feature.details.routingIntent, "FEATURE");
-    assertEquals(feature.details.classification, "FEATURE");
+    assertEquals(feature.details.routingIntent, "PLANNED_CHANGE");
+    assertEquals(feature.details.classification, "PLANNED_CHANGE");
     assertEquals(operation.details.routingIntent, "OPERATION");
     assert(!("classification" in operation.details));
     assertEquals(quickFix.details.routingIntent, "QUICK_FIX");

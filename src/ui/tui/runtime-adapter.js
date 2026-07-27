@@ -77,8 +77,8 @@ export function attachTuiRuntimeAdapter({
     const seenProjectedEventIds = new Set();
     const shouldCacheValidationReport = () => {
         if (validationSessionActive) return true;
-        return currentRoutingIntent === "FEATURE" || currentRoutingIntent === "PROJECT" ||
-            currentRoutingIntent === "QUICK_FIX";
+        return currentRoutingIntent === "PLANNED_CHANGE" || currentRoutingIntent === "FEATURE" ||
+            currentRoutingIntent === "PROJECT" || currentRoutingIntent === "QUICK_FIX";
     };
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
         if (event.eventId) {

@@ -640,7 +640,7 @@ export async function executePlan({
 
     emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
 
-    // PROJECT Epics are containers handled above; executable child FEATURE plans use the normal single-plan execution path.
+    // PROJECT Epics are containers handled above; executable child planned-change plans use the normal single-plan execution path.
     const result = await executeSingleEngineerPlanFn({
         planName,
         planBody: plan.body,
@@ -875,7 +875,10 @@ async function runEngineerWithPlan(
             hostedSession,
             agentName: executionAgent,
             userRequest: `${
-                buildEngineerRequest(planName, planBody, reviewFeedback, { collaborationStyle })
+                buildEngineerRequest(planName, planBody, reviewFeedback, {
+                    collaborationStyle,
+                    workKind: workflow?.triageMeta?.workKind,
+                })
             }\n\nExecution owner: ${executionAgent}.`,
             images: reviewImages,
             sessionManager,
@@ -959,7 +962,7 @@ async function confirmNonGitFeaturePlanExecution(hostedSession, projectRoot) {
         prompt:
             "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
         options: [
-            { value: "proceed", label: "Proceed in current files and remember for FEATURE/Plan work" },
+            { value: "proceed", label: "Proceed in current files and remember for planned Plan work" },
             { value: "cancel", label: "Cancel execution" },
         ],
     });

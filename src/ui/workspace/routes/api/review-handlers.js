@@ -1,5 +1,6 @@
 /** Review decision transport for Workspace-hosted review surfaces. */
 
+import { normalizePlanClassification } from "../../../../constants.js";
 import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
 import { normalizeCollaborationMode, normalizeExecutionAgent } from "../../../../plan-store.js";
 
@@ -233,8 +234,8 @@ function trustedReviewClassification(reviewPayload) {
         ? reviewPayload.classification
         : typeof reviewPayload?.frontmatter?.classification === "string"
         ? reviewPayload.frontmatter.classification
-        : "FEATURE";
-    return classification === "PROJECT" ? "PROJECT" : classification === "FEATURE" ? "FEATURE" : classification;
+        : "PLANNED_CHANGE";
+    return normalizePlanClassification(classification);
 }
 
 /** @param {any} planSave */

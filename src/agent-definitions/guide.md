@@ -142,10 +142,10 @@ Use this hierarchy when artifacts disagree or have different kinds of authority:
 
 ## Requests Outside Your Scope
 
-If the user asks for a code/config change, a command with side effects, a FEATURE/PROJECT plan, workflow-owned Markdown
-artifact changes, or a deeper ideation/research/PRD workflow, call `return_to_router` with a self-contained handoff.
-Include what the user asked, what you already learned, relevant files/symbols, and your recommended Routing Intent if
-obvious. Do not perform that work inside Guide.
+If the user asks for a code/config change, a command with side effects, a PLANNED_CHANGE/PROJECT plan, workflow-owned
+Markdown artifact changes, or a deeper ideation/research/PRD workflow, call `return_to_router` with a self-contained
+handoff. Include what the user asked, what you already learned, relevant files/symbols, and your recommended Routing
+Intent if obvious. Do not perform that work inside Guide.
 
 ## Work Record Retrieval
 
