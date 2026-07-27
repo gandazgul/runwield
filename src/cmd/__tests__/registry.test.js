@@ -43,6 +43,17 @@ Deno.test("getSlashCommandDefinition resolves slash aliases", () => {
     assertEquals(command?.name, "model");
 });
 
+Deno.test("update command is CLI-only and upgrade resolves to update", () => {
+    const command = getCommandDefinition("update");
+    assertEquals(command?.name, "update");
+    assertEquals(getCommandDefinition("upgrade")?.name, "update");
+    assertEquals(command ? hasCommandSurface(command, "cli") : false, true);
+    assertEquals(command ? hasCommandSurface(command, "slash") : true, false);
+    assertEquals(getSlashCommandDefinition("update"), undefined);
+    assertEquals(getSlashCommandDefinition("upgrade"), undefined);
+    assertEquals(getSlashCommandDefinitions().some((definition) => definition.name === "update"), false);
+});
+
 Deno.test("workspace command is CLI-only", () => {
     const command = getCommandDefinition("workspace");
     assertEquals(command?.name, "workspace");
