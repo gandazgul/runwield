@@ -1,6 +1,7 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import {
+    assertBinaryVersionOutput,
     assertExtractedBundledAgentReferenceFiles,
     assertRequiredBundledAssetsConfigured,
     assertReviewAssetsLoad,
@@ -8,7 +9,9 @@ import {
     collectExtractedBundledMarkdownFiles,
     collectNestedReviewAssetUrls,
     collectReviewAssetUrls,
+    parseReleaseCheckOptions,
     readReviewUrl,
+    runReleaseCheck,
 } from "./release-check.js";
 
 /**
@@ -27,6 +30,166 @@ async function collectMarkdownFiles(rootDir, relativeDir = "") {
     }
     return files.sort();
 }
+
+Deno.test("parseReleaseCheckOptions accepts explicit build identity", () => {
+    assertEquals(parseReleaseCheckOptions(["--build-version", "v1.2.3-rc.1"]), { buildVersion: "v1.2.3-rc.1" });
+    assertEquals(parseReleaseCheckOptions([]), { buildVersion: undefined });
+});
+
+Deno.test("assertBinaryVersionOutput requires the requested release identity", () => {
+    assertBinaryVersionOutput("runwield v1.2.3-rc.1 (x86_64-unknown-linux-gnu)\n", "v1.2.3-rc.1");
+    assertThrows(
+        () => assertBinaryVersionOutput("runwield v1.2.3 (x86_64-unknown-linux-gnu)\n", "v1.2.3-rc.1"),
+        Error,
+        "wrong version",
+    );
+});
+
+/**
+ * @param {(root: string) => Promise<void>} fn
+ */
+async function withTemporaryVersionProject(fn) {
+    const root = await Deno.makeTempDir({ prefix: "wld-release-check-project-" });
+    try {
+        await Deno.mkdir(join(root, "src", "shared"), { recursive: true });
+        await Deno.writeTextFile(join(root, "src", "shared", "version.js"), 'export const VERSION = "original";\n');
+        await fn(root);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+}
+
+Deno.test("runReleaseCheck propagates build identity to compile and preserves stage order", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        /** @type {string[]} */
+        const stages = [];
+        /** @type {Array<{ command: string, args: string[], env?: Record<string, string> }>} */
+        const calls = [];
+        await runReleaseCheck({
+            buildVersion: "v1.2.3-rc.1",
+            rootDir: root,
+            makeTempDir: () => Promise.resolve("release-temp"),
+            remove: () => Promise.resolve(),
+            async run(command, args, options = {}) {
+                calls.push({ command, args, env: options.env });
+                if (command === "deno") {
+                    stages.push("compile");
+                    await Deno.writeTextFile(
+                        join(root, "src", "shared", "version.js"),
+                        'export const VERSION = "compiled";\n',
+                    );
+                    return { success: true, code: 0, stdout: "", stderr: "" };
+                }
+                stages.push("version");
+                return {
+                    success: true,
+                    code: 0,
+                    stdout: "runwield v1.2.3-rc.1 (test-target)\n",
+                    stderr: "",
+                };
+            },
+            smokeTestBundledAgentReferenceExtraction() {
+                stages.push("references");
+                return Promise.resolve();
+            },
+            smokeTestBinaryReviewSurface() {
+                stages.push("review");
+                return Promise.resolve();
+            },
+        });
+
+        assertEquals(stages, ["compile", "version", "references", "review"]);
+        assertEquals(calls[0].env, { WLD_BUILD_VERSION: "v1.2.3-rc.1" });
+        assertEquals(
+            await Deno.readTextFile(join(root, "src", "shared", "version.js")),
+            'export const VERSION = "original";\n',
+        );
+    });
+});
+
+Deno.test("runReleaseCheck short-circuits after compile failure and restores generated version", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        /** @type {string[]} */
+        const stages = [];
+        await assertRejects(
+            () =>
+                runReleaseCheck({
+                    buildVersion: "v1.2.3",
+                    rootDir: root,
+                    makeTempDir: () => Promise.resolve("release-temp"),
+                    remove: () => Promise.resolve(),
+                    async run(command) {
+                        stages.push(command === "deno" ? "compile" : "version");
+                        await Deno.writeTextFile(
+                            join(root, "src", "shared", "version.js"),
+                            'export const VERSION = "failed";\n',
+                        );
+                        return { success: false, code: 1, stdout: "", stderr: "compile failed" };
+                    },
+                    smokeTestBundledAgentReferenceExtraction() {
+                        stages.push("references");
+                        return Promise.resolve();
+                    },
+                    smokeTestBinaryReviewSurface() {
+                        stages.push("review");
+                        return Promise.resolve();
+                    },
+                }),
+            Error,
+            "Compile release binary failed",
+        );
+
+        assertEquals(stages, ["compile"]);
+        assertEquals(
+            await Deno.readTextFile(join(root, "src", "shared", "version.js")),
+            'export const VERSION = "original";\n',
+        );
+    });
+});
+
+Deno.test("runReleaseCheck restores generated version after binary version mismatch", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        /** @type {string[]} */
+        const stages = [];
+        await assertRejects(
+            () =>
+                runReleaseCheck({
+                    buildVersion: "v1.2.3-rc.1",
+                    rootDir: root,
+                    makeTempDir: () => Promise.resolve("release-temp"),
+                    remove: () => Promise.resolve(),
+                    async run(command) {
+                        if (command === "deno") {
+                            stages.push("compile");
+                            await Deno.writeTextFile(
+                                join(root, "src", "shared", "version.js"),
+                                'export const VERSION = "compiled";\n',
+                            );
+                            return { success: true, code: 0, stdout: "", stderr: "" };
+                        }
+                        stages.push("version");
+                        return { success: true, code: 0, stdout: "runwield v1.2.3 (test-target)\n", stderr: "" };
+                    },
+                    smokeTestBundledAgentReferenceExtraction() {
+                        stages.push("references");
+                        return Promise.resolve();
+                    },
+                    smokeTestBinaryReviewSurface() {
+                        stages.push("review");
+                        return Promise.resolve();
+                    },
+                }),
+            Error,
+            "wrong version",
+        );
+
+        assertEquals(stages, ["compile", "version"]);
+        assertEquals(
+            await Deno.readTextFile(join(root, "src", "shared", "version.js")),
+            'export const VERSION = "original";\n',
+        );
+    });
+});
 
 Deno.test("release compile includes required bundled markdown and theme assets", () => {
     assertRequiredBundledAssetsConfigured();

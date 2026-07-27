@@ -21,18 +21,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T18:50:18-04:00"
-updatedAt: "2026-07-27T00:07:26.470Z"
-status: "implemented"
+updatedAt: "2026-07-27T04:07:36.467Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T00:07:26.470Z"
+verifiedAt: "2026-07-27T04:07:36.467Z"
 userVerifiedAt: null
+userVerificationNote: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-27T04:07:36.195Z"
 executionMode: "worktree"
-executionBaselineTree: "678b590b2177fbb690fad035e13f5364ad707770"
-worktreeId: "c4ad153f"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-release-candidate-and-promotion-flow-c4ad153f"
-worktreeBranch: "runwield/worktree/release-candidate-and-promotion-flow-c4ad153f"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "3a4e25b6ac0e990965f76dfdff0cab25a208562f"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "fd02d82eda1a6fb4cbff5dc9505fb452710c14c4"
 ---
 
 # Release Candidate and Promotion Flow
