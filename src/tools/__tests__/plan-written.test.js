@@ -6,7 +6,8 @@ import { createPlanWrittenTool } from "../plan-written.js";
 
 /**
  * @param {Object} options
- * @param {"FEATURE" | "PROJECT"} [options.classification]
+ * @param {"FEATURE" | "PROJECT" | "PLANNED_CHANGE"} [options.classification]
+ * @param {"BUG_FIX" | "FEATURE" | "REFACTOR" | "MAINTENANCE"} [options.workKind]
  * @param {any} [options.reviewResponse]
  * @param {any[]} [options.reviewResponses]
  * @param {any} [options.retryResponse]
@@ -25,6 +26,7 @@ function makeHarness(options = {}) {
         agentName: options.classification === "PROJECT" ? "architect" : "planner",
         triageMeta: {
             classification: options.classification || "FEATURE",
+            ...(options.workKind ? { workKind: options.workKind } : {}),
             complexity: "MEDIUM",
             summary: "Plan the boundary",
             affectedPaths: ["src/shared/session/session-runtime.js"],
@@ -213,6 +215,74 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     assertEquals(result.terminate, true);
     assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
+});
+
+Deno.test("plan_written preserves triage workKind when Plan front matter omits it", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${cwd}/plans/runtime-boundary.md`,
+            `---
+classification: PLANNED_CHANGE
+---
+# Bug fix plan
+`,
+        );
+        const lifecycle = /** @type {any[]} */ ([]);
+        const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+        const tool = createPlanWrittenTool({
+            hostedSession,
+            agentName: "planner",
+            triageMeta: { classification: "PLANNED_CHANGE", workKind: "BUG_FIX", complexity: "MEDIUM" },
+            __deps: {
+                cwd,
+                stat: () => Promise.resolve({ isFile: true }),
+                requestPlanReview: () =>
+                    Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
+                recordPlanEvent: (event) => {
+                    lifecycle.push(event);
+                    return Promise.resolve(/** @type {any} */ (event.details?.triageMeta || {}));
+                },
+                recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
+            },
+        });
+
+        const result = await execute(tool);
+
+        assertEquals(result.details.triageMeta.classification, "PLANNED_CHANGE");
+        assertEquals(result.details.triageMeta.workKind, "BUG_FIX");
+        assertEquals(lifecycle[0].details.triageMeta.workKind, "BUG_FIX");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("plan_written preserves triage workKind when approved review attrs omit it", async () => {
+    const { tool, lifecycle } = makeHarness({
+        classification: "PLANNED_CHANGE",
+        workKind: "BUG_FIX",
+        reviewResponse: {
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "run",
+                planAttrs: {
+                    classification: "PLANNED_CHANGE",
+                    complexity: "MEDIUM",
+                    summary: "Plan the boundary",
+                    affectedPaths: ["src/shared/session/session-runtime.js"],
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "autonomous",
+                },
+            },
+        },
+    });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(result.details.triageMeta.workKind, "BUG_FIX");
+    assertEquals(lifecycle[0].details.triageMeta.workKind, "BUG_FIX");
 });
 
 Deno.test("plan_written feature approval uses post-review execution metadata for readiness", async () => {

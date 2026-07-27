@@ -447,7 +447,7 @@ Deno.test("runValidationLoop retries another three semantic cycles when requeste
     });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Feature execution and validation complete")
+            message.includes("Planned change execution and validation complete")
         ),
         true,
     );

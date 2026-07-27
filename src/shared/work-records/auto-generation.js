@@ -84,7 +84,7 @@ async function withEpicChildren(cwd, source) {
 
 /**
  * Resolve a targeted active Plan to the source eligible for automatic generation.
- * Child FEATURE Plans resolve to their parent Epic and skip quietly until the parent is terminal.
+ * Child Planned Change Plans resolve to their parent Epic and skip quietly until the parent is terminal.
  *
  * @param {string} cwd
  * @param {string} planName

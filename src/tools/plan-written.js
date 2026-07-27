@@ -164,7 +164,9 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
     try {
         const plan = await loadPlan(cwd, planName);
         if (plan?.attrs) {
-            meta = /** @type {TriageMeta} */ ({ ...triageMeta, ...plan.attrs });
+            const planAttrs = /** @type {TriageMeta} */ ({ ...plan.attrs });
+            if (planAttrs.workKind === undefined || planAttrs.workKind === null) delete planAttrs.workKind;
+            meta = /** @type {TriageMeta} */ ({ ...triageMeta, ...planAttrs });
         }
     } catch {
         /* ignore */
@@ -426,10 +428,15 @@ export function createPlanWrittenTool(
                 );
             }
 
+            const reviewPlanAttrs = /** @type {TriageMeta} */ ({ ...(reviewResult.planAttrs || {}) });
+            if (reviewPlanAttrs.workKind === undefined || reviewPlanAttrs.workKind === null) {
+                delete reviewPlanAttrs.workKind;
+            }
+            const approvedBase = /** @type {TriageMeta} */ ({ ...effectiveMeta, ...reviewPlanAttrs });
             const approvedMeta = /** @type {TriageMeta} */ ({
-                ...(reviewResult.planAttrs || effectiveMeta),
-                classification: normalizePlanClassification((reviewResult.planAttrs || effectiveMeta).classification),
-                workKind: normalizeWorkKind((reviewResult.planAttrs || effectiveMeta).workKind),
+                ...approvedBase,
+                classification: normalizePlanClassification(approvedBase.classification),
+                workKind: normalizeWorkKind(approvedBase.workKind),
             });
             const action = normalizePlanApprovalAction({
                 classification: approvedMeta.classification,

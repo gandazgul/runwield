@@ -118,7 +118,10 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
         Type.Literal("FEATURE"),
         Type.Literal("REFACTOR"),
         Type.Literal("MAINTENANCE"),
-    ])),
+    ], {
+        description:
+            "Child Work Kind. Set for new child planned changes based on the work's nature; omit only to preserve an existing child draft's Work Kind.",
+    })),
     content: Type.String({
         description: "Complete child planned change plan markdown body without YAML front matter.",
     }),
@@ -258,7 +261,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
 
 /**
  * @param {{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }} child
- * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, dependencies: string[], affectedPaths: string[], tickets?: import('../ticket-references.js').TicketReference[] }}
+ * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, workKind: string | undefined, dependencies: string[], affectedPaths: string[], tickets?: import('../ticket-references.js').TicketReference[] }}
  */
 function summarizeChild(child) {
     return {
@@ -266,6 +269,7 @@ function summarizeChild(child) {
         order: child.attrs.order,
         status: child.attrs.status,
         summary: child.attrs.summary,
+        workKind: child.attrs.workKind,
         dependencies: Array.isArray(child.attrs.dependencies) ? child.attrs.dependencies : [],
         affectedPaths: Array.isArray(child.attrs.affectedPaths) ? child.attrs.affectedPaths : [],
         tickets: Array.isArray(child.attrs.tickets) ? child.attrs.tickets : undefined,

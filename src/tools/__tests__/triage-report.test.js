@@ -9,8 +9,8 @@ Deno.test("createTriageReportTool exposes expected metadata", () => {
     assertMatch(tool.description, /Routing Intent/i);
     assertEquals(typeof tool.execute, "function");
     assertEquals(typeof tool.parameters, "object");
-    assert(!("classification" in tool.parameters.properties));
-    assert(tool.parameters.required.includes("routingIntent"));
+    assert("classification" in tool.parameters.properties);
+    assert(!tool.parameters.required.includes("routingIntent"));
     assert(tool.parameters.required.includes("sessionName"));
 });
 
@@ -144,6 +144,13 @@ Deno.test("triage_report execute preserves plan classification only for PLANNED_
 Deno.test("triage_report execute normalizes legacy classification params", async () => {
     const tool = createTriageReportTool();
 
+    const legacyFeature = await /** @type {any} */ (tool.execute)("call-0", {
+        classification: "FEATURE",
+        complexity: "MEDIUM",
+        summary: "legacy feature",
+        sessionName: "legacy feature",
+        affectedPaths: ["src/foo.js"],
+    });
     const result = await /** @type {any} */ (tool.execute)("call-1", {
         classification: "PROJECT",
         complexity: "HIGH",
@@ -152,6 +159,8 @@ Deno.test("triage_report execute normalizes legacy classification params", async
         affectedPaths: ["src/foo.js"],
     });
 
+    assertEquals(legacyFeature.details.routingIntent, "PLANNED_CHANGE");
+    assertEquals(legacyFeature.details.classification, "PLANNED_CHANGE");
     assertEquals(result.details.routingIntent, "PROJECT");
     assertEquals(result.details.classification, "PROJECT");
 });

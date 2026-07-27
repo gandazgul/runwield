@@ -3,6 +3,19 @@
  * Filtering and CLI formatting for canonical Work Records.
  */
 
+import { formatPlannedWorkLabel } from "../../constants.js";
+
+/**
+ * @param {unknown} scope
+ * @param {unknown} workKind
+ */
+export function formatWorkRecordScopeLabel(scope, workKind) {
+    if (scope === "planned_change" || scope === "feature") return formatPlannedWorkLabel(workKind);
+    if (scope === "quick_fix") return "Quick fix";
+    if (scope === "epic") return "Epic";
+    return String(scope || "unknown");
+}
+
 /** @param {import('./schema.js').WorkRecordResource} record */
 export function isCurrentWorkRecord(record) {
     return record.attrs.status === "approved" && !record.attrs.archivedAt && !record.attrs.supersededBy;
@@ -47,7 +60,9 @@ export function formatWorkRecordListEntry(record) {
         `- ${record.title}`,
         `  recordId: ${record.attrs.recordId}`,
         `  status: ${record.attrs.status}`,
+        `  work: ${formatWorkRecordScopeLabel(record.attrs.scope, record.attrs.workKind)}`,
         `  scope: ${record.attrs.scope}`,
+        ...(record.attrs.workKind ? [`  workKind: ${record.attrs.workKind}`] : []),
         `  origin: ${record.attrs.origin}`,
         `  completionMode: ${record.attrs.completionMode}`,
     ];

@@ -15,10 +15,14 @@ import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({
-    routingIntent: StringEnum(ROUTING_INTENTS, {
+    routingIntent: Type.Optional(StringEnum(ROUTING_INTENTS, {
         description:
-            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. PLANNED_CHANGE: reviewed executable planned work. FEATURE is accepted only as a legacy planned-change workflow label. PROJECT: architecture/Epic plan. Router calls must provide this field; legacy direct calls may be normalized internally.",
-    }),
+            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. PLANNED_CHANGE: reviewed executable planned work. FEATURE is accepted only as a legacy planned-change workflow label. PROJECT: architecture/Epic plan. Router calls should provide this field; legacy direct calls may provide classification instead.",
+    })),
+    classification: Type.Optional(StringEnum(ROUTING_INTENTS, {
+        description:
+            "Legacy compatibility field. Use routingIntent for new calls. FEATURE here is accepted and normalized to PLANNED_CHANGE.",
+    })),
     complexity: StringEnum(["LOW", "MEDIUM", "HIGH"], {
         description: "How complex is this request?",
     }),

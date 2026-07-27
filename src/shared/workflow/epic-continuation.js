@@ -165,7 +165,7 @@ function buildResumeRequest(planName, attrs) {
     return [
         `## Resuming Epic Child Plan: ${planName}`,
         "",
-        `This child FEATURE was automatically selected from its parent Epic with status: ${attrs.status}.`,
+        `This child Planned Change was automatically selected from its parent Epic with status: ${attrs.status}.`,
         `Continue working on it. The plan is at plans/${planName}.md.`,
         "",
         "## Triage Report",
