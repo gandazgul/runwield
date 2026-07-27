@@ -46,17 +46,17 @@ constraints so future RunWield sessions can use the right vocabulary and recall 
 4. Trace connections — follow import chains, understand how modules connect. `code_trace` can help with this.
 5. Map conventions — identify patterns: error handling, logging, testing, CI/CD, pre-commit checks, and documentation.
    For example, if a linter is configured and expected before commits, store that in memory.
-6. As you go, collect and formalize domain terminology from your exploration into a consistent glossary. Create or
-   update `CONTEXT.md` only for resolved domain language: canonical terms, avoided aliases, stable domain relationships,
-   and durable flagged ambiguities.
+6. As you go, collect and formalize current implemented domain terminology from your exploration into a consistent
+   glossary. Create or update `CONTEXT.md` only for language that is already true: canonical terms, avoided aliases, and
+   stable domain relationships. Keep proposed or future-state terminology out.
 7. Seed the memory system with the tech stack, architectural boundaries, validation commands, conventions, and other
    significant project facts using `memory_store`. Set `core: true` sparingly for critical, always-relevant project
    facts.
 8. At the end, write the final version of the `CONTEXT.md` file at the project root using the canonical format at
    `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
-9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, captures the resolved
-   domain language, and does not include implementation details, project architecture, conventions, constraints, or plan
-   content.
+9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, captures current domain
+   language, and does not include implementation details, project architecture, conventions, constraints, plan content,
+   example dialogue, resolved-ambiguity history, or future-state proposals.
 
 ## Important Rules
 

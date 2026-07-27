@@ -521,295 +521,95 @@ command definition, prompt command
 
 ## Relationships
 
-- Installing **Attached Mode** leaves ordinary **External Agent Host** use unchanged until the user explicitly starts an
-  **Attached Workflow** for one **User Request**.
-- During an **Attached Workflow**, the **External Agent Host** supplies every model call while RunWield remains the
-  authority for durable Plans, Plan Lifecycle, review, validation outcomes, recovery evidence, Work Records, and
-  organizational memory.
-- An **Attached Workflow** persists structured workflow evidence and durable artifacts without copying the **External
-  Agent Host** conversation transcript; ordinary host conversations remain outside RunWield entirely.
-- Planned implementation in an **Attached Workflow** uses a RunWield-owned worktree by default and may use an **External
-  Agent Host** worker while preserving the invoking host conversation.
-- A **Verified Plan** has the same meaning in Attached, Managed, and Native experiences; host limitations cannot weaken
-  Workflow Validation semantics.
-- **Attached Mode** is a durable first-class product mode; movement to Managed or Native experiences is an optional
-  progression rather than a prerequisite for complete Attached workflows.
-- An **External Work Source** owns demand management, while RunWield owns planning, execution, Plan Lifecycle, and
-  delivery truth.
+- One **Attached Workflow** governs one **User Request** inside one **External Agent Host**.
+- During an **Attached Workflow**, the **External Agent Host** owns model calls while RunWield owns durable workflow
+  truth, review, validation, recovery evidence, Work Records, and organizational memory.
+- An **Attached Workflow** persists structured evidence and durable artifacts without copying the host conversation into
+  a **Session Transcript**.
+- A **Verified Plan** has the same meaning in Attached, Managed, and Native experiences.
+- An **External Work Source** owns **Tickets** and demand management; RunWield owns planning, execution, **Plan
+  Lifecycle**, and delivery truth.
+- A **Forge** owns **Forge Change Requests**, repository review policy, branch publication, and remote merge outcomes.
 - **Tickets** and **Plans** have a many-to-many relationship expressed through **Ticket References**.
-- A completed **Plan** carries its **Ticket References** into its **Work Record** as durable demand provenance.
-- An Epic **Work Record** aggregates and deduplicates **Ticket References** from the Epic and all child PLANNED_CHANGE
-  Plans.
-- A **Ticket Reference** is provenance and navigation only; it does not make either system authoritative over the
-  other's lifecycle or instruct a **Forge** to close a Ticket.
-- One provider may act as both an **External Work Source** for Tickets and a **Forge** for code delivery without joining
-  Ticket lifecycle to RunWield Plan Lifecycle.
-- **FEATURE** and **QUICK_FIX** work may use either **Direct Delivery** or **Change Request Delivery**.
-- A **Forge Change Request** supplies delivery evidence for **Change Request Delivery**, while its **Forge** remains
-  authoritative for repository review policy and the remote merge fact.
-- A contributed Plan requires a **Repository Participation Declaration** from the upstream target; without one, the
-  **Publication Candidate** excludes RunWield artifacts.
-- A **Publication Candidate** excludes transient Plan Lifecycle and worktree metadata even when the upstream accepts an
-  adoptable approved Plan.
-- A **Verified Plan** delivered through **Change Request Delivery** requires a proven merge corresponding to a revision
-  covered by RunWield Workflow Validation.
-- **Change Request Finalization** follows the proven Forge merge and updates the canonical repository without requiring
-  the contributor's source branch or fork to receive terminal Plan state.
-- **Direct Delivery** remains the default and combines implementation with staged verified Plan metadata in one merge;
-  only explicitly selected **Change Request Delivery** omits terminal Plan metadata from the published branch and
-  records terminal Plan and Work Record evidence after the Forge merge.
-- **Dual Review** adds **Local Human Code Review** to Forge review; ordinary Change Request Delivery retains **Semantic
-  Code Review** without requiring the local human review gate.
-- A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.
-- A **Terminal Title** should mirror the current **Session Name** when one exists.
-- Router-provided auto-naming only sets the **Session Name** for unnamed sessions; manual naming overrides it.
-- An **Empty Project Directory** has no meaningful existing codebase for normal repository initialization to inspect.
-- A directory is an **Empty Project Directory** when it contains no non-dot-prefixed, non-zero-size files; empty folders
-  and dot-prefixed files or folders are ignored for startup detection.
-- A non-empty `README.md` is meaningful project context, so a directory containing one is not an **Empty Project
-  Directory**.
-- RunWield shows **Empty Project Directory** guidance only when starting an interactive TUI session without an initial
-  **User Request**.
-- Running `/init` or `wld init` in an **Empty Project Directory** should report that there is nothing to initialize yet
-  and should not record init as offered or done, so normal init can still be offered after meaningful files exist.
-- The startup guidance for an **Empty Project Directory** should avoid mentioning init and should focus on asking the
-  user what they want to build or whether they want help choosing a stack or sharpening the idea.
-- Every normal interactive **Agent Session** in an **Empty Project Directory** should receive a simple shared-context
-  note that there is no existing project architecture or real Router-provided **Affected Paths** yet, and should defer
-  to the user when greenfield tech stack, product shape, or goals require a clear choice.
-- A **User Request** is classified by an Agent emitting exactly one **Triage Report** through the **Triage-Report
-  Tool**.
-- The **Router** is the default Agent used for fresh Triage, but the **Workflow Orchestrator** reacts to the
-  **Triage-Report Tool** outcome rather than to the **Router** Agent Name.
-- A **Triage Report** contains exactly one **Routing Intent**, one **Complexity**, one summary, and zero or more
-  **Affected Paths**.
-- Router-provided **Affected Paths** in a **Triage Report** must refer to real existing paths, so Router Triage from an
-  **Empty Project Directory** emits an empty **Affected Paths** list until files exist.
-- **Diagnostic Triage** is a read-only specialization of **Triage** used for unknown-cause broken behavior; it still
-  emits a normal **Routing Intent** rather than a bug-specific intent.
-- **Work Kind** describes whether planned work is a bug fix, feature, refactor, or maintenance item; **Routing Intent**
-  describes the workflow ceremony needed.
-- An **OPERATION** is executed directly by the **Operator** and creates no **Plan**.
-- A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through one **Review Loop**, and executed by the
-  **Engineer** after approval.
-- A **PROJECT** is planned by the **Architect** as an **Epic**, decomposed by the **Slicer** into one or more **Child
-  PLANNED_CHANGE Plans**, and executed by loading those child PLANNED_CHANGE Plans independently.
-- A **Plan** has exactly one **Plan Status**, exactly one **Origin**, and one **Front Matter** block.
-- A **Plan Event** is the only way workflow code should ask the **Plan Lifecycle** to change Plan Status.
-- A **Plan Workflow Lease** allows one workflow-owning Session to mutate a Plan's lifecycle, execution, validation, or
-  recovery state at a time, regardless of whether that Session is viewed through TUI, Workspace, or ACP.
-- The **Plan Workflow Lease** belongs to the Session rather than its current UI client, so TUI and Workspace can observe
-  the same live Session and transfer Session Control while idle or awaiting user input without transferring Plan
-  ownership.
-- A second client may observe or resume the owning Session; explicit takeover by a different Session must stop a live
-  owner or enter safe recovery when ownership is uncertain, never silently create a competing workflow owner.
-- An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
-- **Approve & Run** supplies execution authorization for the current Session after the Plan becomes Ready For Work;
-  **Approve for Later** stops at Ready For Work until a separate Run action.
-- Approving a Plan outside an active end-to-end Session must not start execution without an explicit Run action.
-- A **Plan** can proceed to direct implementation only when its **Plan Status** is **Ready For Work** and it is not an
-  **Epic** container.
-- A **Verified Plan** or **Closed Without Verification Plan** may produce one **Work Record**.
-- A **Recorder** generates **Work Records** from completed planned work.
-- A **Work Record** has **Work Record Provenance**.
-- A user-requested QUICK_FIX **Work Record** is an **External Work Record** whose **Work Record Provenance** points to
-  code evidence rather than a source Plan.
-- A **Draft Work Record** requires human approval before default search or Agent retrieval.
-- A **Pending Verification Work Record** requires a terminal **Plan Status** before default search or Agent retrieval.
-- A **Superseded Work Record** is replaced by a newer **Work Record** but is not necessarily archived.
-- Agent planning retrieval excludes **Superseded Work Records** by default, while human search may show them with a
-  prominent replacement notice.
-- An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
-- The **Work Record Search Tool** is available to Ideator, Planner, Architect, and Guide by default, not Engineer.
-- Ideator, Planner, Architect, and Guide may use both **Project Knowledge Search** and **Workspace Intelligence
-  Search**; retrieval is deliberate rather than automatically injected into every Agent Session.
-- The **Project Evidence Graph** is derived from canonical PRDs, ADRs, Plans, Git and validation evidence, and Work
-  Records; it does not replace those artifacts as project truth.
-- A **Session** participates in the **Project Evidence Graph** only as provenance: its owner may navigate to the private
-  Session, while other users may see owner attribution but cannot retrieve or cite its **Session Transcript**.
-- **Workspace Intelligence Search** ranks distilled, current artifacts above draft or superseded material and preserves
-  prominent status and Project provenance on every result.
-- Registered **Projects** contribute durable artifacts to **Workspace Intelligence Search** by default, with an explicit
-  per-Project exclusion; future SaaS membership, permission, and organization policy further restrict eligibility.
-- **Session Transcripts** are excluded from both **Project Knowledge Search** and **Workspace Intelligence Search**.
-- A **Model Adaptation Profile** is selected explicitly for an evaluated Agent/model combination and cannot replace
-  protected workflow tools, Agent ownership, Plan Lifecycle, or validation semantics.
-- **Agent Behavior Evaluation** determines whether an experimental **Model Adaptation Profile** earns a supported
-  product claim.
-- An enabled **Research Evidence Set** belongs only to its Ideator **Agent Session**, survives compaction and resume
-  with that session, and enters durable project knowledge only through explicit synthesis into an existing artifact.
-- A **Failed Plan** must have reached **Ready For Work** before work failed.
-- An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
-- **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or
-  returns the worktree to a known pre-execution state.
-- A **Failed Plan** should include **Failure Detail** when RunWield can identify the cause.
-- An **Implemented Plan** still requires **Workflow Validation**.
-- An **Implemented Plan** may include **Failure Detail** when Workflow Validation fails.
-- A **Verified Plan** must have passed **Workflow Validation**.
-- A **Review Issue Ledger** exists only during one implementation attempt and contains zero or more blocking **Review
-  Issues** plus requirement coverage and repair evidence.
-- A **Review Issue** prevents Semantic Code Review approval until the **Engineer** repairs it and the Reviewer verifies
-  the repair.
-- A **Review Advisory** does not prevent approval and may be appended to the Verified Plan as generated post-validation
-  context that is not part of the approved requirements.
-- A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
-- The **RunWield Design System** governs browser UI surfaces including **Workspace**, **Plan Board**, and
-  **Plannotator**.
-- A **Workspace** contains zero or more registered **Projects** and may host live Sessions in multiple Projects
-  concurrently.
-- The **Attention Dashboard** is the default Workspace landing surface; Project views remain secondary sidebar
-  destinations and stay Plan-centered when opened.
-- The **Code Surface** opens the Project's main checkout, while planned Agent execution remains isolated in
-  RunWield-owned worktrees and is reviewed through Workspace or Plannotator rather than edited through code-server.
-- Manual main-checkout changes made through the **Code Surface** are not silently committed or incorporated into active
-  Plan worktrees; they may instead create staleness or later merge conflicts that RunWield must detect.
-- A **Project** is the parent boundary for its **Sessions**, **Plans**, **PRDs**, ADRs, and **Work Records**; inactive
-  Project Runtimes may remain dormant until needed.
-- A **Session** may remain standalone or become associated with one or more durable artifacts and Plans.
-- A **Session** may contain multiple sequential or delegated **Agent Sessions** while preserving one user-facing history
-  across Agent handoffs.
-- A **Session Transcript** consists of one or more ordered **Session Transcript Segments** projected as one continuous
-  user-visible history, while a root **Agent Session** receives model context only from the active segment.
-- A live **Session** may have multiple observing clients but only one holder of **Session Control** at a time; an idle
-  or waiting Session can transfer control between Workspace and TUI without creating a new Session.
-- A **Session Transcript** is visible and searchable by its owner and is available when that same Session is resumed,
-  but other users cannot see it and Agents cannot retrieve it as cross-Session planning or ideation context.
-- A fresh **Session** receives prior conclusions only through explicitly referenced durable artifacts such as a PRD,
-  Plan, ADR, Work Record, or handoff document; attaching an artifact does not expose its source Session Transcript.
-- A **PRD** remains independent and may inform multiple Plans; it is not owned by the first Plan it helps produce.
-- Starting a new **Session** from a PRD, Plan, or Work Record creates a fresh context boundary associated with that
-  artifact; **Resume** re-enters the same Session and its existing history.
-- Browser or private-network disconnection does not cancel an active **Session**; it continues within its already
-  authorized workflow until completion or a required user interaction, while process failure relies on durable recovery
-  rather than blind replay of uncertain side effects.
-- When a **Session** produces a Plan, the Plan becomes the primary durable workflow anchor while the Session retains its
-  own name and history.
-- **Approve & Run** activates a fresh execution **Session Transcript Segment** only after the **Readiness Gate** and
-  execution preparation succeed, immediately before the Engineer's first turn; **Approve for Later** does not create an
-  execution segment.
-- The execution **Session Transcript Segment** receives the approved Plan, approval annotations and images, and current
-  execution state without inheriting messages from the planning segment; the **Plan Workflow Lease** remains owned by
-  the same **Session**.
-- The Engineer remains the active execution owner through **Workflow Validation**, repair turns, interruption recovery,
-  and successful validation; isolated Reviewer work does not replace or inherit the Engineer's active segment.
-- Once a Plan exists, its detail, associated Session activity, review, changes, validation, recovery, and related
-  artifacts appear in one unified Plan-centered workflow surface rather than separate Plan and chat destinations.
-- An **Epic** has zero or more **Child PLANNED_CHANGE Plans** discovered by their `parentPlan` Front Matter pointer.
-- A **Child PLANNED_CHANGE Plan** follows the normal PLANNED_CHANGE lifecycle and may list sibling PLANNED_CHANGE
-  dependencies.
-- An **On-Hold Plan** can be an **Epic**; its **Child PLANNED_CHANGE Plans** inherit on-hold visibility without mutating
-  their own Plan Status, remain displayed under the held Epic in Plan listings, and require resuming the parent Epic
-  before loading.
-- An on-hold **Child PLANNED_CHANGE Plan** whose parent **Epic** is still active remains displayed under that Epic with
-  `on_hold` status instead of moving to a separate held-child list.
-- A parent **Agent Session** can invoke zero or more **Delegated Agent Sessions**, none of which inherit the parent's
-  conversation history.
-- A **See-Image Tool** uses **Vision Fallback** only when the active Agent model is text-only; pasted image references
-  are scoped to the current **Agent Session** and may be rehydrated when that session is resumed.
-- An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
-  Validation**.
-- **Workflow Validation** runs after completed executable Plan loops. For PROJECT Epics, validation occurs on child
-  PLANNED_CHANGE Plans; the Epic itself is a decomposition container.
-- `OPERATION` work is owned by the **Operator** and ends when the **Operator** emits **Task Completion** after any
-  needed self-verification.
-- Dependency updates may be `OPERATION` work only when the user explicitly asks for them and self-verification passes
-  without requiring code changes; CI failures or required code edits trigger **Scope Escalation** back to **Router**
-  with context.
-- `QUICK_FIX` work is owned by the **Engineer** and runs **Mechanical Validation** after **Task Completion**; CI
-  failures are sent back to the **Engineer** for up to three total repair attempts, but no **Reviewer** runs because
-  there is no **Plan**.
-- The **Frontend Engineer** owns Plans whose primary outcome is materially visual or interactive and may execute them
-  through **Pair Execution** or autonomously.
-- **Pair Execution** is recommended during planning but chosen by the user; it does not replace browser verification or
+- A **Ticket Reference** provides provenance and navigation without synchronizing either system's content, state, or
+  lifecycle.
+- A completed **Plan** carries its **Ticket References** into its **Work Record**; an Epic Work Record also aggregates
+  Ticket References from its child Plans.
+- A contributed Plan requires a **Repository Participation Declaration** before RunWield artifacts enter the
+  **Publication Candidate**.
+- Planned work uses either **Direct Delivery** or explicitly selected **Change Request Delivery**.
+- **Change Request Delivery** can produce a **Verified Plan** only after a proven Forge merge of a revision covered by
   **Workflow Validation**.
-- A **Scope Escalation** should call the **Return-to-Router Tool** with a concise summary and relevant paths for fresh
-  **Triage**, relying on the shared session history for detailed prior output rather than repeating full CI logs.
-- Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
-- An **Agent** owns work and may load one or more **Skills** to apply specialized techniques without changing the owning
-  Agent Session.
-- The **Tester** may load a **Testing Skill** to add focused regression tests when verification uncovers a real defect;
-  whether it fixes now or reports only may be governed by project or user preference.
-- Every active Agent turn uses the same **Agent Handler**; boot, `/agent`, `return_to_router`, and workflow restores
-  must not install Agent-specific handlers.
-- Every project **Memory** is either a **Local Memory** or a **Team Memory**, while `core` independently controls
-  whether it is injected into every **Agent Session**.
-- A **Team Memory Candidate** begins as a **Local Memory** and becomes a **Team Memory** only after its canonical text
-  is trusted through the repository workflow.
-- A **Team Memory** has one canonical repository representation and zero or more derived local **Mnemosyne** copies.
-- Only **Team Memories** accepted through a **Trusted Branch** may become active shared context in local **Mnemosyne**
-  collections.
-- **Core Memories** are injected into every **Agent Session** by the **Mnemosyne** extension.
-- **Prompt Templates** become slash commands in the **TUI**.
-- A **Workflow Decision** may cause workflow code to record a **Plan Event**, but it is not itself durable state.
-- A **Workflow Decision** describes the caller's next runtime action; the phase function that reaches a durable
-  lifecycle moment records the corresponding **Plan Event**.
-- A **Workflow Decision** reason code describes workflow semantics such as missing Plan declaration or canceled Review
-  Loop, not raw tool outcome names.
-
-## Example dialogue
-
-> **Dev:** "A user submitted the **User Request** 'add JWT auth to the API'. What happens first?"
->
-> **Domain expert:** "The **Router** is the default Agent for fresh **Triage**. It emits one **Triage Report** with a
-> **Routing Intent**, **Complexity**, summary, and **Affected Paths**."
->
-> **Dev:** "Since that spans multiple files, is it a **FEATURE**?"
->
-> **Domain expert:** "Yes. The **Planner** writes a **Plan**, then the user reviews it in **Plannotator** during the
-> **Review Loop**."
->
-> **Dev:** "If the user denies it, does the **Engineer** start anyway?"
->
-> **Domain expert:** "No. The denied **Plan** returns **Feedback**, the **Planner** makes a **Revision**, and execution
-> waits until the Plan is approved."
->
-> **Dev:** "What changes for a **PROJECT**?"
->
-> **Domain expert:** "The **Architect** writes the **Epic** design Plan, the **Slicer** decomposes it into child
-> **FEATURE** Plans, and the user loads those child Plans independently. Every PROJECT Plan is an Epic; PROJECT task
-> tables and DAG execution are not part of the model."
-
-## Flagged ambiguities
-
-- "new session" at the planning-to-execution handoff was ambiguous between a new user-facing **Session** and isolated
-  model history — resolved: retain the same **Session** and visible history while activating a fresh execution **Session
-  Transcript Segment**.
-
-- "host" can mean the external coding agent or RunWield's live-session runtime; resolved: use **External Agent Host**
-  for Claude Code, Codex, OpenCode, or Pi, and **Session Host** for RunWield's runtime boundary.
-- "skippable Attached Mode" was used to suggest both bypassing active gates and ordinary host use; resolved:
-  installation is inert for normal requests, and a user explicitly invokes one **Attached Workflow** when RunWield
-  should govern a request.
-- "core" was used to imply that a Memory is shared; resolved: **Core Memory** controls always-on injection, while
-  **Local Memory** and **Team Memory** define audience independently.
-- "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
-  captures demand, while a **Plan** belongs to RunWield and governs software delivery.
-- "feature" was used for both planned executable workflow and new-functionality work; resolved: use **PLANNED_CHANGE**
-  for the Routing Intent and Plan Classification, and **FEATURE Work Kind** only for the nature of requested work.
-- "bug" could mean either a workflow path or the nature of work; resolved: use **BUG_FIX** as a **Work Kind**, not a
-  separate Routing Intent or Plan flow.
-- "change request" could mean requested planned work or a GitHub/GitLab review object; resolved: use **PLANNED_CHANGE**
-  for planned executable workflow and **Forge Change Request** for a pull request or merge request.
-- "local code review" could mean automated semantic checking or human diff review; resolved: **Semantic Code Review**
-  remains part of Workflow Validation, while **Local Human Code Review** is optional and **Dual Review** combines it
-  with Forge review.
-- "router", "dispatcher", and "orchestrator" were used interchangeably; resolved: **Router** is an Agent, while the
-  **Workflow Orchestrator** coordinates workflow steps after Custom Tool outcomes.
-- "agent def" and "agent config" appeared as aliases; resolved: use **Agent Definition** for the markdown source, and
-  use **Agent Name** or **Agent Display Name** only for identifiers.
-- "feedback" can mean any response in ordinary prose; resolved: **Feedback** means Plannotator annotations returned to a
-  planning Agent.
-- "completed" can describe either a Plan lifecycle state or an execution signal; resolved: use **Implemented Plan** for
-  finished work, **Verified Plan** for proven work, and **Task Completion** for the `task_completed` tool outcome.
-- "approved" previously meant both user-approved and executable; resolved: only **Ready For Work** means executable.
-- "workflow outcome" sounded durable and overlapped with **Plan Event** and **Plan Status**; resolved: use **Workflow
-  Decision** for ephemeral routing instructions after interpreting runtime results.
-- `QUICK_FIX` previously mixed operational work and small code changes; resolved: use **OPERATION** for direct non-code
-  operations and **QUICK_FIX** for bounded no-plan code implementation.
-- "context-free sub-agent" suggested a child with no context; resolved: a **Delegated Agent Session** is
-  context-isolated from its parent but still receives dedicated system instructions, a bounded brief, and repository
-  context.
-- `PROJECT` previously also referred to legacy task-table and DAG execution; resolved: every **PROJECT** Plan is an
-  **Epic** decomposed into **Child PLANNED_CHANGE Plans**.
-- `frontend: true` previously conflated touching frontend code, requiring browser verification, and preferring live
-  collaboration; resolved product language separates **Frontend Engineer** ownership from optional **Pair Execution**.
+- **Dual Review** adds **Local Human Code Review** to Forge review without replacing **Semantic Code Review**.
+- One **User Request** produces exactly one **Triage Report**.
+- A **Triage Report** contains one **Routing Intent**, one **Complexity**, one summary, and zero or more **Affected
+  Paths**.
+- **Affected Paths** identify existing project paths; an **Empty Project Directory** therefore produces none.
+- **Diagnostic Triage** remains read-only and produces a normal **Routing Intent**.
+- An **OPERATION** belongs to the **Operator** and creates no **Plan**.
+- A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through a **Review Loop**, and executed by the
+  **Engineer** after approval.
+- A **PROJECT** produces one **Epic**, which the **Slicer** decomposes into zero or more **Child PLANNED_CHANGE Plans**.
+- **Work Kind** describes the nature of planned work independently from **Routing Intent** and **Plan Classification**.
+- A **Plan** has exactly one **Plan Status**, one **Origin**, and one **Front Matter** block.
+- A **Plan Event** is the only input that asks the **Plan Lifecycle** to change **Plan Status**.
+- A **Plan Workflow Lease** permits exactly one **Session** at a time to drive consequential workflow actions for one
+  Plan.
+- **Plan Workflow Lease** ownership belongs to the Session and is distinct from client-level **Session Control**.
+- An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
+- **Approve & Run** authorizes the current Session to continue after readiness; **Approve for Later** stops at Ready For
+  Work until a separate Run action.
+- Only a non-Epic Plan at **Ready For Work** can proceed to implementation.
+- An **Epic** contains decomposition context; its **Child PLANNED_CHANGE Plans** are the independently executable units.
+- An **Implemented Plan** must pass **Workflow Validation** before becoming a **Verified Plan**.
+- An **In-Progress Plan** or **Failed Plan** may require **Plan Recovery** before workflow can continue safely.
+- A **Verified Plan** or **Closed Without Verification Plan** may produce one **Work Record**.
+- Every **Work Record** has **Work Record Provenance**.
+- A **Draft Work Record** requires human approval before default Agent retrieval.
+- A **Pending Verification Work Record** requires a terminal Plan outcome before default Agent retrieval.
+- **Superseded Work Records** and **Archived Work Records** remain durable but are excluded from default planning
+  retrieval.
+- One implementation attempt has at most one temporary **Review Issue Ledger**.
+- A **Review Issue** blocks Semantic Code Review approval; a **Review Advisory** does not.
+- Denied Plan review produces **Feedback**, and each response to Feedback produces one **Revision**.
+- A **PRD** may inform multiple Plans without participating in Plan Lifecycle.
+- A **Workspace** contains zero or more registered **Projects** and may host live Sessions across them.
+- A **Project** is the parent boundary for its Sessions, Plans, PRDs, ADRs, Work Records, and code access.
+- A **Session** contains one user-facing history and one or more sequential or delegated **Agent Sessions**.
+- A **Session Transcript** contains one or more ordered **Session Transcript Segments** while presenting one continuous
+  user-visible history.
+- A root Agent Session receives model history from only the active Session Transcript Segment.
+- A live Session may have multiple observers but only one holder of **Session Control**.
+- A Session Transcript is private to its owner and excluded from **Project Knowledge Search** and **Workspace
+  Intelligence Search**.
+- A fresh Session receives prior conclusions through explicitly referenced durable artifacts, not another Session's
+  transcript.
+- Starting from a PRD, Plan, or Work Record creates a fresh Session; **Resume** re-enters the existing Session.
+- Once a Session produces a Plan, the Plan becomes its primary durable workflow anchor.
+- **Approve & Run** activates a fresh execution Session Transcript Segment after readiness and preparation succeed;
+  **Approve for Later** creates no execution segment.
+- The execution segment receives the approved Plan, approval annotations, and execution state without inheriting
+  planning messages.
+- The Engineer remains the execution owner through Workflow Validation, repairs, recovery, and successful validation.
+- The **Project Evidence Graph** is derived from durable artifacts and delivery evidence and never replaces them as
+  sources of truth.
+- **Project Knowledge Search** retrieves durable artifacts within one Project; **Workspace Intelligence Search**
+  retrieves eligible durable artifacts across registered Projects.
+- The **RunWield Design System** governs **Workspace**, **Plan Board**, and **Plannotator** browser surfaces.
+- Every **Agent Session** loads exactly one merged **Agent Definition**.
+- An **Agent** may load one or more **Skills** without changing work ownership or Agent Session identity.
+- A **Delegated Agent Session** receives a bounded brief without inheriting its parent's conversation history.
+- An execution Agent Session emits **Task Completion** before validation can begin.
+- **OPERATION** work ends after Operator self-verification; **QUICK_FIX** work receives **Mechanical Validation**;
+  executable Plan work receives Workflow Validation.
+- The **Frontend Engineer** owns materially visual or interactive frontend implementation; **Pair Execution** is an
+  optional execution style, not a validation substitute.
+- **Scope Escalation** returns work to the **Router** for fresh Triage.
+- The **See-Image Tool** uses **Vision Fallback** only for a text-only active model.
+- Every project **Memory** is either a **Local Memory** or a **Team Memory**; **Core Memory** independently controls
+  always-on injection.
+- A **Team Memory Candidate** begins as Local Memory and becomes Team Memory only after its canonical text is trusted
+  through the repository workflow.
+- A Team Memory has one canonical repository representation and zero or more derived local **Mnemosyne** copies.
+- Only Team Memories accepted through a **Trusted Branch** may become active shared context.
+- Core Memories are injected into every Agent Session.

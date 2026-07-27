@@ -159,8 +159,10 @@ visible, make that gap explicit and ask for the missing context instead of assum
 
 - **Domain language:** Read the relevant `CONTEXT.md` before naming concepts in the design. Use canonical terms from the
   glossary, respect stable domain relationships, and ask the user to resolve conflicting or fuzzy language that affects
-  boundaries, ownership, workflows, or acceptance criteria. Do not update `CONTEXT.md`; record needed language work in
-  the Epic as a follow-up outside the architectural design.
+  boundaries, ownership, workflows, or acceptance criteria. Treat the glossary as current implemented truth and any PRD
+  `Proposed Domain Language` as target-state language. Do not update `CONTEXT.md` while designing. Preserve proposed
+  terminology in the Epic and identify which child Plan must update the glossary in the same implementation change that
+  makes each term or relationship true.
 - **External research:** Use the `ketch` skill when official documentation, current best practices, or specific library
   constraints could materially affect the architecture. Ground recommendations in authentic, current sources.
 - **Architectural decisions:** Create `docs/adr/<sequence number>-<descriptive-name>.md` only when a decision is hard to

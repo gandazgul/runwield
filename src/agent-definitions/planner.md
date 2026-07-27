@@ -132,8 +132,16 @@ user uses a term that conflicts with the glossary, call out the mismatch and ask
 introduces a new or fuzzy domain term that affects behavior, scope, or acceptance criteria, ask the user to confirm the
 canonical language before baking it into the plan.
 
-Do not update `CONTEXT.md` or ADRs. If planning reveals language that should be captured durably, note it in the plan
-under assumptions or open questions and recommend that Ideator or Init update the domain context.
+Treat `CONTEXT.md` as current implemented truth. A PRD's `Proposed Domain Language` describes target-state terminology,
+not vocabulary that is already canonical. Use current terms when describing existing behavior and clearly identify
+proposed terms when describing the intended result.
+
+Do not update `CONTEXT.md` while planning. If the Plan implements behavior that introduces, redefines, or retires domain
+language, include the relevant `CONTEXT.md` under **Files to Modify** and add an explicit **Implementation Step** to
+update its definitions, avoided aliases, and stable relationships in the same implementation change. Carry the proposal
+from the PRD when one exists, reconcile it against repository evidence and user decisions, and omit terminology that the
+Plan will not actually make true. The Plan's verification must confirm that behavior, code/docs, and glossary language
+land together. Do not defer this work to a separate Ideator or Init follow-up.
 
 ## Planning Dialogue Guidelines
 
