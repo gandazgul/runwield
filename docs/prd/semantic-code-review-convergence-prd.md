@@ -1,6 +1,6 @@
 # Product Requirements Document: Semantic Code Review Convergence
 
-Last updated: 2026-07-19 12:57 EDT
+Last updated: 2026-07-27 15:30 EDT
 
 ## Objective
 
@@ -15,7 +15,9 @@ prevent serial discovery in which each cycle forgets prior findings or examines 
 Recent Workflow Validation runs commonly pass CI on the first attempt but require three or four Semantic Code Review
 cycles. Successive Reviewer invocations often discover different Plan-adherence issues instead of identifying the full
 set during the first review. Engineer repair handoffs are unstructured, and each isolated Reviewer starts without the
-prior requirement coverage, findings, or repair claims.
+prior requirement coverage, findings, or repair claims. Semantic repair also currently reuses the long-lived Engineer
+execution context. By the time Reviewer feedback arrives, that context may already be near exhaustion, so the model
+receives its most correctness-sensitive task with degraded attention and insufficient response headroom.
 
 This behavior creates semantic coverage debt: an implementation may improve after every repair while the workflow still
 cannot show that every approved Plan requirement was examined or that previously reported issues were independently
@@ -74,6 +76,26 @@ structured Review Issue Ledger that makes requirement coverage and repair state 
   performed.
 - Engineer claims do not close Review Issues. Only a later Reviewer can resolve them.
 
+### Fresh Engineer Repair Context
+
+- Every automatic semantic repair cycle starts a fresh persisted **semantic repair Session Transcript Segment** owned by
+  the same stable RunWield Session.
+- Activating the repair segment seals the previous execution or repair segment and makes the repair segment current.
+  Stable Session identity, Plan Workflow Lease ownership, execution worktree, and active Engineer identity do not
+  change.
+- The repair model receives a bounded context packet: the Engineer system prompt, frozen Approved Plan requirements,
+  current execution/worktree state, CI state, the complete open Review Issue set with stable identities and evidence,
+  prior repair claims when applicable, and repository/diff inspection capabilities.
+- The repair model does not receive Planner messages, the earlier Engineer transcript, Reviewer conversation or tool
+  history, or Reviewer reasoning beyond the structured result and concise feedback projection.
+- A repair segment is fresh when the repair begins and remains writable for that repair attempt so interruption can
+  resume the same attempt. A later semantic rejection creates another fresh successor segment rather than accumulating
+  repair rounds in one model context.
+- Context compaction may still protect an unusually long repair attempt, but compaction is a fallback within the fresh
+  segment, not the mechanism used to establish the repair boundary.
+- If repair-segment activation cannot be completed or reconciled safely, Workflow Validation pauses for recovery. It
+  must not silently fall back to the exhausted predecessor context.
+
 ### Cycle Two Re-Verifies and Sweeps Again
 
 - The second Reviewer receives the frozen requirements, current implementation evidence, prior ledger, and Engineer
@@ -99,9 +121,12 @@ structured Review Issue Ledger that makes requirement coverage and repair state 
 - It must survive an Engineer repair turn, validation continuation, and recoverable interruption so resumed validation
   does not lose coverage or issue history.
 - It remains available when the two-cycle limit stops automatic validation and the user is choosing recovery.
-- It is discarded after successful verification or when the attempt is reset, abandoned, or reopened for Plan revision.
+- Its active state is checkpointed durably enough for interruption and process-loss recovery, then discarded after
+  successful verification or when the attempt is reset, abandoned, or reopened for Plan revision.
 - The ledger, resolved findings, and repair history are not appended to the Plan and are not durable Work Record
   content.
+- A private semantic repair transcript may retain the bounded issue packet and repair claims as ordinary Session
+  history. That historical JSONL is not the active ledger, canonical project memory, or a Work Record.
 
 ### Only Advisories Become Durable
 
@@ -121,7 +146,7 @@ Most successful implementations should proceed without new user interaction:
 
 1. CI passes.
 2. Semantic Review cycle one approves, or reports a comprehensive set of Review Issues.
-3. The Engineer repairs all reported issues with evidence.
+3. RunWield activates a fresh semantic repair segment, and the Engineer repairs all reported issues with evidence.
 4. Semantic Review cycle two independently verifies the repairs, repeats full coverage, and approves when the Plan is
    satisfied.
 
@@ -174,6 +199,12 @@ and asks the user to choose a recovery path. It must not silently grant approval
 - Tell the Engineer that repair claims are evidence for the Reviewer, not self-approval.
 - Keep semantic repair instructions validation-specific; do not weaken the Engineer's broader Plan and verification
   responsibilities.
+- Before dispatch, transactionally activate a fresh semantic repair segment under the same stable Session using the
+  current execution worktree and Plan Workflow Lease.
+- Keep repository and large-diff evidence inspectable through bounded tools instead of copying an unbounded execution
+  transcript or oversized diff into the prompt.
+- Persist the repair segment and pending repair continuation until the attempt reaches a durable completion,
+  interruption, or recovery boundary.
 
 ### Plan Advisory Appendix
 
@@ -212,13 +243,16 @@ terminal `review_complete` contract.
    requirement coverage and distinguish Review Issues from Review Advisories.
 3. Maintain one validation-owned Review Issue Ledger for the active semantic attempt. Pass only the frozen Plan,
    implementation evidence, ledger, and repair claims into isolated Reviewer invocations.
-4. Make the semantic repair handoff carry all open issue identities and retain the Engineer's completion evidence for
+4. At every semantic rejection, use the Session-segment rollover boundary to seal the predecessor and activate a fresh
+   persisted semantic repair segment under the same stable Session. Seed it with the bounded repair packet rather than
+   the predecessor transcript.
+5. Make the semantic repair handoff carry all open issue identities and retain the Engineer's completion evidence for
    the next Reviewer.
-5. Separate the two-cycle semantic limit from CI retries, Reviewer execution retries, and human code-review behavior.
-6. At final validation staging, write the managed advisory appendix into the Plan copy that receives
+6. Separate the two-cycle semantic limit from CI retries, Reviewer execution retries, and human code-review behavior.
+7. At final validation staging, write the managed advisory appendix into the Plan copy that receives
    `validation_passed`; strip that appendix whenever deriving future approved requirements.
-7. Extend deterministic workflow, prompt-contract, result-tool, Plan-staging, interruption/resume, and metrics tests to
-   cover both review cycles and failure boundaries.
+8. Extend deterministic workflow, prompt-contract, result-tool, segment-rollover, Plan-staging, interruption/resume, and
+   metrics tests to cover both review cycles and failure boundaries.
 
 The ledger representation should be internal and replaceable. The durable product contracts are exhaustive coverage,
 stable issue identity within an attempt, independent re-verification, bounded automatic cycles, and advisory-only Plan
@@ -232,6 +266,10 @@ persistence.
 - Cycle two cannot approve while a prior or newly discovered Review Issue remains open.
 - Engineer repair completion includes a claim for every dispatched Review Issue, and missing claims remain visible to
   the Reviewer.
+- Every semantic repair begins with bounded fresh model context while remaining attached to the same stable user-visible
+  Session and Plan workflow.
+- Process loss during repair resumes or recovers the persisted repair attempt without reverting to the predecessor
+  execution context or duplicating uncertain effects.
 - The rate of eligible implementations approved by cycle two materially improves from the current baseline without an
   increase in defects later found by human review or subsequent validation.
 - The rate of new blocking issues first discovered during cycle two declines as the comprehensive cycle-one contract is
@@ -251,6 +289,8 @@ persistence.
 - Incorporating CI findings or human code-review findings into the Review Issue Ledger.
 - Changing the Approved Plan format or requiring authors to assign requirement identifiers.
 - Persisting the full ledger or repair history in Plans, Work Records, or project memory.
+- Treating semantic repair transcripts as disposable in-memory work that cannot survive interruption or process loss.
+- Using compaction of the predecessor Engineer transcript as the normal semantic repair handoff.
 - Automatically creating follow-up Plans from Review Advisories.
 - Batch approval of Epic children or changes to individual child FEATURE Plan approval.
 - Epic child navigation and automatic loading of the next actionable child.
@@ -260,7 +300,14 @@ persistence.
 This PRD should precede adaptive extended review because future review tiers need a reliable coverage and finding ledger
 to coordinate multiple Reviewer passes.
 
+Implementation depends on the stable Session transcript manifest and generic transactional rollover primitives defined
+by Personal Remote Workspace slices 8–10. The semantic repair workflow is a first concrete consumer of the generic
+"future context boundary" seam: repair segments use the same ordered manifest, fenced activation, aggregate projection,
+and crash reconciliation as the planning-to-execution handoff. Reviewer sessions remain disposable and outside the
+manifest because they are read-only, are not the Session's active root context, and do not own recoverable project
+effects.
+
 Implementation should preserve current `SessionRuntime`, Plan Lifecycle, worktree merge-back, optional human review, and
 large-diff inspection contracts. Behavioral evaluation should compare the new prompt and ledger against representative
-Plans that previously required three or more semantic cycles, with special attention to cycle-two new-finding rate and
-escaped defects rather than approval rate alone.
+Plans that previously required three or more semantic cycles, with special attention to cycle-two new-finding rate,
+repair context utilization at dispatch and completion, and escaped defects rather than approval rate alone.

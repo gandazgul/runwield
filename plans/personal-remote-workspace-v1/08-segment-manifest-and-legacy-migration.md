@@ -12,7 +12,7 @@ affectedPaths:
     - "src/shared/types.js"
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-07-26T20:48:25.344Z"
+updatedAt: "2026-07-27T19:30:00.000Z"
 status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -41,6 +41,8 @@ Implement segment-aware Session cataloging so that:
 - existing one-locator Sessions migrate to ordinal-zero segments without rewriting conversation bodies;
 - each segment records Pi session identity, transcript path, cwd/root evidence, kind, ordinal, seal/current state, and
   minimal private lineage metadata where available;
+- segment kinds can distinguish planning, execution, and semantic repair without changing stable Session identity or
+  manifest ordering;
 - current segment identity becomes part of durable Session evidence and activation expectations;
 - owner database reconstruction can regroup lineage-bearing segments conservatively and mark ambiguous workflows for
   recovery;
@@ -89,6 +91,8 @@ Existing functions, modules, or patterns to reuse:
 
 - [ ] Add segment tables and current pointer fields with constraints for one current writable segment per RunWield
       Session and ordered immutable sealed segments.
+- [ ] Define extensible segment-kind validation with initial planning, execution, and semantic-repair kinds; kind is
+      context-boundary metadata, not a separate user-visible Session type.
 - [ ] Migrate each existing `session_transcript_locators` row into an ordinal-zero initial segment and keep compatible
       read helpers for code not yet converted.
 - [ ] Implement APIs to list segments, get current segment, create initial manifest rows, seal a segment, and validate
