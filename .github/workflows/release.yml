@@ -210,5 +210,6 @@ jobs:
                   files: |
                       release-artifacts/**/*.tar.gz
                       release-artifacts/**/*.tar.zst
+                      release-artifacts/**/*.sha256
                       release-artifacts/SHA256SUMS
                       config.schema.json

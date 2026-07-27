@@ -67,11 +67,12 @@ async function run(command, args, options = {}) {
  * @param {string} command
  * @param {string[]} args
  * @param {Deno.CommandOptions} [options]
+ * @param {typeof run} [runner]
  * @returns {Promise<RunResult>}
  */
-async function mustRun(label, command, args, options = {}) {
+async function mustRun(label, command, args, options = {}, runner = run) {
     console.log(`\n==> ${label}`);
-    const result = await run(command, args, options);
+    const result = await runner(command, args, options);
     if (!result.success) {
         throw new Error(`${label} failed with exit code ${result.code}.`);
     }
@@ -472,30 +473,48 @@ async function restoreFile(path, snapshot) {
 }
 
 /**
- * @param {{ buildVersion?: string }} [options]
+ * @typedef {Object} ReleaseCheckOptions
+ * @property {string} [buildVersion]
+ * @property {string} [rootDir]
+ * @property {typeof run} [run]
+ * @property {(options?: { prefix?: string }) => Promise<string>} [makeTempDir]
+ * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} [remove]
+ * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBundledAgentReferenceExtraction]
+ * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryReviewSurface]
+ */
+
+/**
+ * @param {ReleaseCheckOptions} [options]
  */
 export async function runReleaseCheck(options = {}) {
-    const tempDir = await Deno.makeTempDir({ prefix: "wld-release-check-" });
-    const versionSnapshot = await snapshotFile(join("src", "shared", "version.js"));
+    const tempDir = await (options.makeTempDir || Deno.makeTempDir)({ prefix: "wld-release-check-" });
+    const rootDir = options.rootDir || ".";
+    const versionPath = join(rootDir, "src", "shared", "version.js");
+    const versionSnapshot = await snapshotFile(versionPath);
     const binaryName = Deno.build.os === "windows" ? "wld.exe" : "wld";
     const output = join(tempDir, binaryName);
+    const runner = options.run || run;
+    const bundledReferenceSmoke = options.smokeTestBundledAgentReferenceExtraction ||
+        smokeTestBundledAgentReferenceExtraction;
+    const reviewSmoke = options.smokeTestBinaryReviewSurface || smokeTestBinaryReviewSurface;
 
     try {
         assertRequiredBundledAssetsConfigured();
         const compileEnv = options.buildVersion ? { WLD_BUILD_VERSION: options.buildVersion } : undefined;
         await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output], {
+            cwd: rootDir,
             env: compileEnv,
-        });
+        }, runner);
         const smoke = await mustRun("Smoke test release binary", output, ["--version"], {
             stdout: "piped",
             stderr: "piped",
-        });
+        }, runner);
         if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
-        await smokeTestBundledAgentReferenceExtraction(output, tempDir);
-        await smokeTestBinaryReviewSurface(output, tempDir);
+        await bundledReferenceSmoke(output, tempDir);
+        await reviewSmoke(output, tempDir);
     } finally {
-        await restoreFile(join("src", "shared", "version.js"), versionSnapshot);
-        await Deno.remove(tempDir, { recursive: true }).catch((error) => {
+        await restoreFile(versionPath, versionSnapshot);
+        await (options.remove || Deno.remove)(tempDir, { recursive: true }).catch((error) => {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
     }

@@ -47,7 +47,9 @@ Deno.test("getExplicitBuildVersion accepts stable and candidate release identiti
 
 Deno.test("getExplicitBuildVersion rejects unsafe explicit identities", () => {
     assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "abc123" })), Error, "WLD_BUILD_VERSION");
-    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3-rc.0" })), Error, "positive");
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3-rc.0" })), Error, "WLD_BUILD_VERSION");
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v01.2.3" })), Error, "WLD_BUILD_VERSION");
+    assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3-rc.01" })), Error, "WLD_BUILD_VERSION");
     assertThrows(() => getExplicitBuildVersion(env({ WLD_BUILD_VERSION: "v1.2.3/bad" })), Error, "WLD_BUILD_VERSION");
 });
 
