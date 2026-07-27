@@ -15,11 +15,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T12:10:11-04:00"
-updatedAt: "2026-07-27T16:15:20.340Z"
-status: "ready_for_work"
+updatedAt: "2026-07-27T16:42:22.083Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-27T16:26:46.211Z"
+verifiedAt: "2026-07-27T16:42:22.083Z"
 userVerifiedAt: null
 userVerificationNote: null
+executionReport: "- Implemented foreground steering target stack in `HostedSession`, root/isolated session push-pop lifetimes, and active-target steering while preserving root-only helpers.\n- Added early steering interruption guard that forces sequential tool execution and skips later requested tools when steering is pending.\n- Updated `SessionRuntime` steering/queue source handling, documentation terminology, and targeted session tests.\n- Verification passed: `deno test -A src/shared/session/early-steering.test.js src/shared/session/session-runtime.test.js src/shared/session/session-prompt.test.js src/shared/session/session-catalog.test.js`.\n- Verification passed: `deno task ci` (one intermediate run hit a transient cwd cleanup failure in `settings.test.js`; immediate rerun passed cleanly)."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "afcba678c644bf77254b8bc5d309f8f6f0ea8257"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "209632a099444fb09eb694d807fc9e6bcd273f3b"
 ---
 
 # Early Foreground Steering Delivery
