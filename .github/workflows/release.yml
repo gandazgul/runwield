@@ -4,14 +4,53 @@ on:
     push:
         tags:
             - "v*"
-    workflow_dispatch:
 
 permissions:
     contents: write
 
+concurrency:
+    group: release-${{ github.ref_name }}
+    cancel-in-progress: false
+
 jobs:
+    metadata:
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.metadata.outputs.tag }}
+            kind: ${{ steps.metadata.outputs.kind }}
+            build_version: ${{ steps.metadata.outputs.build_version }}
+            prerelease: ${{ steps.metadata.outputs.prerelease }}
+            make_latest: ${{ steps.metadata.outputs.make_latest }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Validate release metadata
+              id: metadata
+              run: |
+                  deno task release:metadata --tag "$GITHUB_REF_NAME" > metadata.json
+                  deno eval --allow-read --allow-env --allow-write '
+                    const metadata = JSON.parse(await Deno.readTextFile("metadata.json"));
+                    if (metadata.tag !== Deno.env.get("GITHUB_REF_NAME")) throw new Error("metadata tag mismatch");
+                    const lines = [
+                      `tag=${metadata.tag}`,
+                      `kind=${metadata.kind}`,
+                      `build_version=${metadata.buildVersion}`,
+                      `prerelease=${metadata.prerelease}`,
+                      `make_latest=${metadata.makeLatest}`,
+                    ];
+                    await Deno.writeTextFile(Deno.env.get("GITHUB_OUTPUT"), lines.join("\n") + "\n", { append: true });
+                  '
+
     ci:
         runs-on: ubuntu-latest
+        needs: metadata
 
         steps:
             - name: Checkout
@@ -50,7 +89,9 @@ jobs:
 
     release-check:
         runs-on: ubuntu-latest
-        needs: ci
+        needs:
+            - metadata
+            - ci
 
         steps:
             - name: Checkout
@@ -64,16 +105,18 @@ jobs:
                   deno-version: v2.9.3
 
             - name: Cache dependencies
-              run: |
-                  deno run -A scripts/write-version.js
-                  deno cache --reload scripts/release-check.js
+              run: deno cache --reload scripts/release-check.js
 
             - name: Run release qualification check
-              run: deno task release:check
+              env:
+                  WLD_BUILD_VERSION: ${{ needs.metadata.outputs.build_version }}
+              run: deno task release:check --build-version "${{ needs.metadata.outputs.build_version }}"
 
     build:
         runs-on: ubuntu-latest
-        needs: release-check
+        needs:
+            - metadata
+            - release-check
         strategy:
             fail-fast: false
             matrix:
@@ -106,20 +149,22 @@ jobs:
                   deno-version: v2.9.3
 
             - name: Cache dependencies
-              run: |
-                  deno run -A scripts/write-version.js
-                  deno cache scripts/compile.js src/cli.js
+              run: deno cache scripts/compile.js src/cli.js
 
             - name: Compile binary
+              env:
+                  WLD_BUILD_VERSION: ${{ needs.metadata.outputs.build_version }}
               run: deno run -A scripts/compile.js --target "${{ matrix.target }}" --output "${{ matrix.binary_name }}"
 
             - name: Smoke test native binary
               if: matrix.target == 'x86_64-unknown-linux-gnu'
-              run: ./wld --version
+              run: |
+                  ./wld --version | tee version.txt
+                  grep -F "runwield ${{ needs.metadata.outputs.build_version }} (" version.txt
 
             - name: Package artifact
               run: |
-                  VERSION="${GITHUB_REF_NAME}"
+                  VERSION="${{ needs.metadata.outputs.build_version }}"
                   ASSET_BASE="wld-${VERSION}-${{ matrix.asset_suffix }}"
                   tar -czf "${ASSET_BASE}.tar.gz" "${{ matrix.binary_name }}"
                   tar -cf - "${{ matrix.binary_name }}" | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
@@ -137,7 +182,9 @@ jobs:
 
     release:
         runs-on: ubuntu-latest
-        needs: build
+        needs:
+            - metadata
+            - build
 
         steps:
             - name: Checkout
@@ -157,6 +204,9 @@ jobs:
             - name: Publish release assets
               uses: softprops/action-gh-release@v3
               with:
+                  tag_name: ${{ needs.metadata.outputs.tag }}
+                  prerelease: ${{ needs.metadata.outputs.prerelease }}
+                  make_latest: ${{ needs.metadata.outputs.make_latest }}
                   files: |
                       release-artifacts/**/*.tar.gz
                       release-artifacts/**/*.tar.zst

@@ -93,11 +93,25 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
             join(projectPromptsDir, "coverage-local.md"),
             "Describe local prompt from body.",
         );
+        await Deno.writeTextFile(
+            join(projectPromptsDir, "adversarial-tools.md"),
+            [
+                "---",
+                'description: "Adversarial template"',
+                "tools:",
+                "  - bash",
+                "  - user_interview",
+                "  - task_completed",
+                "---",
+                "Template body.",
+            ].join("\n"),
+        );
 
         const templates = await listPromptTemplates({ cwd: projectRoot });
         const names = templates.map((template) => template.name);
         const codeReview = templates.find((template) => template.name === "code-review");
         const local = templates.find((template) => template.name === "coverage-local");
+        const adversarial = templates.find((template) => template.name === "adversarial-tools");
 
         assertEquals(names.filter((name) => name === "code-review").length, 1);
         assertEquals(codeReview?.source, "local");
@@ -105,6 +119,7 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
         assertEquals(codeReview?.argumentHint, "<diff>");
         assertEquals(codeReview?.model, "test/model");
         assertEquals(local?.description, "Describe local prompt from body.");
+        assertEquals(Object.prototype.hasOwnProperty.call(adversarial || {}, "tools"), false);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }
