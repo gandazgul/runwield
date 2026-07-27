@@ -11,6 +11,10 @@ import { Spacer, Text } from "@earendil-works/pi-tui";
 import { getTUI } from "./tui.js";
 import { theme } from "../theme/theme.js";
 
+interface BootLogoContainer {
+    addChild(child: unknown): void;
+}
+
 const logo = [
     "▓▓▓▓▓▓▓                  ▓▓▓▓▓▓▓",
     "▓▓▓▓▓▓▓                  ▓▓▓▓▓▓▓",
@@ -40,17 +44,13 @@ const dotOn = [
     "   ▓▓▓▓▓▓▓            ▓▓▓▓▓▓▓          ▓▓▓▓▓▓▓",
 ];
 
-/** @type {ReturnType<typeof setInterval>} */
-let blinkInterval;
-/** @type {Text[]} */
-const dot = [];
+let blinkInterval: ReturnType<typeof setInterval> | undefined;
+const dot: Text[] = [];
 
 /**
  * Build a centered ASCII logo banner and insert it into the TUI container.
- *
- * @param {import("@earendil-works/pi-tui").Container} container
  */
-export function renderBootLogo(container) {
+export function renderBootLogo(container: BootLogoContainer) {
     const { tui, terminal } = getTUI();
 
     terminal.clearFromCursor();
@@ -88,7 +88,9 @@ export function renderBootLogo(container) {
 export function endBlink() {
     const { tui } = getTUI();
 
-    clearInterval(blinkInterval);
+    if (blinkInterval !== undefined) {
+        clearInterval(blinkInterval);
+    }
 
     for (let i = 0; i < dot.length; i++) {
         dot[i].setText(theme.fg("mdCode", dotOn[i]));

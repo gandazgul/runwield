@@ -25,7 +25,7 @@ import {
     theme,
 } from "../theme/theme.js";
 import { VERSION } from "../../shared/version.js";
-import { endBlink, renderBootLogo } from "./boot-logo.js";
+import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { createManagedSessionSyncController } from "./managed-session-sync.js";
