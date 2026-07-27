@@ -4,8 +4,8 @@ description: Orchestrates a repository release by discovering its release policy
 
 # Release
 
-Orchestrate a release for the current repository. This prompt is generic: it must discover and follow the repository's
-own release policy instead of assuming WLD's release process applies everywhere.
+You are running inside the wld harness. Release the current repository by discovering and following that repository's
+own release policy and automation.
 
 ## Execution Steps
 
@@ -22,9 +22,8 @@ own release policy instead of assuming WLD's release process applies everywhere.
 
    - Look for `RELEASING.md`, `docs/releasing.md`, `docs/release.md`, package scripts/tasks, release scripts, and CI/CD
      workflows.
-   - Distinguish repository-specific policy from this prompt's generic guidance. If this repository is not WLD, do not
-     apply WLD's Candidate tag grammar, promotion commands, GitHub latest rules, or post-publication notes process
-     unless the repository's own policy says to do so.
+   - Follow repository-specific policy first. Do not apply Candidate tag grammar, promotion commands, GitHub latest
+     rules, or post-publication notes steps unless the repository's own policy says to do so.
    - If policy and automation conflict, or the selected operation is unsupported, stop and report the contradiction
      instead of improvising.
 
@@ -36,11 +35,18 @@ own release policy instead of assuming WLD's release process applies everywhere.
 
 4. Generate curated release notes.
 
-   - Follow the repository's release-note scope. If the repository is silent, use commits since the previous stable tag
-     and write notes for users deciding whether to install or upgrade.
-   - Start with **What's New** for important user-facing outcomes in plain language.
-   - Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and **Breaking
-     Changes** when relevant.
+   - Follow the repository's documented release-note scope. If no repository-specific release-note scope is documented,
+     use commits since the previous stable tag and write notes for users deciding whether to install or upgrade.
+   - Follow the repository's documented note format. If no repository-specific note format is documented, use this
+     RunWield fallback format:
+     - For Candidate and Stable operations, make notes cumulative from the previous Stable.
+     - For later Candidates, also summarize validation-relevant changes since the prior Candidate so testers can see
+       what changed between RCs.
+     - For Candidate promotion, remove Candidate/testing warnings and do not treat the shared Candidate source commit as
+       an empty release; present the cumulative Stable notes for the promoted version.
+     - Start with **What's New** for important user-facing outcomes in plain language.
+     - Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
+       **Breaking Changes** when relevant.
    - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
      behavior.
    - Keep notes in a temporary file unless repository policy explicitly requires committing them.
@@ -62,8 +68,8 @@ own release policy instead of assuming WLD's release process applies everywhere.
 
 7. Complete release notes after publication when repository policy requires it.
 
-   - For WLD, CI creates the GitHub release and uploads assets first; then Operator edits the published release with the
-     curated temporary notes and verifies the notes landed.
+   - When the repository policy says CI creates the host release and uploads assets first, edit the published release
+     with the curated temporary notes afterward and verify the notes landed.
    - If post-publication note editing fails after assets are published, report the release as incomplete with assets
      published and notes pending, including the exact retry command.
 

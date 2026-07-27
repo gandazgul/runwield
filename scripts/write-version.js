@@ -9,7 +9,7 @@
 
 const FILE_PATH = "src/shared/version.js";
 const EXPLICIT_BUILD_VERSION_ENV = "WLD_BUILD_VERSION";
-const SAFE_BUILD_VERSION_PATTERN = /^v\d+\.\d+\.\d+(?:-rc\.\d+)?$/;
+const SAFE_BUILD_VERSION_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/;
 
 /**
  * @typedef {(name: string) => string | undefined} EnvReader

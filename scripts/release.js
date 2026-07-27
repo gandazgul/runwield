@@ -5,7 +5,7 @@
  * preflight only; the GitHub Actions tag workflow owns host release creation.
  */
 
-const RELEASE_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/;
+const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/;
 const WLD_RELEASE_ASSET_SUFFIXES = Object.freeze([
     "darwin-arm64",
     "darwin-x64",
@@ -242,6 +242,35 @@ export async function listTags(deps = {}) {
 
 /**
  * @param {ReleaseDeps} deps
+ * @returns {Promise<string[]>}
+ */
+export async function listRemoteTags(deps = {}) {
+    const result = await mustRun(deps, "List remote release tags", "git", [
+        "ls-remote",
+        "--tags",
+        "origin",
+        "refs/tags/v*",
+    ]);
+    const tags = new Set();
+    for (const line of splitLines(result.stdout)) {
+        const ref = line.split(/\s+/)[1];
+        if (!ref?.startsWith("refs/tags/")) continue;
+        const tag = ref.slice("refs/tags/".length);
+        tags.add(tag.endsWith("^{}") ? tag.slice(0, -3) : tag);
+    }
+    return [...tags];
+}
+
+/**
+ * @param {ReleaseDeps} deps
+ * @returns {Promise<string[]>}
+ */
+export async function listAllReleaseTags(deps = {}) {
+    return [...new Set([...(await listTags(deps)), ...(await listRemoteTags(deps))])];
+}
+
+/**
+ * @param {ReleaseDeps} deps
  * @param {string} tag
  * @returns {Promise<string | undefined>}
  */
@@ -259,10 +288,16 @@ export async function resolveLocalTagCommit(deps, tag) {
  */
 export async function resolveRemoteTagCommit(deps, tag) {
     assertSafeTagText(tag);
-    const result = await normalizeDeps(deps).run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]);
+    const result = await normalizeDeps(deps).run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}*`]);
     if (!result.success) throw new Error(`Failed to inspect remote tag ${tag}: ${result.stderr || result.stdout}`);
-    const line = result.stdout.split("\n").find((entry) => entry.includes(`refs/tags/${tag}`));
-    return line?.split(/\s+/)[0] || undefined;
+    let tagObject;
+    let peeledCommit;
+    for (const line of splitLines(result.stdout)) {
+        const [objectId, ref] = line.split(/\s+/);
+        if (ref === `refs/tags/${tag}^{}`) peeledCommit = objectId;
+        else if (ref === `refs/tags/${tag}`) tagObject = objectId;
+    }
+    return peeledCommit || tagObject || undefined;
 }
 
 /**
@@ -275,6 +310,26 @@ async function assertTagAvailable(deps, tag) {
 }
 
 /**
+ * @param {string} stderr
+ */
+function isMissingGitHubReleaseError(stderr) {
+    return /not\s+found|could\s+not\s+resolve|release\s+.*\s+does\s+not\s+exist/i.test(stderr);
+}
+
+/**
+ * @param {ReleaseDeps} deps
+ * @param {string} tag
+ */
+async function assertHostReleaseAbsent(deps, tag) {
+    const result = await normalizeDeps(deps).run("gh", ["release", "view", tag, "--json", "id"]);
+    if (result.success) throw new Error(`GitHub release already exists for ${tag}.`);
+    const output = `${result.stderr}\n${result.stdout}`;
+    if (!isMissingGitHubReleaseError(output)) {
+        throw new Error(`Could not verify GitHub release absence for ${tag}: ${output}`.trim());
+    }
+}
+
+/**
  * @param {ReleaseDeps} deps
  */
 export async function assertCleanMainCheckout(deps = {}) {
@@ -284,11 +339,21 @@ export async function assertCleanMainCheckout(deps = {}) {
     }
     const status = await mustRun(deps, "Read working tree status", "git", ["status", "--porcelain"]);
     if (status.stdout.trim()) throw new Error(`Release checkout must be clean:\n${status.stdout}`);
+    await mustRun(deps, "Fetch remote main", "git", ["fetch", "origin", "main"]);
     const head = await mustRun(deps, "Read HEAD", "git", ["rev-parse", "HEAD"]);
     const upstream = await mustRun(deps, "Read upstream", "git", ["rev-parse", "@{u}"]);
-    if (head.stdout.trim() !== upstream.stdout.trim()) {
-        throw new Error("Release checkout must match its upstream before tagging.");
+    const remoteMain = await mustRun(deps, "Read remote main", "git", ["rev-parse", "origin/main"]);
+    if (head.stdout.trim() !== upstream.stdout.trim() || head.stdout.trim() !== remoteMain.stdout.trim()) {
+        throw new Error("Release checkout must match its upstream and origin/main before tagging.");
     }
+}
+
+/**
+ * @param {ReleaseDeps} deps
+ * @param {string | undefined} cwd
+ */
+async function runReadOnlyPreflight(deps, cwd) {
+    await mustRun(deps, "Remote submodule fetchability check", "deno", ["task", "submodules:check:remote"], { cwd });
 }
 
 /**
@@ -297,7 +362,7 @@ export async function assertCleanMainCheckout(deps = {}) {
  * @param {string | undefined} cwd
  */
 async function runQualification(deps, buildVersion, cwd) {
-    await mustRun(deps, "Remote submodule fetchability check", "deno", ["task", "submodules:check:remote"], { cwd });
+    await runReadOnlyPreflight(deps, cwd);
     await mustRun(deps, "Release qualification", "deno", ["task", "release:check", "--build-version", buildVersion], {
         cwd,
     });
@@ -392,9 +457,30 @@ export async function createCandidate(deps, tag, dryRun = false) {
     const parsed = parseReleaseTag(tag);
     if (parsed.kind !== "candidate") throw new Error(`Candidate release requires an rc tag: ${tag}`);
     await assertCleanMainCheckout(deps);
+    const existingTags = await listAllReleaseTags(deps);
+    const previous = previousStableTag(existingTags);
+    if (!previous) throw new Error("Cannot create a Candidate because no previous Stable release tag exists.");
+    if (compareReleaseTags(parsed, parseReleaseTag(previous)) <= 0) {
+        throw new Error(`Candidate ${tag} must target a version newer than previous Stable ${previous}.`);
+    }
+    const candidatesForBase = existingTags.map((existing) => {
+        try {
+            return parseReleaseTag(existing);
+        } catch {
+            return null;
+        }
+    }).filter((existing) => existing?.kind === "candidate" && existing.stableTag === parsed.stableTag);
+    const expectedRc = Math.max(0, ...candidatesForBase.map((existing) => existing?.rc || 0)) + 1;
+    if (parsed.rc !== expectedRc) {
+        throw new Error(
+            `Next Candidate tag for ${parsed.stableTag} must be ${parsed.stableTag}-rc.${expectedRc}, not ${tag}.`,
+        );
+    }
     await assertTagAvailable(deps, tag);
     await assertTagAvailable(deps, parsed.stableTag);
-    if (!dryRun) await runQualification(deps, tag, undefined);
+    await assertHostReleaseAbsent(deps, tag);
+    if (dryRun) await runReadOnlyPreflight(deps, undefined);
+    else await runQualification(deps, tag, undefined);
     const commit = await headCommit(deps);
     await createAndPushTag(deps, tag, commit, `Release Candidate ${tag}`, dryRun);
 }
@@ -408,8 +494,28 @@ export async function createStable(deps, tag, dryRun = false) {
     const parsed = parseReleaseTag(tag);
     if (parsed.kind !== "stable") throw new Error(`Stable release requires a stable tag: ${tag}`);
     await assertCleanMainCheckout(deps);
+    const existingTags = await listAllReleaseTags(deps);
+    const previous = previousStableTag(existingTags);
+    if (previous && compareReleaseTags(parsed, parseReleaseTag(previous)) <= 0) {
+        throw new Error(`Stable release ${tag} must be newer than previous Stable ${previous}.`);
+    }
+    const candidateForStable = existingTags.find((existing) => {
+        try {
+            const existingTag = parseReleaseTag(existing);
+            return existingTag.kind === "candidate" && existingTag.stableTag === tag;
+        } catch {
+            return false;
+        }
+    });
+    if (candidateForStable) {
+        throw new Error(
+            `Stable ${tag} has Candidate ${candidateForStable}; use release:promote instead of direct Stable.`,
+        );
+    }
     await assertTagAvailable(deps, tag);
-    if (!dryRun) await runQualification(deps, tag, undefined);
+    await assertHostReleaseAbsent(deps, tag);
+    if (dryRun) await runReadOnlyPreflight(deps, undefined);
+    else await runQualification(deps, tag, undefined);
     const commit = await headCommit(deps);
     await createAndPushTag(deps, tag, commit, `Stable release ${tag}`, dryRun);
 }
@@ -423,11 +529,22 @@ export async function promoteCandidate(deps, candidateTag, dryRun = false) {
     const parsed = parseReleaseTag(candidateTag);
     if (parsed.kind !== "candidate") throw new Error(`Promotion requires a Candidate tag: ${candidateTag}`);
     const stableTag = parsed.stableTag;
-    await assertTagAvailable(deps, stableTag);
     await mustRun(deps, "Fetch release tags", "git", ["fetch", "origin", "--tags"]);
-    const candidateCommit = await resolveLocalTagCommit(deps, candidateTag) ||
-        await resolveRemoteTagCommit(deps, candidateTag);
-    if (!candidateCommit) throw new Error(`Candidate tag does not exist locally or remotely: ${candidateTag}`);
+    const existingTags = await listAllReleaseTags(deps);
+    const previous = previousStableTag(existingTags);
+    if (previous && compareReleaseTags(parseReleaseTag(stableTag), parseReleaseTag(previous)) <= 0) {
+        throw new Error(`Promoted Stable ${stableTag} must be newer than previous Stable ${previous}.`);
+    }
+    await assertTagAvailable(deps, stableTag);
+    await assertHostReleaseAbsent(deps, stableTag);
+    const candidateCommit = await resolveRemoteTagCommit(deps, candidateTag);
+    if (!candidateCommit) throw new Error(`Candidate tag does not exist on origin: ${candidateTag}`);
+    const localCandidateCommit = await resolveLocalTagCommit(deps, candidateTag);
+    if (localCandidateCommit && localCandidateCommit !== candidateCommit) {
+        throw new Error(
+            `Local Candidate tag ${candidateTag} resolves to ${localCandidateCommit}, but origin resolves to ${candidateCommit}. Delete or refresh the stale local tag before promotion.`,
+        );
+    }
     await assertCandidatePublished(deps, candidateTag);
 
     if (!dryRun) {
