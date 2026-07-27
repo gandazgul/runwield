@@ -35,8 +35,8 @@ own release policy and automation.
 
 4. Generate curated release notes.
 
-   - Follow the repository's documented release-note scope and format. If none is documented, use this RunWield fallback
-     format:
+   - Follow the repository's documented release-note scope and format. If no repository-specific release-note scope is
+     documented, use this RunWield fallback format:
      - For Candidate and Stable operations, make notes cumulative from the previous Stable.
      - For later Candidates, also summarize validation-relevant changes since the prior Candidate so testers can see
        what changed between RCs.

@@ -2288,7 +2288,9 @@ export async function runValidationLoop({
             : "Plan";
         let cleanupMergedWorktrees = true;
         const maxMergeRepairAttempts = 2;
+        const maxTargetAdvanceRetries = 3;
         let mergeRepairAttempts = 0;
+        let targetAdvanceRetries = 0;
         /** @type {string | undefined} */
         let pendingRepairMergeWorktreePath;
         let mergeBackCompleted = false;
@@ -2300,6 +2302,8 @@ export async function runValidationLoop({
         /** @type {string[]} */
         let preservedPlanPaths = [];
         let stagedDeliveryEvidenceKey = "";
+        /** @type {string | undefined} */
+        let validatedExecutionCommit;
 
         if (worktreeBranch && !worktreeBaseBranch && worktreeId) {
             try {
@@ -2340,12 +2344,21 @@ export async function runValidationLoop({
                 try {
                     cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl(projectRoot);
                     if (!deliveryEvidence) {
-                        const sealedCandidate = await sealExecutionWorktreeCandidateImpl({
-                            worktreePath: executionCwd,
-                            branch: worktreeBranch,
-                            planName,
-                            planDescription: triageMeta?.summary,
-                        });
+                        if (!validatedExecutionCommit) {
+                            const sealedCandidate = await sealExecutionWorktreeCandidateImpl({
+                                worktreePath: executionCwd,
+                                branch: worktreeBranch,
+                                planName,
+                                planDescription: triageMeta?.summary,
+                            });
+                            validatedExecutionCommit = sealedCandidate.executionCommit;
+                        } else {
+                            await assertNoUnvalidatedPostSealChangesImpl({
+                                executionCwd,
+                                sealedExecutionCommit: validatedExecutionCommit,
+                                planName,
+                            });
+                        }
                         if (!worktreeBaseBranch) {
                             throw new Error(
                                 `Target branch metadata is missing for worktree branch ${worktreeBranch}; cannot publish Delivery Evidence.`,
@@ -2355,7 +2368,7 @@ export async function runValidationLoop({
                         deliveryEvidence = {
                             version: 1,
                             mode: "worktree_merge",
-                            executionCommit: sealedCandidate.executionCommit,
+                            executionCommit: validatedExecutionCommit,
                             targetBranch: worktreeBaseBranch,
                             targetHeadBeforeMerge,
                         };
@@ -2694,7 +2707,13 @@ export async function runValidationLoop({
                                     status: "implemented",
                                     verifiedAt: null,
                                     deliveryEvidence: null,
-                                    executionMode: null,
+                                    executionMode: "worktree",
+                                    executionBaselineTree: baselineTree,
+                                    worktreeId,
+                                    worktreePath: executionCwd,
+                                    worktreeBranch,
+                                    worktreeBaseBranch,
+                                    worktreeStatus: "completed",
                                 });
                             } catch (metadataError) {
                                 const metadataReason = metadataError instanceof Error
@@ -2706,6 +2725,20 @@ export async function runValidationLoop({
                                     true,
                                 );
                             }
+                        }
+                        deliveryEvidence = undefined;
+                        stagedDeliveryEvidenceKey = "";
+                        preservedPlanPaths = [];
+                        sealedExecutionMetadataCommit = undefined;
+                        if (targetAdvanceRetries < maxTargetAdvanceRetries) {
+                            targetAdvanceRetries++;
+                            emitRunWieldSystemStatus(
+                                hostedSession,
+                                `Target branch advanced during publication; retrying merge against its current head ` +
+                                    `(${targetAdvanceRetries}/${maxTargetAdvanceRetries}).`,
+                                "info",
+                            );
+                            continue;
                         }
                         const haltMessage = `Workflow halted: ${reason}`;
                         progress = completeValidationProgress(progress, false, haltMessage);
@@ -2741,6 +2774,7 @@ export async function runValidationLoop({
                                 details: {
                                     triageMeta,
                                     failureReason: reason,
+                                    worktreeId,
                                     worktreePath: executionCwd,
                                     worktreeBranch,
                                     worktreeBaseBranch,

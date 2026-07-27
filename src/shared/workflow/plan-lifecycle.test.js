@@ -124,6 +124,7 @@ Deno.test("buildPlanEventUpdates retains recovered worktree branches when merge-
         worktreeBaseBranch: "feature-base",
     });
 
+    assertEquals(updates.worktreeId, "wt-1");
     assertEquals(updates.worktreePath, "/tmp/repo-runwield-plan-wt-1");
     assertEquals(updates.worktreeBranch, "runwield/worktree/plan-wt-1");
     assertEquals(updates.worktreeBaseBranch, "feature-base");
@@ -748,7 +749,7 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
     }
 });
 
-Deno.test("stageValidationPassedInExecutionWorktree rejects mismatched Delivery Evidence on verified retry", async () => {
+Deno.test("stageValidationPassedInExecutionWorktree mechanically restages mismatched verified evidence", async () => {
     const projectRoot = await Deno.makeTempDir();
     const executionCwd = await Deno.makeTempDir();
     try {
@@ -760,23 +761,27 @@ Deno.test("stageValidationPassedInExecutionWorktree rejects mismatched Delivery 
             deliveryEvidence: TEST_DELIVERY_DETAILS.deliveryEvidence,
         });
 
-        await assertRejects(
-            () =>
-                stageValidationPassedInExecutionWorktree({
-                    projectRoot,
-                    executionCwd,
-                    planName: "feature",
-                    details: {
-                        executionMode: "worktree",
-                        deliveryEvidence: /** @type {import('../../plan-store.js').DeliveryEvidence} */ ({
-                            ...TEST_DELIVERY_DETAILS.deliveryEvidence,
-                            targetHeadBeforeMerge: "cccccccccccccccccccccccccccccccccccccccc",
-                        }),
-                    },
-                }),
-            Error,
-            "Delivery Evidence does not match supplied evidence",
-        );
+        const suppliedDeliveryEvidence = /** @type {import('../../plan-store.js').DeliveryEvidence} */ ({
+            ...TEST_DELIVERY_DETAILS.deliveryEvidence,
+            executionCommit: "dddddddddddddddddddddddddddddddddddddddd",
+            targetHeadBeforeMerge: "cccccccccccccccccccccccccccccccccccccccc",
+        });
+        const result = await stageValidationPassedInExecutionWorktree({
+            projectRoot,
+            executionCwd,
+            planName: "feature",
+            details: {
+                executionMode: "worktree",
+                deliveryEvidence: suppliedDeliveryEvidence,
+                cleanupMergedWorktrees: false,
+                now: () => new Date("2026-01-04T00:00:00.000Z"),
+            },
+        });
+
+        assertEquals(result.attrs.status, "verified");
+        assertEquals(result.attrs.verifiedAt, "2026-01-04T00:00:00.000Z");
+        assertEquals(result.attrs.deliveryEvidence, suppliedDeliveryEvidence);
+        assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(executionCwd, { recursive: true });

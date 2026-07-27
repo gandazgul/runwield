@@ -12,7 +12,7 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "Create Stable Directly");
     assertStringIncludes(prompt, "You are running inside the wld harness");
     assertStringIncludes(prompt, "Follow repository-specific policy first");
-    assertStringIncludes(prompt, "If no repository-specific release-note scope is documented");
+    assertMatch(prompt, /If no repository-specific release-note scope is\s+documented/);
     assertStringIncludes(prompt, "RunWield fallback format");
     assertStringIncludes(prompt, "make notes cumulative from the previous Stable");
     assertStringIncludes(prompt, "validation-relevant changes since the prior Candidate");
