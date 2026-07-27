@@ -536,6 +536,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "worktree_merge_failed") {
+        updates.worktreeId = details.worktreeId || updates.worktreeId;
         updates.worktreePath = details.worktreePath || updates.worktreePath;
         updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
         updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
@@ -777,8 +778,8 @@ export async function stageValidationPassedInExecutionWorktree({
 
     const planPath = `plans/${planName}.md`;
     let executionPlan = await loadPlan(executionCwd, planName);
-    const alreadyVerified = executionPlan?.attrs.status === "verified";
-    if (alreadyVerified && executionPlan) {
+    let reuseVerified = executionPlan?.attrs.status === "verified";
+    if (reuseVerified && executionPlan) {
         /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
         const missingHumanReviewEvidence = {};
         if (executionPlan.attrs.humanReviewMode == null && canonicalPlan.attrs.humanReviewMode != null) {
@@ -808,50 +809,52 @@ export async function stageValidationPassedInExecutionWorktree({
                 : undefined;
             const existingExecutionMode = normalizeExecutionMode(executionPlan.attrs.executionMode);
             const existingDeliveryEvidence = normalizeDeliveryEvidence(executionPlan.attrs.deliveryEvidence);
-            if (suppliedExecutionMode && existingExecutionMode && suppliedExecutionMode !== existingExecutionMode) {
-                throw new Error(
-                    `Cannot reuse verified Plan ${planName} from execution worktree: executionMode does not match supplied Delivery Evidence.`,
-                );
-            }
-            if (
+            const executionModeChanged = Boolean(
+                suppliedExecutionMode && existingExecutionMode && suppliedExecutionMode !== existingExecutionMode,
+            );
+            const deliveryEvidenceChanged = Boolean(
                 suppliedDeliveryEvidence && existingDeliveryEvidence &&
-                JSON.stringify(suppliedDeliveryEvidence) !== JSON.stringify(existingDeliveryEvidence)
-            ) {
-                throw new Error(
-                    `Cannot reuse verified Plan ${planName} from execution worktree: Delivery Evidence does not match supplied evidence.`,
-                );
-            }
-            if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
+                    JSON.stringify(suppliedDeliveryEvidence) !== JSON.stringify(existingDeliveryEvidence),
+            );
+            if (executionModeChanged || deliveryEvidenceChanged) {
+                // A completed validation retry owns the supplied evidence. The
+                // execution worktree may still contain verified metadata from
+                // an older publication attempt, so restage it mechanically
+                // from the canonical implemented Plan below instead of asking
+                // an Engineer to edit lifecycle-owned front matter.
+                reuseVerified = false;
+            } else if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
                 throw new Error(
                     `Cannot reuse verified Plan ${planName} from execution worktree: worktree Delivery Evidence is missing.`,
                 );
-            }
-            if (executionMode === "non_git_in_place" && deliveryEvidence.mode !== "non_git_in_place") {
+            } else if (executionMode === "non_git_in_place" && deliveryEvidence.mode !== "non_git_in_place") {
                 throw new Error(
                     `Cannot reuse verified Plan ${planName} from execution worktree: non-Git Delivery Evidence is missing.`,
                 );
             }
         }
-        if (executionPlan.attrs.executionMode == null && executionMode) {
-            missingHumanReviewEvidence.executionMode = executionMode;
-        }
-        if (executionPlan.attrs.deliveryEvidence == null && deliveryEvidence) {
-            missingHumanReviewEvidence.deliveryEvidence = deliveryEvidence;
-        }
-        if (Object.keys(missingHumanReviewEvidence).length > 0) {
-            const attrs = await updatePlanFrontMatter(
-                executionCwd,
-                planName,
-                missingHumanReviewEvidence,
-                executionPlan.attrs,
-            );
-            executionPlan = { ...executionPlan, attrs };
+        if (reuseVerified) {
+            if (executionPlan.attrs.executionMode == null && executionMode) {
+                missingHumanReviewEvidence.executionMode = executionMode;
+            }
+            if (executionPlan.attrs.deliveryEvidence == null && deliveryEvidence) {
+                missingHumanReviewEvidence.deliveryEvidence = deliveryEvidence;
+            }
+            if (Object.keys(missingHumanReviewEvidence).length > 0) {
+                const attrs = await updatePlanFrontMatter(
+                    executionCwd,
+                    planName,
+                    missingHumanReviewEvidence,
+                    executionPlan.attrs,
+                );
+                executionPlan = { ...executionPlan, attrs };
+            }
         }
     }
     const parentPlanName = typeof canonicalPlan.attrs.parentPlan === "string" ? canonicalPlan.attrs.parentPlan : "";
     let parentWasAlreadyStaged = false;
     let stagedParentVerifiedAt;
-    if (alreadyVerified && executionPlan) {
+    if (reuseVerified && executionPlan) {
         const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
         const canonicalParent = parentPlanName ? await loadPlan(projectRoot, parentPlanName) : null;
         const parentCanAdvance = canonicalParent?.attrs.status === "ready_for_work";
@@ -906,7 +909,7 @@ export async function stageValidationPassedInExecutionWorktree({
         }
 
         let attrs;
-        if (alreadyVerified && executionPlan) {
+        if (reuseVerified && executionPlan) {
             attrs = executionPlan.attrs;
             await advanceParentEpicWhenAllChildrenVerified({
                 cwd: executionCwd,

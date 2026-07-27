@@ -1820,6 +1820,19 @@ export class SessionRuntime {
         }
     }
 
+    /** @param {import('./hosted-session.js').HostedSession} hostedSession */
+    async #alignActiveExecutionWorkflowOwner(hostedSession) {
+        const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+        const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
+        if (!executionAgent) return;
+        const executionCwd = typeof workflow?.executionCwd === "string" ? workflow.executionCwd : "";
+        await this.#activateSessionAgent(hostedSession, {
+            agentName: executionAgent,
+            allowReturnToRouter: false,
+            ...(executionCwd ? { cwd: executionCwd } : {}),
+        });
+    }
+
     /** @param {string} cwd */
     #findEnabledManagedProjectForCwd(cwd) {
         if (!this.#ownerCoordinationStore) return null;
@@ -2677,6 +2690,7 @@ export class SessionRuntime {
         if (!hostedSession) throw new Error("SessionRuntime.promptSession: session not found");
         const turnId = options.turnId || crypto.randomUUID();
         const emitInitialEvents = options.emitInitialEvents !== false;
+        await this.#alignActiveExecutionWorkflowOwner(hostedSession);
         if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
         /** @type {() => void} */
         let cleanupTurn = () => {};

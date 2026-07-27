@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
+import { AGENTS } from "../../constants.js";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
@@ -707,6 +708,66 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
         executionCwd: Deno.cwd(),
         nonGitInPlace: true,
     });
+});
+
+Deno.test("runLoadPlanCommand keeps paused validation continuation with execution owner", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("validate");
+    const fixture = makeRuntimeFixture({ sessionId: "load-plan-paused-validation" });
+
+    await runLoadPlanCommand(["plan-paused-validation"], {
+        uiAPI,
+        ...fixture.context,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-paused-validation"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-paused-validation",
+                    path: "plans/plan-paused-validation.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "implemented",
+                        failureReason: "semantic repair paused",
+                        executionMode: "non_git_in_place",
+                    },
+                }),
+            runValidationLoop: async () => {
+                fixture.runtime.setActiveExecutionWorkflow(fixture.context.sessionId, {
+                    planName: "plan-paused-validation",
+                    triageMeta: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "implemented",
+                        failureReason: "semantic repair paused",
+                        executionMode: "non_git_in_place",
+                    },
+                    executionAgent: AGENTS.ENGINEER,
+                    executionMode: "non_git_in_place",
+                    projectRoot: Deno.cwd(),
+                    executionCwd: Deno.cwd(),
+                    nonGitInPlace: true,
+                    validationContinuation: true,
+                });
+                await fixture.runtime.switchAgent(fixture.context.sessionId, {
+                    agentName: AGENTS.ENGINEER,
+                    allowReturnToRouter: false,
+                });
+                return { kind: "paused", planName: "plan-paused-validation", projectRoot: Deno.cwd() };
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(fixture.state.activeAgent, AGENTS.ENGINEER);
+    assertEquals(fixture.state.agentHistory.at(-1), AGENTS.ENGINEER);
 });
 
 Deno.test("runLoadPlanCommand retry validation reports Plan restoration before validation", async () => {

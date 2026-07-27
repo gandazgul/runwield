@@ -242,6 +242,12 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
  */
 async function restorePreviousAgentFlow(uiAPI, agentName, session) {
     resetTuiStateFn(undefined, uiAPI, undefined);
+    const workflow = session.getActiveExecutionWorkflow?.() || null;
+    const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
+    if (executionAgent) {
+        await session.switchAgent(executionAgent, { allowReturnToRouter: false });
+        return;
+    }
     await session.switchAgent(agentName);
 }
 
@@ -2512,6 +2518,7 @@ async function handlePlanRecovery({
                             triageMeta: plan.attrs,
                             failureReason: reason,
                             deliveryEvidence: manualDeliveryEvidence,
+                            worktreeId: worktreeContext.id,
                             worktreePath: worktreeContext.path,
                             worktreeBranch: worktreeContext.branch,
                             worktreeBaseBranch: worktreeContext.baseBranch,

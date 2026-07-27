@@ -897,7 +897,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
 
 // ─── review-diff-tool tests ────────────────────────────────────────────────
 
-Deno.test("runValidationLoop halts fail-closed when target branch advances before publication", async () => {
+Deno.test("runValidationLoop mechanically retries when target branch advances before publication", async () => {
     const { uiAPI } = makeValidationUi();
     const session = makeRecordedSession("target-advance-validation-test", uiAPI);
     session.setActiveExecutionWorkflow({
@@ -913,6 +913,8 @@ Deno.test("runValidationLoop halts fail-closed when target branch advances befor
         worktreeBaseBranch: "main",
     });
     let mergeCalls = 0;
+    let sealCalls = 0;
+    let targetHeadCalls = 0;
     let repairCalls = 0;
     let promptCalls = 0;
     /** @type {any[]} */
@@ -946,8 +948,14 @@ Deno.test("runValidationLoop halts fail-closed when target branch advances befor
                     }]),
                 ),
             getCodeReviewMode: () => "none",
-            sealExecutionWorktreeCandidate: () => Promise.resolve({ executionCommit: "a".repeat(40) }),
-            getBranchHead: () => Promise.resolve("b".repeat(40)),
+            sealExecutionWorktreeCandidate: () => {
+                sealCalls++;
+                return Promise.resolve({ executionCommit: "a".repeat(40) });
+            },
+            getBranchHead: () => {
+                targetHeadCalls++;
+                return Promise.resolve(targetHeadCalls === 1 ? "b".repeat(40) : "c".repeat(40));
+            },
             stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
                 stagedEvidence.push(args.details.deliveryEvidence);
                 return Promise.resolve({
@@ -957,11 +965,14 @@ Deno.test("runValidationLoop halts fail-closed when target branch advances befor
             },
             mergeExecutionWorktree: () => {
                 mergeCalls++;
-                const error = /** @type {Error & { mergeFailureKind?: string }} */ (
-                    new Error("Target branch main advanced before publication; rerun Workflow Validation.")
-                );
-                error.mergeFailureKind = "target_branch_advanced";
-                return Promise.reject(error);
+                if (mergeCalls === 1) {
+                    const error = /** @type {Error & { mergeFailureKind?: string }} */ (
+                        new Error("Target branch main advanced before publication; rerun Workflow Validation.")
+                    );
+                    error.mergeFailureKind = "target_branch_advanced";
+                    return Promise.reject(error);
+                }
+                return Promise.resolve({ updatedPrimaryCheckout: true });
             },
             repair: () => {
                 repairCalls++;
@@ -991,22 +1002,35 @@ Deno.test("runValidationLoop halts fail-closed when target branch advances befor
                 planEvents.push(event);
                 return Promise.resolve({});
             },
+            shouldCleanupMergedWorktrees: () => false,
+            isCommitAncestorOfBranch: () => Promise.resolve(true),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             recordWorkflowMetric: () => Promise.resolve(null),
         }),
     });
 
-    assertEquals(mergeCalls, 1);
+    assertEquals(mergeCalls, 2);
+    assertEquals(sealCalls, 1);
     assertEquals(repairCalls, 0);
     assertEquals(promptCalls, 0);
     assertEquals(registryUpdates.some((updates) => updates.status === "merge_conflict"), false);
     assertEquals(planEvents.some((event) => event.event === "worktree_merge_failed"), false);
-    assertEquals(stagedEvidence, [{
-        version: 1,
-        mode: "worktree_merge",
-        executionCommit: "a".repeat(40),
-        targetBranch: "main",
-        targetHeadBeforeMerge: "b".repeat(40),
-    }]);
+    assertEquals(stagedEvidence, [
+        {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: "a".repeat(40),
+            targetBranch: "main",
+            targetHeadBeforeMerge: "b".repeat(40),
+        },
+        {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: "a".repeat(40),
+            targetBranch: "main",
+            targetHeadBeforeMerge: "c".repeat(40),
+        },
+    ]);
     assertEquals(resetUpdates, [{
         cwd: "/worktree",
         planName: "p",
@@ -1014,12 +1038,18 @@ Deno.test("runValidationLoop halts fail-closed when target branch advances befor
             status: "implemented",
             verifiedAt: null,
             deliveryEvidence: null,
-            executionMode: null,
+            executionMode: "worktree",
+            executionBaselineTree: "baseline-tree",
+            worktreeId: "wt1",
+            worktreePath: "/worktree",
+            worktreeBranch: "runwield/worktree/p-wt1",
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
         },
     }]);
     assertEquals(
         uiAPI.systemCalls.some((/** @type {any} */ call) =>
-            String(call.message).includes("Target branch main advanced before publication; rerun Workflow Validation.")
+            String(call.message).includes("retrying merge against its current head")
         ),
         true,
     );

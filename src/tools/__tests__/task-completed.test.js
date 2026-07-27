@@ -131,6 +131,10 @@ Deno.test("task_completed message schema owns Engineer report format and accepts
         frontendEngineerTool.parameters.properties.message.description,
         "Concise Markdown bullet-point success, failure, or blocked report",
     );
+    assertStringIncludes(
+        engineerTool.parameters.properties.message.description,
+        "directly state each feedback item's disposition",
+    );
     assertEquals(engineerTool.parameters.required, ["message"]);
     assertEquals(engineerTool.parameters.properties.message.minLength, 1);
     assertEquals(engineerTool.description.includes("Markdown bullet-point"), false);
