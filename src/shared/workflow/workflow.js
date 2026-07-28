@@ -196,6 +196,7 @@ function isPlanReviewRetryAccepted(response) {
  * @property {{
  *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   recordPlanEvent?: typeof recordPlanEvent,
+ *   loadPlan?: typeof loadPlan,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [__deps]
@@ -224,10 +225,28 @@ export async function finalizePlanImplementation({
 
     const checkpointExecutionWorktreeFn = __deps.checkpointExecutionWorktree || checkpointExecutionWorktree;
     const recordPlanEventImpl = __deps.recordPlanEvent || recordPlanEvent;
+    const loadPlanImpl = __deps.loadPlan || loadPlan;
     const markActiveWorktreeStatusImpl = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
     /** @type {string | undefined} */
     let implementationCommit;
+    /** @type {string | undefined} */
+    let primaryStatus;
+    try {
+        const primaryPlan = await loadPlanImpl(projectRoot, planName);
+        primaryStatus = primaryPlan?.attrs?.status;
+    } catch {
+        // Older tests and partial recovery paths may not provide a loadable
+        // primary Plan; keep the legacy in_progress assumption in that case.
+    }
+    if (primaryStatus === "implemented" || primaryStatus === "verified" || primaryStatus === "user_verified") {
+        return {};
+    }
+    if (primaryStatus && primaryStatus !== "in_progress" && primaryStatus !== "ready_for_work") {
+        throw new Error(
+            `Cannot complete ${planName}: primary Plan status is "${primaryStatus}", expected "in_progress" or "ready_for_work".`,
+        );
+    }
 
     if (executionContext.executionMode === "worktree") {
         if (!executionContext.executionCwd || !executionContext.worktreeBranch) {
@@ -247,6 +266,26 @@ export async function finalizePlanImplementation({
         executionContext.nonGitInPlace !== true
     ) {
         throw new Error(`Cannot complete ${planName}: execution mode is missing or unknown.`);
+    }
+
+    if (primaryStatus === "ready_for_work") {
+        await recordPlanEventImpl({
+            cwd: projectRoot,
+            planName,
+            event: "execution_started",
+            currentStatus: "ready_for_work",
+            details: {
+                triageMeta,
+                nonGitInPlace: executionContext.nonGitInPlace === true,
+                executionMode: executionContext.executionMode,
+                executionBaselineTree: executionContext.baselineTree,
+                worktreeId: executionContext.worktreeId,
+                worktreePath: executionContext.executionCwd,
+                worktreeBranch: executionContext.worktreeBranch,
+                worktreeBaseBranch: executionContext.worktreeBaseBranch,
+                worktreeStatus: executionContext.executionMode === "worktree" ? "active" : undefined,
+            },
+        });
     }
 
     await recordPlanEventImpl({

@@ -21,6 +21,7 @@ import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
 } from "../../shared/workflow/decisions.js";
+import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
 import {
     isEpicPlan,
     isExecutablePlanStatus,
@@ -90,6 +91,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof decidePostExecutionFn} [decidePostExecution]
  * @property {(options: Record<string, any>) => Promise<any>} [runValidationLoop]
  * @property {(options: Record<string, any>) => Promise<any>} [runSlicerAgent]
+ * @property {typeof finalizePlanImplementationFn} [finalizePlanImplementation]
  * @property {typeof loadPlanFn} [loadPlan]
  * @property {typeof archivePlanFn} [archivePlan]
  * @property {typeof getWorkflowDiffFn} [getWorkflowDiff]
@@ -930,6 +932,8 @@ async function handleOnHoldPlan({
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @param {typeof finalizePlanImplementationFn} [finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [recordPlanEvent]
  * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
@@ -943,6 +947,8 @@ async function validateCompletedExecution(
     worktreeContext,
     session,
     uiAPI,
+    finalizePlanImplementation = finalizePlanImplementationFn,
+    recordPlanEvent = recordPlanEventFn,
     resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
 ) {
     const projectRoot = session.cwd;
@@ -984,6 +990,72 @@ async function validateCompletedExecution(
         executionCwd: worktreeContext?.path || effectiveMeta.worktreePath,
         nonGitInPlace: effectiveMeta.executionMode === "non_git_in_place",
     };
+    /** @param {Record<string, unknown>} context */
+    const buildWorkflow = (context) => {
+        /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: "engineer"|"frontend-engineer", executionMode?: "worktree"|"non_git_in_place", baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, worktreeBaseRef?: string, worktreeBaseCommit?: string, nonGitInPlace?: boolean, executionStarted: boolean }} */
+        const workflow = {
+            planName,
+            triageMeta: effectiveMeta,
+            executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (policy.policy.executionAgent),
+            executionMode: /** @type {"worktree"|"non_git_in_place"|undefined} */ (context.executionMode),
+            projectRoot,
+            executionCwd: typeof context.executionCwd === "string" ? context.executionCwd : undefined,
+            executionStarted: true,
+        };
+        if (context.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
+        if (context.executionMode === "worktree") {
+            workflow.baselineTree = typeof context.baselineTree === "string" ? context.baselineTree : undefined;
+            workflow.worktreeId = typeof context.worktreeId === "string" ? context.worktreeId : undefined;
+            workflow.worktreeBranch = typeof context.worktreeBranch === "string" ? context.worktreeBranch : undefined;
+            workflow.worktreeBaseBranch = typeof context.worktreeBaseBranch === "string"
+                ? context.worktreeBaseBranch
+                : undefined;
+            workflow.worktreeBaseRef = typeof context.worktreeBaseRef === "string"
+                ? context.worktreeBaseRef
+                : undefined;
+            workflow.worktreeBaseCommit = typeof context.worktreeBaseCommit === "string"
+                ? context.worktreeBaseCommit
+                : undefined;
+        }
+        return workflow;
+    };
+    const initialWorkflow = buildWorkflow(explicitContext);
+    const needsImplementationCheckpoint = isPlannedChangeClassification(effectiveMeta.classification) &&
+        effectiveMeta.status !== "implemented" &&
+        effectiveMeta.status !== "verified" &&
+        effectiveMeta.status !== "user_verified";
+    if (needsImplementationCheckpoint) {
+        const completionReport = /** @type {{ completionReport?: unknown }} */ (executionResult).completionReport;
+        session.setActiveExecutionWorkflow(initialWorkflow);
+        try {
+            await finalizePlanImplementation({
+                projectRoot,
+                planName,
+                triageMeta: effectiveMeta,
+                executionContext: initialWorkflow,
+                executionReport: typeof completionReport === "string" ? completionReport : undefined,
+                __deps: { recordPlanEvent },
+            });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            if (uiAPI) {
+                uiAPI.appendSystemMessage(
+                    `Validation blocked: implementation checkpoint failed before Workflow Validation: ${reason}`,
+                    true,
+                    "RunWield",
+                );
+                return false;
+            }
+            throw error;
+        }
+        try {
+            latestPlan = await loadPlan(projectRoot, planName);
+            planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
+            if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
+        } catch {
+            // Keep the pre-checkpoint content/metadata in tests or if the Plan was removed.
+        }
+    }
     const resolution = await resolveValidationExecutionContextForRecovery({
         projectRoot,
         planName,
@@ -1016,24 +1088,7 @@ async function validateCompletedExecution(
         );
     }
     const resolvedContext = resolution.context;
-    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, executionMode?: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, worktreeBaseRef?: string, worktreeBaseCommit?: string, nonGitInPlace?: boolean }} */
-    const workflow = {
-        planName,
-        triageMeta: effectiveMeta,
-        executionAgent: policy.policy.executionAgent,
-        executionMode: resolvedContext.executionMode,
-        projectRoot,
-        executionCwd: resolvedContext.executionCwd,
-    };
-    if (resolvedContext.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
-    if (resolvedContext.executionMode === "worktree") {
-        workflow.baselineTree = resolvedContext.baselineTree;
-        workflow.worktreeId = resolvedContext.worktreeId;
-        workflow.worktreeBranch = resolvedContext.worktreeBranch;
-        workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch;
-        workflow.worktreeBaseRef = resolvedContext.worktreeBaseRef;
-        workflow.worktreeBaseCommit = resolvedContext.worktreeBaseCommit;
-    }
+    const workflow = buildWorkflow(resolvedContext);
     session.setActiveExecutionWorkflow(workflow);
     await runValidationLoop({
         planName,
@@ -1053,6 +1108,9 @@ async function validateCompletedExecution(
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {PlanSessionSurface} opts.session
  * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<void>}
  */
 async function validatePostExecutionDecision({
@@ -1063,6 +1121,9 @@ async function validatePostExecutionDecision({
     loadPlan,
     session,
     uiAPI,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
 }) {
     if (executionDecision.kind !== "run_validation") return;
 
@@ -1081,6 +1142,9 @@ async function validatePostExecutionDecision({
         null,
         session,
         uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
     );
 }
 
@@ -1099,6 +1163,9 @@ async function validatePostExecutionDecision({
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {PlanSessionSurface} opts.session
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
 async function executePostPlanningDecision({
@@ -1112,6 +1179,9 @@ async function executePostPlanningDecision({
     loadPlan,
     listCommitsTouchingPathsSince,
     session,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
 }) {
     const projectRoot = session.cwd;
     if (decision.kind === "start_slicer") {
@@ -1162,6 +1232,9 @@ async function executePostPlanningDecision({
         loadPlan,
         session,
         uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
     });
     return true;
 }
@@ -1243,6 +1316,9 @@ async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, recordPlanEv
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {PlanSessionSurface} opts.session
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<void>}
  */
 async function executeReadyPlanWithRepair({
@@ -1256,6 +1332,9 @@ async function executeReadyPlanWithRepair({
     listCommitsTouchingPathsSince,
     session,
     uiAPI,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
 }) {
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
@@ -1284,6 +1363,10 @@ async function executeReadyPlanWithRepair({
         runValidationLoop,
         loadPlan,
         session,
+        uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
     });
 }
 
@@ -1796,6 +1879,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {PlanSessionSurface} opts.session
  * @param {typeof probeGitRepositoryFn} [opts.probeGitRepository]
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
  * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} [opts.autoGenerateWorkRecordForCompletedPlan]
  * @returns {Promise<"handled" | "review">}
@@ -1835,6 +1919,7 @@ async function handlePlanRecovery({
     findPlansByParent,
     session,
     probeGitRepository = probeGitRepositoryFn,
+    finalizePlanImplementation = finalizePlanImplementationFn,
     resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
     autoGenerateWorkRecordForCompletedPlan = autoGenerateWorkRecordForCompletedPlanFn,
 }) {
@@ -1986,6 +2071,8 @@ async function handlePlanRecovery({
                 worktreeContext,
                 session,
                 uiAPI,
+                finalizePlanImplementation,
+                recordPlanEvent,
                 resolveValidationExecutionContextForRecovery,
             );
             if (!validationStarted) {
@@ -2037,6 +2124,9 @@ async function handlePlanRecovery({
                 loadPlan,
                 listCommitsTouchingPathsSince,
                 session,
+                finalizePlanImplementation,
+                recordPlanEvent,
+                resolveValidationExecutionContextForRecovery,
             });
             await recordRecoveryResult("continue", "handled");
             return "handled";
@@ -2196,6 +2286,9 @@ async function handlePlanRecovery({
                 loadPlan,
                 listCommitsTouchingPathsSince,
                 session,
+                finalizePlanImplementation,
+                recordPlanEvent,
+                resolveValidationExecutionContextForRecovery,
             });
             await recordRecoveryResult("reset", "handled");
             return "handled";
@@ -3121,6 +3214,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
         probeGitRepository: probeGitRepositoryDep,
+        finalizePlanImplementation: finalizePlanImplementationDep,
+        resolveValidationExecutionContext: resolveValidationExecutionContextDep,
         autoGenerateWorkRecordForCompletedPlan: autoGenerateWorkRecordForCompletedPlanDep,
     } = deps;
 
@@ -3163,6 +3258,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
     const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
+    const finalizePlanImplementation = finalizePlanImplementationDep || finalizePlanImplementationFn;
+    const resolveValidationExecutionContextForRecovery = resolveValidationExecutionContextDep ||
+        resolveValidationExecutionContext;
     const autoGenerateWorkRecordForCompletedPlan = autoGenerateWorkRecordForCompletedPlanDep ||
         autoGenerateWorkRecordForCompletedPlanFn;
 
@@ -3392,7 +3490,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 findPlansByParent,
                 session,
                 probeGitRepository,
-                resolveValidationExecutionContextForRecovery: deps.resolveValidationExecutionContext,
+                finalizePlanImplementation,
+                resolveValidationExecutionContextForRecovery,
                 autoGenerateWorkRecordForCompletedPlan,
             });
             if (result === "handled") return;
@@ -3513,6 +3612,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         loadPlan,
                         listCommitsTouchingPathsSince,
                         session,
+                        finalizePlanImplementation,
+                        recordPlanEvent,
+                        resolveValidationExecutionContextForRecovery,
                     });
                     return;
                 }
@@ -3705,6 +3807,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 runValidationLoop,
                                 loadPlan,
                                 session,
+                                uiAPI,
+                                finalizePlanImplementation,
+                                recordPlanEvent,
+                                resolveValidationExecutionContextForRecovery,
                             });
                         } else {
                             uiAPI.appendSystemMessage(
@@ -3742,6 +3848,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         loadPlan,
                         listCommitsTouchingPathsSince,
                         session,
+                        finalizePlanImplementation,
+                        recordPlanEvent,
+                        resolveValidationExecutionContextForRecovery,
                     });
                     if (shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
@@ -3818,6 +3927,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
             loadPlan,
             listCommitsTouchingPathsSince,
             session,
+            finalizePlanImplementation,
+            recordPlanEvent,
+            resolveValidationExecutionContextForRecovery,
         });
         if (shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;

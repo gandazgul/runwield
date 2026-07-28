@@ -1163,6 +1163,78 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     ]);
 });
 
+Deno.test("finalizePlanImplementation restores missing execution_started before lifecycle completion", async () => {
+    /** @type {string[]} */
+    const order = [];
+    const executionContext = /** @type {const} */ ({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: "/project",
+        executionCwd: "/worktree",
+        baselineTree: "attempt-tree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/feature-plan",
+    });
+
+    await finalizePlanImplementation({
+        projectRoot: "/project",
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE", summary: "Recover lifecycle marker order." },
+        executionContext,
+        executionReport: "- Implemented after marker recovery.",
+        __deps: {
+            loadPlan: () => {
+                order.push("load");
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                        },
+                    }),
+                );
+            },
+            checkpointExecutionWorktree: (options) => {
+                order.push(`checkpoint:${options.worktreePath}:${options.branch}`);
+                return Promise.resolve({ executionCommit: "b".repeat(40) });
+            },
+            recordPlanEvent: (event) => {
+                order.push(`event:${event.currentStatus}:${event.event}`);
+                if (event.event === "execution_started") {
+                    assertEquals(/** @type {any} */ (event.details).worktreeStatus, "active");
+                    assertEquals(/** @type {any} */ (event.details).worktreeId, "wt-1");
+                }
+                if (event.event === "implementation_finished") {
+                    assertEquals(
+                        /** @type {any} */ (event.details).executionReport,
+                        "- Implemented after marker recovery.",
+                    );
+                }
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: (status) => {
+                order.push(`registry:${status}`);
+                return Promise.resolve();
+            },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                order.push(`metric:${metric.event}:${metric.details.checkpointCommitted}`);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(order, [
+        "load",
+        "checkpoint:/worktree:runwield/worktree/feature-plan",
+        "event:ready_for_work:execution_started",
+        "event:in_progress:implementation_finished",
+        "registry:completed",
+        "metric:implementation_finished:true",
+    ]);
+});
+
 Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
     let lifecycleMutated = false;
     await assertRejects(

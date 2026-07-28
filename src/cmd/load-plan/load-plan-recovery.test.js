@@ -706,6 +706,7 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
         executionMode: "non_git_in_place",
         projectRoot: Deno.cwd(),
         executionCwd: Deno.cwd(),
+        executionStarted: true,
         nonGitInPlace: true,
     });
 });
