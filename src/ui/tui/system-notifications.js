@@ -293,7 +293,7 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
                 "-message",
                 options.message,
                 "-group",
-                buildNotificationGroup(options.eventName),
+                buildNotificationGroup(options.eventName, options.terminal),
                 "-execute",
                 activationCommand,
                 "-sender",
@@ -307,10 +307,15 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
 
 /**
  * @param {NotificationEventName} eventName
+ * @param {TerminalIdentity} terminal
  * @returns {string}
  */
-function buildNotificationGroup(eventName) {
-    return `runwield-${eventName}-${Date.now()}-${crypto.randomUUID()}`;
+function buildNotificationGroup(eventName, terminal) {
+    const sessionKey = normalizeLabel(terminal.sessionLabel || terminal.terminalTitle || "RunWield")
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "runwield";
+    return `runwield-${eventName}-${sessionKey}`;
 }
 
 /**

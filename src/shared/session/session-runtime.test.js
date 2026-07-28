@@ -1,7 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
-import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import {
+    HANDOFF_LIMIT_MESSAGE,
+    SessionRuntime,
+    SessionTurnInProgressError,
+    shouldEmitProjectedAttention,
+} from "./session-runtime.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { ensureRootAgentSession } from "./session.js";
 import { createSessionContextProjection } from "./session-context-report.js";
@@ -647,6 +652,26 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
     assertEquals(snapshot?.activeAgent, "engineer");
     assertEquals(snapshot?.activeModel, { model: "gpt-next", provider: "test-provider" });
     assertEquals(snapshot?.thinkingLevel, "high");
+});
+
+Deno.test("SessionRuntime emits projected attention only when the attention event is newly replayed", () => {
+    const summary = {
+        attention: {
+            eventId: "attention-entry:attention_requested:0",
+            reason: "agentStopped",
+            agentName: "Planner",
+        },
+    };
+
+    assertEquals(shouldEmitProjectedAttention(summary, []), false);
+    assertEquals(
+        shouldEmitProjectedAttention(summary, [{ eventId: "user-entry:user_message:0" }]),
+        false,
+    );
+    assertEquals(
+        shouldEmitProjectedAttention(summary, [{ eventId: "attention-entry:attention_requested:0" }]),
+        true,
+    );
 });
 
 Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", async () => {
