@@ -1,5 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { join } from "@std/path";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import { getSettingsDir } from "../settings.js";
 
@@ -9,6 +10,8 @@ const MODEL_CONFIG_FILES = ["models.json", "auth.json"];
 let modelRuntimePromise = null;
 /** @type {import('@earendil-works/pi-coding-agent').ModelRuntime | null} */
 let resolvedModelRuntime = null;
+/** @type {RunWieldCredentialStore | null} */
+let modelCredentialStore = null;
 
 /**
  * @returns {string}
@@ -72,6 +75,122 @@ function readOpenAiModelIds(payload) {
         .map((id) => /** @type {string} */ (id).trim());
 }
 
+class RunWieldCredentialStore {
+    /** @param {string} authPath */
+    constructor(authPath) {
+        this.authPath = authPath;
+        /** @type {Map<string, Promise<void>>} */
+        this.providerMutations = new Map();
+    }
+
+    ensureFile() {
+        Deno.mkdirSync(dirname(this.authPath), { recursive: true, mode: 0o700 });
+        try {
+            Deno.statSync(this.authPath);
+        } catch {
+            Deno.writeTextFileSync(this.authPath, "{}", { mode: 0o600 });
+        }
+    }
+
+    /** @returns {Record<string, any>} */
+    readData() {
+        this.ensureFile();
+        const parsed = readJsoncObject(this.authPath);
+        return parsed || {};
+    }
+
+    /** @param {Record<string, any>} data */
+    writeData(data) {
+        this.ensureFile();
+        Deno.writeTextFileSync(this.authPath, JSON.stringify(data, null, 2), { mode: 0o600 });
+        try {
+            Deno.chmodSync(this.authPath, 0o600);
+        } catch {
+            // Best effort on platforms that do not support chmod.
+        }
+    }
+
+    /** @param {string} providerId @returns {Promise<any | undefined>} */
+    read(providerId) {
+        const credential = this.readData()[providerId];
+        const resolved = credential?.type !== "api_key" || credential.key === undefined
+            ? credential
+            : { ...credential, key: resolveLiteralConfigValue(credential.key) };
+        return Promise.resolve(resolved);
+    }
+
+    /** @returns {Promise<Array<{ providerId: string, type: "oauth" | "api_key" }>>} */
+    list() {
+        return Promise.resolve(
+            Object.entries(this.readData())
+                .filter((entry) => {
+                    const credential = entry[1];
+                    return credential?.type === "oauth" || credential?.type === "api_key";
+                })
+                .map(([providerId, credential]) => ({ providerId, type: credential.type })),
+        );
+    }
+
+    /**
+     * Serialize credential mutations for a provider so concurrent OAuth refresh/login
+     * read-modify-write calls cannot overwrite each other with stale auth.json data.
+     *
+     * @template T
+     * @param {string} providerId
+     * @param {() => Promise<T>} operation
+     * @returns {Promise<T>}
+     */
+    enqueueProviderMutation(providerId, operation) {
+        const previous = this.providerMutations.get(providerId) || Promise.resolve();
+        const operationPromise = previous.catch(() => {}).then(operation);
+        const queuePromise = operationPromise
+            .catch(() => {})
+            .then(() => {
+                if (this.providerMutations.get(providerId) === queuePromise) {
+                    this.providerMutations.delete(providerId);
+                }
+            });
+        this.providerMutations.set(providerId, queuePromise);
+        return operationPromise;
+    }
+
+    /**
+     * @param {string} providerId
+     * @param {(current: any | undefined) => Promise<any | undefined>} fn
+     * @returns {Promise<any | undefined>}
+     */
+    modify(providerId, fn) {
+        return this.enqueueProviderMutation(providerId, async () => {
+            const data = this.readData();
+            const current = data[providerId];
+            const next = await fn(current);
+            if (next === undefined) return current;
+            data[providerId] = next;
+            this.writeData(data);
+            return next;
+        });
+    }
+
+    /** @param {string} providerId @returns {Promise<void>} */
+    delete(providerId) {
+        return this.enqueueProviderMutation(providerId, () => {
+            const data = this.readData();
+            delete data[providerId];
+            this.writeData(data);
+            return Promise.resolve();
+        });
+    }
+}
+
+/** @param {string} configDir @returns {RunWieldCredentialStore} */
+function getRunWieldCredentialStore(configDir) {
+    const authPath = join(configDir, "auth.json");
+    if (!modelCredentialStore || modelCredentialStore.authPath !== authPath) {
+        modelCredentialStore = new RunWieldCredentialStore(authPath);
+    }
+    return modelCredentialStore;
+}
+
 /**
  * @param {string} providerId
  * @param {Record<string, any>} providerConfig
@@ -103,17 +222,39 @@ function readConfiguredModels(providerId, providerConfig) {
         }));
 }
 
-class RunWieldModelRegistry {
+/** @returns {any[]} */
+function readBuiltinModels() {
+    return builtinProviders().flatMap((provider) => {
+        try {
+            return Array.from(provider.getModels());
+        } catch {
+            return [];
+        }
+    });
+}
+
+/**
+ * @param {Record<string, any> | undefined} credential
+ * @returns {boolean}
+ */
+function isConfiguredStoredCredential(credential) {
+    if (!credential || typeof credential !== "object") return false;
+    if (credential.type === "oauth") return true;
+    if (credential.type === "api_key") return Boolean(resolveLiteralConfigValue(credential.key));
+    return false;
+}
+
+export class RunWieldModelRegistry {
     /**
-     * @param {{ runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime | null, runtimePromise?: Promise<import('@earendil-works/pi-coding-agent').ModelRuntime>, configDir?: string }} [options]
+     * @param {{ runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime | null, runtimePromise?: Promise<import('@earendil-works/pi-coding-agent').ModelRuntime>, configDir?: string, credentialStore?: RunWieldCredentialStore }} [options]
      */
     constructor(options = {}) {
         this.runtime = options.runtime || resolvedModelRuntime;
         this.runtimePromise = options.runtimePromise || modelRuntimePromise || undefined;
         this.configDir = options.configDir || getRunWieldModelConfigDir();
+        this.credentialStore = options.credentialStore || getRunWieldCredentialStore(this.configDir);
         /** @type {Map<string, any>} */
         this.registeredModels = new Map();
-        this.authStorage = this.createAuthCompatibilityStorage();
         if (this.runtimePromise && !this.runtime) {
             this.runtimePromise.then((runtime) => {
                 this.runtime = runtime;
@@ -122,44 +263,71 @@ class RunWieldModelRegistry {
     }
 
     /**
-     * Temporary command compatibility surface backed by ModelRuntime credentials.
-     * @returns {{ getOAuthProviders: () => Array<{ id: string, name: string }>, list: () => string[], get: (providerId: string) => { type: "oauth" | "api_key" } | undefined, login: (providerId: string, callbacks: any) => Promise<void>, set: (providerId: string, credential: { type: "api_key", key: string }) => void, logout: (providerId: string) => void }}
+     * @returns {Promise<import('@earendil-works/pi-coding-agent').ModelRuntime>}
      */
-    createAuthCompatibilityStorage() {
-        return {
-            getOAuthProviders: () =>
-                (this.runtime?.getProviders() || [])
-                    .filter((provider) => Boolean(provider.auth?.oauth))
-                    .map((provider) => ({ id: provider.id, name: provider.name })),
-            list: () =>
-                this.getRegisteredProviderIds().filter((providerId) =>
-                    this.getProviderAuthStatus(providerId).configured
-                ),
-            get: (providerId) => {
-                const status = this.getProviderAuthStatus(providerId);
-                if (!status.configured) return undefined;
-                return { type: status.source === "stored" ? "oauth" : "api_key" };
-            },
-            login: async (providerId, callbacks) => {
-                const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
-                this.runtime = runtime;
-                await runtime.login(providerId, "oauth", callbacks);
-            },
-            set: (providerId, credential) => {
-                void (async () => {
-                    const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
-                    this.runtime = runtime;
-                    await runtime.setRuntimeApiKey(providerId, credential.key);
-                })();
-            },
-            logout: (providerId) => {
-                void (async () => {
-                    const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
-                    this.runtime = runtime;
-                    await runtime.logout(providerId);
-                })();
-            },
-        };
+    async getRuntime() {
+        const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
+        this.runtime = runtime;
+        return runtime;
+    }
+
+    /**
+     * @returns {Array<{ id: string, name: string }>}
+     */
+    getOAuthProviders() {
+        return (this.runtime?.getProviders() || [])
+            .filter((provider) => Boolean(provider.auth?.oauth))
+            .map((provider) => ({ id: provider.id, name: provider.name }));
+    }
+
+    /**
+     * @returns {Promise<Array<{ id: string, name: string, authType: "oauth" | "api_key" }>>}
+     */
+    async listStoredCredentialProviders() {
+        const runtime = await this.getRuntime();
+        const credentials = await runtime.listCredentials();
+        return credentials.map((credential) => ({
+            id: credential.providerId,
+            name: this.getProviderDisplayName(credential.providerId),
+            authType: credential.type,
+        }));
+    }
+
+    /**
+     * @param {string} providerId
+     * @returns {Promise<"oauth" | "api_key" | undefined>}
+     */
+    async getStoredCredentialType(providerId) {
+        const credential = (await this.listStoredCredentialProviders()).find((item) => item.id === providerId);
+        return credential?.authType;
+    }
+
+    /**
+     * @param {string} providerId
+     * @param {"oauth" | "api_key"} authType
+     * @param {import('@earendil-works/pi-ai').AuthInteraction} interaction
+     * @returns {Promise<void>}
+     */
+    async loginProvider(providerId, authType, interaction) {
+        const runtime = await this.getRuntime();
+        await runtime.login(providerId, authType, interaction);
+    }
+
+    /**
+     * @param {string} providerId
+     * @param {string} apiKey
+     * @returns {Promise<void>}
+     */
+    async setProviderApiKey(providerId, apiKey) {
+        await this.credentialStore.modify(providerId, () => Promise.resolve({ type: "api_key", key: apiKey }));
+        const runtime = await this.getRuntime();
+        await runtime.refresh({ allowNetwork: false });
+    }
+
+    /** @param {string} providerId @returns {Promise<void>} */
+    async logoutProvider(providerId) {
+        const runtime = await this.getRuntime();
+        await runtime.logout(providerId);
     }
 
     /** @returns {Promise<void>} */
@@ -176,19 +344,18 @@ class RunWieldModelRegistry {
 
     /** @returns {any[]} */
     getAll() {
-        const runtimeModels = this.runtime ? Array.from(this.runtime.getModels()) : [];
+        const runtimeModels = this.runtime ? Array.from(this.runtime.getModels()) : readBuiltinModels();
         return [...runtimeModels, ...this.registeredModels.values(), ...this.getConfiguredModels()];
     }
 
     /** @returns {any[]} */
     getAvailable() {
-        const runtimeModels = this.runtime
-            ? Array.from(this.runtime.getModels()).filter((model) => this.hasConfiguredAuth(model))
-            : [];
-        return [...runtimeModels, ...this.registeredModels.values(), ...this.getConfiguredModels()]
-            .filter((model, index, models) =>
-                index === models.findIndex((item) => item.provider === model.provider && item.id === model.id)
-            );
+        const models = this.runtime
+            ? Array.from(this.runtime.getAvailableSnapshot())
+            : this.getAll().filter((model) => this.hasConfiguredAuth(model));
+        return models.filter((model, index) =>
+            index === models.findIndex((item) => item.provider === model.provider && item.id === model.id)
+        );
     }
 
     /**
@@ -198,7 +365,8 @@ class RunWieldModelRegistry {
      */
     find(provider, modelId) {
         return this.runtime?.getModel(provider, modelId) || this.registeredModels.get(`${provider}/${modelId}`) ||
-            this.getConfiguredModels().find((model) => model.provider === provider && model.id === modelId);
+            this.getConfiguredModels().find((model) => model.provider === provider && model.id === modelId) ||
+            readBuiltinModels().find((model) => model.provider === provider && model.id === modelId);
     }
 
     /**
@@ -228,9 +396,13 @@ class RunWieldModelRegistry {
                 env: auth.env,
             };
         }
+        const compatibility = typeof runtime.getCompatibilityRequestConfig === "function"
+            ? runtime.getCompatibilityRequestConfig(model)
+            : undefined;
         const providerConfig = this.getProviderConfig(model.provider);
         const apiKey = resolveLiteralConfigValue(providerConfig?.apiKey);
-        if (apiKey) return { ok: true, apiKey };
+        const headers = /** @type {Record<string, string> | undefined} */ (compatibility?.headers);
+        if (apiKey || headers) return { ok: true, apiKey, headers };
         return { ok: false, error: `No configured auth for provider ${model.provider}` };
     }
 
@@ -245,6 +417,9 @@ class RunWieldModelRegistry {
         if (resolveLiteralConfigValue(providerConfig?.apiKey)) {
             return { configured: true, source: "models_json_key", label: "models.json apiKey" };
         }
+        if (isConfiguredStoredCredential(this.credentialStore.readData()[provider])) {
+            return { configured: true, source: "auth_json", label: "auth.json credential" };
+        }
         return runtimeStatus || { configured: false };
     }
 
@@ -253,7 +428,8 @@ class RunWieldModelRegistry {
      * @returns {any | undefined}
      */
     getProvider(provider) {
-        return this.runtime?.getProvider(provider) || this.getProviderConfig(provider);
+        return this.runtime?.getProvider(provider) || builtinProviders().find((item) => item.id === provider) ||
+            this.getProviderConfig(provider);
     }
 
     /**
@@ -501,7 +677,9 @@ export async function createRunWieldModelRuntime() {
     for (const failure of piMigration.failed) {
         console.warn(`Failed to migrate Pi ${failure.file} to RunWield config: ${failure.error}`);
     }
+    const credentialStore = getRunWieldCredentialStore(agentDir);
     return await ModelRuntime.create({
+        credentials: credentialStore,
         authPath: join(agentDir, "auth.json"),
         modelsPath: join(agentDir, "models.json"),
     });
@@ -535,5 +713,6 @@ export function getModelRegistry() {
         runtime: resolvedModelRuntime,
         runtimePromise: modelRuntimePromise,
         configDir: agentDir,
+        credentialStore: getRunWieldCredentialStore(agentDir),
     });
 }

@@ -1,4 +1,6 @@
 import { assertEquals } from "@std/assert";
+import { join } from "@std/path";
+import { RunWieldModelRegistry } from "./model-registry.js";
 import { formatProviderModelReference, parseProviderModel, resolveTemplateModel } from "./model-validation.js";
 
 Deno.test("parseProviderModel accepts strict provider/id", () => {
@@ -46,4 +48,34 @@ Deno.test("resolveTemplateModel fails when auth is missing", () => {
     });
 
     assertEquals(result, { ok: false });
+});
+
+Deno.test("resolveTemplateModel uses the sync facade configured-auth contract", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-validation-facade-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "models.json"),
+            JSON.stringify({
+                providers: {
+                    authed: {
+                        baseUrl: "https://authed.example.test/v1",
+                        api: "openai-completions",
+                        apiKey: "configured-key",
+                        models: [{ id: "usable" }],
+                    },
+                    unauthed: {
+                        baseUrl: "https://unauthed.example.test/v1",
+                        api: "openai-completions",
+                        models: [{ id: "blocked" }],
+                    },
+                },
+            }),
+        );
+        const registry = new RunWieldModelRegistry({ configDir: tempDir });
+
+        assertEquals(resolveTemplateModel("authed/usable", registry), { ok: true, provider: "authed", id: "usable" });
+        assertEquals(resolveTemplateModel("unauthed/blocked", registry), { ok: false });
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
 });

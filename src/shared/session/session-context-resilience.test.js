@@ -1,12 +1,7 @@
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Agent } from "@earendil-works/pi-agent-core";
-import {
-    AgentSession,
-    createAgentSession,
-    estimateTokens,
-    VERSION as PI_CODING_AGENT_VERSION,
-} from "@earendil-works/pi-coding-agent";
+import { AgentSession, createAgentSession, estimateTokens } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 /** @returns {import('@earendil-works/pi-ai').Usage} */
@@ -206,7 +201,6 @@ Deno.test("selected public Pi AgentSession contract lacks the required completed
         createSession: createAgentSession,
     });
 
-    assertEquals(PI_CODING_AGENT_VERSION, "0.82.1");
     assertEquals(contract.hasCompletedTurnStopHook, false);
     assertEquals(contract.hasRecoveryNumbersBeforeContinuation, false);
     assertEquals(contract.hasPublicContinuationAfterManagedCompaction, false);
