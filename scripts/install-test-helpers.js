@@ -1,4 +1,16 @@
-import { join } from "@std/path";
+import { fromFileUrl, join } from "@std/path";
+
+/**
+ * Deno runs test modules concurrently inside one process, so `Deno.cwd()` is
+ * shared mutable state that any other test file may chdir out from under us.
+ * Anchor every repository path to this module instead.
+ */
+export const REPO_ROOT = fromFileUrl(new URL("..", import.meta.url));
+
+/** @param {string[]} segments */
+export function repoPath(...segments) {
+    return join(REPO_ROOT, ...segments);
+}
 
 /** @typedef {"Darwin" | "Linux"} TestOs */
 /** @typedef {"x86_64" | "arm64"} TestArch */
@@ -215,7 +227,8 @@ export async function runInstaller(fixture, options = {}) {
     };
     if (options.noninteractive !== false) env.WLD_NONINTERACTIVE = "1";
     const command = new Deno.Command("/bin/bash", {
-        args: ["install.sh", options.requestedVersion ?? VERSIONS.runwield],
+        args: [repoPath("install.sh"), options.requestedVersion ?? VERSIONS.runwield],
+        cwd: REPO_ROOT,
         env,
         stdout: "piped",
         stderr: "piped",
@@ -234,7 +247,7 @@ export async function runInstaller(fixture, options = {}) {
  * @param {{ extraEnv?: Record<string, string> }} [options]
  */
 export async function runInstallerInPseudoTty(fixture, input, options = {}) {
-    const scriptPath = new URL("../install.sh", import.meta.url).pathname;
+    const scriptPath = repoPath("install.sh");
     const command = `PATH=${quoteShell(`${fixture.binDir}:/usr/bin:/bin`)} HOME=${
         quoteShell(fixture.root)
     } WLD_INSTALL_DIR=${quoteShell(fixture.installDir)} WLD_NONINTERACTIVE=0 WLD_TEST_UNAME_S=${
@@ -247,6 +260,7 @@ export async function runInstallerInPseudoTty(fixture, input, options = {}) {
         : ["-q", "/dev/null", "/bin/bash", "-lc", command];
     const proc = new Deno.Command("script", {
         args: scriptArgs,
+        cwd: REPO_ROOT,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",

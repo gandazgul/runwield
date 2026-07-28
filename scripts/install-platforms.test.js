@@ -6,6 +6,7 @@ import {
     createFixture,
     readCurlLog,
     RELEASE_BINARY_NAMES,
+    repoPath,
     runInstaller,
     VERSIONS,
     writeExecutable,
@@ -72,14 +73,14 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
 });
 
 Deno.test("ux:new-user image provisions Node 24 for required agent-browser helper", async () => {
-    const containerfile = await Deno.readTextFile("Containerfile.wld-ux");
+    const containerfile = await Deno.readTextFile(repoPath("Containerfile.wld-ux"));
     assertStringIncludes(containerfile, "https://deb.nodesource.com/node_24.x");
     assertStringIncludes(containerfile, "node --version");
     assertStringIncludes(containerfile, "command -v wld mnemosyne cymbal agent-browser snip");
 });
 
 Deno.test("ux:new-user tasks build latest and current targets from one containerfile", async () => {
-    const denoJson = JSON.parse(await Deno.readTextFile("deno.json"));
+    const denoJson = JSON.parse(await Deno.readTextFile(repoPath("deno.json")));
     assertStringIncludes(denoJson.tasks["ux:new-user"], "--target wld-ux-latest");
     assertStringIncludes(denoJson.tasks["ux:new-user"], "-f Containerfile.wld-ux");
 
@@ -89,12 +90,12 @@ Deno.test("ux:new-user tasks build latest and current targets from one container
     assertStringIncludes(currentTask, "-f Containerfile.wld-ux");
     assertStringIncludes(currentTask, "runwield-wld-ux-current:local");
 
-    const containerfile = await Deno.readTextFile("Containerfile.wld-ux");
+    const containerfile = await Deno.readTextFile(repoPath("Containerfile.wld-ux"));
     assertStringIncludes(containerfile, "FROM wld-ux-base AS wld-ux-latest");
     assertStringIncludes(containerfile, "FROM wld-ux-base AS wld-ux-current");
     assertStringIncludes(containerfile, "COPY --chown=deno:deno bin/wld /tmp/wld-current");
     assertStringIncludes(containerfile, 'install -m 755 /tmp/wld-current "$WLD_INSTALL_DIR/wld"');
 
-    const containerignore = await Deno.readTextFile(".containerignore");
+    const containerignore = await Deno.readTextFile(repoPath(".containerignore"));
     assertStringIncludes(containerignore, "!bin/wld");
 });
