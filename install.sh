@@ -444,6 +444,12 @@ prompt_install_snip_filters() {
   [[ -x "$wld_bin" ]] || return 0
   [[ -x "$snip_bin" ]] || return 0
   [[ "${WLD_NONINTERACTIVE:-}" != "1" ]] || return 0
+
+  # Skip if snip filters are already installed
+  if [[ -d "${HOME}/.config/snip/filters" ]] && ls "${HOME}/.config/snip/filters/"*.yaml >/dev/null 2>&1; then
+    echo "[wld installer] RunWield snip filters already installed in ${HOME}/.config/snip/filters."
+    return 0
+  fi
   if ( : <>/dev/tty ) 2>/dev/null; then
     exec 3<>/dev/tty
     printf "[wld installer] Install RunWield Deno Snip filters into ~/.config/snip/filters for plain snip commands? [Y/n] " >&3
