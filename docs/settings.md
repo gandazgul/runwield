@@ -401,7 +401,8 @@ else has approved the change and the alternative is stranding the work. Approvin
 semantic approval, and RunWield records that distinction.
 
 Code review feedback — from either path — is repaired by the Reviewer-Feedback Engineer in a fresh session with your
-feedback, annotations, and images, after which code review reopens for your explicit approval.
+feedback, annotations, and images, after which CI reruns and code review reopens for your explicit approval. That cycle
+is uncapped: it repeats for as many feedback rounds as you give and ends only when you approve or quit the review.
 
 Example:
 

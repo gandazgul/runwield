@@ -224,6 +224,12 @@ For worktree-backed plans:
    human review then reopens. Human review always sees the full workflow diff, never a repair-scoped one. Human approval
    reached through the round-limit escape hatch is authoritative and permits merge-back even though semantic review
    never approved; the record distinguishes that case.
+
+   Once the change is in a human's hands the loop belongs to them: CI reruns and code review reopens after every
+   feedback round, for as many rounds as they give, and automatic semantic rounds do not resume. **The only exits are
+   approval or quitting the review.** Feedback never exhausts a budget, and the three-round semantic cap does not apply
+   — it counts automatic rounds, not human ones. Interrupting and resuming mid-cycle returns to code review rather than
+   restarting semantic review.
 7. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
 8. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a

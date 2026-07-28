@@ -337,8 +337,15 @@ the two designs converge rather than duplicate.
       `review_diff`; respect the Plan as a standing constraint while fixing; verify with the project's CI command; and
       report per-item disposition (fixed with the change described, already satisfied with evidence, or blocked with the
       reason) in `task_completed`. Duplicate from engineer.md: the Zero-Trust Implementation Protocol, the "when errors
-      appear, act, not narrate" verification rules, no-rogue-commits, and `return_to_router` escalation for findings
-      that genuinely need architectural change.
+      appear, act, not narrate" verification rules, and no-rogue-commits.
+
+      **Deviation from the original step, found in review:** this step also called for `return_to_router` escalation.
+      That does not work for a validation-owned isolated session. `resolveEffectiveSessionToolNames`
+      (`src/shared/session/session.js:180`) filters the tool out unless `allowReturnToRouter` is set, and the result is
+      only ever read from the root conversation (`orchestrator.js`, `agent-handler.js`) — `runValidationLoop` never
+      reads it. Wiring it would end the session with no `task_completed`, producing a misleading "stopped without
+      task_completed" pause while the handoff is silently dropped. Findings that exceed a focused repair are reported
+      as **blocked** instead, which the next Reviewer round verifies and keeps open.
 - [x] Step 12: Add `REVIEWER_FEEDBACK_ENGINEER: "reviewer-feedback-engineer"` to `AGENTS` in `src/constants.js` and
       extend the surrounding doc comment to mark it workflow-only, excluded from `/agent` listings and
       `return_to_router` targets.

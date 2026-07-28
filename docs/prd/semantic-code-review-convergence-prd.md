@@ -59,6 +59,9 @@ Review Issue Ledger that carries findings across rounds, and a human escape hatc
   approved; human feedback routes into the human-feedback repair path.
 - Human Code Review may receive a repair that no Reviewer round has verified. This is acceptable: human review is a real
   review, and the user chose it.
+- Once Human Code Review owns the change, automatic semantic rounds do not resume. Every feedback round reruns CI and
+  reopens the review, without limit. The cycle ends only on human approval or on the human exiting the review; the
+  automatic round cap counts automatic rounds and never terminates a human-driven one.
 - Reviewer execution failures and existing bounded execution retries are not semantic rounds.
 - CI repair attempts retain their existing semantics.
 
@@ -289,6 +292,8 @@ RunWield must never silently approve and must never leave the workflow with no a
   under-performing, and the justification for keeping a second discovery round.
 - Track how often a verification round appends a new blocking item, which indicates repairs introducing regressions.
 - Track how often the round-three choice point is reached and which option the user picks.
+- Record the human review cycle count on feedback, approval, and exit results. It is a display and measurement signal
+  only; nothing may use it to end the loop.
 - Do not add token-budget enforcement or store Plan text, findings, diffs, repair evidence, or other private content in
   metrics.
 
@@ -322,6 +327,7 @@ rounds with a human escape hatch, and advisory-only Plan persistence.
 
 - No implementation attempt runs more than three automatic rounds without explicit user action.
 - The round-three choice point always presents a usable path forward; no workflow is stranded.
+- No number of human feedback rounds ends validation on its own; only human approval or exit does.
 - No agent stall or bounded-attempt exhaustion hard-halts a workflow whose ledger and round state are recoverable; a
   nudge resumes with nothing lost, in the stalled agent's own session.
 - A Reviewer that omits `review_complete` is recovered by a nudge rather than by a repeated full review.

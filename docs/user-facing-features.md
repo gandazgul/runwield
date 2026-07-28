@@ -83,6 +83,8 @@
   - Repair review findings with a dedicated agent in fresh context, which reports what it did for each finding.
   - Offer another verification round or an immediate code review when automatic rounds run out, rather than stranding
     the work.
+  - Repair human code review feedback with the same fresh-context agent, then rerun CI and reopen code review for as
+    many feedback rounds as you give — the cycle ends only when you approve or quit.
   - Send validation failures back through repair attempts.
   - Preserve the original execution owner during validation repairs.
   - Optionally use a human code-review gate during validation when configured.
