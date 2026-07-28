@@ -216,7 +216,7 @@ Deno.test("buildNotificationCommand uses terminal-notifier with click execute wh
     assert(command.args.includes("-execute"));
     assert(command.args.includes("-message"));
     assertEquals(command.args.includes("-sound"), false);
-    assertStringIncludes(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-");
+    assertEquals(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-demo");
     assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "/dev/ttys123");
     assertEquals(command.args[command.args.indexOf("-sender") + 1], "com.apple.Terminal");
 });

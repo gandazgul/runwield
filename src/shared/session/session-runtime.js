@@ -238,6 +238,17 @@ function getRuntimeContextCapacity(session) {
     };
 }
 
+/**
+ * @param {{ attention?: { eventId?: string | null } | null } | null | undefined} summary
+ * @param {Array<{ eventId?: string }>} events
+ * @returns {boolean}
+ */
+export function shouldEmitProjectedAttention(summary, events) {
+    const attentionEventId = typeof summary?.attention?.eventId === "string" ? summary.attention.eventId : null;
+    if (!attentionEventId) return false;
+    return events.some((event) => event.eventId === attentionEventId);
+}
+
 export class SessionRuntime {
     /** @type {SessionHost} */
     #sessionHost;
@@ -2072,12 +2083,13 @@ export class SessionRuntime {
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
                 }
-                if (summary.attention) {
+                const projectedAttention = summary.attention || null;
+                if (projectedAttention && shouldEmitProjectedAttention(summary, events)) {
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                        eventId: summary.attention.eventId,
-                        reason: summary.attention.reason || "agentStopped",
-                        agentName: summary.attention.agentName || undefined,
+                        eventId: projectedAttention.eventId,
+                        reason: projectedAttention.reason || "agentStopped",
+                        agentName: projectedAttention.agentName || undefined,
                     });
                 }
             }
