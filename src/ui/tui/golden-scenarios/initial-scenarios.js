@@ -351,7 +351,7 @@ export const timeoutDiagnosticScenario = {
     name: "timeout-diagnostic-contract",
     composedTui: true,
     terminal: { columns: 80, rows: 20 },
-    script: [{ id: "timeout-unused-turn", agent: "router", phase: "triage", text: "unused" }],
+    script: [{ id: "timeout-unused-turn", agent: "unreachable", phase: "diagnostic", text: "unused" }],
     actions: [{ type: "sleep", ms: 5000 }],
 };
 

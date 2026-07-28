@@ -40,7 +40,9 @@ deno task ci
 deno task compile
 ```
 
-`deno task ci` runs check, lint, format check, and tests.
+`deno task ci` runs check, lint, format check, and tests. The ordinary test task includes the Golden TUI Scenario
+portfolio. You can run that portfolio directly with `deno task test:golden-tui`; `deno task test:golden-tui:extensive`
+is the explicit release-tier alias for the same measured suite while it remains fast enough for normal CI.
 
 Development and interactive workflow testing use these binaries in `PATH`:
 
@@ -80,6 +82,42 @@ Development and interactive workflow testing use these binaries in `PATH`:
   detail rather than leaving the agent to guess what failed. Snip is a better fit because it is an extensible filter
   engine: command behavior lives in declarative YAML filters that can be added, tested, overridden, and reviewed without
   growing special cases in RunWield core.
+
+## Golden TUI Scenarios
+
+Golden TUI Scenarios are deterministic, Playwright-like regression tests for the composed terminal UI and workflow
+runtime. Run them with:
+
+```bash
+deno task test:golden-tui
+# explicit release-tier alias while the full portfolio remains in ordinary CI
+deno task test:golden-tui:extensive
+```
+
+The measured portfolio runtime is about 26 seconds on a warmed local cache, so the full suite remains in the ordinary
+`deno task ci` gate via `deno task test`. If the portfolio grows too expensive, keep the critical deterministic subset
+in CI and move the extensive alias into `deno task release:check` and the release workflow in the same change.
+
+Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers under `src/ui/tui/testing/`:
+
+- use hand-written scenario scripts and assertions; do not use raw Session Transcript JSONL as the scenario format;
+- drive user behavior through terminal actions or the public Golden runner, not by reaching into private TUI blocks;
+- keep expected answers, scripts, images, and fixtures outside the temporary Project root when an Agent's tools could
+  discover them;
+- declare coverage capabilities on scenarios and back each declaration with an assertion listed in `assertedCoverage`;
+- prefer semantic assertions: normalized screen text, Runtime events, Plan metadata, workflow outcomes, worktree/Git
+  facts, Session replacement identity, validation evidence, Work Records, and cleanup state;
+- normalize unstable UUIDs, paths, ports, durations, commit hashes, and animation frames only at comparison/reporting
+  edges.
+
+When diagnosing a failure, inspect the retained artifact path in the thrown error. Golden diagnostics should identify
+the scenario, active Agent/phase, recent Runtime activity, last normalized screen, remaining scripted turns, and durable
+temp state. Update expected output only when the user-visible workflow behavior intentionally changed; do not weaken a
+scenario to bypass a real Runtime, workflow, Plan Review, validation, worktree, or TUI defect.
+
+Golden TUI Scenarios are not browser Plan Review tests, live-model benchmarks, ACP parity tests, or true-PTY smoke
+tests. Browser behavior remains owned by Workspace/Playwright coverage; future PTY smoke tests should stay as a thin
+startup/raw-terminal layer rather than replacing these deterministic scenarios.
 
 ## Bundled runtime extensions
 
@@ -132,7 +170,8 @@ docs/                  ADRs, PRDs, and feature docs
 5. For docs-only or config-only changes, run `deno fmt`.
 6. Open a PR with:
    - a summary,
-   - the affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`),
+   - the affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `PLANNED_CHANGE`, or
+     `PROJECT`),
    - validation notes,
    - any follow-up work or known gaps.
 
@@ -144,9 +183,9 @@ RunWield itself is plan-by-default for non-trivial work. Contributions should pr
 - `IDEATION` handling should clarify ideas through Ideator before routing implementation work.
 - `OPERATION` work should stay non-code and self-verified by Operator.
 - `QUICK_FIX` work should stay small, code-bounded, and pass Mechanical Validation after Engineer completion.
-- `FEATURE` work should be traceable to a reviewable plan when the blast radius is non-trivial.
-- `PROJECT` work should be represented as an Epic: Architect owns the design, interactive Slicer owns child FEATURE
-  boundaries, and execution happens through those child FEATURE plans.
+- `PLANNED_CHANGE` work should be traceable to a reviewable plan when the blast radius is non-trivial.
+- `PROJECT` work should be represented as an Epic: Architect owns the design, interactive Slicer owns child
+  PLANNED_CHANGE boundaries, and execution happens through those child PLANNED_CHANGE plans.
 - Workflow validation should remain an independent acceptance gate for saved plan execution.
 
 ## License note

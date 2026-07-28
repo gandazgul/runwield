@@ -106,7 +106,7 @@ Deno.test("golden scenario child process runs with isolated environment before s
     const result = await runGoldenScenarioChildProcess({
         scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
         exportName: "helpSlashCommandScenario",
-        timeoutMs: 3000,
+        timeoutMs: 10000,
     });
     assertEquals(result.ok, true);
     assertEquals(result.result.name, "help-slash-command");

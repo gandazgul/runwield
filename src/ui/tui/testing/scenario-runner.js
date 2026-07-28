@@ -33,6 +33,8 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
  * @property {string} [initialAgentName]
  * @property {unknown} [reviewedPlan]
  * @property {Array<(result: GoldenScenarioResult) => void | Promise<void>>} [assertions]
+ * @property {string[]} [coverage]
+ * @property {string[]} [assertedCoverage]
  * @property {number} [timeoutMs]
  * @property {boolean} [composedTui]
  */
@@ -192,6 +194,28 @@ export async function runGoldenScenario(scenario, options = {}) {
             if (typed.type === "screen") {
                 state.screen = `${state.screen || ""}\n${typed.text || ""}`;
                 events.push("screen");
+                continue;
+            }
+            if (typed.type === "event") {
+                events.push(String(typed.event || ""));
+                continue;
+            }
+            if (typed.type === "setState") {
+                const path = String(typed.path || "").split(".").filter(Boolean);
+                /** @type {Record<string, unknown>} */
+                let target = state;
+                while (path.length > 1) {
+                    const part = path.shift() || "";
+                    if (!target[part] || typeof target[part] !== "object") target[part] = {};
+                    target = /** @type {Record<string, unknown>} */ (target[part]);
+                }
+                if (path.length) target[path[0]] = typed.value;
+                continue;
+            }
+            if (typed.type === "appendStateArray") {
+                const key = String(typed.path || "");
+                if (!Array.isArray(state[key])) state[key] = [];
+                /** @type {unknown[]} */ (state[key]).push(typed.value);
                 continue;
             }
             if (typed.type === "cancel") {
