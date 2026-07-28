@@ -2816,6 +2816,9 @@ export async function runNonInteractiveAgentPrompt({
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager] - Optional manager to carry
+ *   context across successive isolated invocations (e.g. nudging a Reviewer that omitted its terminal tool call).
+ *   Defaults to a fresh in-memory manager, which keeps the invocation isolated from the workflow transcript.
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.

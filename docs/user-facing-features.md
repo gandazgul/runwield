@@ -76,7 +76,13 @@
 - **Validation and review**
   - Run Mechanical Validation after direct `QUICK_FIX` work.
   - Run workflow validation after saved executable plan work.
-  - Run semantic review against the original plan after saved plan implementation.
+  - Run semantic review against the original plan after saved plan implementation, in narrowing rounds: two full plan
+    reviews, then verification-only rounds that check the repairs rather than re-reviewing everything.
+  - Report code smells as non-blocking advisories instead of blocking findings.
+  - Track review findings with stable identities across rounds so repairs and re-reviews refer to the same issue.
+  - Repair review findings with a dedicated agent in fresh context, which reports what it did for each finding.
+  - Offer another verification round or an immediate code review when automatic rounds run out, rather than stranding
+    the work.
   - Send validation failures back through repair attempts.
   - Preserve the original execution owner during validation repairs.
   - Optionally use a human code-review gate during validation when configured.

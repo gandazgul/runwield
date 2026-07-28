@@ -152,6 +152,10 @@ Deno.test("runValidationLoop starts Manual QA and Work Record generation concurr
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -247,7 +251,7 @@ Deno.test("runValidationLoop marks validation progress and success messages with
     );
     assertEquals(
         uiAPI.systemCalls.some((/** @type {{ message: string }} */ call) =>
-            call.message.includes("Running Semantic Code Review...")
+            call.message.includes("Running Semantic Code Review (round 1, full Plan review)...")
         ),
         true,
     );

@@ -123,6 +123,10 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -204,6 +208,10 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -263,6 +271,10 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -337,6 +349,10 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -422,6 +438,10 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -490,6 +510,10 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -555,6 +579,10 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -609,6 +637,10 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -722,6 +754,10 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -799,6 +835,10 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -941,6 +981,10 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",

@@ -50,6 +50,11 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         executionAgent: "engineer",
         executionCwd: Deno.cwd(),
         validationContinuation: true,
+        // Round state rides on the workflow record so a nudge resumes this attempt.
+        semanticRound: 1,
+        reviewLedger: { items: [], sequence: 0 },
+        repairBaselineTree: "",
+        lastRepairReport: "",
     });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
@@ -74,7 +79,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
     assertEquals(paused?.checks.ci, "failed");
 });
 
-Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair", async () => {
+Deno.test("runValidationLoop pauses when the Reviewer-Feedback Engineer stalls", async () => {
     const { uiAPI } = makeValidationUi();
     const repairHostedSession = makeRecordedSession("semantic-repair-pause-test", uiAPI);
     await runValidationLoop({
@@ -87,43 +92,54 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
-            runIsolatedAgentSession: () =>
-                Promise.resolve(
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                // The repair agent returns without task_completed.
+                if (opts.agentName === "reviewer-feedback-engineer") return Promise.resolve(/** @type {any} */ ([]));
+                return Promise.resolve(
                     /** @type {any} */ ([{
-                        role: "assistant",
-                        content: [{ type: "text", text: "missing requirement" }],
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
-                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
+                        details: {
+                            outcome: "feedback",
+                            approved: false,
+                            feedback: "missing requirement",
+                            findings: [{ title: "missing requirement" }],
+                        },
                     }]),
-                ),
-            runCompletionGatedRepair: () => Promise.resolve(false),
+                );
+            },
             recordPlanEvent: noOpRecordPlanEvent,
         }),
     });
 
-    assertEquals(repairHostedSession.getActiveExecutionWorkflow(), {
-        planName: "p",
-        triageMeta: { classification: "FEATURE" },
-        executionAgent: "engineer",
-        executionCwd: Deno.cwd(),
-        validationContinuation: true,
-    });
+    const paused = repairHostedSession.getActiveExecutionWorkflow();
+    assertEquals(paused?.validationContinuation, true);
+    assertEquals(paused?.semanticRound, 1);
+    // The ledger survives the pause so continuing resumes this attempt rather than
+    // restarting discovery with no memory of what was already found.
+    assertEquals(paused?.reviewLedger?.items.length, 1);
+    assertEquals(paused?.reviewLedger?.items[0].id, "R1-1");
+    assertEquals(paused?.repairBaselineTree, "tree-before-repair");
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
-            m.includes("Engineer stopped without task_completed during semantic repair.") &&
+            m.includes("Reviewer-Feedback Engineer stopped without task_completed during semantic repair.") &&
             m.includes("Validation will resume after task_completed")
         ),
         true,
-    );
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ m) => m === "Review failed. Sending feedback back to Engineer..."),
-        true,
-    );
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ m) => m.includes("Reviewer Feedback:\nmissing requirement")),
-        false,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("Maximum validation cycles")),
@@ -265,7 +281,7 @@ Deno.test("runValidationLoop clears transient Frontend Engineer repair context a
     assertEquals(repairHostedSession.getActiveExecutionWorkflow(), null);
 });
 
-Deno.test("runValidationLoop preserves Frontend Engineer owner when semantic repair pauses", async () => {
+Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Feedback Engineer", async () => {
     const { uiAPI } = makeValidationUi();
     const repairHostedSession = makeRecordedSession("frontend-semantic-repair-pause-test", uiAPI);
     repairHostedSession.setActiveExecutionWorkflow({
@@ -297,39 +313,63 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when semantic rep
                 }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
-            runIsolatedAgentSession: () =>
-                Promise.resolve(
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    repairAgentName = opts.agentName;
+                    return Promise.resolve(/** @type {any} */ ([]));
+                }
+                return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
-                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
+                        details: {
+                            outcome: "feedback",
+                            approved: false,
+                            feedback: "missing requirement",
+                            findings: [{ title: "missing requirement" }],
+                        },
                     }]),
-                ),
-            runCompletionGatedRepair: (/** @type {any} */ opts) => {
-                repairAgentName = opts.agentName;
-                return Promise.resolve(false);
+                );
             },
             recordPlanEvent: noOpRecordPlanEvent,
         }),
     });
 
-    assertEquals(repairAgentName, "frontend-engineer");
+    // Semantic repair is about correctness and plan completeness, so it goes to the
+    // focused repair agent regardless of who executed the Plan. Pair-execution
+    // affordances are deliberately not carried into it.
+    assertEquals(repairAgentName, "reviewer-feedback-engineer");
+    // The Plan's owner is unchanged: a pause still returns the user to it.
     assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
-            m.includes("Frontend Engineer stopped without task_completed during semantic repair.") &&
+            m.includes("Reviewer-Feedback Engineer stopped without task_completed during semantic repair.") &&
             m.includes("Validation will resume after task_completed")
         ),
         true,
     );
 });
 
-Deno.test("runValidationLoop asks before stopping after three unapproved semantic cycles", async () => {
+Deno.test("runValidationLoop offers another round or code review after three rounds", async () => {
     const { uiAPI } = makeValidationUi();
-    const session = makeRecordedSession("semantic-cycle-stop-prompt-test", uiAPI);
-    /** @type {string[]} */
-    const events = [];
+    const session = makeRecordedSession("semantic-round-limit-test", uiAPI);
+    /** @type {any[]} */
+    const interactions = [];
     let reviewCalls = 0;
 
     await runValidationLoop({
@@ -342,50 +382,74 @@ Deno.test("runValidationLoop asks before stopping after three unapproved semanti
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runIsolatedAgentSession: () => {
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "R1-1 — fixed." },
+                        }]),
+                    );
+                }
                 reviewCalls++;
                 return Promise.resolve(
                     /** @type {any} */ ([{
-                        role: "assistant",
-                        content: [{ type: "text", text: "missing requirement" }],
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
-                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
+                        details: {
+                            outcome: "feedback",
+                            approved: false,
+                            feedback: "missing requirement",
+                            findings: [{ title: `Issue from round ${reviewCalls}` }],
+                        },
                     }]),
                 );
             },
-            runCompletionGatedRepair: () => Promise.resolve(true),
-            recordPlanEvent: (/** @type {any} */ event) => {
-                events.push(`${event.event}:${event.details.failureReason || ""}`);
-                return Promise.resolve({});
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                interactions.push(request);
+                if (request.type === "select") return Promise.resolve({ outcome: "selected", value: "code_review" });
+                return Promise.resolve({
+                    outcome: "submitted",
+                    _meta: { approved: true, feedback: "", annotations: [], images: [] },
+                });
             },
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
             recordWorkflowMetric: () => Promise.resolve(null),
         }),
     });
 
     assertEquals(reviewCalls, 3);
-    assertEquals(uiAPI.promptSelections, ["prompted"]);
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Workflow halted: Semantic validation did not approve after 3 cycles.")
-        ),
-        true,
-    );
-    assertEquals(events, ["validation_failed:Semantic validation did not approve after 3 cycles."]);
+    const choice = interactions.find((request) => request.type === "select");
+    // No Stop option: stranding the work with nowhere to go is the dead end this
+    // replaced.
+    assertEquals(choice.options.map((/** @type {any} */ option) => option.value), ["continue", "code_review"]);
 });
 
-Deno.test("runValidationLoop retries another three semantic cycles when requested", async () => {
+Deno.test("runValidationLoop continues to round four when the user asks for one", async () => {
     const { uiAPI } = makeValidationUi();
-    const session = makeRecordedSession("semantic-cycle-retry-prompt-test", uiAPI);
+    const session = makeRecordedSession("semantic-round-continue-test", uiAPI);
     /** @type {string[]} */
-    const selections = [];
+    const promptModes = [];
     let reviewCalls = 0;
-    uiAPI.promptSelect = () => {
-        const value = selections.length === 0 ? "retry" : "stop";
-        selections.push(value);
-        return Promise.resolve(value);
-    };
 
     await runValidationLoop({
         hostedSession: session,
@@ -397,13 +461,45 @@ Deno.test("runValidationLoop retries another three semantic cycles when requeste
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runIsolatedAgentSession: () => {
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerPrompt: (/** @type {string} */ mode) => {
+                promptModes.push(mode);
+                return Promise.resolve({
+                    name: "reviewer",
+                    displayName: "Reviewer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: `${mode} prompt`,
+                });
+            },
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "fixed." },
+                        }]),
+                    );
+                }
                 reviewCalls++;
                 const approved = reviewCalls === 4;
                 return Promise.resolve(
                     /** @type {any} */ ([{
-                        role: "assistant",
-                        content: [{ type: "text", text: approved ? "approved" : "missing requirement" }],
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -411,11 +507,21 @@ Deno.test("runValidationLoop retries another three semantic cycles when requeste
                             outcome: approved ? "approved" : "feedback",
                             approved,
                             feedback: approved ? "" : "missing requirement",
+                            findings: approved
+                                ? [
+                                    { id: "R1-1", resolved: true, title: "Issue from round 1" },
+                                    { id: "R2-2", resolved: true, title: "Issue from round 2" },
+                                    { id: "R3-3", resolved: true, title: "Issue from round 3" },
+                                ]
+                                : [{ title: `Issue from round ${reviewCalls}` }],
                         },
                     }]),
                 );
             },
-            runCompletionGatedRepair: () => Promise.resolve(true),
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                if (request.type === "select") return Promise.resolve({ outcome: "selected", value: "continue" });
+                return Promise.resolve({ outcome: "canceled" });
+            },
             getCodeReviewMode: () => "none",
             mergeExecutionWorktree: () => Promise.resolve(),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
@@ -425,26 +531,15 @@ Deno.test("runValidationLoop retries another three semantic cycles when requeste
     });
 
     assertEquals(reviewCalls, 4);
-    assertEquals(selections, ["retry"]);
+    // Round four continues under the verification contract; it does not reset to a
+    // fresh discovery sweep, and the ledger carries forward.
+    assertEquals(promptModes, ["discovery", "discovery", "verify", "verify"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Retrying Semantic Validation for another 3 cycles")
+            message.includes("Continuing with verification round 4")
         ),
         true,
     );
-    const retryProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
-        call.message.includes("Retrying Semantic Validation for another 3 cycles")
-    )?.validationProgress;
-    assertEquals(retryProgress?.stage, "cycle");
-    assertEquals(retryProgress?.cycle, 1);
-    assertEquals(retryProgress?.maxCycles, 3);
-    assertEquals(retryProgress?.totalCycle, 4);
-    assertEquals(retryProgress?.checks, {
-        ci: "pending",
-        semanticReview: "pending",
-        humanReview: "pending",
-        merge: "pending",
-    });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Planned change execution and validation complete")

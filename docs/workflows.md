@@ -164,8 +164,11 @@ files and worktree registry state.
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
 run local validation, semantic review, delivery evidence capture, and merge-back proof before being marked verified.
-Missing worktree context for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the exact
-plan/worktree identity from durable plan metadata, the worktree registry, and Git facts.
+Semantic review runs in narrowing rounds — two full Plan reviews, then verification-only rounds — with findings carried
+across rounds in a Review Issue Ledger and repaired by the Reviewer-Feedback Engineer in fresh context. See
+`docs/plan-lifecycle.md` for the full sequence. Missing worktree context for a Git-backed FEATURE is a hard validation
+failure unless RunWield can recover the exact plan/worktree identity from durable plan metadata, the worktree registry,
+and Git facts.
 
 ## Completion-time Work Records
 

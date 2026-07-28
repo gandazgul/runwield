@@ -8,8 +8,9 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, isPlannedChangeClassification, normalizePlanClassification } from "../../constants.js";
 import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
-import { getAgentDisplayName } from "../session/agents.js";
+import { getAgentDisplayName, loadAgentDefFromPath } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runIsolatedAgentSession } from "../session/session.js";
 import {
     getCodeReviewMode,
@@ -18,7 +19,12 @@ import {
     setCustomSetting,
     shouldCleanupMergedWorktrees,
 } from "../settings.js";
-import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
+import {
+    extractAssistantOutput,
+    readLatestReviewOutcome,
+    readLatestTaskCompletedOutcome,
+    readLatestTaskCompletedReport,
+} from "./workflow.js";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     emitHostedSessionRuntimeEvent,
@@ -29,7 +35,7 @@ import {
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
-import { getWorkflowDiff } from "./git-snapshot.js";
+import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
@@ -49,7 +55,15 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { buildGuidedReviewPolicy, recommendGuidedReview } from "./guided-review.js";
-import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-tool.js";
+import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
+import {
+    applyRoundFindings,
+    hasOpenItems,
+    normalizeLedger,
+    openItems,
+    renderOpenItems,
+    renderResolvedItems,
+} from "./review-ledger.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
@@ -58,11 +72,19 @@ import {
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
+const REVIEWER_VERIFY_PROMPT_FILE = "reviewer-verify-prompt.md";
+const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
 const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
-/** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
-const REVIEW_INLINE_DIFF_MAX_BYTES = 60 * 1024;
+/**
+ * @type {number} Diff size above which RunWield recommends guided human review.
+ *
+ * This no longer affects how the diff reaches the Reviewer — every round reads it
+ * through `review_diff`. It survives purely as the "this change is large enough to
+ * warrant a guided walkthrough" signal consumed by `recommendGuidedReview`.
+ */
+const GUIDED_REVIEW_LARGE_DIFF_BYTES = 60 * 1024;
 
 /**
  * @typedef {Object} BundledPromptFrontMatter
@@ -216,21 +238,27 @@ function formatCapturedProcessOutput(stdout, stderr) {
  * advertises skills, memory, and exploration tools. Semantic review is a
  * mechanical plan-vs-diff check, so it intentionally receives none of that by default.
  *
- * Every review gets the plan, diff context, and read-only repository exploration
- * tools (`read`, `grep`, `find`, `ls`). Large reviews additionally receive a
- * custom `review_diff` tool for bounded per-file diff inspection. Reviewer has
- * no memory tools so its judgment remains grounded in the supplied evidence.
+ * Every review gets the plan, read-only repository exploration tools (`read`,
+ * `grep`, `find`, `ls`), and the `review_diff` tool. The diff is never inlined —
+ * there is one delivery path for every round regardless of size. Reviewer has no
+ * memory tools so its judgment remains grounded in the supplied evidence.
  *
+ * `mode` selects the round contract: `"discovery"` sweeps the whole Plan (rounds
+ * one and two), `"verify"` only checks the open ledger and the repair delta
+ * (rounds three and above).
+ *
+ * @param {"discovery" | "verify"} [mode]
  * @param {(path: string) => Promise<string>} [readTextFile]
  * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
 export async function loadReviewerPrompt(
+    mode = "discovery",
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
     const { attrs, body } = await readBundledPromptFrontMatter(
-        join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE),
+        join(WORKFLOW_PROMPTS_DIR, mode === "verify" ? REVIEWER_VERIFY_PROMPT_FILE : REVIEWER_PROMPT_FILE),
         readTextFile,
         ensurePromptFile,
     );
@@ -245,6 +273,27 @@ export async function loadReviewerPrompt(
         tools: [],
         systemPrompt: body.trim(),
     };
+}
+
+/**
+ * Load the Reviewer-Feedback Engineer definition.
+ *
+ * Unlike the Reviewer, this is a real execution agent and receives the full
+ * shared system prompt via `loadAgentDefFromPath`. It lives under
+ * `workflow-prompts/` rather than the top-level agent directory because
+ * Workflow Validation dispatches it — a user never selects it, so it must stay
+ * out of `/agent` listings and `return_to_router` targets.
+ *
+ * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
+ * @param {typeof loadAgentDefFromPath} [loadFromPath]
+ * @returns {Promise<import('../session/types.js').AgentDefinition>}
+ */
+export async function loadReviewerFeedbackEngineerDef(
+    ensurePromptFile = ensureBundledAgentDefFile,
+    loadFromPath = loadAgentDefFromPath,
+) {
+    const promptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_FEEDBACK_ENGINEER_FILE));
+    return await loadFromPath(promptPath, { agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER });
 }
 
 /**
@@ -633,6 +682,23 @@ async function runCompletionGatedRepair({
 }
 
 /**
+ * Whether the Reviewer actually opened the diff during an invocation.
+ *
+ * The diff is never inlined into the prompt, so a `review_complete` call made
+ * without any `review_diff` call is a verdict reached without reading the code.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @returns {boolean}
+ */
+export function usedReviewDiffTool(messages) {
+    if (!Array.isArray(messages)) return false;
+    return messages.some((msg) =>
+        Boolean(msg) && typeof msg === "object" && "role" in msg && msg.role === "toolResult" &&
+        "toolName" in msg && msg.toolName === "review_diff"
+    );
+}
+
+/**
  * @param {string | undefined} baselineTree
  * @param {string} [cwd]
  * @returns {Promise<string>}
@@ -672,21 +738,34 @@ async function promptForMergeFailureAction(hostedSession, reason) {
 }
 
 /**
+ * Choice presented when the automatic review rounds are spent.
+ *
+ * There is deliberately no "Stop" here. Stopping strands the work with nowhere
+ * to go, which is the dead end this replaced. Either buy another verification
+ * round, or hand the change to a human — whose approval is authoritative even
+ * though semantic review never approved. The user can still cancel the
+ * interaction itself, which falls through to another round.
+ *
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @param {number} maxValidationCycles
- * @returns {Promise<"retry" | "stop">}
+ * @param {number} semanticRound
+ * @param {typeof requestHostedSessionInteraction} [requestInteraction]
+ * @returns {Promise<"continue" | "code_review">}
  */
-async function promptForSemanticValidationLimitAction(hostedSession, maxValidationCycles) {
-    const response = await requestHostedSessionInteraction(hostedSession, {
+async function promptForSemanticRoundLimitAction(
+    hostedSession,
+    semanticRound,
+    requestInteraction = requestHostedSessionInteraction,
+) {
+    const response = await requestInteraction(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
-        prompt:
-            `Semantic validation did not approve after ${maxValidationCycles} cycles.\n\nRetry validation for another ${maxValidationCycles} cycles, or Stop to end the workflow.`,
+        prompt: `Semantic review has not approved after ${semanticRound} rounds. The latest repair has not been ` +
+            "verified by a reviewer.\n\nRun another verification round, or open Code Review and decide yourself.",
         options: [
-            { value: "retry", label: "Retry validation" },
-            { value: "stop", label: "Stop" },
+            { value: "continue", label: "Run another verification round" },
+            { value: "code_review", label: "Open Code Review now" },
         ],
     });
-    return response.outcome === "selected" && response.value === "retry" ? "retry" : "stop";
+    return response.outcome === "selected" && response.value === "code_review" ? "code_review" : "continue";
 }
 
 /**
@@ -1428,6 +1507,9 @@ export async function runMechanicalValidation({
  *   findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
  *   switchActiveAgent?: typeof switchActiveAgent,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
+ *   loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef,
+ *   captureWorktreeTree?: typeof captureWorktreeTree,
+ *   diffTrees?: typeof diffTrees,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   requestInteraction?: typeof requestHostedSessionInteraction,
@@ -1487,6 +1569,10 @@ export async function runValidationLoop({
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
+    const loadReviewerFeedbackEngineerDefImpl = __deps?.loadReviewerFeedbackEngineerDef ||
+        loadReviewerFeedbackEngineerDef;
+    const captureWorktreeTreeImpl = __deps?.captureWorktreeTree || captureWorktreeTree;
+    const diffTreesImpl = __deps?.diffTrees || diffTrees;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
@@ -1635,6 +1721,9 @@ export async function runValidationLoop({
                 executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (executionAgent),
                 executionCwd,
                 validationContinuation: true,
+                // Carry the review round, ledger, and repair baseline across the pause
+                // so a nudge resumes this attempt instead of restarting at round one.
+                ...roundStateForWorkflowRecord(),
             });
             await switchActiveAgentImpl(hostedSession, { agentName: executionAgent });
         }
@@ -1646,44 +1735,203 @@ export async function runValidationLoop({
     let haltReason = null;
     /** @type {HumanReviewMetadata | null} */
     let humanReviewMetadata = null;
-    let validationCycles = 0;
-    const MAX_VALIDATION_CYCLES = 3;
+
+    // Rounds one and two sweep the whole Plan; round three and beyond only verify
+    // the open ledger and the repair delta. Two sweeps give a requirement missed
+    // once a second independent look; narrowing after that is what lets the loop
+    // terminate instead of rediscovering the implementation forever.
+    const DISCOVERY_ROUNDS = 2;
+    const AUTOMATIC_ROUNDS = 3;
+
+    // Round state is rehydrated from the workflow record captured before this loop
+    // cleared it, and written back whenever validation pauses. It cannot live only
+    // in these locals: validation exits on every pause (see
+    // pauseForExecutionContinuation) and the agent handler re-enters it from
+    // scratch, so a nudge would otherwise restart at round one with an empty
+    // ledger.
+    let semanticRound = typeof activeWorkflow?.semanticRound === "number" && activeWorkflow.semanticRound > 0
+        ? activeWorkflow.semanticRound
+        : 0;
+    let reviewLedger = normalizeLedger(activeWorkflow?.reviewLedger);
+    let repairBaselineTree = typeof activeWorkflow?.repairBaselineTree === "string"
+        ? activeWorkflow.repairBaselineTree
+        : "";
+    let lastRepairReport = typeof activeWorkflow?.lastRepairReport === "string" ? activeWorkflow.lastRepairReport : "";
+    // Set when the user chooses to hand an unapproved change to a human reviewer
+    // instead of buying another verification round.
+    let semanticEscapeToHumanReview = false;
+
+    /** Round state to fold into the workflow record whenever validation pauses. */
+    const roundStateForWorkflowRecord = () => ({
+        semanticRound,
+        reviewLedger,
+        repairBaselineTree,
+        lastRepairReport,
+    });
+
+    /** Persist round state onto the live workflow record when one is present. */
+    const persistRoundState = () => {
+        if (!hostedSession?.setActiveExecutionWorkflow) return;
+        const current = hostedSession.getActiveExecutionWorkflow?.();
+        if (!current) return;
+        hostedSession.setActiveExecutionWorkflow({ ...current, ...roundStateForWorkflowRecord() });
+    };
+
     progress = createValidationProgress({
         kind: "workflow",
         outcome: "running",
         stage: "cycle",
-        cycle: 1,
-        maxCycles: MAX_VALIDATION_CYCLES,
-        totalCycle: 1,
+        cycle: Math.min(semanticRound + 1, AUTOMATIC_ROUNDS),
+        maxCycles: AUTOMATIC_ROUNDS,
+        totalCycle: semanticRound + 1,
     });
 
     await recordWorkflowMetricImpl({
         category: "validation",
         event: "workflow_validation_started",
         planName,
-        details: { classification: triageMeta?.classification, hasWorktree: Boolean(worktreeBranch) },
+        details: {
+            classification: triageMeta?.classification,
+            hasWorktree: Boolean(worktreeBranch),
+            resumedAtRound: semanticRound > 0 ? semanticRound : undefined,
+        },
     });
 
+    /**
+     * Dispatch review feedback to the Reviewer-Feedback Engineer in a fresh
+     * isolated session.
+     *
+     * The repair does not run on the execution transcript. Appending it there put
+     * the most correctness-sensitive task in the workflow at the tail of a long,
+     * context-exhausted conversation whose whole gravity was "follow the
+     * Implementation Steps" — so the findings competed with the plan for
+     * attention and usually lost. A fresh session with a bounded packet makes the
+     * findings the entire job.
+     *
+     * @param {{ reason: string, findingsSection: string, repairKind: "semantic" | "human_feedback",
+     *   images?: Array<{base64: string, mimeType: string}> }} args
+     * @returns {Promise<{ paused?: WorkflowValidationResult }>}
+     */
+    async function runReviewFeedbackRepair({ reason, findingsSection, repairKind, images }) {
+        emitRunWieldSystemStatus(hostedSession, reason, true, progress);
+
+        // Capture the pre-repair tree so the next round can diff only what this
+        // repair changed. Fail closed: silently reviewing the full scope instead
+        // would hide whether the repair did anything.
+        try {
+            repairBaselineTree = await captureWorktreeTreeImpl(executionCwd);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            haltReason = `Could not capture the pre-repair tree for focused review: ${detail}`;
+            return {};
+        }
+        persistRoundState();
+
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "repair_dispatched",
+            agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+            planName,
+            details: { repairKind, semanticRound },
+        });
+
+        const packet = [
+            repairKind === "human_feedback"
+                ? "A human reviewed this change and asked for the following. Their feedback is authoritative."
+                : "A code reviewer found the following issues with this implementation. Fix every one of them.",
+            "",
+            "### Findings",
+            "",
+            findingsSection || "(no findings text supplied)",
+            "",
+            buildDiffInspectionSection(latestDiffText),
+            "",
+            "### Approved Plan",
+            "",
+            planContent,
+            "",
+            "Report a disposition for every finding in your task_completed message.",
+        ].join("\n");
+
+        let completed = false;
+        let report = "";
+        try {
+            const agentDef = await loadReviewerFeedbackEngineerDefImpl();
+            const sessionMessages = await runIsolatedAgentSessionImpl({
+                hostedSession,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                userRequest: packet,
+                images,
+                cwd: executionCwd,
+                _agentDefOverride: agentDef,
+                customTools: [createReviewDiffTool({ full: latestDiffText })],
+            });
+            const outcome = readLatestTaskCompletedReport(sessionMessages);
+            completed = outcome.completed;
+            report = outcome.message;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            haltReason = `Reviewer-Feedback Engineer execution failed: ${detail}`;
+            return {};
+        }
+
+        lastRepairReport = report;
+        persistRoundState();
+
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "repair_completed",
+            agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+            planName,
+            details: { repairKind, semanticRound, taskCompletedObserved: completed, hasReport: Boolean(report) },
+        });
+
+        if (!completed) {
+            return {
+                paused: await pauseForExecutionContinuation(
+                    `${
+                        getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, projectRoot)
+                    } stopped without task_completed during ${
+                        repairKind === "human_feedback" ? "code review" : "semantic"
+                    } repair.`,
+                ),
+            };
+        }
+        return {};
+    }
+
     while (!executionComplete && !haltReason) {
-        validationCycles++;
-        const validationCycleInBatch = ((validationCycles - 1) % MAX_VALIDATION_CYCLES) + 1;
+        // Once the change is in the human's hands, automatic rounds are over: this
+        // pass reruns CI, skips semantic review entirely, and reopens Code Review.
+        const skipSemanticReview = semanticEscapeToHumanReview;
+        if (!skipSemanticReview) semanticRound++;
+        const reviewMode = semanticRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
+        persistRoundState();
         await recordWorkflowMetricImpl({
             category: "validation",
             event: "validation_cycle_started",
             planName,
-            details: { validationCycle: validationCycles, maxValidationCycles: MAX_VALIDATION_CYCLES },
+            details: {
+                semanticRound,
+                reviewMode: skipSemanticReview ? "human_review_only" : reviewMode,
+                automaticRounds: AUTOMATIC_ROUNDS,
+            },
         });
         progress = createValidationProgress({
             kind: "workflow",
             outcome: "running",
             stage: "cycle",
-            cycle: validationCycleInBatch,
-            maxCycles: MAX_VALIDATION_CYCLES,
-            totalCycle: validationCycles,
+            cycle: Math.min(semanticRound, AUTOMATIC_ROUNDS),
+            maxCycles: AUTOMATIC_ROUNDS,
+            totalCycle: semanticRound,
         });
         emitRunWieldSystemStatus(
             hostedSession,
-            `Starting Validation Cycle ${validationCycleInBatch}/${MAX_VALIDATION_CYCLES}`,
+            skipSemanticReview
+                ? "Rerunning CI before reopening Code Review..."
+                : `Starting Review Round ${semanticRound}${
+                    semanticRound <= AUTOMATIC_ROUNDS ? `/${AUTOMATIC_ROUNDS}` : ""
+                } (${reviewMode === "discovery" ? "full Plan review" : "verifying repairs"})`,
             "info",
             progress,
         );
@@ -1713,7 +1961,7 @@ export async function runValidationLoop({
                 event: "ci_attempt",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
                     mechanicalAttempt: mechanicalAttempts,
                     exitCode: ciResult.exitCode,
                     passed: ciResult.exitCode === 0,
@@ -1754,7 +2002,7 @@ export async function runValidationLoop({
                     event: "repair_dispatched",
                     agentName: executionAgent,
                     planName,
-                    details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
+                    details: { repairKind: "ci", semanticRound, attempt: mechanicalAttempts },
                 });
                 const completed = await runWorkflowRepair({
                     hostedSession,
@@ -1772,7 +2020,7 @@ export async function runValidationLoop({
                     planName,
                     details: {
                         repairKind: "ci",
-                        validationCycle: validationCycles,
+                        semanticRound,
                         attempt: mechanicalAttempts,
                         taskCompletedObserved: Boolean(completed),
                     },
@@ -1817,64 +2065,147 @@ export async function runValidationLoop({
             maxRepairAttempts: null,
             checks: { semanticReview: "running" },
         });
-        emitRunWieldSystemStatus(hostedSession, "Running Semantic Code Review...", "info", progress);
+        emitRunWieldSystemStatus(
+            hostedSession,
+            reviewMode === "discovery"
+                ? `Running Semantic Code Review (round ${semanticRound}, full Plan review)...`
+                : `Running Semantic Code Review (round ${semanticRound}, verifying repairs)...`,
+            "info",
+            progress,
+        );
         let diffText = "";
+        let repairDiffText = "";
         let reviewResponse = "";
         let reviewOutcome = null;
         let semanticUsedLargeDiffPath = false;
         /** @type {boolean} */
         let reviewerFailed = false;
+        let inspectedDiff = false;
+        let roundResolvedCount = 0;
+        let roundAppendedCount = 0;
+        /** @type {string} */
+        let reviewerPauseReason = "";
         const maxReviewerAttempts = 3;
-        const reviewerToolNames = ["read", "grep", "find", "ls", "review_complete"];
+        const reviewerToolNames = ["read", "grep", "find", "ls", "review_diff", "review_complete"];
         /**
+         * Build one Reviewer invocation.
+         *
+         * The diff is never inlined — every round reads it through `review_diff`,
+         * so there is one delivery path and no size threshold to tune. A
+         * continuation attempt sends only a short nudge: the Reviewer keeps its
+         * own session across attempts, so re-sending the full prompt would throw
+         * away analysis it has already done.
+         *
          * @param {import('../session/types.js').AgentDefinition} reviewerAgentDef
-         * @param {string} reviewDiffText
          * @param {number} attempt
+         * @param {string} [nudgeReason]
          * @returns {{ prompt: string, agentDef: import('../session/types.js').AgentDefinition, customTools: import('@earendil-works/pi-coding-agent').ToolDefinition[] }}
          */
-        const buildSemanticReviewAttempt = (reviewerAgentDef, reviewDiffText, attempt) => {
-            const diffBytes = new TextEncoder().encode(reviewDiffText).byteLength;
-            const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
-            const continuationPrefix = attempt > 1
-                ? `Continue reviewing ${planName}. You must finish this semantic review by calling review_complete.\n\n`
-                : "";
+        const buildSemanticReviewAttempt = (reviewerAgentDef, attempt, nudgeReason) => {
+            const hasRepairScope = Boolean(repairDiffText);
             /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-            const customTools = [];
-            let prompt;
+            const customTools = [
+                createReviewDiffTool(hasRepairScope ? { full: diffText, repair: repairDiffText } : { full: diffText }),
+            ];
 
-            if (isLargeDiff) {
-                prompt = continuationPrefix + buildLargeDiffReviewPrompt(
-                    reviewerAgentDef,
-                    planContent,
-                    reviewDiffText,
-                    diffBytes,
-                );
-                customTools.push(createReviewDiffTool(reviewDiffText));
-            } else {
-                prompt = continuationPrefix +
-                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${reviewDiffText}`;
+            if (attempt > 1) {
+                return {
+                    prompt: nudgeReason ||
+                        "You have not called review_complete yet. Finish this review now by calling review_complete " +
+                            "with your decision. Do not restart the review — use what you have already inspected.",
+                    agentDef: { ...reviewerAgentDef, tools: reviewerToolNames },
+                    customTools,
+                };
             }
 
+            const sections = [
+                `You are reviewing ${planName}. This is review round ${semanticRound}.`,
+                "",
+            ];
+
+            if (reviewMode === "discovery" && hasOpenItems(reviewLedger)) {
+                sections.push(
+                    "A previous round opened the findings below and a repair has been attempted since. Sweep the Plan" +
+                        " as usual **and** independently verify each open finding against the code.",
+                    "",
+                    "### Open Findings",
+                    "",
+                    renderOpenItems(reviewLedger),
+                    "",
+                );
+            } else if (reviewMode === "verify") {
+                sections.push(
+                    `Rounds 1-${DISCOVERY_ROUNDS} already reviewed this implementation against the whole Plan. Verify` +
+                        " the open findings below and check the repair for regressions. Do not sweep the Plan again.",
+                    "",
+                    "### Open Findings",
+                    "",
+                    renderOpenItems(reviewLedger),
+                    "",
+                    "### Already Resolved",
+                    "",
+                    renderResolvedItems(reviewLedger),
+                    "",
+                );
+            }
+
+            if (lastRepairReport) {
+                sections.push(
+                    "### Repair Agent's Report",
+                    "",
+                    "These are claims to verify, not proof. Check each one against the code yourself.",
+                    "",
+                    lastRepairReport,
+                    "",
+                );
+            }
+
+            sections.push(
+                buildDiffInspectionSection(diffText, { hasRepairScope }),
+                "",
+                "### Approved Plan",
+                "",
+                planContent,
+            );
+
             return {
-                prompt,
-                agentDef: {
-                    ...reviewerAgentDef,
-                    tools: reviewerToolNames,
-                },
+                prompt: sections.join("\n"),
+                agentDef: { ...reviewerAgentDef, tools: reviewerToolNames },
                 customTools,
             };
         };
         try {
             diffText = await getDiffText(baselineTree, executionCwd);
             latestDiffText = diffText;
+            semanticUsedLargeDiffPath = new TextEncoder().encode(diffText).byteLength > GUIDED_REVIEW_LARGE_DIFF_BYTES;
+
+            // The repair scope only exists once something has been repaired, and only
+            // when the baseline capture succeeded.
+            if (repairBaselineTree && !skipSemanticReview) {
+                repairDiffText = await diffTreesImpl(
+                    executionCwd,
+                    repairBaselineTree,
+                    await captureWorktreeTreeImpl(executionCwd),
+                );
+            }
 
             if (
+                !skipSemanticReview &&
                 (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
                 diffText.trim()
             ) {
                 const diffBytes = new TextEncoder().encode(diffText).byteLength;
-                semanticUsedLargeDiffPath = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
+                // Retained purely as the guided-review size signal; it no longer
+                // changes how the diff reaches the Reviewer.
+                semanticUsedLargeDiffPath = diffBytes > GUIDED_REVIEW_LARGE_DIFF_BYTES;
                 let lastReviewerFailure = "Semantic Reviewer did not complete.";
+                /** @type {string | undefined} */
+                let nudgeReason;
+                // One manager for the whole round so a continuation nudges the same
+                // conversation instead of restarting the review. It is still separate
+                // from the workflow root manager, so the Reviewer never sees the
+                // workflow's conversation history.
+                const reviewerSessionManager = SessionManager.inMemory(executionCwd);
 
                 for (let reviewAttempt = 1; reviewAttempt <= maxReviewerAttempts && !reviewOutcome; reviewAttempt++) {
                     if (reviewAttempt > 1) {
@@ -1884,14 +2215,19 @@ export async function runValidationLoop({
                         });
                         emitRunWieldSystemStatus(
                             hostedSession,
-                            `Sending Semantic Reviewer continuation request: continue reviewing ${planName} (${reviewAttempt}/${maxReviewerAttempts})...`,
+                            `Nudging Semantic Reviewer to finish round ${semanticRound} (${reviewAttempt}/${maxReviewerAttempts})...`,
                             "info",
                             progress,
                         );
                     }
 
-                    const reviewerAgentDef = await loadReviewerPromptImpl();
-                    const reviewAttemptConfig = buildSemanticReviewAttempt(reviewerAgentDef, diffText, reviewAttempt);
+                    const reviewerAgentDef = await loadReviewerPromptImpl(reviewMode);
+                    const reviewAttemptConfig = buildSemanticReviewAttempt(
+                        reviewerAgentDef,
+                        reviewAttempt,
+                        nudgeReason,
+                    );
+                    nudgeReason = undefined;
 
                     try {
                         const sessionMessages = await runIsolatedAgentSessionImpl({
@@ -1900,18 +2236,28 @@ export async function runValidationLoop({
                             userRequest: reviewAttemptConfig.prompt,
                             cwd: executionCwd,
                             _agentDefOverride: reviewAttemptConfig.agentDef,
-                            customTools: reviewAttemptConfig.customTools.length > 0
-                                ? reviewAttemptConfig.customTools
-                                : undefined,
+                            customTools: reviewAttemptConfig.customTools,
                             includeEditFallback: false,
-                            // Reviewer must judge only the supplied plan/diff and its own
-                            // read-only investigation, not the workflow's conversation history.
-                            // Omitting the shared manager gives each attempt a fresh in-memory
-                            // SessionManager, including automatic continuation attempts.
+                            // Isolation here means excluding the workflow's conversation
+                            // history, not discarding the Reviewer's own prior turn: the
+                            // dedicated manager above carries its analysis between the
+                            // bounded continuation attempts within this round.
+                            sessionManager: reviewerSessionManager,
                         });
-                        reviewOutcome = readLatestReviewOutcome(sessionMessages);
-                        if (!reviewOutcome) {
+                        if (usedReviewDiffTool(sessionMessages)) inspectedDiff = true;
+                        const attemptOutcome = readLatestReviewOutcome(sessionMessages);
+                        if (!attemptOutcome) {
                             lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
+                        } else if (!inspectedDiff) {
+                            // A verdict reached without opening the diff is not a review.
+                            // Spend a continuation attempt rather than trusting it.
+                            lastReviewerFailure = "Semantic Reviewer decided without inspecting the diff.";
+                            nudgeReason =
+                                "You called review_complete without inspecting the diff. Read the changes with " +
+                                'review_diff(command: "list") and then review_diff(command: "show", ...) before ' +
+                                "deciding, then call review_complete again with your decision.";
+                        } else {
+                            reviewOutcome = attemptOutcome;
                         }
                     } catch (/** @type {any} */ invocationError) {
                         const errorMsg = invocationError instanceof Error
@@ -1923,23 +2269,37 @@ export async function runValidationLoop({
 
                 if (reviewOutcome) {
                     reviewResponse = reviewOutcome.feedback || "";
+                    const applied = applyRoundFindings(
+                        reviewLedger,
+                        reviewOutcome.findings || [],
+                        semanticRound,
+                    );
+                    reviewLedger = applied.ledger;
+                    roundResolvedCount = applied.resolvedCount;
+                    roundAppendedCount = applied.appendedCount;
+                    // The Reviewer's own signal wins over the ledger only when it
+                    // approves; a rejection with no structured findings still needs
+                    // something actionable, which the feedback projection provides.
+                    persistRoundState();
                     progress = updateValidationProgress(progress, {
                         checks: { semanticReview: reviewOutcome.approved ? "passed" : "failed" },
                     });
                 } else {
                     reviewerFailed = true;
-                    haltReason = "Semantic Review failed to complete after 3 attempts. Validation halted.";
+                    // Pause rather than halt: the Reviewer's session is still the
+                    // current steering target, so the user can nudge it by hand. Round
+                    // state is persisted, so continuing resumes this round intact.
+                    persistRoundState();
+                    reviewerPauseReason = `${lastReviewerFailure} Review round ${semanticRound} did not finish after ` +
+                        `${maxReviewerAttempts} attempts. Nudge the Reviewer to finish, or run /compact first if its ` +
+                        "context is full. Validation resumes this round from the preserved findings.";
                     progress = updateValidationProgress(progress, {
                         stage: "semantic_review",
+                        outcome: "paused",
                         checks: { semanticReview: "failed" },
-                        message: `${lastReviewerFailure} ${haltReason}`,
+                        message: reviewerPauseReason,
                     });
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        `${lastReviewerFailure} ${haltReason}`,
-                        true,
-                        progress,
-                    );
+                    emitRunWieldSystemStatus(hostedSession, reviewerPauseReason, true, progress);
                 }
             }
         } catch (error) {
@@ -1954,18 +2314,22 @@ export async function runValidationLoop({
             // SessionRuntime owns turn/busy state for the full validation operation.
         }
 
-        if (reviewerFailed && haltReason) {
+        if (reviewerFailed) {
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "semantic_review_result",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
+                    reviewMode,
                     approved: false,
                     reason: "failed_after_automatic_continuation_attempts",
                 },
             });
-            break;
+            // Step back so the resumed run re-runs this round rather than skipping it.
+            semanticRound--;
+            persistRoundState();
+            return await pauseForExecutionContinuation(reviewerPauseReason);
         }
 
         if (haltReason) break;
@@ -1997,17 +2361,48 @@ export async function runValidationLoop({
             break;
         }
 
-        if (!reviewerFailed && reviewOutcome?.approved) {
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "semantic_review_result",
-                planName,
-                details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
-            });
-            progress = updateValidationProgress(progress, { checks: { semanticReview: "passed" } });
-            emitRunWieldSystemStatus(hostedSession, "Semantic Code Review Approved.", "success", progress);
+        if (!reviewerFailed && (skipSemanticReview || reviewOutcome?.approved)) {
+            if (skipSemanticReview) {
+                // Never fabricate a semantic approval. The record has to show that a
+                // human took this decision without one. The stage moves off
+                // semantic_review because a skipped check cannot sit under it.
+                progress = updateValidationProgress(progress, {
+                    stage: "cycle",
+                    checks: { semanticReview: "skipped" },
+                });
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    "Opening Code Review without semantic approval — your decision is final for this change.",
+                    "info",
+                    progress,
+                );
+            } else {
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "semantic_review_result",
+                    planName,
+                    details: {
+                        semanticRound,
+                        reviewMode,
+                        approved: true,
+                        hasDiff: Boolean(diffText.trim()),
+                        approvedByRoundTwo: semanticRound <= 2,
+                        resolvedThisRound: roundResolvedCount,
+                        advisoryCount: (reviewOutcome?.advisories || []).length,
+                    },
+                });
+                progress = updateValidationProgress(progress, { checks: { semanticReview: "passed" } });
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Semantic Code Review Approved (round ${semanticRound}).`,
+                    "success",
+                    progress,
+                );
+            }
             const codeReviewMode = getCodeReviewModeImpl(projectRoot);
-            if (codeReviewMode === "none") {
+            // When the user escaped to Code Review, the configured mode does not get a
+            // vote: they asked for the review, and nothing else has approved this change.
+            if (codeReviewMode === "none" && !skipSemanticReview) {
                 progress = updateValidationProgress(progress, { checks: { humanReview: "skipped" } });
                 humanReviewMetadata = {
                     humanReviewMode: "none",
@@ -2022,8 +2417,8 @@ export async function runValidationLoop({
                 });
                 executionComplete = true;
             } else {
-                let shouldOpenReview = codeReviewMode === "always";
-                if (codeReviewMode === "ask") {
+                let shouldOpenReview = codeReviewMode === "always" || skipSemanticReview;
+                if (codeReviewMode === "ask" && !skipSemanticReview) {
                     const reviewResponse = await requestInteraction(hostedSession, {
                         type: RuntimeInteractionTypes.SELECT,
                         prompt: "Semantic review passed. Open code review before merge-back?",
@@ -2184,6 +2579,10 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                // Distinguishes "human confirmed an approved change" from
+                                // "human overrode an unapproved one" in the record.
+                                withoutSemanticApproval: skipSemanticReview,
+                                semanticRound,
                             },
                         });
                         executionComplete = true;
@@ -2196,17 +2595,9 @@ export async function runValidationLoop({
                         progress = updateValidationProgress(progress, {
                             stage: "engineer_repair",
                             repairAttempt: 1,
-                            maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                            maxRepairAttempts: AUTOMATIC_ROUNDS,
                             checks: { humanReview: "failed" },
                         });
-                        emitRunWieldSystemStatus(
-                            hostedSession,
-                            `User code review returned feedback. Sending feedback back to ${
-                                getAgentDisplayName(executionAgent, projectRoot)
-                            }...\nUser Code Review Feedback:\n${feedbackText}`,
-                            true,
-                            progress,
-                        );
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "human_review_result",
@@ -2219,126 +2610,94 @@ export async function runValidationLoop({
                                 imageCount: humanReview.images?.length || 0,
                             },
                         });
-                        await recordWorkflowMetricImpl({
-                            category: "validation",
-                            event: "repair_dispatched",
-                            agentName: executionAgent,
-                            planName,
-                            details: { repairKind: "human_review", validationCycle: validationCycles },
-                        });
-                        const completed = await runWorkflowRepair({
-                            hostedSession,
-                            agentName: executionAgent,
-                            userRequest:
-                                "The user provided feedback about your implementation during a code review. Please fix them, " +
-                                `do not break existing tests, and call task_completed when finished.\n\n` +
-                                `User Code Review Feedback:\n${feedbackText}`,
-                            sessionManager,
-                            cwd: executionCwd,
+                        // Human feedback goes to the same fresh-context repair agent as
+                        // semantic findings. It is scoped, concrete, and attached to a
+                        // diff, so it does not need the execution transcript — but it
+                        // does need the annotations and images verbatim, since that is
+                        // where the human pointed.
+                        const humanRepair = await runReviewFeedbackRepair({
+                            reason: `User code review returned feedback. Dispatching repair...\nUser Code Review ` +
+                                `Feedback:\n${feedbackText}`,
+                            findingsSection: feedbackText,
+                            repairKind: "human_feedback",
                             images: /** @type {Array<{base64: string, mimeType: string}>} */ (
                                 /** @type {unknown} */ (humanReview.images || [])
                             ),
                         });
-                        await recordWorkflowMetricImpl({
-                            category: "validation",
-                            event: "repair_completed",
-                            agentName: executionAgent,
-                            planName,
-                            details: {
-                                repairKind: "human_review",
-                                validationCycle: validationCycles,
-                                taskCompletedObserved: Boolean(completed),
-                            },
-                        });
-                        if (!completed) {
-                            return await pauseForExecutionContinuation(
-                                `${
-                                    getAgentDisplayName(executionAgent, projectRoot)
-                                } stopped without task_completed during human code review repair.`,
-                            );
-                        }
+                        if (humanRepair.paused) return humanRepair.paused;
+                        if (haltReason) break;
+                        // Reopen human review on the next pass rather than re-entering
+                        // automatic semantic rounds: the human owns this decision now.
+                        semanticEscapeToHumanReview = true;
                     }
                 }
             }
         } else {
+            const openCount = openItems(reviewLedger).length;
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "semantic_review_result",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
+                    reviewMode,
                     approved: false,
                     hasReviewerOutput: Boolean(reviewResponse),
+                    openFindingCount: openCount,
+                    resolvedThisRound: roundResolvedCount,
+                    // The serial-discovery signal: how often a later round finds what
+                    // an earlier one missed. High values in round 2 mean round 1's
+                    // prompt needs work; high values in a verify round mean repairs
+                    // are introducing damage.
+                    appendedThisRound: roundAppendedCount,
+                    advisoryCount: (reviewOutcome?.advisories || []).length,
                 },
             });
             progress = updateValidationProgress(progress, {
                 stage: "engineer_repair",
-                repairAttempt: validationCycleInBatch,
-                maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                repairAttempt: Math.min(semanticRound, AUTOMATIC_ROUNDS),
+                maxRepairAttempts: AUTOMATIC_ROUNDS,
                 checks: { semanticReview: "failed" },
             });
-            emitRunWieldSystemStatus(
-                hostedSession,
-                `Review failed. Sending feedback back to ${getAgentDisplayName(executionAgent, projectRoot)}...`,
-                true,
-                progress,
-            );
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "repair_dispatched",
-                agentName: executionAgent,
-                planName,
-                details: { repairKind: "semantic", validationCycle: validationCycles },
-            });
-            const completed = await runWorkflowRepair({
-                hostedSession,
-                agentName: executionAgent,
-                userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
-                    `existing tests, and call task_completed when finished.\n\nReviewer Feedback:\n${reviewResponse}`,
-                sessionManager,
-                cwd: executionCwd,
-            });
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "repair_completed",
-                agentName: executionAgent,
-                planName,
-                details: {
-                    repairKind: "semantic",
-                    validationCycle: validationCycles,
-                    taskCompletedObserved: Boolean(completed),
-                },
-            });
-            if (!completed) {
-                return await pauseForExecutionContinuation(
-                    `${
-                        getAgentDisplayName(executionAgent, projectRoot)
-                    } stopped without task_completed during semantic repair.`,
-                );
-            }
-        }
 
-        if (!executionComplete && !haltReason && validationCycleInBatch >= MAX_VALIDATION_CYCLES) {
-            const action = await promptForSemanticValidationLimitAction(hostedSession, MAX_VALIDATION_CYCLES);
-            if (action === "retry") {
-                progress = createValidationProgress({
-                    kind: "workflow",
+            const repairResult = await runReviewFeedbackRepair({
+                reason: `Review round ${semanticRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+                findingsSection: openCount > 0 ? renderOpenItems(reviewLedger) : reviewResponse,
+                repairKind: "semantic",
+            });
+            if (repairResult.paused) return repairResult.paused;
+
+            if (semanticRound >= AUTOMATIC_ROUNDS) {
+                // Automatic rounds are spent. Never strand the work: the user either
+                // buys another verification round or hands the change to a human,
+                // whose approval is authoritative even without semantic approval.
+                const action = await promptForSemanticRoundLimitAction(
+                    hostedSession,
+                    semanticRound,
+                    requestInteraction,
+                );
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "semantic_round_limit_choice",
+                    planName,
+                    details: { semanticRound, choice: action, openFindingCount: openItems(reviewLedger).length },
+                });
+                if (action === "code_review") {
+                    semanticEscapeToHumanReview = true;
+                    continue;
+                }
+                progress = updateValidationProgress(progress, {
                     outcome: "running",
                     stage: "cycle",
-                    cycle: 1,
-                    maxCycles: MAX_VALIDATION_CYCLES,
-                    totalCycle: validationCycles + 1,
-                    message: `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                    message: `Continuing with verification round ${semanticRound + 1}...`,
                 });
                 emitRunWieldSystemStatus(
                     hostedSession,
-                    `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                    `Continuing with verification round ${semanticRound + 1}...`,
                     "info",
                     progress,
                 );
-                continue;
             }
-            haltReason = `Semantic validation did not approve after ${MAX_VALIDATION_CYCLES} cycles.`;
         }
     }
 
@@ -2958,7 +3317,11 @@ export async function runValidationLoop({
                     category: "validation",
                     event: "workflow_validation_finished",
                     planName,
-                    details: { passed: true, validationCycles, hasWorktreeBranch: Boolean(worktreeBranch) },
+                    details: {
+                        passed: true,
+                        semanticRounds: semanticRound,
+                        hasWorktreeBranch: Boolean(worktreeBranch),
+                    },
                 });
             } catch (metricError) {
                 if (!mergeBackCompleted) throw metricError;
@@ -3022,7 +3385,7 @@ export async function runValidationLoop({
                 category: "validation",
                 event: "workflow_validation_finished",
                 planName,
-                details: { passed: false, validationCycles, reason: "halted_after_merge" },
+                details: { passed: false, semanticRounds: semanticRound, reason: "halted_after_merge" },
             });
             if (!postMergeVerificationHalted && worktreeId) {
                 try {
@@ -3065,7 +3428,7 @@ export async function runValidationLoop({
             category: "validation",
             event: "workflow_validation_finished",
             planName,
-            details: { passed: false, validationCycles, reason: "halted" },
+            details: { passed: false, semanticRounds: semanticRound, reason: "halted" },
         });
         progress = completeValidationProgress(progress, false, `Workflow halted: ${reason}`);
         emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true, progress);

@@ -267,23 +267,45 @@ export function listDiffFiles(entries, maxInlineBytes = 64 * 1024) {
  * Create the review_diff custom tool for the semantic reviewer.
  * The tool provides bounded, read-only access to the workflow diff.
  *
- * @param {string} diffText - The captured workflow diff text.
+ * Two scopes exist because a verification round asks two different questions.
+ * `full` is the whole workflow diff from the execution baseline and answers
+ * "does anything diverge from the Plan". `repair` is only what the last repair
+ * changed and answers "did the repair fix the open findings without breaking
+ * something". Round one has no repair scope.
+ *
+ * @param {string | { full: string, repair?: string }} diffs - Workflow diff text, or per-scope diff texts.
  * @returns {ReturnType<typeof defineTool>}
  */
-export function createReviewDiffTool(diffText) {
-    const entries = parseDiffFiles(diffText);
+export function createReviewDiffTool(diffs) {
+    const fullText = typeof diffs === "string" ? diffs : diffs?.full || "";
+    const repairText = typeof diffs === "string" ? "" : diffs?.repair || "";
+    const hasRepairScope = typeof diffs !== "string" && typeof diffs?.repair === "string";
+    /** @type {Record<string, DiffFileEntry[]>} */
+    const entriesByScope = {
+        full: parseDiffFiles(fullText),
+        repair: parseDiffFiles(repairText),
+    };
     const MAX_INLINE_BYTES = 64 * 1024;
     const MAX_READ_BYTES = 64 * 1024;
+
+    const scopeDescription = hasRepairScope
+        ? " Scope 'full' is the entire workflow diff; scope 'repair' is only what the most recent repair changed."
+        : "";
 
     return defineTool({
         name: "review_diff",
         label: "Review Diff",
         description:
-            "Bounded, read-only access to the current workflow diff. Use 'list' to see changed files with sizes, or 'show' to read the diff for a specific file path. Does not run git commands.",
+            "Bounded, read-only access to the current workflow diff. Use 'list' to see changed files with sizes, or 'show' to read the diff for a specific file path. Does not run git commands." +
+            scopeDescription,
         promptSnippet:
             "review_diff(list|show): List changed files or read the diff for one file. Prefer 'list' first to see what changed, then 'show <path>' to inspect specific files.",
         parameters: Type.Object({
             command: StringEnum(["list", "show"]),
+            scope: Type.Optional(StringEnum(["full", "repair"], {
+                description:
+                    "Which diff to inspect. 'full' (default) is the entire workflow diff from the execution baseline. 'repair' is only what the most recent repair changed, and is available from the second review round onward.",
+            })),
             path: Type.Optional(Type.String({
                 description:
                     "Required for 'show'. The file path to inspect. Accepts partial path matches for convenience.",
@@ -301,20 +323,35 @@ export function createReviewDiffTool(diffText) {
             })),
         }),
         execute(_toolCallId, rawParams) {
-            /** @type {{ command: string, path?: string, offsetBytes?: number, maxBytes?: number }} */
+            /** @type {{ command: string, scope?: string, path?: string, offsetBytes?: number, maxBytes?: number }} */
             const params = /** @type {any} */ (rawParams);
+            const scope = params.scope === "repair" ? "repair" : "full";
+
+            if (scope === "repair" && !hasRepairScope) {
+                return Promise.resolve({
+                    content: [{
+                        type: "text",
+                        text:
+                            "No repair scope in this round: nothing has been repaired yet, so there is no repair diff to inspect. Use scope 'full'.",
+                    }],
+                    details: /** @type {any} */ ({ command: params.command || "", scope, available: false }),
+                });
+            }
+
+            const entries = entriesByScope[scope];
+            const scopeLabel = scope === "repair" ? "repair diff" : "workflow diff";
 
             if (params.command === "list") {
                 const summaries = listDiffFiles(entries, MAX_INLINE_BYTES);
                 if (summaries.length === 0) {
                     return Promise.resolve({
-                        content: [{ type: "text", text: "No changed files detected in the workflow diff." }],
-                        details: /** @type {any} */ ({ command: "list", fileCount: 0 }),
+                        content: [{ type: "text", text: `No changed files detected in the ${scopeLabel}.` }],
+                        details: /** @type {any} */ ({ command: "list", scope, fileCount: 0 }),
                     });
                 }
 
                 const lines = [
-                    `## Changed Files (${summaries.length} total)`,
+                    `## Changed Files — ${scopeLabel} (${summaries.length} total)`,
                     "",
                     "| Path | Change | Added | Removed | Size | Full diff available |",
                     "|------|--------|-------|---------|------|---------------------|",
@@ -329,12 +366,12 @@ export function createReviewDiffTool(diffText) {
                 }
                 lines.push(
                     "",
-                    'Use `review_diff(command: "show", path: "<file-path>")` to read the diff for a specific file.',
+                    `Use \`review_diff(command: "show", scope: "${scope}", path: "<file-path>")\` to read the diff for a specific file.`,
                 );
 
                 return Promise.resolve({
                     content: [{ type: "text", text: lines.join("\n") }],
-                    details: /** @type {any} */ ({ command: "list", fileCount: summaries.length }),
+                    details: /** @type {any} */ ({ command: "list", scope, fileCount: summaries.length }),
                 });
             }
 
@@ -343,7 +380,7 @@ export function createReviewDiffTool(diffText) {
                     return Promise.resolve({
                         content: [{ type: "text", text: "Error: 'path' is required for 'show' command." }],
                         isError: true,
-                        details: /** @type {any} */ ({ command: "show" }),
+                        details: /** @type {any} */ ({ command: "show", scope }),
                     });
                 }
 
@@ -356,11 +393,11 @@ export function createReviewDiffTool(diffText) {
                     return Promise.resolve({
                         content: [{ type: "text", text: result.message }],
                         isError: true,
-                        details: /** @type {any} */ ({ command: "show", path: params.path, found: false }),
+                        details: /** @type {any} */ ({ command: "show", scope, path: params.path, found: false }),
                     });
                 }
 
-                const content = [`## Diff: ${result.entry.path}`];
+                const content = [`## Diff: ${result.entry.path} (${scopeLabel})`];
                 if (result.entry.changeType !== "modified") {
                     content.push(`Change type: ${result.entry.changeType}`);
                 }
@@ -378,6 +415,7 @@ export function createReviewDiffTool(diffText) {
                     content: [{ type: "text", text: content.join("\n") }],
                     details: /** @type {any} */ ({
                         command: "show",
+                        scope,
                         path: result.entry.path,
                         truncated: result.truncated,
                         remainingBytes: result.remainingBytes,
@@ -388,56 +426,52 @@ export function createReviewDiffTool(diffText) {
             return Promise.resolve({
                 content: [{ type: "text", text: `Error: unknown command "${params.command}". Use 'list' or 'show'.` }],
                 isError: true,
-                details: /** @type {any} */ ({ command: params.command || "", error: "unknown_command" }),
+                details: /** @type {any} */ ({ command: params.command || "", scope, error: "unknown_command" }),
             });
         },
     });
 }
 
 /**
- * Build a compact review packet summarizing a large diff without
- * including the full diff text inline.
+ * Build the changed-files overview and diff-inspection instructions shared by
+ * every review round.
  *
- * @param {import('../session/types.js').AgentDefinition} _reviewerAgentDef
- * @param {string} planContent
- * @param {string} diffText
- * @param {number} totalDiffBytes
+ * The diff is never inlined into a review prompt: the Reviewer always reads it
+ * through `review_diff`, so there is one delivery path and no size threshold to
+ * tune. This overview exists so the Reviewer can plan which files to open.
+ *
+ * @param {string} diffText - The full workflow diff.
+ * @param {{ hasRepairScope?: boolean }} [options]
  * @returns {string}
  */
-export function buildLargeDiffReviewPrompt(_reviewerAgentDef, planContent, diffText, totalDiffBytes) {
+export function buildDiffInspectionSection(diffText, options = {}) {
     const entries = parseDiffFiles(diffText);
-    const fileList = formatChangedFileList(entries);
-
-    return [
-        `The workflow diff is **${
-            formatByteSize(totalDiffBytes)
-        }** and was omitted from this prompt to avoid context overflow.`,
-        "",
+    const totalBytes = entries.reduce((sum, entry) => sum + entry.byteLength, 0);
+    const lines = [
         "### Changed Files",
         "",
-        fileList,
+        `The workflow diff is ${
+            formatByteSize(totalBytes)
+        } across ${entries.length} file(s). It is not inlined here —` +
+        " read it with `review_diff`.",
         "",
-        "### How to Review",
+        formatChangedFileList(entries),
         "",
-        "1. Use the `review_diff` tool to inspect changed files.",
-        `   - \`review_diff(command: "list")\` — see all changed files with sizes.`,
-        `   - \`review_diff(command: "show", path: "<file>")\` — read the diff for one file.`,
-        `   - Large file diffs are returned in bounded chunks; use \`offsetBytes\` to page through.`,
+        "### How to Inspect",
         "",
-        "2. Use \`read\`, \`grep\`, \`find\`, and \`ls\` to inspect current file contents.",
-        "   - Read files around the changed lines for context: \`read file.js\`.",
-        "   - Search the codebase for patterns affected by the change.",
-        "   - Look at test files, type definitions, or related modules that the diff touches.",
-        "",
-        "3. Focus on the most relevant changed files first:",
-        "   - Files named in the plan.",
-        "   - Files with substantive logic changes (large added/removed line counts).",
-        "   - Edge cases called out by the plan.",
-        "",
-        "4. Compare each changed file's diff + current code against the plan requirements.",
-        "",
-        "### Original Plan",
-        "",
-        planContent,
-    ].join("\n");
+        '1. Start with `review_diff(command: "list")` to see everything that changed.',
+        '2. Read specific files with `review_diff(command: "show", path: "<file>")`. Large per-file diffs come back in' +
+        " bounded chunks; page through them with `offsetBytes`.",
+        "3. Use `read`, `grep`, `find`, and `ls` for surrounding context: the current contents around changed lines," +
+        " related modules, type definitions, and tests the change touches.",
+    ];
+
+    if (options.hasRepairScope) {
+        lines.push(
+            '4. Add `scope: "repair"` to either command to see only what the most recent repair changed. The default' +
+                ' scope, `"full"`, is the entire workflow diff.',
+        );
+    }
+
+    return lines.join("\n");
 }

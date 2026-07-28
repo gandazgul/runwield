@@ -1,5 +1,5 @@
 ---
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
 complexity: "MEDIUM"
 summary: "Adapt RunWield to the latest @earendil-works Pi package model/auth runtime APIs while keeping dependencies upgradeable"
 affectedPaths:
@@ -19,11 +19,20 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T12:29:26-04:00"
-updatedAt: "2026-07-27T16:31:39.468Z"
-status: "ready_for_work"
+updatedAt: "2026-07-28T03:39:03.497Z"
+status: "implemented"
 origin: "internal"
+failureReason: "Semantic validation did not approve after 3 cycles."
+implementedAt: "2026-07-28T03:06:10.921Z"
 userVerifiedAt: null
-userVerificationNote: null
+executionReport: "- Implemented Pi 0.82.1 runtime integration: `ModelRuntime` creation/caching, RunWield model facade, `createAgentSession({ modelRuntime })`, TUI model selector runtime wiring, and `streamFunction` temperature wrapping.\n- Updated Earendil imports to upgradeable `^0.82.1` ranges, removed latest-observed aliases, and regenerated `deno.lock` resolving Pi packages to 0.82.1.\n- Added end-to-end `max` thinking-level support and coverage for HostedSession/SessionRuntime cycling.\n- Verification passed: `deno task -q check`, targeted session/model tests, `deno task -q lint`, `deno task -q test`, and `deno task -q ci`."
+executionMode: "worktree"
+executionBaselineTree: "e820905a35e2d9f2d9f9589e4ade4a94399ebade"
+worktreeId: "0131223f"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-adapt-pi-model-runtime-upgrade-0131223f"
+worktreeBranch: "runwield/worktree/adapt-pi-model-runtime-upgrade-0131223f"
+worktreeBaseBranch: "main"
+worktreeStatus: "validation_failed"
 ---
 
 # Adapt Pi ModelRuntime Upgrade

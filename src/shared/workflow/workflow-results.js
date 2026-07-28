@@ -137,6 +137,8 @@ export function readLatestReturnToRouterOutcome(messages, fromIndex) {
  * @property {ReviewOutcome} outcome
  * @property {boolean} approved
  * @property {string} feedback
+ * @property {import('../../tools/review-complete.js').ReviewFinding[]} findings
+ * @property {import('../../tools/review-complete.js').ReviewAdvisory[]} advisories
  */
 
 /**
@@ -168,6 +170,8 @@ export function readLatestReviewOutcome(messages, fromIndex) {
                     outcome: /** @type {ReviewOutcome} */ (outcome),
                     approved: details.approved === true,
                     feedback: typeof details.feedback === "string" ? details.feedback : "",
+                    findings: Array.isArray(details.findings) ? details.findings : [],
+                    advisories: Array.isArray(details.advisories) ? details.advisories : [],
                 };
             }
         }
@@ -253,6 +257,21 @@ function readToolResultImages(content) {
  * @returns {boolean}
  */
 export function readLatestTaskCompletedOutcome(messages, fromIndex) {
+    return readLatestTaskCompletedReport(messages, fromIndex).completed;
+}
+
+/**
+ * Read the latest task_completed tool result including its report text.
+ *
+ * Semantic repair needs the report itself, not just the completion signal: the
+ * next Reviewer round independently verifies the repair agent's per-item
+ * dispositions, so the claims must survive the dispatch.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex] - Only search messages from this index onwards.
+ * @returns {{ completed: boolean, message: string }}
+ */
+export function readLatestTaskCompletedReport(messages, fromIndex) {
     const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
     for (let i = messages.length - 1; i >= start; i--) {
         const msg = messages[i];
@@ -263,9 +282,12 @@ export function readLatestTaskCompletedOutcome(messages, fromIndex) {
             // @ts-ignore details set by tool implementation
             const details = msg.details || {};
             if (details.outcome === "task_completed") {
-                return true;
+                return {
+                    completed: true,
+                    message: typeof details.message === "string" ? details.message : "",
+                };
             }
         }
     }
-    return false;
+    return { completed: false, message: "" };
 }

@@ -195,14 +195,20 @@ export const HOME_DIR = readOptionalEnv("HOME");
  * not appear in `/agent` listings or return_to_router targets.
  *
  * `REVIEWER` is also workflow-only and is loaded from
- * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
+ * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` (discovery
+ * rounds) or `reviewer-verify-prompt.md` (verification rounds) as a bare
  * prompt, without shared skills or extra tools.
+ *
+ * `REVIEWER_FEEDBACK_ENGINEER` is workflow-only and repairs review findings in
+ * a fresh isolated session. It is dispatched by Workflow Validation rather than
+ * chosen by the user, so it does not appear in `/agent` listings or
+ * `return_to_router` targets.
  *
  * `DELEGATED` is workflow-only and is loaded from
  * `src/agent-definitions/workflow-prompts/delegated-agent-prompt.md` as a bare
  * prompt by the `delegate_agent` tool.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -213,6 +219,7 @@ export const AGENTS = Object.freeze({
     FRONTEND_ENGINEER: "frontend-engineer",
     RECORDER: "recorder",
     REVIEWER: "reviewer",
+    REVIEWER_FEEDBACK_ENGINEER: "reviewer-feedback-engineer",
     SLICER: "slicer",
     IDEATOR: "ideator",
     INIT: "init",

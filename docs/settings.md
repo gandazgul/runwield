@@ -395,6 +395,14 @@ Values:
 
 RunWield trims and normalizes this value case-insensitively; invalid or missing values behave as `none`.
 
+This setting governs the gate that runs _after_ semantic approval. It does not suppress the code review offered when
+automatic semantic rounds run out: if you choose to open code review there, it opens even under `none`, because nothing
+else has approved the change and the alternative is stranding the work. Approving from that path merges back without
+semantic approval, and RunWield records that distinction.
+
+Code review feedback — from either path — is repaired by the Reviewer-Feedback Engineer in a fresh session with your
+feedback, annotations, and images, after which code review reopens for your explicit approval.
+
 Example:
 
 ```jsonc

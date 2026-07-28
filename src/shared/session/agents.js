@@ -149,9 +149,16 @@ export function getAgentDisplayName(internalName, projectRoot) {
         return fromFile;
     }
 
-    if (internalName === AGENTS.SLICER) {
-        displayNameCache.set(cacheKey, "Slicer");
-        return "Slicer";
+    // Workflow-only agents live under `agent-definitions/workflow-prompts/`, which
+    // the layered lookup above deliberately does not search — they must stay out
+    // of `/agent` listings. Their display names are pinned here instead.
+    const workflowOnlyDisplayName = {
+        [AGENTS.SLICER]: "Slicer",
+        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: "Reviewer-Feedback Engineer",
+    }[internalName];
+    if (workflowOnlyDisplayName) {
+        displayNameCache.set(cacheKey, workflowOnlyDisplayName);
+        return workflowOnlyDisplayName;
     }
 
     throw new Error(

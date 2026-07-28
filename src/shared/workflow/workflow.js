@@ -62,6 +62,7 @@ export {
     readLatestPlanOutcome,
     readLatestReviewOutcome,
     readLatestTaskCompletedOutcome,
+    readLatestTaskCompletedReport,
 } from "./workflow-results.js";
 
 /**

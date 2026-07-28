@@ -56,6 +56,12 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {boolean} [validationContinuation]
  * @property {string} [manualQaName]
  * @property {string} [manualQaContext]
+ * @property {number} [semanticRound] - Absolute semantic review round. Carried here rather than in a
+ *   `runValidationLoop` local because validation exits on every pause and is re-entered from scratch.
+ * @property {import('../workflow/review-ledger.ts').ReviewLedger} [reviewLedger]
+ * @property {string} [repairBaselineTree] - Worktree tree captured before the current repair dispatch,
+ *   used to compute the repair-scoped diff for the next verification round.
+ * @property {string} [lastRepairReport] - The repair agent's per-item disposition report, verified by the next round.
  */
 
 /**

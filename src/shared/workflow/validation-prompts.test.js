@@ -141,6 +141,7 @@ Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     /** @type {string[]} */
     const readPaths = [];
     const reviewerDef = await loadReviewerPrompt(
+        "discovery",
         (path) => {
             readPaths.push(String(path));
             return Promise.resolve([
@@ -166,11 +167,36 @@ Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     assertEquals(reviewerDef.systemPrompt.includes("Available tools"), false);
 });
 
+Deno.test("loadReviewerPrompt loads the verification prompt for later rounds", async () => {
+    /** @type {string[]} */
+    const readPaths = [];
+    const reviewerDef = await loadReviewerPrompt(
+        "verify",
+        (path) => {
+            readPaths.push(String(path));
+            return Promise.resolve([
+                "---",
+                "name: Reviewer",
+                'description: "Verification prompt"',
+                "---",
+                "",
+                "Verify the open findings.",
+                "",
+            ].join("\n"));
+        },
+        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
+    );
+
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/reviewer-verify-prompt.md"]);
+    assertEquals(reviewerDef.systemPrompt, "Verify the open findings.");
+});
+
 Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed", async () => {
     /** @type {string[]} */
     const ensuredPaths = [];
     let readAttempts = 0;
     const reviewerDef = await loadReviewerPrompt(
+        "discovery",
         (path) => {
             readAttempts++;
             if (readAttempts === 1) throw new Deno.errors.NotFound("cache refresh removed prompt");
@@ -200,6 +226,7 @@ Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed
 Deno.test("loadReviewerPrompt retries transient partial prompt reads", async () => {
     let readAttempts = 0;
     const reviewerDef = await loadReviewerPrompt(
+        "discovery",
         () => {
             readAttempts++;
             if (readAttempts === 1) return Promise.resolve("---\nname: Reviewer");
@@ -219,46 +246,103 @@ Deno.test("loadReviewerPrompt retries transient partial prompt reads", async () 
     assertEquals(reviewerDef.systemPrompt, "Recovered after partial read.");
 });
 
-Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", async () => {
-    const prompt = await Deno.readTextFile(
-        new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
-    );
+/** @param {string} name */
+function readBundledPrompt(name) {
+    return Deno.readTextFile(new URL(`../../agent-definitions/workflow-prompts/${name}`, import.meta.url));
+}
 
-    assertStringIncludes(prompt, "Ignore unrelated formatter-only changes");
-    assertStringIncludes(prompt, "Do not fail a review merely because the diff touches files the plan did not mention");
-});
+Deno.test("bundled discovery reviewer prompt states an approval default", async () => {
+    const prompt = await readBundledPrompt("reviewer-prompt.md");
 
-Deno.test("bundled reviewer prompt reviews implementation semantics rather than verification completion", async () => {
-    const prompt = await Deno.readTextFile(
-        new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
-    );
-
-    assertStringIncludes(prompt, "Do the changes adhere to the implementation requirements in the Plan's steps?");
-    assertStringIncludes(prompt, "Does the resulting implementation meet the Plan's objective?");
-    assertStringIncludes(prompt, "Do not audit whether the Engineer performed");
-    assertStringIncludes(prompt, "browser/integration/server flow remains unverified");
-    assertStringIncludes(prompt, "workflow context, not as semantic requirements or proof");
-    assertStringIncludes(prompt, "external verification procedure so that the Reviewer can approve the code");
-    assertStringIncludes(prompt, "If missing external verification evidence is your only concern, approve");
-    assertStringIncludes(prompt, "Every blocking issue must identify a concrete implementation defect");
+    // Without an explicit default, the prompt's exhaustiveness pressure resolves
+    // toward rejection: producing a finding is a concrete action, judging
+    // "good enough" is not.
+    assertStringIncludes(prompt, "Your Default Is Approval");
     assertStringIncludes(
         prompt,
-        "Never send the Engineer a blocking issue whose requested fix is only to run a command",
+        "Approve unless you can name **both** the specific Plan requirement and the specific changed code",
     );
-    assertStringIncludes(prompt, "not a verification-completion audit");
+    assertStringIncludes(prompt.replace(/\s+/g, " "), "are not reasons to reject");
+    assertStringIncludes(prompt, "This does not lower the bar for plan adherence");
 });
 
-Deno.test("bundled reviewer prompt requires exhaustive findings in one review pass", async () => {
-    const prompt = await Deno.readTextFile(
-        new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
-    );
+Deno.test("bundled discovery reviewer prompt keeps code smells non-blocking", async () => {
+    const prompt = await readBundledPrompt("reviewer-prompt.md");
 
-    assertStringIncludes(prompt, "private coverage checklist of every material implementation requirement");
-    assertStringIncludes(prompt, "Do not call `review_complete` while any material");
-    assertStringIncludes(prompt, "Finding one blocking issue does not finish the review");
-    assertStringIncludes(prompt, "perform a final coverage sweep");
-    assertStringIncludes(prompt, "Do not defer discoverable issues to a later review cycle");
+    // Smells scale with diff size, which grows with every repair — leaving them
+    // blocking is what let the review loop ratchet forever.
+    assertStringIncludes(prompt, "**Review Advisories never block.**");
+    assertStringIncludes(prompt, "speculative generality, duplicated logic, repeated conditionals");
+    assertStringIncludes(prompt, "Report advisories alongside an approving decision");
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "Never convert an advisory into a rejection because several of them accumulated",
+    );
+});
+
+Deno.test("bundled discovery reviewer prompt requires reading the diff before deciding", async () => {
+    const prompt = await readBundledPrompt("reviewer-prompt.md");
+
+    // The diff is never inlined, so a verdict without a review_diff call is a
+    // decision made without reading the code.
+    assertStringIncludes(prompt, 'Call `review_diff(command: "list")` first');
+    assertStringIncludes(prompt, "You cannot review what you have not read");
+});
+
+Deno.test("bundled reviewer prompts exclude verification-completion auditing", async () => {
+    for (const name of ["reviewer-prompt.md", "reviewer-verify-prompt.md"]) {
+        // Collapse wrapping so these assert on wording, not on where the
+        // formatter happened to break the line.
+        const prompt = (await readBundledPrompt(name)).replace(/\s+/g, " ");
+
+        assertStringIncludes(prompt, "your only concern, approve.", `${name} must approve on evidence-only concerns`);
+        assertStringIncludes(prompt, "workflow context, not requirements", name);
+        assertStringIncludes(prompt, "Formatter-only churn", name);
+        assertStringIncludes(prompt, "a command", name);
+        assertStringIncludes(prompt, "report to be filed so that you can approve", name);
+    }
+});
+
+Deno.test("bundled discovery reviewer prompt requires all findings in one pass", async () => {
+    const prompt = (await readBundledPrompt("reviewer-prompt.md")).replace(/\s+/g, " ");
+
+    // Later rounds are narrower and will not rediscover what a discovery round
+    // misses, so holding findings back loses them.
+    assertStringIncludes(prompt, "Finding one issue does not finish the round");
+    assertStringIncludes(prompt, "do not hold findings back for a later round");
     assertStringIncludes(prompt, "Report the complete set now, not one representative issue");
-    assertStringIncludes(prompt, "Never stop reviewing after the first valid issue");
-    assertStringIncludes(prompt, "Do not hold findings back for a later repair/review cycle");
+});
+
+Deno.test("bundled verification reviewer prompt refuses to re-derive the Plan", async () => {
+    const prompt = (await readBundledPrompt("reviewer-verify-prompt.md")).replace(/\s+/g, " ");
+
+    assertStringIncludes(prompt, "Do Not Re-Derive the Plan");
+    assertStringIncludes(prompt, "open code-smell findings at all");
+    assertStringIncludes(prompt, "Is each open ledger item actually fixed?");
+    assertStringIncludes(prompt, "Did the repair introduce a new Plan divergence or regression?");
+});
+
+Deno.test("bundled verification reviewer prompt treats repair claims as evidence, not resolution", async () => {
+    const prompt = await readBundledPrompt("reviewer-verify-prompt.md");
+
+    assertStringIncludes(prompt, "never proof");
+    assertStringIncludes(prompt, "An item is resolved when you have seen the fix, not when it was claimed");
+    assertStringIncludes(prompt, "Omitting an item does not resolve it");
+    assertStringIncludes(prompt, "Never renumber, reuse, or invent identities");
+    // An empty repair means the fix was not implemented, not that there is
+    // nothing to object to.
+    assertStringIncludes(prompt.replace(/\s+/g, " "), "Reject; do not approve for lack of evidence");
+});
+
+Deno.test("bundled reviewer-feedback engineer prompt demands per-item dispositions", async () => {
+    const prompt = await readBundledPrompt("reviewer-feedback-engineer.md");
+
+    assertStringIncludes(prompt, "fix the review findings you were given, and report what you did for each one");
+    assertStringIncludes(prompt, "You are running in fresh context");
+    assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");
+    // The guidelines duplicated from the Engineer must actually be present: this
+    // agent cannot rely on a skill being loaded at the model's discretion.
+    assertStringIncludes(prompt, "The Zero-Trust Implementation Protocol");
+    assertStringIncludes(prompt, "No Rogue Commits");
+    assertStringIncludes(prompt, 'Do **NOT** dismiss errors as "pre-existing"');
 });

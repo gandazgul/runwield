@@ -57,6 +57,10 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -186,6 +190,10 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -266,6 +274,10 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -326,6 +338,10 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
                         content: [{ type: "text", text: "The quick fix is valid." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -376,6 +392,10 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",

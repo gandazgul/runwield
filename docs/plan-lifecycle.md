@@ -200,19 +200,37 @@ For worktree-backed plans:
    checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
    creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
    Completion does not merge into the primary checkout.
-3. Workflow Validation runs local CI, computes the workflow diff, starts semantic reviewer sessions, and starts repair
-   sessions in the execution worktree.
-4. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
+3. Workflow Validation runs local CI, computes the workflow diff, and starts semantic review rounds in the execution
+   worktree. Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and
+   rounds three and above only verify the open findings and check the latest repair for regressions. Two full sweeps
+   give a requirement overlooked in round one a second independent look; narrowing after that is what lets the loop
+   terminate instead of rediscovering the implementation indefinitely.
+
+   The Reviewer never receives an inlined diff — it reads changes through the bounded `review_diff` tool in every round,
+   so there is one delivery path regardless of size. A decision reached without inspecting the diff is not accepted.
+
+   Findings carry stable identities in a Review Issue Ledger that lives for the attempt. Later rounds resolve items,
+   keep them open, and append newly discovered ones; identities are never reused or renumbered. Code smells are reported
+   as non-blocking advisories rather than as findings, so an accumulating maintainability backlog cannot stall the loop.
+4. A rejection dispatches the Reviewer-Feedback Engineer, which repairs the open findings in a fresh isolated session
+   seeded with the Plan, the findings, and diff access. It does not inherit the execution transcript, and it reports a
+   per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution.
+5. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
+   open human code review now. There is no dead end: the work is never left with nowhere to go.
+6. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
    passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
-   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback is
-   sent back to the Engineer in the execution worktree, then validation reruns.
-5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
+   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback
+   goes to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and
+   human review then reopens. Human review always sees the full workflow diff, never a repair-scoped one. Human approval
+   reached through the round-limit escape hatch is authoritative and permits merge-back even though semantic review
+   never approved; the record distinguishes that case.
+7. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-6. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
+8. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
    pinned candidate commit, captures the target branch head before merge, copies the primary Plan's current implemented
    Front Matter into the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
    `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
-7. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
+9. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
    merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the sealed
@@ -221,11 +239,11 @@ For worktree-backed plans:
    `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
    post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
    `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
-8. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
-   `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
-   execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
-   left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
-   continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
+10. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
+    `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
+    execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
+    left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
+    continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not

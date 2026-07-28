@@ -46,6 +46,10 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -130,6 +134,10 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -200,6 +208,10 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -280,17 +292,48 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
                 }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runIsolatedAgentSession: () =>
-                Promise.resolve(
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                // Human feedback repair uses the same fresh-context agent as semantic
+                // findings, and must carry the annotations and images verbatim.
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    actions.push(
+                        `repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}:${
+                            opts.images === reviewImages
+                        }`,
+                    );
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "Tightened it." },
+                        }]),
+                    );
+                }
+                return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
-                ),
+                );
+            },
             getCodeReviewMode: () => "always",
             requestInteraction: (
                 /** @type {import("../session/hosted-session.js").HostedSession} */ _session,
@@ -320,14 +363,6 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            runCompletionGatedRepair: (/** @type {any} */ opts) => {
-                actions.push(
-                    `repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}:${
-                        opts.images === reviewImages
-                    }`,
-                );
-                return Promise.resolve(true);
-            },
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
                     `event:${event.event}:${event.details.humanReviewMode}:${event.details.humanReviewDecision}`,
@@ -339,7 +374,7 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
 
     assertEquals(actions, [
         "human-review:1",
-        "repair:frontend-engineer:true:true",
+        "repair:reviewer-feedback-engineer:true:true",
         "human-review:2",
         "event:validation_passed:always:approved",
     ]);
@@ -389,6 +424,10 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
