@@ -55,6 +55,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         reviewLedger: { items: [], sequence: 0 },
         repairBaselineTree: "",
         lastRepairReport: "",
+        humanReviewCycle: 0,
     });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
@@ -416,7 +417,11 @@ Deno.test("runValidationLoop offers another round or code review after three rou
                             outcome: "feedback",
                             approved: false,
                             feedback: "missing requirement",
-                            findings: [{ title: `Issue from round ${reviewCalls}` }],
+                            // The same unfixed issue each round, carried by identity so
+                            // it stays one ledger item.
+                            findings: reviewCalls === 1
+                                ? [{ title: "Issue from round 1" }]
+                                : [{ id: "R1-1", resolved: false, title: "Issue from round 1" }],
                         },
                     }]),
                 );
@@ -507,13 +512,13 @@ Deno.test("runValidationLoop continues to round four when the user asks for one"
                             outcome: approved ? "approved" : "feedback",
                             approved,
                             feedback: approved ? "" : "missing requirement",
+                            // One stubborn issue carried by identity through every
+                            // round, then resolved in round four.
                             findings: approved
-                                ? [
-                                    { id: "R1-1", resolved: true, title: "Issue from round 1" },
-                                    { id: "R2-2", resolved: true, title: "Issue from round 2" },
-                                    { id: "R3-3", resolved: true, title: "Issue from round 3" },
-                                ]
-                                : [{ title: `Issue from round ${reviewCalls}` }],
+                                ? [{ id: "R1-1", resolved: true, title: "Issue from round 1" }]
+                                : reviewCalls === 1
+                                ? [{ title: "Issue from round 1" }]
+                                : [{ id: "R1-1", resolved: false, title: "Issue from round 1" }],
                         },
                     }]),
                 );
@@ -544,6 +549,128 @@ Deno.test("runValidationLoop continues to round four when the user asks for one"
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Planned change execution and validation complete")
         ),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop halts without prompting when the repair baseline cannot be captured", async () => {
+    const { uiAPI } = makeValidationUi();
+    const session = makeRecordedSession("repair-baseline-capture-failure-test", uiAPI);
+    /** @type {any[]} */
+    const interactions = [];
+
+    const result = await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.reject(new Error("worktree vanished")),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: "feedback",
+                            approved: false,
+                            feedback: "missing requirement",
+                            findings: [{ title: "missing requirement" }],
+                        },
+                    }]),
+                ),
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                interactions.push(request);
+                return Promise.resolve({ outcome: "selected", value: "continue" });
+            },
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(result.kind, "failed");
+    // The user must not be asked to choose a next round the loop will not run —
+    // their answer would be silently discarded by the halt.
+    assertEquals(interactions, []);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("Could not capture the pre-repair tree")),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop halts cleanly when the repair diff cannot be computed", async () => {
+    const { uiAPI } = makeValidationUi();
+    const session = makeRecordedSession("repair-diff-failure-test", uiAPI);
+    let reviewCalls = 0;
+
+    // A stale tree object (for example after `git gc`) must produce a clear halt
+    // rather than throwing out of validation entirely.
+    const result = await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.reject(new Error("bad object tree-before-repair")),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "fixed." },
+                        }]),
+                    );
+                }
+                reviewCalls++;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: "feedback",
+                            approved: false,
+                            feedback: "missing requirement",
+                            findings: [{ title: "missing requirement" }],
+                        },
+                    }]),
+                );
+            },
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(reviewCalls, 1, "round two must not run against a scope it cannot compute");
+    assertEquals(result.kind, "failed");
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("Could not compute the repair diff")),
         true,
     );
 });

@@ -692,10 +692,35 @@ async function runCompletionGatedRepair({
  */
 export function usedReviewDiffTool(messages) {
     if (!Array.isArray(messages)) return false;
-    return messages.some((msg) =>
-        Boolean(msg) && typeof msg === "object" && "role" in msg && msg.role === "toolResult" &&
-        "toolName" in msg && msg.toolName === "review_diff"
+    return messages.some((msg) => {
+        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") return false;
+        if (!("toolName" in msg) || msg.toolName !== "review_diff") return false;
+        // A failed lookup or an absent repair scope is not an inspection: the
+        // Reviewer saw no code, so it must not satisfy the read-before-deciding
+        // requirement.
+        if (/** @type {any} */ (msg).isError) return false;
+        const details = /** @type {any} */ (msg).details || {};
+        return details.available !== false;
+    });
+}
+
+/**
+ * Open ledger identities a review result failed to mention.
+ *
+ * The ledger only converges if every round returns a verdict on every open item.
+ * An omission is not neutral: it would let an approval merge over a finding
+ * nobody addressed, and it makes a re-reported issue arrive as a new identity
+ * beside the original, so one defect becomes two and the count grows each round.
+ *
+ * @param {import('./review-ledger.ts').ReviewLedger} ledger
+ * @param {import('../../tools/review-complete.js').ReviewFinding[] | undefined} findings
+ * @returns {string[]}
+ */
+export function unaccountedOpenItems(ledger, findings) {
+    const mentioned = new Set(
+        (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),
     );
+    return openItems(ledger).map((item) => item.id).filter((id) => !mentioned.has(id));
 }
 
 /**
@@ -1757,25 +1782,32 @@ export async function runValidationLoop({
         ? activeWorkflow.repairBaselineTree
         : "";
     let lastRepairReport = typeof activeWorkflow?.lastRepairReport === "string" ? activeWorkflow.lastRepairReport : "";
-    // Set when the user chooses to hand an unapproved change to a human reviewer
-    // instead of buying another verification round.
-    let semanticEscapeToHumanReview = false;
+    // Set once the change is in a human's hands — either because they chose Code
+    // Review at the round limit, or because they returned feedback on a review
+    // that had already been approved. From then on automatic semantic rounds are
+    // over and only the human ends the loop.
+    let semanticEscapeToHumanReview = typeof activeWorkflow?.humanReviewCycle === "number" &&
+        activeWorkflow.humanReviewCycle > 0;
+    // Human review cycles are deliberately uncapped: the loop ends when the human
+    // approves or quits, not on a count. This exists for progress display and
+    // metrics only — never to stop the loop.
+    let humanReviewCycle = typeof activeWorkflow?.humanReviewCycle === "number" ? activeWorkflow.humanReviewCycle : 0;
 
-    /** Round state to fold into the workflow record whenever validation pauses. */
+    /**
+     * Round state to fold into the workflow record whenever validation pauses.
+     *
+     * Pausing is the only exit that resumes, and `pauseForExecutionContinuation` is
+     * the only place that rebuilds the record — this loop clears it on entry, so
+     * there is deliberately no mid-loop write. Approval and halt are terminal and
+     * need no carry-over.
+     */
     const roundStateForWorkflowRecord = () => ({
         semanticRound,
         reviewLedger,
         repairBaselineTree,
         lastRepairReport,
+        humanReviewCycle,
     });
-
-    /** Persist round state onto the live workflow record when one is present. */
-    const persistRoundState = () => {
-        if (!hostedSession?.setActiveExecutionWorkflow) return;
-        const current = hostedSession.getActiveExecutionWorkflow?.();
-        if (!current) return;
-        hostedSession.setActiveExecutionWorkflow({ ...current, ...roundStateForWorkflowRecord() });
-    };
 
     progress = createValidationProgress({
         kind: "workflow",
@@ -1825,7 +1857,6 @@ export async function runValidationLoop({
             haltReason = `Could not capture the pre-repair tree for focused review: ${detail}`;
             return {};
         }
-        persistRoundState();
 
         await recordWorkflowMetricImpl({
             category: "validation",
@@ -1876,7 +1907,6 @@ export async function runValidationLoop({
         }
 
         lastRepairReport = report;
-        persistRoundState();
 
         await recordWorkflowMetricImpl({
             category: "validation",
@@ -1906,7 +1936,6 @@ export async function runValidationLoop({
         const skipSemanticReview = semanticEscapeToHumanReview;
         if (!skipSemanticReview) semanticRound++;
         const reviewMode = semanticRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
-        persistRoundState();
         await recordWorkflowMetricImpl({
             category: "validation",
             event: "validation_cycle_started",
@@ -1928,7 +1957,9 @@ export async function runValidationLoop({
         emitRunWieldSystemStatus(
             hostedSession,
             skipSemanticReview
-                ? "Rerunning CI before reopening Code Review..."
+                ? `Rerunning CI before reopening Code Review${
+                    humanReviewCycle > 1 ? ` (feedback round ${humanReviewCycle})` : ""
+                }...`
                 : `Starting Review Round ${semanticRound}${
                     semanticRound <= AUTOMATIC_ROUNDS ? `/${AUTOMATIC_ROUNDS}` : ""
                 } (${reviewMode === "discovery" ? "full Plan review" : "verifying repairs"})`,
@@ -2059,20 +2090,22 @@ export async function runValidationLoop({
             break;
         }
 
-        progress = updateValidationProgress(progress, {
-            stage: "semantic_review",
-            repairAttempt: null,
-            maxRepairAttempts: null,
-            checks: { semanticReview: "running" },
-        });
-        emitRunWieldSystemStatus(
-            hostedSession,
-            reviewMode === "discovery"
-                ? `Running Semantic Code Review (round ${semanticRound}, full Plan review)...`
-                : `Running Semantic Code Review (round ${semanticRound}, verifying repairs)...`,
-            "info",
-            progress,
-        );
+        if (!skipSemanticReview) {
+            progress = updateValidationProgress(progress, {
+                stage: "semantic_review",
+                repairAttempt: null,
+                maxRepairAttempts: null,
+                checks: { semanticReview: "running" },
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                reviewMode === "discovery"
+                    ? `Running Semantic Code Review (round ${semanticRound}, full Plan review)...`
+                    : `Running Semantic Code Review (round ${semanticRound}, verifying repairs)...`,
+                "info",
+                progress,
+            );
+        }
         let diffText = "";
         let repairDiffText = "";
         let reviewResponse = "";
@@ -2180,24 +2213,28 @@ export async function runValidationLoop({
             semanticUsedLargeDiffPath = new TextEncoder().encode(diffText).byteLength > GUIDED_REVIEW_LARGE_DIFF_BYTES;
 
             // The repair scope only exists once something has been repaired, and only
-            // when the baseline capture succeeded.
+            // when the baseline capture succeeded. Fail closed if the stored tree can
+            // no longer be diffed: reviewing the full scope while telling the Reviewer
+            // it is looking at a repair delta would make its verdict meaningless.
             if (repairBaselineTree && !skipSemanticReview) {
-                repairDiffText = await diffTreesImpl(
-                    executionCwd,
-                    repairBaselineTree,
-                    await captureWorktreeTreeImpl(executionCwd),
-                );
+                try {
+                    repairDiffText = await diffTreesImpl(
+                        executionCwd,
+                        repairBaselineTree,
+                        await captureWorktreeTreeImpl(executionCwd),
+                    );
+                } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    haltReason = `Could not compute the repair diff for review round ${semanticRound}: ${detail}`;
+                }
             }
+            if (haltReason) break;
 
             if (
                 !skipSemanticReview &&
                 (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
                 diffText.trim()
             ) {
-                const diffBytes = new TextEncoder().encode(diffText).byteLength;
-                // Retained purely as the guided-review size signal; it no longer
-                // changes how the diff reaches the Reviewer.
-                semanticUsedLargeDiffPath = diffBytes > GUIDED_REVIEW_LARGE_DIFF_BYTES;
                 let lastReviewerFailure = "Semantic Reviewer did not complete.";
                 /** @type {string | undefined} */
                 let nudgeReason;
@@ -2246,6 +2283,7 @@ export async function runValidationLoop({
                         });
                         if (usedReviewDiffTool(sessionMessages)) inspectedDiff = true;
                         const attemptOutcome = readLatestReviewOutcome(sessionMessages);
+                        const unaccounted = unaccountedOpenItems(reviewLedger, attemptOutcome?.findings);
                         if (!attemptOutcome) {
                             lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
                         } else if (!inspectedDiff) {
@@ -2256,6 +2294,25 @@ export async function runValidationLoop({
                                 "You called review_complete without inspecting the diff. Read the changes with " +
                                 'review_diff(command: "list") and then review_diff(command: "show", ...) before ' +
                                 "deciding, then call review_complete again with your decision.";
+                        } else if (unaccounted.length > 0) {
+                            // Every open finding must come back resolved or still open.
+                            // Silence is the dangerous case in both directions: it would
+                            // let an approval merge over an unaddressed finding, and it
+                            // makes a re-reported issue land as a duplicate alongside the
+                            // original — inflating the ledger every round.
+                            lastReviewerFailure = `Semantic Reviewer did not account for open finding(s): ${
+                                unaccounted.join(", ")
+                            }.`;
+                            nudgeReason =
+                                `Your result does not mention ${
+                                    unaccounted.length === 1 ? "this open finding" : "these open findings"
+                                }: ${
+                                    unaccounted.join(", ")
+                                }. Every open finding must appear in your \`findings\` array — ` +
+                                "with `resolved: true` if you have verified the fix in the code, or with " +
+                                "`resolved: false` and what is still missing. Reuse the existing identities exactly; " +
+                                "do not renumber them or report the same issue as a new finding. Call " +
+                                "review_complete again with the complete set.";
                         } else {
                             reviewOutcome = attemptOutcome;
                         }
@@ -2280,16 +2337,15 @@ export async function runValidationLoop({
                     // The Reviewer's own signal wins over the ledger only when it
                     // approves; a rejection with no structured findings still needs
                     // something actionable, which the feedback projection provides.
-                    persistRoundState();
                     progress = updateValidationProgress(progress, {
                         checks: { semanticReview: reviewOutcome.approved ? "passed" : "failed" },
                     });
                 } else {
                     reviewerFailed = true;
                     // Pause rather than halt: the Reviewer's session is still the
-                    // current steering target, so the user can nudge it by hand. Round
-                    // state is persisted, so continuing resumes this round intact.
-                    persistRoundState();
+                    // current steering target, so the user can nudge it by hand. The
+                    // pause carries the round and ledger, so continuing resumes this
+                    // round intact.
                     reviewerPauseReason = `${lastReviewerFailure} Review round ${semanticRound} did not finish after ` +
                         `${maxReviewerAttempts} attempts. Nudge the Reviewer to finish, or run /compact first if its ` +
                         "context is full. Validation resumes this round from the preserved findings.";
@@ -2328,7 +2384,6 @@ export async function runValidationLoop({
             });
             // Step back so the resumed run re-runs this round rather than skipping it.
             semanticRound--;
-            persistRoundState();
             return await pauseForExecutionContinuation(reviewerPauseReason);
         }
 
@@ -2534,6 +2589,8 @@ export async function runValidationLoop({
                     const hasHumanFeedback = Boolean(
                         humanReview.feedback?.trim() || humanReview.annotations?.length || humanReview.images?.length,
                     );
+                    // Quitting is the only way out of this loop other than approving.
+                    // Feedback always continues it, however many times it is given.
                     if (humanReview.exit || (!humanReview.approved && !hasHumanFeedback)) {
                         const decision = humanReview.canceled ? "canceled" : humanReview.exit ? "exited" : "halted";
                         await recordWorkflowMetricImpl({
@@ -2546,6 +2603,7 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                humanReviewCycle,
                             },
                         });
                         progress = updateValidationProgress(progress, {
@@ -2583,6 +2641,7 @@ export async function runValidationLoop({
                                 // "human overrode an unapproved one" in the record.
                                 withoutSemanticApproval: skipSemanticReview,
                                 semanticRound,
+                                humanReviewCycle,
                             },
                         });
                         executionComplete = true;
@@ -2592,10 +2651,14 @@ export async function runValidationLoop({
                             humanReview.feedback || "(no free-text feedback provided)",
                             annotationText ? `Annotations:\n${annotationText}` : "",
                         ].filter(Boolean).join("\n\n");
+                        humanReviewCycle++;
+                        // No repairAttempt/maxRepairAttempts here: this loop has no
+                        // cap, and showing "1/3" would promise a limit that does not
+                        // exist.
                         progress = updateValidationProgress(progress, {
                             stage: "engineer_repair",
-                            repairAttempt: 1,
-                            maxRepairAttempts: AUTOMATIC_ROUNDS,
+                            repairAttempt: null,
+                            maxRepairAttempts: null,
                             checks: { humanReview: "failed" },
                         });
                         await recordWorkflowMetricImpl({
@@ -2608,6 +2671,7 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                humanReviewCycle,
                             },
                         });
                         // Human feedback goes to the same fresh-context repair agent as
@@ -2627,7 +2691,8 @@ export async function runValidationLoop({
                         if (humanRepair.paused) return humanRepair.paused;
                         if (haltReason) break;
                         // Reopen human review on the next pass rather than re-entering
-                        // automatic semantic rounds: the human owns this decision now.
+                        // automatic semantic rounds: the human owns this decision now,
+                        // and this loop ends only when they approve or quit.
                         semanticEscapeToHumanReview = true;
                     }
                 }
@@ -2666,6 +2731,10 @@ export async function runValidationLoop({
                 repairKind: "semantic",
             });
             if (repairResult.paused) return repairResult.paused;
+            // The repair can halt (tree capture or agent execution failure). Stop here
+            // rather than asking the user to choose a next round we are not going to
+            // run — the loop condition would discard their answer.
+            if (haltReason) break;
 
             if (semanticRound >= AUTOMATIC_ROUNDS) {
                 // Automatic rounds are spent. Never strand the work: the user either
@@ -2683,7 +2752,10 @@ export async function runValidationLoop({
                     details: { semanticRound, choice: action, openFindingCount: openItems(reviewLedger).length },
                 });
                 if (action === "code_review") {
+                    // Hand the change to the human. From here the loop ends only on
+                    // their approval or their exit — no automatic path closes it.
                     semanticEscapeToHumanReview = true;
+                    humanReviewCycle = Math.max(humanReviewCycle, 1);
                     continue;
                 }
                 progress = updateValidationProgress(progress, {

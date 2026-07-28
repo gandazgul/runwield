@@ -346,3 +346,27 @@ Deno.test("bundled reviewer-feedback engineer prompt demands per-item dispositio
     assertStringIncludes(prompt, "No Rogue Commits");
     assertStringIncludes(prompt, 'Do **NOT** dismiss errors as "pre-existing"');
 });
+
+Deno.test("bundled workflow-only agents cannot leave their validation-owned session", async () => {
+    // Reviewer and repair agent both run in isolated sessions dispatched by
+    // Workflow Validation. `return_to_router` is filtered out of isolated sessions
+    // and its result is only ever read from the root conversation, so instructing
+    // either agent to call it would promise an escape hatch that silently drops
+    // the handoff and strands the validation loop.
+    for (const name of ["reviewer-prompt.md", "reviewer-verify-prompt.md", "reviewer-feedback-engineer.md"]) {
+        const prompt = await readBundledPrompt(name);
+        assertEquals(
+            prompt.includes("return_to_router"),
+            false,
+            `${name} must not reference return_to_router`,
+        );
+    }
+});
+
+Deno.test("bundled reviewer-feedback engineer reports unreachable findings as blocked", async () => {
+    const prompt = (await readBundledPrompt("reviewer-feedback-engineer.md")).replace(/\s+/g, " ");
+
+    assertStringIncludes(prompt, "Report those as blocked");
+    assertStringIncludes(prompt, "do not route around them");
+    assertStringIncludes(prompt, "A blocked item is a real, useful outcome");
+});

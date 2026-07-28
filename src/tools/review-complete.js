@@ -74,7 +74,7 @@ const TOOL_PARAMS = Type.Object({
     feedback: Type.Optional(Type.String({
         default: "",
         description:
-            "Human-readable projection of your decision. When approved is false, summarize the blocking issues. When approved is true, this can be empty or contain brief notes.",
+            "Optional brief note about your decision. Leave this empty when you supply `findings` — RunWield renders the open findings itself. Do not restate resolved items here; they are shown as resolved from the structured result.",
     })),
     findings: Type.Optional(Type.Array(FINDING_PARAMS, {
         default: [],
@@ -140,10 +140,19 @@ export function createReviewCompletedTool(
             }
 
             const outcome = approved ? "approved" : "feedback";
-            const projection = feedback || formatFindingsProjection(openFindings);
+            const resolvedCount = findings.length - openFindings.length;
+            // Structured findings are the authoritative list. Reviewers routinely
+            // narrate resolved items alongside open ones in the prose, and showing
+            // that under "issues found" reports finished work as still broken —
+            // which makes a converging loop look stuck.
+            const projection = findings.length > 0 ? formatFindingsProjection(openFindings) : feedback;
+            const openLabel = openFindings.length === 1 ? "1 issue open" : `${openFindings.length} issues open`;
+            const resolvedNote = resolvedCount > 0 ? `, ${resolvedCount} resolved this round` : "";
             const message = approved
                 ? "Semantic review approved — implementation matches the plan."
-                : `Semantic review rejected — issues found:\n${projection || "(no feedback provided)"}`;
+                : `Semantic review rejected — ${
+                    findings.length > 0 ? `${openLabel}${resolvedNote}` : "issues found"
+                }:\n${projection || "(no feedback provided)"}`;
 
             emitReviewResultMessage(hostedSession, agentName, message, approved);
             await recordWorkflowMetricImpl({

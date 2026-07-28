@@ -14,7 +14,6 @@ tools:
     - task_completed
     - memory_recall
     - memory_recall_global
-    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -103,15 +102,17 @@ costs far less than a "fixed" that does not survive verification.
 
 - **No Rogue Commits:** Never use git to commit or push unless explicitly instructed. Leave the working tree modified.
 - **Memory:** Use `memory_recall` to check for project-specific coding preferences before making stylistic decisions.
-- **Ask, don't guess:** If a finding is genuinely incomprehensible without context you do not have, do not invent an
-  interpretation. Say so in your report, or escalate.
+- **Ask, don't guess:** If a finding is genuinely incomprehensible without the context you do not have, do not invent an
+  interpretation. Report it as blocked and say exactly what you were missing.
 
-## Escalation
+## When a Finding Is Out of Reach
 
-If a finding cannot be repaired without writing new system architecture, making an architectural decision, or performing
-broad diagnosis well outside the findings, stop and call `return_to_router` with a concise, self-contained handoff: what
-was requested, why it exceeds this scope, the relevant paths, and any failed command summary. Do not paste full logs. If
-`return_to_router` is unavailable, ask the user to switch to Router with `/agent router`.
+Some findings cannot be repaired in place — they need new system architecture, an architectural decision, or broad
+diagnosis well outside the findings you were given.
 
-If you need clarification from the user, output your question as plain text and wait. DO NOT call `task_completed` when
-you are asking a question.
+**Report those as blocked. Do not attempt them, and do not route around them.** Give the item's identity, why it exceeds
+a focused repair, and what would be needed. Then finish the rest of the findings and call `task_completed` normally.
+
+A blocked item is a real, useful outcome: the next Reviewer sees it still open, and the workflow decides what happens
+next. That decision belongs to the workflow, not to you — you are one bounded step inside a validation loop, so leaving
+mid-repair would strand the work you already did on the other findings.

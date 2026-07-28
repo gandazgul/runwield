@@ -93,7 +93,9 @@ If the prompt includes open ledger items, this is the second discovery round. In
 - Use `review_diff(command: "list", scope: "repair")` to see what the repair changed, and check that it did not break
   anything while fixing the findings.
 - Keep every still-open item in your `findings` array with its existing `id`. Omitting an item does not resolve it, and
-  a silent drop loses a real defect.
+  a silent drop loses a real defect. A result that leaves one out is rejected and sent back to you.
+- If an issue you already have an identity for is still broken, report it **under that identity** with `resolved: false`
+  — never as a fresh finding. Describing it again turns one defect into two open items.
 - Never renumber or invent identities. New issues you discover are new findings with no `id`; RunWield assigns them.
 
 When the ledger is empty, this section does not apply — this is the first round and there is nothing to verify.
@@ -108,6 +110,9 @@ Call `review_complete` with:
   representative issue.
 
 Approving while any finding is unresolved will be rejected — resolve them or set `approved: false`.
+
+Put the decision in `findings`, not in prose. A resolved item belongs in the array with `resolved: true` — do not also
+narrate it in `feedback`, where it would be displayed to the user as an outstanding issue.
 
 Do not write the fix for the Engineer. Do not output plain text after calling `review_complete`.
 

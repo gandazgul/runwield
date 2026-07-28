@@ -62,6 +62,9 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} [repairBaselineTree] - Worktree tree captured before the current repair dispatch,
  *   used to compute the repair-scoped diff for the next verification round.
  * @property {string} [lastRepairReport] - The repair agent's per-item disposition report, verified by the next round.
+ * @property {number} [humanReviewCycle] - How many times human code review has returned feedback. Display and metrics
+ *   only: the human review loop is uncapped and ends only on approval or exit. A non-zero value also means the change
+ *   is already in the human's hands, so a resumed validation must not restart automatic semantic rounds.
  */
 
 /**

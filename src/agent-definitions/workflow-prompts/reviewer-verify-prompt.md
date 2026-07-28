@@ -33,8 +33,12 @@ For each open item in the ledger:
 - Mark it `resolved: true` only after that confirmation.
 - Keep it in your `findings` array with its existing `id` and `resolved: false` if the fix is absent, partial, or wrong.
   Explain what is still missing.
-- Omitting an item does not resolve it. Every open item must appear in your result, resolved or not.
+- Omitting an item does not resolve it. Every open item must appear in your result, resolved or not. A result that
+  leaves one out is rejected and sent back to you, so account for all of them the first time.
 - Never renumber, reuse, or invent identities.
+- If an issue you already have an identity for is still broken, report it **under that identity** with
+  `resolved: false`. Do not describe it again as a new finding — that turns one defect into two open items and makes the
+  repair agent chase the same thing twice.
 
 An empty repair diff while items remain open means the requested repair was not implemented. Reject; do not approve for
 lack of evidence.
@@ -79,6 +83,9 @@ Call `review_complete` with:
   `advisories`.
 - `approved: false` with a `findings` array containing every still-open item (with its existing `id`) plus any new
   blocking problems the repair introduced (with no `id`).
+
+Put the decision in `findings`, not in prose. A resolved item belongs in the array with `resolved: true` — do not also
+narrate it in `feedback`, where it would be displayed to the user as an outstanding issue.
 
 Approving while any finding is unresolved will be rejected — resolve them or set `approved: false`.
 

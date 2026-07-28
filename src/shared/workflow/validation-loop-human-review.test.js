@@ -480,3 +480,247 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         true,
     );
 });
+
+Deno.test("runValidationLoop keeps reopening code review for as many feedback rounds as the human gives", async () => {
+    const { uiAPI, hostedSession } = makeValidationUi();
+    /** @type {string[]} */
+    const actions = [];
+    /** @type {any[]} */
+    const repairSessions = [];
+    let humanReviewCalls = 0;
+    let semanticReviews = 0;
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    repairSessions.push(opts);
+                    actions.push("repair");
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "Addressed the feedback." },
+                        }]),
+                    );
+                }
+                semanticReviews++;
+                actions.push("semantic-review");
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "", findings: [] },
+                    }]),
+                );
+            },
+            getCodeReviewMode: () => "always",
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ _request) => {
+                humanReviewCalls++;
+                actions.push(`human-review:${humanReviewCalls}`);
+                // Five rounds of feedback — well past any semantic-round cap — then approval.
+                if (humanReviewCalls <= 5) {
+                    return Promise.resolve({
+                        outcome: "accepted",
+                        _meta: {
+                            approved: false,
+                            feedback: `Round ${humanReviewCalls}: not quite.`,
+                            annotations: [],
+                            images: [],
+                            exit: false,
+                        },
+                    });
+                }
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: true, feedback: "", annotations: [], images: [], exit: false },
+                });
+            },
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(humanReviewCalls, 6, "the loop must run as long as the human keeps giving feedback");
+    assertEquals(repairSessions.length, 5);
+    // Semantic review runs once, before the first human review. Once the change is
+    // in the human's hands the automatic rounds are over — five feedback cycles
+    // must not trip the three-round semantic cap.
+    assertEquals(semanticReviews, 1);
+    assertEquals(actions.filter((entry) => entry === "semantic-review").length, 1);
+    assertEquals(uiAPI.promptSelections, [], "no round-limit prompt should appear during human feedback cycles");
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("feedback round 5")),
+        true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) =>
+            m.includes("Planned change execution and validation complete")
+        ),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop ends the human review loop only when the human quits", async () => {
+    const { hostedSession } = makeValidationUi();
+    let humanReviewCalls = 0;
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "Addressed the feedback." },
+                        }]),
+                    );
+                }
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "", findings: [] },
+                    }]),
+                );
+            },
+            getCodeReviewMode: () => "always",
+            requestInteraction: () => {
+                humanReviewCalls++;
+                if (humanReviewCalls <= 2) {
+                    return Promise.resolve({
+                        outcome: "accepted",
+                        _meta: {
+                            approved: false,
+                            feedback: "still not right",
+                            annotations: [],
+                            images: [],
+                            exit: false,
+                        },
+                    });
+                }
+                return Promise.resolve({
+                    outcome: "canceled",
+                    _meta: { approved: false, feedback: "", annotations: [], images: [], exit: true, canceled: true },
+                });
+            },
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(humanReviewCalls, 3);
+    assertEquals(result.kind, "failed");
+    assertEquals(result.reason, "User code review exited without approval or feedback.");
+});
+
+Deno.test("runValidationLoop resuming mid-human-review does not restart automatic semantic rounds", async () => {
+    const { hostedSession } = makeValidationUi();
+    // Simulates re-entry after a pause: the human already has the change, so the
+    // resumed run must reopen code review rather than starting round one again.
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionCwd: Deno.cwd(),
+        validationContinuation: true,
+        semanticRound: 2,
+        reviewLedger: { items: [], sequence: 0 },
+        repairBaselineTree: "tree-before-repair",
+        lastRepairReport: "Addressed the feedback.",
+        humanReviewCycle: 3,
+    });
+    let semanticReviews = 0;
+    let humanReviewCalls = 0;
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () => {
+                semanticReviews++;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "", findings: [] },
+                    }]),
+                );
+            },
+            getCodeReviewMode: () => "always",
+            requestInteraction: () => {
+                humanReviewCalls++;
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: true, feedback: "", annotations: [], images: [], exit: false },
+                });
+            },
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(semanticReviews, 0, "a resumed human-review cycle must not re-run semantic review");
+    assertEquals(humanReviewCalls, 1);
+});

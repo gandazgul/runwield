@@ -449,7 +449,10 @@ Deno.test("runValidationLoop dispatches rejections to the Reviewer-Feedback Engi
                         findings: [{ title: "Missing guard", requirement: "Step 2", evidence: "file.js" }],
                     }));
                 }
-                return Promise.resolve(reviewerMessages());
+                return Promise.resolve(reviewerMessages({
+                    approved: true,
+                    findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
+                }));
             },
             getCodeReviewMode: () => "none",
             mergeExecutionWorktree: () => Promise.resolve(),
@@ -573,10 +576,21 @@ Deno.test("runValidationLoop narrows to verification mode from round three", asy
                 if (opts.agentName === "reviewer-feedback-engineer") return Promise.resolve(repairMessages());
                 reviewPrompts.push(opts.userRequest);
                 reviewCalls++;
-                if (reviewCalls < 3) {
+                if (reviewCalls === 1) {
                     return Promise.resolve(reviewerMessages({
                         approved: false,
-                        findings: [{ title: `Issue from round ${reviewCalls}` }],
+                        findings: [{ title: "Issue from round 1" }],
+                    }));
+                }
+                if (reviewCalls === 2) {
+                    // Round two keeps round one's item open by identity and appends a
+                    // newly discovered one.
+                    return Promise.resolve(reviewerMessages({
+                        approved: false,
+                        findings: [
+                            { id: "R1-1", resolved: false, title: "Issue from round 1" },
+                            { title: "Issue from round 2" },
+                        ],
                     }));
                 }
                 return Promise.resolve(reviewerMessages({
@@ -632,9 +646,12 @@ Deno.test("runValidationLoop offers code review instead of stranding after three
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 if (opts.agentName === "reviewer-feedback-engineer") return Promise.resolve(repairMessages());
                 reviewCalls++;
+                // The same unfixed issue, carried by identity so it stays one item.
                 return Promise.resolve(reviewerMessages({
                     approved: false,
-                    findings: [{ title: `Issue from round ${reviewCalls}` }],
+                    findings: reviewCalls === 1
+                        ? [{ title: "Issue from round 1" }]
+                        : [{ id: "R1-1", resolved: false, title: "Issue from round 1" }],
                 }));
             },
             requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
@@ -664,4 +681,186 @@ Deno.test("runValidationLoop offers code review instead of stranding after three
     assertEquals(choice.options.map((/** @type {any} */ o) => o.value), ["continue", "code_review"]);
     assertEquals(interactions.some((request) => request.type === "code_review"), true);
     assertStringIncludes(uiAPI.messages.join(" "), "without semantic approval");
+});
+
+Deno.test("runValidationLoop does not count a failed review_diff call as inspecting the diff", async () => {
+    const { hostedSession } = makeValidationUi();
+    let reviewCalls = 0;
+    /** @type {string[]} */
+    const reviewPrompts = [];
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewPrompts.push(opts.userRequest);
+                reviewCalls++;
+                if (reviewCalls === 1) {
+                    // A botched lookup plus a request for a scope that does not exist
+                    // yet — the Reviewer saw no code, so approving is not a review.
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "review_diff",
+                            isError: true,
+                            details: { command: "show", scope: "full", found: false },
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "repair", available: false },
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: { outcome: "approved", approved: true, feedback: "", findings: [] },
+                        }]),
+                    );
+                }
+                return Promise.resolve(reviewerMessages());
+            },
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+        }),
+    });
+
+    assertEquals(reviewCalls, 2);
+    assertStringIncludes(reviewPrompts[1], "without inspecting the diff");
+});
+
+Deno.test("runValidationLoop refuses to approve while a prior finding goes unmentioned", async () => {
+    const { hostedSession } = makeValidationUi();
+    /** @type {string[]} */
+    const reviewPrompts = [];
+    let reviewCalls = 0;
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") return Promise.resolve(repairMessages());
+                reviewPrompts.push(opts.userRequest);
+                reviewCalls++;
+                if (reviewCalls === 1) {
+                    return Promise.resolve(reviewerMessages({
+                        approved: false,
+                        findings: [{ title: "Missing guard", requirement: "Step 2", evidence: "file.js" }],
+                    }));
+                }
+                if (reviewCalls === 2) {
+                    // Approves while R1-1 is still open and unmentioned. Merging here
+                    // would ship an unaddressed blocking finding.
+                    return Promise.resolve(reviewerMessages({ approved: true, findings: [] }));
+                }
+                return Promise.resolve(reviewerMessages({
+                    approved: true,
+                    findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
+                }));
+            },
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+        }),
+    });
+
+    assertEquals(reviewCalls, 3, "the silent approval must cost a continuation attempt");
+    assertStringIncludes(reviewPrompts[2], "does not mention this open finding: R1-1");
+    assertStringIncludes(reviewPrompts[2], "Reuse the existing identities exactly");
+});
+
+Deno.test("runValidationLoop rejects a re-reported finding that would duplicate the ledger", async () => {
+    const { hostedSession } = makeValidationUi();
+    /** @type {string[]} */
+    const repairPackets = [];
+    /** @type {string[]} */
+    const reviewPrompts = [];
+    let reviewCalls = 0;
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+            loadReviewerFeedbackEngineerDef: () =>
+                Promise.resolve({
+                    name: "reviewer-feedback-engineer",
+                    displayName: "Reviewer-Feedback Engineer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "repair prompt",
+                }),
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    repairPackets.push(opts.userRequest);
+                    return Promise.resolve(repairMessages());
+                }
+                reviewPrompts.push(opts.userRequest);
+                reviewCalls++;
+                if (reviewCalls === 1) {
+                    return Promise.resolve(reviewerMessages({
+                        approved: false,
+                        findings: [{ title: "Missing guard", requirement: "Step 2", evidence: "file.js" }],
+                    }));
+                }
+                if (reviewCalls === 2) {
+                    // Same defect re-reported without its identity. Accepting this
+                    // would leave R1-1 open beside a new R2-2 for one real issue.
+                    return Promise.resolve(reviewerMessages({
+                        approved: false,
+                        findings: [{ title: "Guard is still missing", requirement: "Step 2" }],
+                    }));
+                }
+                return Promise.resolve(reviewerMessages({
+                    approved: true,
+                    findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
+                }));
+            },
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+        }),
+    });
+
+    assertEquals(reviewCalls, 3);
+    assertStringIncludes(reviewPrompts[2], "R1-1");
+    // One defect stayed one ledger item, so the repair agent is never asked to fix
+    // the same thing twice.
+    for (const packet of repairPackets) {
+        assertEquals(packet.includes("R2-2"), false, "a re-report must not become a second identity");
+    }
 });
