@@ -517,7 +517,7 @@ async function putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPl
         const childSummary = children.length > 0 ? `\n\n${formatEpicProgressSummary(children)}` : "";
         const confirmed = await confirmHoldWarning(
             uiAPI,
-            `Child Planned Change Plans will be hidden/blocked while this Epic is on hold. Their statuses will not change.${childSummary}`,
+            `Child Plans will be hidden/blocked while this Epic is on hold. Their statuses will not change.${childSummary}`,
         );
         if (!confirmed) return false;
     } else if (plan.attrs.parentPlan) {
@@ -2815,9 +2815,9 @@ function formatEpicProgressSummary(children) {
  * @returns {string}
  */
 function formatEpicChildFeatureList(children) {
-    if (children.length === 0) return "Child Planned Change plans:\n  (none)";
+    if (children.length === 0) return "Child Plans:\n  (none)";
     return [
-        "Child Planned Change plans:",
+        "Child Plans:",
         ...children.map((child) => `  - ${formatChildPlanLabel(child)}`),
     ].join("\n");
 }
@@ -2841,7 +2841,7 @@ function buildEpicPlanSummary(plan, children) {
 function buildEpicDoneEnoughSummary(children) {
     const counts = countEpicChildStatuses(children);
     const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
-    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child Planned Change${
+    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child Plans${
         counts.total === 1 ? "" : "s"
     }, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
 }
@@ -2963,7 +2963,7 @@ async function handleEpicPlan({
     if (isDoneEnoughEpic(plan)) {
         const summary = plan.attrs.epicDoneEnoughSummary ? ` ${plan.attrs.epicDoneEnoughSummary}` : "";
         uiAPI.appendSystemMessage(
-            `This Epic is marked done enough for now.${summary} Remaining child Planned Change plans stay visible and loadable.`,
+            `This Epic is marked done enough for now.${summary} Remaining child plans stay visible and loadable.`,
             false,
             "RunWield",
         );
@@ -2976,7 +2976,7 @@ async function handleEpicPlan({
 
     if (canReviewWithArchitect) {
         const action = canOpenSlicer
-            ? "Review it with Architect or resume Slicer decomposition to create child Planned Change plans."
+            ? "Review it with Architect or resume Slicer decomposition to create child plans."
             : "Review it with Architect to continue planning.";
         uiAPI.appendSystemMessage(
             `This PROJECT Epic is not executable. ${action}`,
@@ -2984,7 +2984,7 @@ async function handleEpicPlan({
             "RunWield",
         );
     } else if (!hasChildren) {
-        uiAPI.appendSystemMessage("This PROJECT Epic has no child Planned Change plans yet.", false, "RunWield");
+        uiAPI.appendSystemMessage("This PROJECT Epic has no child plans yet.", false, "RunWield");
     }
 
     while (true) {
@@ -3050,7 +3050,7 @@ async function handleEpicPlan({
                 [
                     formatEpicProgressSummary(children),
                     "Marking this Epic done enough sets the Epic status to verified for now.",
-                    "Unverified child Planned Change plans remain visible and loadable.",
+                    "Unverified child plans remain visible and loadable.",
                 ].join("\n"),
                 false,
                 "RunWield",
@@ -3123,7 +3123,7 @@ async function handleEpicPlan({
                         description: formatChildPlanDescription(child),
                     })),
                 ];
-                const childPlanName = await uiAPI.promptSelect("Load child Planned Change plan:", childOptions);
+                const childPlanName = await uiAPI.promptSelect("Load child Plan:", childOptions);
                 if (!childPlanName) break;
                 if (childPlanName === "__next_child__") {
                     if (!nextChild) break;

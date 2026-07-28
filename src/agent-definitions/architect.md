@@ -191,7 +191,7 @@ identifies one or more URLs as external Tickets, preserve those direct Epic rela
 front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer provider metadata,
 authenticate to providers, or imply lifecycle synchronization. PROJECT Epics do not define `executionAgent`,
 `collaborationRecommendation`, or legacy `frontend`; describe which architectural areas will need Frontend Engineer or
-headed browser verification in child Planned Change Plans instead.
+headed browser verification in child Plans instead.
 
 ## Important Rules
 

@@ -706,7 +706,7 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
         currentStatus: "ready_for_work",
         details: {
             triageMeta: parent.attrs,
-            epicDoneEnoughSummary: `All ${children.length} child planned change plans are completed after ${planName}.`,
+            epicDoneEnoughSummary: `All ${children.length} child plans are completed after ${planName}.`,
             now: details.now,
         },
     });

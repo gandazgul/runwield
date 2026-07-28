@@ -493,7 +493,7 @@ function EpicDetailSections({ epic, url }) {
                     : <p className="empty">No child planned change Plan dependencies declared.</p>}
             </section>
             <section className="child-plan-section">
-                <h3>Child Planned Change Plans</h3>
+                <h3>Child Plans</h3>
                 {visibleColumns.length
                     ? (
                         <div className="status-board child-status-board">
@@ -502,7 +502,7 @@ function EpicDetailSections({ epic, url }) {
                             ))}
                         </div>
                     )
-                    : <p className="empty">No child planned change Plans are attached to this Epic.</p>}
+                    : <p className="empty">No child Plans are attached to this Epic.</p>}
             </section>
         </>
     );

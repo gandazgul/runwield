@@ -16,13 +16,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:04:06.042-04:00"
-updatedAt: "2026-07-28T00:17:19.766Z"
+updatedAt: "2026-07-28T02:20:24.536Z"
 status: "implemented"
 origin: "internal"
 parentPlan: "golden-tui-scenario-testing"
 order: 2
 dependencies:
     - "01-establish-golden-tui-scenario-harness"
+failureReason: "Semantic Review failed to complete after 3 attempts. Validation halted."
 implementedAt: "2026-07-28T00:17:19.766Z"
 userVerifiedAt: null
 executionReport: "- Added Golden TUI portfolio catalog, required coverage matrix/meta-test, asserted coverage helpers, and reusable synthetic event/state actions in the scenario runner.\n- Added role, PLANNED_CHANGE, PROJECT, presentation, terminal, tool-failure, recovery, and replay/hydration Golden scenario modules/tests, plus stabilized timeout diagnostics under load.\n- Added `deno task test:golden-tui:extensive`, updated language-policy baseline, and documented Golden TUI authoring, diagnostics, coverage metadata, and measured CI/release tiering in `docs/contributing.md`.\n- Verification passed: `deno task test:golden-tui`; `deno task test:golden-tui:extensive`; repeated `deno task test:golden-tui` 3x; manual diagnostic artifact check; full `deno task ci`.\n- No headed browser verification performed; scope is TUI/runtime test coverage and docs."
@@ -32,7 +33,7 @@ worktreeId: "76aa7a60"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-golden-tui-scenario-testing-02-add-golden-tui-wo-76aa7a60"
 worktreeBranch: "runwield/worktree/golden-tui-scenario-testing-02-add-golden-tui-wo-76aa7a60"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+worktreeStatus: "validation_failed"
 ---
 
 # Add Golden TUI Workflow Portfolio
