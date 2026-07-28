@@ -1,4 +1,5 @@
 ---
+planId: "64f0a075-fa48-4ea8-a5f9-88062541a25f"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a non-blocking Stable release update notice in the TUI boot header and a CLI-only wld update/upgrade command that installs through the public checksum-verified installer."
@@ -14,14 +15,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T16:15:40-04:00"
-updatedAt: "2026-07-27T22:09:33.426Z"
+updatedAt: "2026-07-27T22:09:48.744Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T20:27:22.506Z"
 verifiedAt: "2026-07-27T22:09:33.426Z"
 userVerifiedAt: null
-userVerificationNote: null
 executionReport: "- Implemented shared Stable update-check module with version comparison, global cache helpers, GitHub latest-release fetch, tag-pinned installer URL, and install-dir detection.\n- Added CLI-only `wld update` command plus `wld upgrade` alias; command fetches latest Stable tag, skips already-current installs, downloads matching `install.sh`, derives/preserves `WLD_INSTALL_DIR`, runs installer, and propagates failures.\n- Integrated TUI boot update notice placeholder directly under the title line with cached immediate rendering and non-awaited background refresh; update/upgrade remain absent from slash commands by registry coverage.\n- Added unit/behavior coverage for shared update checks, update command, registry CLI-only alias behavior, and TUI source-order/rendering.\n- Verification passed: requested `deno fmt --check`, `deno lint`, targeted `deno test -A ...`, and full `deno task ci` (1897 passed, 0 failed).\n- Manual CLI help check passed: `deno task cli help update` shows `wld update`, `wld upgrade`, Stable channel, and `WLD_INSTALL_DIR`; interactive TUI/manual installer checks were covered by automated source-order/registry/fake-installer tests rather than executed against a live installer."
+workRecord:
+    status: "generated"
+    recordId: "58f46331-e694-49c9-b00d-fbc19bd1d6b8"
+    path: "docs/work-records/2026-07-27-stable-update-notice-and-cli-update-command.md"
+    lastAttemptAt: "2026-07-27T22:09:39.780Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-27T22:09:33.256Z"

@@ -416,8 +416,9 @@ Values:
 - `auto`: default. Automatically generate only for large, cross-cutting, visual, or conceptually hard reviews.
 - `always`: generate whenever human code review opens.
 
-Guided Review Explainers are ephemeral review-session state. RunWield does not persist guide job IDs, model names,
-tokens, widget files, or guide completion state in Plan Front Matter.
+Guided Review Explainers are ephemeral review-session state. By default, generation uses RunWield's own model access
+(`wld`) rather than External Agent Host CLIs; `RUNWIELD_GUIDED_REVIEW_COMMAND` is only an explicit override. RunWield
+does not persist guide job IDs, model names, tokens, widget files, or guide completion state in Plan Front Matter.
 
 Example:
 
