@@ -1294,6 +1294,7 @@ export class SessionRuntime {
             child = new Deno.Command(executable, {
                 args: [commandFlag, command],
                 cwd: session.cwd,
+                env: { PWD: session.cwd },
                 stdout: "piped",
                 stderr: "piped",
             }).spawn();
