@@ -21,6 +21,13 @@ import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-re
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 
 /**
+ * Scenario waits poll and return the moment the condition holds, so this budget
+ * only bounds failures. Keep it generous: a tight bound buys nothing on the
+ * success path and turns a loaded CI runner into a flake.
+ */
+const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
+
+/**
  * @typedef {Object} GoldenScenario
  * @property {string} name
  * @property {{ columns?: number, rows?: number }} [terminal]
@@ -148,7 +155,7 @@ async function registerGoldenFauxProviderForEnvironment(options = {}) {
 
 /**
  * @param {GoldenScenario} scenario
- * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string }} [options]
+ * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string, onReady?: () => void }} [options]
  * @returns {Promise<GoldenScenarioResult>}
  */
 export async function runGoldenScenario(scenario, options = {}) {
@@ -166,7 +173,8 @@ export async function runGoldenScenario(scenario, options = {}) {
     const events = [];
     /** @type {string | null} */
     let artifactDir = null;
-    const timeoutMs = scenario.timeoutMs || 2000;
+    const timeoutMs = scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+    options.onReady?.();
     const startedAt = Date.now();
     try {
         for (const action of scenario.actions || []) {
@@ -324,7 +332,7 @@ export async function runGoldenScenario(scenario, options = {}) {
 
 /**
  * @param {GoldenScenario} scenario
- * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string }} options
+ * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string, onReady?: () => void }} options
  * @returns {Promise<GoldenScenarioResult>}
  */
 async function runComposedTuiScenario(scenario, options) {
@@ -453,6 +461,9 @@ async function runComposedTuiScenario(scenario, options) {
                     : undefined,
             });
             await writeHeartbeat();
+            // Startup is done and the heartbeat carries real actor state, so the
+            // parent can switch from its startup budget to the scenario budget.
+            options.onReady?.();
             if (interactionSurface) {
                 const originalPromptSelect = composition.uiAPI.promptSelect?.bind(composition.uiAPI);
                 const originalPromptText = composition.uiAPI.promptText?.bind(composition.uiAPI);
@@ -617,7 +628,7 @@ async function runComposedTuiScenario(scenario, options) {
                     await new Promise((resolve) => setTimeout(resolve, typed.ms || 1000));
                 } else if (typed.type === "waitForEvent") {
                     const expected = String(typed.event || "");
-                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
                     const startedAt = Date.now();
                     while (!events.includes(expected)) {
                         if (Date.now() - startedAt > timeoutMs) {
@@ -627,14 +638,14 @@ async function runComposedTuiScenario(scenario, options) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                 } else if (typed.type === "waitForIdle") {
-                    await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || 3000);
+                    await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
                 } else {
                     throw new Error(`Unknown composed scenario action: ${typed.type}`);
                 }
                 await terminal.flush();
                 await writeHeartbeat();
             }
-            await composition.waitForIdle?.(scenario.timeoutMs || 3000).catch(() => {});
+            await composition.waitForIdle?.(scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS).catch(() => {});
             await terminal.flush();
             await writeHeartbeat();
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);

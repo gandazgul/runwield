@@ -132,7 +132,7 @@ export const routerToGuideInquiryScenario = {
     actions: [
         { type: "type", text: "how does routing work?" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
         { type: "assertProjectUnchanged" },
     ],
     assertions: [assertTerminalInputVisible, assertRuntimeGuideSwitch, assertProjectClean],
@@ -164,13 +164,13 @@ export const escapeCancellationScenario = {
     actions: [
         { type: "type", text: "please start a cancellable answer" },
         { type: "enter" },
-        { type: "waitForEvent", event: "runtime:turn_start", timeoutMs: 3000 },
+        { type: "waitForEvent", event: "runtime:turn_start" },
         { type: "escape" },
-        { type: "waitForEvent", event: "runtime:cancellation", timeoutMs: 3000 },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForEvent", event: "runtime:cancellation" },
+        { type: "waitForIdle" },
         { type: "type", text: "benign follow-up after cancel" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertCancellationEvent, assertEditorReady],
 };
@@ -182,7 +182,7 @@ export const helpSlashCommandScenario = {
     actions: [
         { type: "type", text: "/help" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 2000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertHelpSlashVisible, assertKeyboardHelpVisible],
 };
@@ -221,7 +221,7 @@ export const planReviewTransactionContractScenario = {
         { type: "writeProjectFile", path: "plans/plan.md", text: "# Plan\n\nDo the thing.\n" },
         { type: "type", text: "submit the plan for review" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 8000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertReviewFeedbackEvent, assertReviewApprovedEvent, assertPlanReviewLifecyclePersisted],
 };
@@ -259,7 +259,7 @@ export const fauxProviderProtocolScenario = {
     actions: [
         { type: "type", text: "protocol check" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
     ],
     assertions: [
         (/** @type {GoldenScenarioResult} */ result) =>
@@ -342,17 +342,19 @@ export const sessionReplacementContractScenario = {
     ],
     actions: [
         { type: "runEpicContinuationReplacement" },
-        { type: "waitForIdle", timeoutMs: 2000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertSessionReplacementObserved],
 };
 
+// Deliberately hangs so the parent's scenario timeout fires mid-sleep. The sleep
+// is far longer than that timeout so the kill window cannot be outrun.
 export const timeoutDiagnosticScenario = {
     name: "timeout-diagnostic-contract",
     composedTui: true,
     terminal: { columns: 80, rows: 20 },
     script: [{ id: "timeout-unused-turn", agent: "router", phase: "triage", text: "unused" }],
-    actions: [{ type: "sleep", ms: 5000 }],
+    actions: [{ type: "sleep", ms: 120_000 }],
 };
 
 export const diagnosticArtifactFailureScenario = {

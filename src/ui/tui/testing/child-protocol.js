@@ -5,9 +5,16 @@
 
 import { fromFileUrl, join, toFileUrl } from "@std/path";
 import { createGoldenIsolatedEnvironment } from "./isolated-environment.js";
-import { runGoldenChild } from "./subprocess-runner.js";
+import { GOLDEN_CHILD_READY_MARKER, runGoldenChild } from "./subprocess-runner.js";
 
 const CHILD_FLAG = "--golden-tui-child";
+
+/**
+ * Deno runs test modules concurrently inside one process, so `Deno.cwd()` is
+ * shared mutable state that any other test file may chdir out from under us
+ * mid-call. Anchor repository-relative scenario modules to this file instead.
+ */
+const REPO_ROOT = fromFileUrl(new URL("../../../..", import.meta.url));
 
 /**
  * @typedef {Object} GoldenChildScenarioRequest
@@ -66,7 +73,7 @@ export async function runGoldenScenarioChildProcess(request) {
         ...request,
         scenarioModule: request.scenarioModule.startsWith("file:")
             ? request.scenarioModule
-            : toFileUrl(join(Deno.cwd(), request.scenarioModule)).href,
+            : toFileUrl(join(REPO_ROOT, request.scenarioModule)).href,
     };
     const payload = JSON.stringify(normalizedRequest);
     const result = await runGoldenChild([
@@ -75,7 +82,7 @@ export async function runGoldenScenarioChildProcess(request) {
         fromFileUrl(import.meta.url),
         CHILD_FLAG,
         payload,
-    ], { timeoutMs: request.timeoutMs || 5000 });
+    ], { cwd: REPO_ROOT, timeoutMs: request.timeoutMs || 5000, awaitReadyMarker: true });
     const childPayload = parseLastJsonLine(result.stdout);
     if (
         !result.success ||
@@ -135,7 +142,7 @@ async function runChild(request) {
         const { runGoldenScenario } = await import("./scenario-runner.js");
         const moduleUrl = request.scenarioModule.startsWith("file:")
             ? request.scenarioModule
-            : toFileUrl(join(Deno.cwd(), request.scenarioModule)).href;
+            : toFileUrl(join(REPO_ROOT, request.scenarioModule)).href;
         const module = await import(moduleUrl);
         const scenario = module[request.exportName];
         if (!scenario) throw new Error(`Missing scenario export: ${request.exportName}`);
@@ -144,6 +151,7 @@ async function runChild(request) {
                 keepArtifacts: request.keepArtifacts,
                 artifactRoot: timeoutArtifactDir,
                 heartbeatPath: join(timeoutArtifactDir, "timeout-diagnostics.json"),
+                onReady: () => console.log(GOLDEN_CHILD_READY_MARKER),
             });
             await Deno.remove(timeoutArtifactDir, { recursive: true }).catch(() => {});
             console.log(JSON.stringify({ ok: true, result, env: { root: env.root, projectRoot: env.projectRoot } }));

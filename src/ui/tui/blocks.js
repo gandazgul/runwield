@@ -398,7 +398,13 @@ export class ValidationHandoffBlock {
             : progress.outcome === "paused"
             ? "paused"
             : "running";
-        const cycle = progress.cycle && progress.maxCycles ? ` • cycle ${progress.cycle}/${progress.maxCycles}` : "";
+        // Workflow validation counts semantic review rounds; the underlying event
+        // field is still named `cycle`, but the user-facing vocabulary is "round"
+        // everywhere else in the loop and the header must not contradict it.
+        const counterLabel = progress.kind === "mechanical" ? "cycle" : "round";
+        const cycle = progress.cycle && progress.maxCycles
+            ? ` • ${counterLabel} ${progress.cycle}/${progress.maxCycles}`
+            : "";
         const total = progress.totalCycle && progress.totalCycle !== progress.cycle
             ? ` (total ${progress.totalCycle})`
             : "";

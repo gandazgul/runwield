@@ -27,7 +27,7 @@ for (const scenario of initialGoldenScenarios) {
         const result = await runGoldenScenarioChildProcess({
             scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
             exportName: scenarioExportNames.get(scenario) || "",
-            timeoutMs: "timeoutMs" in scenario && typeof scenario.timeoutMs === "number" ? scenario.timeoutMs : 8000,
+            timeoutMs: "timeoutMs" in scenario && typeof scenario.timeoutMs === "number" ? scenario.timeoutMs : 30000,
         });
         assertEquals(result.result.actor.remaining, []);
     });
@@ -106,7 +106,7 @@ Deno.test("golden scenario child process runs with isolated environment before s
     const result = await runGoldenScenarioChildProcess({
         scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
         exportName: "helpSlashCommandScenario",
-        timeoutMs: 3000,
+        timeoutMs: 30000,
     });
     assertEquals(result.ok, true);
     assertEquals(result.result.name, "help-slash-command");
@@ -180,7 +180,7 @@ Deno.test("golden scenario timeout retains child heartbeat diagnostics", async (
             runGoldenScenarioChildProcess({
                 scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
                 exportName: "timeoutDiagnosticScenario",
-                timeoutMs: 4000,
+                timeoutMs: 2000,
             }),
         Error,
         "timeout",
