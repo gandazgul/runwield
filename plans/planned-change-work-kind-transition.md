@@ -1,4 +1,5 @@
 ---
+planId: "895523d4-f4ae-45de-9f9e-b508ad0f7889"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Transition RunWield from FEATURE-as-workflow terminology to PLANNED_CHANGE plus explicit work kind metadata with legacy compatibility"
@@ -22,14 +23,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T21:10:30-04:00"
-updatedAt: "2026-07-27T22:18:36.146Z"
+updatedAt: "2026-07-27T22:19:00.904Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T19:46:02.671Z"
 verifiedAt: "2026-07-27T22:18:36.146Z"
 userVerifiedAt: null
-userVerificationNote: null
 executionReport: "- Implemented PLANNED_CHANGE taxonomy and Work Kind support across routing constants, triage normalization, workflow dispatch/context, Plan front matter/store/lifecycle/execution, Slicer child materialization, Engineer handoffs, Work Records, TUI/Workspace labels, Router/agent prompts, and current docs/glossary.\n- Preserved legacy compatibility: routingIntent/classification FEATURE and Work Record scope feature normalize to planned-change semantics while Work Kind FEATURE remains distinct.\n- Updated focused tests and compatibility expectations for triage, orchestrator, Plan Store/lifecycle/execution, Slicer/workflow, Work Records, TUI/session context, review transport, and router-eval scoring.\n- Manual checks: simulated new planned bug-fix Plan front matter (`classification: PLANNED_CHANGE`, `workKind: BUG_FIX`), legacy `classification: FEATURE` parsing to `PLANNED_CHANGE`, and legacy Work Record `scope: feature` parsing to `planned_change`.\n- Verification passed: `deno task ci` (includes submodule check, type check, Workspace check, lint, and full test suite: 1878 passed)."
+workRecord:
+    status: "generated"
+    recordId: "e83e44ae-9c33-4721-8441-44ec8fef55ae"
+    path: "docs/work-records/2026-07-27-planned-change-and-work-kind-taxonomy-shipped.md"
+    lastAttemptAt: "2026-07-27T22:18:53.924Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-27T22:11:50.016Z"
