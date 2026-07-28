@@ -60,7 +60,7 @@ function fakeSession(responder) {
     const calls = [];
     const session = /** @type {import('@earendil-works/pi-coding-agent').AgentSession} */ ({
         agent: {
-            streamFn(model, _context, options) {
+            streamFunction(model, _context, options) {
                 calls.push({ model, options });
                 return responder(model, options, calls);
             },
@@ -99,7 +99,7 @@ Deno.test("applySessionTemperature omits temperature for the Codex provider", as
         api: "openai-codex-responses",
     });
     const events = [];
-    const source = await session.agent.streamFn(model, { messages: [] }, { temperature: 0.9 });
+    const source = await session.agent.streamFunction(model, { messages: [] }, { temperature: 0.9 });
     for await (const event of source) {
         events.push(event.type);
     }
@@ -114,7 +114,7 @@ Deno.test("applySessionTemperature still configures providers that accept it", a
     applySessionTemperature(session, 0.4);
 
     const model = testModel({ id: "temperature-model" });
-    const source = await session.agent.streamFn(model, { messages: [] }, { maxTokens: 100 });
+    const source = await session.agent.streamFunction(model, { messages: [] }, { maxTokens: 100 });
     for await (const _event of source) {
         // Consume the wrapped stream.
     }
@@ -134,7 +134,7 @@ Deno.test("applySessionTemperature retries exact unsupported parameter errors wi
 
     const model = testModel({ id: "future-reasoning-model" });
     const events = [];
-    const source = await session.agent.streamFn(model, { messages: [] }, { maxTokens: 100 });
+    const source = await session.agent.streamFunction(model, { messages: [] }, { maxTokens: 100 });
     for await (const event of source) {
         events.push(event.type);
     }

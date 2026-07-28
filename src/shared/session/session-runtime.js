@@ -1225,7 +1225,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
-        const levels = /** @type {const} */ (["off", "minimal", "low", "medium", "high", "xhigh"]);
+        const levels = /** @type {const} */ (["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
         const managed = session.getManagedMetadata?.() || null;
         const managedDormant = Boolean(managed && !session.getRootSessionManager?.());
         const currentLevel = managedDormant && managed?.thinkingLevel

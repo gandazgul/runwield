@@ -1271,6 +1271,17 @@ Deno.test("SessionRuntime keeps direct model operations busy until the outermost
     assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
 });
 
+Deno.test("SessionRuntime cycles through max thinking level", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    runtime.setSessionThinkingLevel(sessionId, "xhigh");
+
+    const result = runtime.cycleSessionThinkingLevel(sessionId);
+
+    assertEquals(result, { ok: true, thinkingLevel: "max" });
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.thinkingLevel, "max");
+});
+
 Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", async () => {
     const runtime = makeRuntime();
     const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });

@@ -57,7 +57,7 @@ import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../run
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
-import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
+import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.js";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
@@ -540,7 +540,10 @@ export async function steerAgentSessionWithTarget(session, text, images) {
     if (!session.isStreaming) return null;
     const activeModel = session.model || { input: ["text", "image"] };
     const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
-        ? await resolveVisionFallbackModel(session.modelRegistry)
+        ? await resolveVisionFallbackModel(
+            /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
+                getModelRegistry(),
+        )
         : undefined;
     const prepared = prepareImagesForModel({
         text: /** @type {string} */ (text),
@@ -834,24 +837,30 @@ export function getConfiguredAgentTemperature(agentName, projectRoot) {
  */
 export function applySessionTemperature(session, temperature) {
     if (temperature === undefined) return;
-    const originalStreamFn = session.agent.streamFn;
-    session.agent.streamFn = (model, context, options) => {
+    const agent = /** @type {any} */ (session.agent);
+    const streamKey = typeof agent.streamFunction === "function" ? "streamFunction" : "streamFn";
+    const originalStreamFunction = agent[streamKey];
+    agent[streamKey] = (
+        /** @type {import('@earendil-works/pi-ai').Model<any>} */ model,
+        /** @type {import('@earendil-works/pi-ai').Context} */ context,
+        /** @type {import('@earendil-works/pi-ai').SimpleStreamOptions | undefined} */ options,
+    ) => {
         if (!modelSupportsTemperature(model)) {
-            return originalStreamFn(model, context, omitTemperatureOption(options));
+            return originalStreamFunction(model, context, omitTemperatureOption(options));
         }
         const optionsWithTemperature = {
             ...options,
             temperature,
         };
         try {
-            const firstSource = originalStreamFn(model, context, optionsWithTemperature);
+            const firstSource = originalStreamFunction(model, context, optionsWithTemperature);
             return createTemperatureFallbackStream(
                 firstSource,
-                () => originalStreamFn(model, context, omitTemperatureOption(options)),
+                () => originalStreamFunction(model, context, omitTemperatureOption(options)),
             );
         } catch (error) {
             if (isUnsupportedTemperatureError(error)) {
-                return originalStreamFn(model, context, omitTemperatureOption(options));
+                return originalStreamFunction(model, context, omitTemperatureOption(options));
             }
             throw error;
         }
@@ -1531,7 +1540,7 @@ export async function assembleFinalSystemPrompt(
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -1578,6 +1587,7 @@ export async function buildAgentSession({
     await ensureCymbalBinary();
     const agentDef = _agentDefOverride || await loadAgentDef(agentName, sessionCwd);
 
+    const modelRuntime = await getModelRuntime();
     const modelRegistry = getModelRegistry();
     const resolvedModel = await resolveModel(
         modelOverride,
@@ -1768,8 +1778,7 @@ export async function buildAgentSession({
     const { session, extensionsResult } = await createAgentSession({
         cwd: sessionCwd,
         agentDir: getSettingsDir("global"),
-        authStorage: modelRegistry.authStorage,
-        modelRegistry,
+        modelRuntime,
         settingsManager: getSettingsManager(sessionCwd),
         tools,
         customTools: finalCustomTools,
@@ -1777,6 +1786,7 @@ export async function buildAgentSession({
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+    /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     installEarlySteeringInterruption(/** @type {any} */ (session));
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
@@ -1825,7 +1835,7 @@ export async function buildAgentSession({
         );
         // Keep the HostedSession footer in sync with what the AgentSession is using.
         targetHostedSession?.setThinkingLevel(
-            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} */ (resolvedThinkingLevel),
+            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"|"max"} */ (resolvedThinkingLevel),
         );
     }
 
@@ -2370,7 +2380,10 @@ export async function runPrompt({
     subscriberState.resetTurn();
 
     const fallback = images && images.length > 0 && !modelSupportsImageInput(session.model)
-        ? await resolveVisionFallbackModel(session.modelRegistry)
+        ? await resolveVisionFallbackModel(
+            /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
+                getModelRegistry(),
+        )
         : undefined;
     const preparedImages = prepareImagesForModel({
         text: userRequest,
@@ -2573,7 +2586,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -2764,7 +2777,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {string} opts.agentName
  * @param {string} opts.userRequest
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} [opts.debugLogPath]
  * @param {string} [opts.projectStateContext]
  * @param {Function} [opts._buildAgentSession]
@@ -2811,7 +2824,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.

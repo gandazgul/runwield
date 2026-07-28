@@ -8,7 +8,7 @@
 
 import { Image, Spacer } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { imageTheme } from "../theme/theme.js";
 
@@ -25,6 +25,7 @@ import { imageTheme } from "../theme/theme.js";
  *     Image?: typeof Image,
  *     ModelSelectorComponent?: typeof ModelSelectorComponent,
  *     getModelRegistry?: typeof getModelRegistry,
+ *     getModelRuntime?: typeof getModelRuntime,
  *     getSettingsManager?: typeof getSettingsManager,
  *     getActiveModelState?: () => { model: string, provider?: string },
  *   },
@@ -43,6 +44,7 @@ export function installUiApiOverrides({
     const ImageImpl = __deps?.Image || Image;
     const ModelSelectorComponentImpl = __deps?.ModelSelectorComponent || ModelSelectorComponent;
     const getModelRegistryImpl = __deps?.getModelRegistry || getModelRegistry;
+    const getModelRuntimeImpl = __deps?.getModelRuntime || getModelRuntime;
     const getSettingsManagerImpl = __deps?.getSettingsManager || getSettingsManager;
     const getActiveModelStateImpl = getActiveModelState || __deps?.getActiveModelState ||
         (() => ({ model: "", provider: "" }));
@@ -92,13 +94,15 @@ export function installUiApiOverrides({
     }
 
     uiAPI.showModelSelector = () => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const settingsManager = getSettingsManagerImpl();
             const modelRegistry = getModelRegistryImpl();
             const activeModelState = getActiveModelStateImpl();
             const currentModel = modelRegistry.find(activeModelState.provider || "", activeModelState.model || "");
 
             const editorIndex = container.children.indexOf(editor);
+            /** @type {any} */
+            let selector;
 
             let settled = false;
             const restoreSelector = () => {
@@ -115,28 +119,30 @@ export function installUiApiOverrides({
                 resolve();
             };
 
-            const selector = new ModelSelectorComponentImpl(
-                /** @type {any} */ (tui),
-                currentModel,
-                settingsManager,
-                modelRegistry,
-                [], // No scoped models for now
-                async (model) => {
-                    await setActiveModel(model.id, model.provider);
-                    restoreSelector();
-                },
-                () => {
-                    restoreSelector();
-                },
-            );
+            getModelRuntimeImpl().then((modelRuntime) => {
+                selector = new ModelSelectorComponentImpl(
+                    /** @type {any} */ (tui),
+                    currentModel,
+                    settingsManager,
+                    modelRuntime,
+                    [], // No scoped models for now
+                    async (model) => {
+                        await setActiveModel(model.id, model.provider);
+                        restoreSelector();
+                    },
+                    () => {
+                        restoreSelector();
+                    },
+                );
 
-            if (editorIndex !== -1) {
-                container.children.splice(editorIndex, 1, selector);
-            } else {
-                container.addChild(selector);
-            }
-            tui.setFocus(selector);
-            tui.requestRender();
+                if (editorIndex !== -1) {
+                    container.children.splice(editorIndex, 1, selector);
+                } else {
+                    container.addChild(selector);
+                }
+                tui.setFocus(selector);
+                tui.requestRender();
+            }).catch(reject);
         });
     };
 

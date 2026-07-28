@@ -1,10 +1,11 @@
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.js";
 
 /**
  * @param {string} argumentPrefix
  * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getModelCompletions(argumentPrefix) {
+    await getModelRuntime();
     const modelRegistry = getModelRegistry();
     const models = modelRegistry.getAvailable();
 
@@ -28,6 +29,6 @@ export async function getModelCompletions(argumentPrefix) {
             item.id.toLowerCase().startsWith(lowerPrefix) ||
             item.provider.toLowerCase().startsWith(lowerPrefix) ||
             // Handle OpenRouter-style IDs with slashes (e.g., google/gemini-flash)
-            item.id.toLowerCase().split("/").some((part) => part.startsWith(lowerPrefix))
+            item.id.toLowerCase().split("/").some((/** @type {string} */ part) => part.startsWith(lowerPrefix))
         );
 }

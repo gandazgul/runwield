@@ -70,6 +70,7 @@ function makeHarness() {
         find: (/** @type {string} */ provider, /** @type {string} */ id) => ({ provider, id }),
     };
     const settingsManager = { id: "settings" };
+    const modelRuntime = { id: "runtime" };
     return {
         editor,
         container,
@@ -78,6 +79,7 @@ function makeHarness() {
         selectedModels,
         registry,
         settingsManager,
+        modelRuntime,
         tui: {
             requestRender: () => {
                 renders++;
@@ -90,6 +92,7 @@ function makeHarness() {
             Image: FakeImage,
             ModelSelectorComponent: FakeModelSelector,
             getModelRegistry: () => registry,
+            getModelRuntime: () => Promise.resolve(modelRuntime),
             getSettingsManager: () => settingsManager,
             getActiveModelState: () => ({ provider: "current", model: "model" }),
         },
@@ -164,12 +167,13 @@ Deno.test("installUiApiOverrides replaces editor with selector and restores afte
     installUiApiOverrides({ ...harness, __deps: harness.deps });
 
     const promise = harness.uiAPI.showModelSelector();
+    await Promise.resolve();
     const selector = harness.container.children[0];
     assertEquals(selector instanceof FakeModelSelector, true);
     assertEquals(harness.stats.focus, selector);
     assertEquals(selector.currentModel, { provider: "current", id: "model" });
     assertEquals(selector.settingsManager, harness.settingsManager);
-    assertEquals(selector.modelRegistry, harness.registry);
+    assertEquals(selector.modelRegistry, harness.modelRuntime);
 
     selector.onSelect({ id: "next", provider: "test" });
     await promise;
@@ -185,6 +189,7 @@ Deno.test("installUiApiOverrides restores editor after selector cancel even when
     installUiApiOverrides({ ...harness, __deps: harness.deps });
 
     const promise = harness.uiAPI.showModelSelector();
+    await Promise.resolve();
     const selector = harness.container.children[0];
     selector.onCancel();
     await promise;

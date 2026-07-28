@@ -26,7 +26,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  */
 
 /**
- * @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"} ThinkingLevel
+ * @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} ThinkingLevel
  */
 
 /**
