@@ -87,9 +87,9 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         );
     }
 
-    lines.push("## Existing Child Planned Change Plans");
+    lines.push("## Existing Child Plans");
     if (children.length === 0) {
-        lines.push("No child planned change plans exist yet.");
+        lines.push("No child plans exist yet.");
     } else {
         for (const child of children) {
             lines.push(`- ${child.name}`);

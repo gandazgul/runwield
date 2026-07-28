@@ -732,7 +732,7 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
     });
 
     assertEquals(executed, false);
-    assertEquals(messages.some((message) => message.includes("no child Planned Change plans")), true);
+    assertEquals(messages.some((message) => message.includes("no child plans")), true);
 });
 
 Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without transient operator switch", async () => {

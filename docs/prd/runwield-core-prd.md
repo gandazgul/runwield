@@ -189,7 +189,7 @@ Lifecycle requirements:
 - PROJECT Epics reach `ready_for_decomposition` after approval.
 - Slicer finalization moves Epics to `ready_for_work` for child Plan selection.
 - PROJECT Epics are containers and are not directly executed as implementation work.
-- Child Planned Change Plans execute and validate independently.
+- Child Plans execute and validate independently.
 - Planned Change Plans reach `verified` only through Workflow Validation.
 - Epics may also reach `verified` through the existing `epic_done_enough` event.
 - `closed_without_verification` is a terminal manual closure outcome distinct from `verified`.

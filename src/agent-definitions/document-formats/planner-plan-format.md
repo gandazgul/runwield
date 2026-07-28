@@ -74,7 +74,7 @@ When applicable, include an explicit step that updates `CONTEXT.md` in the same 
     hints and exact headed-browser checks. Real-browser verification is mandatory for Frontend Engineer unless
     externally blocked.
   - PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
-    execution policy belongs only on child Planned Change Plans.
+    execution policy belongs only on child Plans.
   - Legacy `frontend: true` on legacy Planned Change Plans is still accepted as Frontend Engineer/autonomous
     compatibility metadata, but new Plans should use canonical `executionAgent` / `collaborationRecommendation` instead.
     Legacy `frontend: false` remains Engineer compatibility metadata and is distinct from an absent canonical owner.

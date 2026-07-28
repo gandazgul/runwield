@@ -213,7 +213,7 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
 
     assertEquals(/** @type {any} */ (recorded).event, "plan_held");
     assertEquals(
-        messages.some((message) => message.includes("Child Planned Change Plans will be hidden/blocked")),
+        messages.some((message) => message.includes("Child Plans will be hidden/blocked")),
         true,
     );
 });
