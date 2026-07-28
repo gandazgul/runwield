@@ -276,7 +276,7 @@ Automatic generation targets:
 
 Automatic generation does not target:
 
-- child Planned Change Plans under an Epic by default
+- Child Plans under an Epic by default
 - normal no-plan QUICK_FIX sessions by default
 
 For Epics:
@@ -284,8 +284,8 @@ For Epics:
 - generate one longer Epic Work Record
 - include a clear overall Summary
 - include detail about child Planned Change outcomes when needed
-- aggregate direct Ticket References from the Epic first, then child Planned Change Plans in deterministic order,
-  deduplicating by exact trimmed URL with first object winning
+- aggregate direct Ticket References from the Epic first, then Child Plans in deterministic order, deduplicating by
+  exact trimmed URL with first object winning
 - include active, unfinished, and archived children in the provenance aggregation boundary
 - do not generate one Work Record per child Plan by default
 
@@ -336,8 +336,8 @@ and backfill/index-rebuild guidance for failures. These failures never roll back
 
 ### Plan Backlink Metadata
 
-Only the top-level source Plan/Epic gets a Work Record backlink. Child Planned Change Plans under an Epic do not get
-their own pointer by default.
+Only the top-level source Plan/Epic gets a Work Record backlink. Child Plans under an Epic do not get their own pointer
+by default.
 
 Absence of `workRecord` front matter on a completed top-level Plan/Epic means the Work Record is missing/eligible for
 generation.

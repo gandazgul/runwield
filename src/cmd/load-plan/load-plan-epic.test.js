@@ -90,7 +90,7 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
         "view",
         "cancel",
     ]);
-    assertEquals(messages.some((m) => m.includes("no child Planned Change plans")), true);
+    assertEquals(messages.some((m) => m.includes("no child plans")), true);
     assertEquals(slicerPlanName, "epic-a");
     assertEquals(executed, false);
 });
@@ -220,7 +220,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child Planned Change la
         }),
     });
 
-    const detailMessage = messages.find((message) => message.includes("Child Planned Change plans:")) || "";
+    const detailMessage = messages.find((message) => message.includes("Child Plans:")) || "";
     assertEquals(
         detailMessage.includes("Progress: 1 RunWield verified / 0 User Verified / 2 child Planned Changes"),
         true,
@@ -354,7 +354,7 @@ Deno.test("runLoadPlanCommand child Planned Change submenu back returns without 
         prompts.some((prompt) => prompt.prompt === "What would you like to do with this Planned Change?"),
         true,
     );
-    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child Planned Change plan:").length, 2);
+    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child Plan:").length, 2);
     assertEquals(executed, false);
 });
 
@@ -412,7 +412,7 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
     assertEquals(recorded.event, "epic_done_enough");
     assertEquals(recorded.currentStatus, "ready_for_work");
     assertEquals(
-        messages.some((message) => message.includes("Unverified child Planned Change plans remain visible")),
+        messages.some((message) => message.includes("Unverified child plans remain visible")),
         true,
     );
     assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
@@ -511,7 +511,7 @@ Deno.test("runLoadPlanCommand Epic done-enough reports Work Record failure witho
                 updatedAttrs = {
                     status: "verified",
                     epicCompletionMode: "done_enough",
-                    epicDoneEnoughSummary: "1/1 child Planned Change plans are verified.",
+                    epicDoneEnoughSummary: "1/1 child plans are verified.",
                 };
                 return Promise.resolve(updatedAttrs);
             },
@@ -652,7 +652,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
     });
 
     assertEquals(messages.some((message) => message.includes("done enough for now")), true);
-    assertEquals(messages.some((message) => message.includes("no child Planned Change plans yet")), true);
+    assertEquals(messages.some((message) => message.includes("no child plans yet")), true);
 });
 
 Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () => {
