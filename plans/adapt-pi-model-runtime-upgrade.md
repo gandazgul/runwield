@@ -1,5 +1,5 @@
 ---
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
 complexity: "MEDIUM"
 summary: "Adapt RunWield to the latest @earendil-works Pi package model/auth runtime APIs while keeping dependencies upgradeable"
 affectedPaths:
@@ -19,11 +19,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T12:29:26-04:00"
-updatedAt: "2026-07-27T16:31:39.468Z"
-status: "ready_for_work"
+updatedAt: "2026-07-28T13:49:31.720Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-28T03:06:10.921Z"
+verifiedAt: "2026-07-28T13:49:31.720Z"
 userVerifiedAt: null
 userVerificationNote: null
+executionReport: "- Implemented Pi 0.82.1 runtime integration: `ModelRuntime` creation/caching, RunWield model facade, `createAgentSession({ modelRuntime })`, TUI model selector runtime wiring, and `streamFunction` temperature wrapping.\n- Updated Earendil imports to upgradeable `^0.82.1` ranges, removed latest-observed aliases, and regenerated `deno.lock` resolving Pi packages to 0.82.1.\n- Added end-to-end `max` thinking-level support and coverage for HostedSession/SessionRuntime cycling.\n- Verification passed: `deno task -q check`, targeted session/model tests, `deno task -q lint`, `deno task -q test`, and `deno task -q ci`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "2f43f58fefbdd77aaf8c6d38abfd4cee7e875c9e"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "0efdb14d1a656185a8aa024dce5a2288e71b5304"
 ---
 
 # Adapt Pi ModelRuntime Upgrade
