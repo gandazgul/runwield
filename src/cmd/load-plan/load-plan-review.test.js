@@ -172,6 +172,107 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
     assertEquals(executed, true);
 });
 
+Deno.test("runLoadPlanCommand checkpoints completed execution before validation", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
+    });
+    let finalized = false;
+    let validated = false;
+    /** @type {any[]} */
+    const finalizeCalls = [];
+    const cwd = Deno.cwd();
+
+    await runLoadPlanCommand(["plan-run-checkpoint"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-run-checkpoint"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-checkpoint",
+                    path: "plans/plan-run-checkpoint.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            loadPlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-checkpoint",
+                    path: "plans/plan-run-checkpoint.md",
+                    body: "fresh body",
+                    markdown: "fresh markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: finalized ? "implemented" : "ready_for_work",
+                        executionMode: "non_git_in_place",
+                    },
+                }),
+            executePlan: () =>
+                Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: true,
+                    completionReport: "- Done.",
+                    executionContext: {
+                        planName: "plan-run-checkpoint",
+                        triageMeta: { classification: "FEATURE", status: "ready_for_work" },
+                        executionAgent: "engineer",
+                        executionMode: "non_git_in_place",
+                        projectRoot: cwd,
+                        executionCwd: cwd,
+                        nonGitInPlace: true,
+                    },
+                }),
+            finalizePlanImplementation: (/** @type {any} */ args) => {
+                finalizeCalls.push(args);
+                assertEquals(validated, false);
+                assertEquals(args.planName, "plan-run-checkpoint");
+                assertEquals(args.executionReport, "- Done.");
+                assertEquals(args.triageMeta.status, "ready_for_work");
+                finalized = true;
+                return Promise.resolve({});
+            },
+            resolveValidationExecutionContext: (/** @type {any} */ args) => {
+                assertEquals(finalized, true);
+                assertEquals(args.triageMeta.status, "implemented");
+                return Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "non_git_in_place",
+                        planName: "plan-run-checkpoint",
+                        projectRoot: cwd,
+                        executionCwd: cwd,
+                        source: "test",
+                    },
+                });
+            },
+            runValidationLoop: (/** @type {any} */ args) => {
+                validated = true;
+                assertEquals(finalized, true);
+                assertEquals(args.triageMeta.status, "implemented");
+                assertEquals(args.executionContext.nonGitInPlace, true);
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(finalizeCalls.length, 1);
+    assertEquals(validated, true);
+});
+
 Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readiness and execution", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
