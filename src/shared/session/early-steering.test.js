@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
-import { EARLY_STEERING_SKIP_REASON, installEarlySteeringInterruption } from "./early-steering.js";
+import { installEarlySteeringInterruption } from "./early-steering.js";
 
-Deno.test("installEarlySteeringInterruption makes tool execution sequential and skips later tools when steering is pending", async () => {
+Deno.test("installEarlySteeringInterruption allows current tool calls to complete when steering is pending", async () => {
     const executed = /** @type {string[]} */ ([]);
     const providerCalls = /** @type {string[][]} */ ([]);
     const steering = /** @type {string[]} */ ([]);
@@ -11,14 +11,15 @@ Deno.test("installEarlySteeringInterruption makes tool execution sequential and 
     });
 
     installEarlySteeringInterruption(session);
-    assertEquals(session.agent.toolExecution, "sequential");
+    assertEquals(session.agent.toolExecution, undefined);
+    assertEquals(session.agent.beforeToolCall, undefined);
 
     async function runProviderTurn() {
         providerCalls.push([...steering]);
         const tools = ["first", "second", "third"];
         const results = [];
         for (const tool of tools) {
-            const decision = await session.agent.beforeToolCall({ name: tool });
+            const decision = await session.agent.beforeToolCall?.({ name: tool });
             if (decision?.block) {
                 results.push({ tool, skipped: true, reason: decision.reason });
                 continue;
@@ -31,11 +32,11 @@ Deno.test("installEarlySteeringInterruption makes tool execution sequential and 
     }
 
     const results = await runProviderTurn();
-    assertEquals(executed, ["first"]);
+    assertEquals(executed, ["first", "second", "third"]);
     assertEquals(results, [
         { tool: "first", skipped: false },
-        { tool: "second", skipped: true, reason: EARLY_STEERING_SKIP_REASON },
-        { tool: "third", skipped: true, reason: EARLY_STEERING_SKIP_REASON },
+        { tool: "second", skipped: false },
+        { tool: "third", skipped: false },
     ]);
 
     await runProviderTurn();
