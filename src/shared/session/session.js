@@ -20,7 +20,7 @@ import {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
-import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.js";
+import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
@@ -88,7 +88,10 @@ function homePromptsDir() {
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
 const UNSUPPORTED_TEMPERATURE_RE =
-    /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\bunsupported\b/i;
+    /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\b(?:unsupported|not supported|not allowed|not accepted|invalid temperature)\b|\binvalid temperature\b.*\bonly\b.*\ballowed\b/i;
+
+/** @type {Set<string>} */
+const modelsWithoutTemperature = new Set();
 
 /** @type {WeakMap<object, string>} */
 const modelSelectionSourceByModel = new WeakMap();
@@ -717,15 +720,38 @@ function isUnsupportedTemperatureError(error) {
 }
 
 /**
- * The ChatGPT Codex Responses endpoint rejects sampling temperature. Detect the
- * endpoint capability instead of maintaining a model-name list that will go
- * stale as Codex models change.
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {string}
+ */
+function getTemperatureCapabilityModelKey(model) {
+    return [model.provider, model.api, model.id].filter(Boolean).join(":");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {boolean}
+ */
+function isKnownNoSamplingModelFamily(model) {
+    const provider = String(model.provider || "").toLowerCase();
+    const api = String(model.api || "").toLowerCase();
+    const id = String(model.id || "").toLowerCase();
+    return provider === "openai-codex" || api === "openai-codex-responses" ||
+        provider.includes("kimi-coding") || id.includes("kimi-code") || id.includes("kimi-coding");
+}
+
+/**
+ * The ChatGPT Codex Responses endpoint and some coding-model families reject
+ * sampling temperature. Detect known capability signals up front and remember
+ * runtime rejections so later calls avoid repeating the failed request.
  *
  * @param {import('@earendil-works/pi-ai').Model<any>} model
  * @returns {boolean}
  */
 function modelSupportsTemperature(model) {
-    return model.provider !== "openai-codex" && model.api !== "openai-codex-responses";
+    const compat = /** @type {{ supportsTemperature?: unknown } | undefined} */ (model.compat);
+    if (compat?.supportsTemperature === false) return false;
+    if (isKnownNoSamplingModelFamily(model)) return false;
+    return !modelsWithoutTemperature.has(getTemperatureCapabilityModelKey(model));
 }
 
 /**
@@ -735,9 +761,10 @@ function modelSupportsTemperature(model) {
  *
  * @param {import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} firstSource
  * @param {() => import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} retryWithoutTemperature
+ * @param {() => void} [onUnsupportedTemperature]
  * @returns {import('@earendil-works/pi-ai').AssistantMessageEventStream}
  */
-function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
+function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, onUnsupportedTemperature) {
     const output = createAssistantMessageEventStream();
 
     /**
@@ -757,6 +784,7 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
                 canRetry &&
                 isUnsupportedTemperatureError(event.error)
             ) {
+                onUnsupportedTemperature?.();
                 return "retry";
             }
 
@@ -866,9 +894,11 @@ export function applySessionTemperature(session, temperature) {
             return createTemperatureFallbackStream(
                 firstSource,
                 () => originalStreamFunction(model, context, omitTemperatureOption(options)),
+                () => modelsWithoutTemperature.add(getTemperatureCapabilityModelKey(model)),
             );
         } catch (error) {
             if (isUnsupportedTemperatureError(error)) {
+                modelsWithoutTemperature.add(getTemperatureCapabilityModelKey(model));
                 return originalStreamFunction(model, context, omitTemperatureOption(options));
             }
             throw error;
