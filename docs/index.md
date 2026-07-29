@@ -212,6 +212,7 @@ graph TD
 - [Themes](themes.md) - RunWield theme package behavior and theme files.
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
+- [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.

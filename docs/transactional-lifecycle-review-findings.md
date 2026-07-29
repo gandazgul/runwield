@@ -1,0 +1,162 @@
+# Transactional Plan Lifecycle — end-to-end review findings
+
+Review of the implemented feature (`d0b54174`, `be2f9bbf`) against the intent in
+`plans/transactional-plan-lifecycle-and-worktree-recovery.md`. Every finding below was reproduced against real code, not
+inferred from reading. Fixed items were fixed in this pass; open items are ranked by how badly they strand a user.
+
+## What holds up
+
+The core is sound. `runSemanticTransition` journals before external effects, marks effects with proof, runs registered
+compensations in reverse, and refuses to restore Plan bytes it cannot prove it authored. Direct Delivery verifies
+candidate _and_ metadata ancestry inside the transaction before marking success, re-reads the whole sibling set under
+lock, and declares `direct_delivery_target_ref_moved` irreversible so a post-merge fault can never be reported as a
+clean rollback. `classifyTransitionFailure` demands positive evidence for "nothing happened" rather than assuming it.
+Those are the hard parts and they are right.
+
+## Fixed in this pass
+
+### 1. One stranded Plan froze lifecycle work on every Plan in the project
+
+Journal conflict detection treated any shared resource key as ownership, and nearly every composite transition locks
+`{kind:"catalog"}`. So a single `needs_recovery` record on Plan A blocked validation, publication, and archive for Plans
+B…Z. Reproduced: alpha stranded → `beta` validation and `beta` archive both returned `blocked` naming alpha's transition
+id.
+
+Ownership is now the Plan, the exact attempt, and the target ref. The catalog is a lock-ordering device and no longer
+confers ownership.
+
+### 2. `wld plans doctor --repair` could not clear records RunWield itself wrote
+
+Any journaled effect made a record permanently unresolvable: `reconcileTransitionRecoveryRecords` had no way to see Git
+or the registry, so it kept everything. Reproduced end to end — a merge-failure settlement interrupted after an atomic
+registry write left a record that blocked archive _and_ validation retry, that `--repair` explicitly refused, and whose
+only escape was deleting a JSON file by hand or destroying the attempt through recovery.
+
+The worst version: a Plan whose publication _succeeded_ keeps a blocking record forever, because verification or cleanup
+threw after the target ref moved. The Plan is finished and cannot even be archived.
+
+Reconciliation now accepts an evidence prover, and doctor supplies one:
+
+| Journaled effect                                                           | Evidence used                                                      | Closable when                                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `worktree_registry_updated` / `_settled` / `_abandoned`                    | registry row by id                                                 | always — registry writes are atomic, so no partial row can exist |
+| `git_worktree_created` / `_reused`                                         | `stat` + registry claim                                            | the directory is gone, or it exists and an attempt claims it     |
+| `direct_delivery_target_ref_moved`                                         | `git merge-base --is-ancestor` for candidate _and_ metadata commit | ancestry proves publication                                      |
+| `direct_delivery_publication_started`                                      | staged Plan paths present in the checkout                          | no staged Plan file is missing                                   |
+| completion markers (`execution_prepared`, `validation_outcome_settled`, …) | Plan file readable                                                 | the operation had already applied and proved itself              |
+
+An unclaimed worktree directory stays open, deliberately — that is the one place uncommitted work hides.
+
+### 3. Unreadable Plan bytes created an unclosable blocker
+
+A malformed Plan made `runPlanTransition` journal `needs_recovery` with no before-revision. Nothing could ever prove
+that record settled, so it blocked the Plan **even after the user fixed the file**. Nothing had been applied — it was a
+rejected precondition wearing a recovery record.
+
+Now returned as `blocked` with no journal, carrying the file path, `git diff`, and `wld plans doctor`. Fixing the file
+is the whole recovery; a test pins that the retry commits with no intermediate step.
+
+### 4. `--repair` reported strictly less than a read-only run
+
+`listEntries` enforces invariants on read and _throws_. With a legacy registry holding two live attempts for one Plan,
+`--repair` migrated planIds in memory, hit the duplicate check, and collapsed the entire report to
+`registry_integrity_error: restore the registry from backup`. Report-only mode diagnosed the same registry correctly.
+Reproduced both ways.
+
+Doctor now reads through `inspectWorktreeRegistry()` — a non-throwing, non-migrating inspection returning entries plus
+what is wrong with them — so per-entry facts survive a violated invariant. Migration is persisted only when the file is
+already consistent.
+
+### 5. Migration could make a readable registry permanently unreadable
+
+Two legacy v1 entries with the same `planName` both got the same `planId` from name matching, which violates
+one-live-attempt, so `assertRegistryIntegrity` threw on _every_ subsequent read. Every worktree command dead,
+deterministically, on data RunWield migrated. Reproduced:
+`Worktree registry already has a nonterminal attempt
+for demo: wt-b`.
+
+Migration now resolves exact `worktreeId` back-pointers in a first pass (order-independent), and refuses a name-based
+binding that would create a second live attempt, recording `duplicate_live_attempt_for_plan` instead.
+
+### 6. Work Record backlinks silently destroyed recovery evidence
+
+`updateSourceFrontMatter()` wrote backlinks through `runRecoveryTransition`, which sets `supersedesUnresolved` and
+**deletes** superseded journals on success. Post-publication bookkeeping could therefore retire the `needs_recovery`
+record for an unproven publication it knew nothing about. Now an ordinary `runPlanFrontMatterTransition`.
+
+### 7. Body edits blocked lifecycle operations (product rule)
+
+Revision tokens are whole-file hashes, so a user editing prose in vim invalidated the CAS token for front-matter-only
+transitions. Reproduced: `runPlanFrontMatterTransition` → `blocked` with a raw hash-vs-hash message; status unchanged.
+This hit Workspace lifecycle actions (`plan-adapter.js:897` requires `expectedRevision`) and every interactive load-plan
+recovery action, which capture the revision before prompting.
+
+RunWield owns Front Matter, the user owns the body:
+
+- `getPlanFrontMatterRevisionForText()` plus a `frontMatterRevision` on every load.
+- Lifecycle preconditions accept body-only drift, proven by comparing Front Matter bytes — never assumed. An unknown
+  token (different process, restart) still falls back to strict whole-file comparison.
+- A failed transition can now revert **its own Front Matter onto the user's current body**, converting a class of
+  `needs_recovery` into a clean rollback. An external _Front Matter_ edit still fails closed.
+- Reconciliation treats a Plan whose Front Matter still matches as unchanged.
+
+### 8. Abandoned Plan locks cost 5 minutes and a raw path
+
+A killed process leaves a `.lock` that self-clears only after 10 minutes; until then every operation waits 5 minutes and
+then throws `Timed out waiting for Plan lock: /…/.wld/plan-locks/foo.lock` — thrown from lock acquisition, so it
+bypasses the typed-result path entirely and reaches the user with no guidance. Doctor now reports stale locks and
+`--repair` clears them (nothing but "someone was here" is stored in them).
+
+### 9. Journals inside execution worktrees were invisible
+
+`validation.js:3548` runs the target-advanced rollback with `projectRoot: executionCwd`, so its journal lands in the
+_worktree's_ `.wld/`. `plans doctor` only scanned the primary checkout — the record was unreachable while still blocking
+retries that run there. Doctor now scans registry worktree paths too and says where the record lives.
+
+### 10. Validation-loop tests ran against a stand-in, not the transaction
+
+`validation.js` replaced `runValidationOutcomeTransition` and `runDirectDeliveryPublicationTransition` with no-op fakes
+whenever **any** `__deps` was injected, so all six validation-loop files — 57 tests — ran with no journaling, locking,
+CAS, or rollback. The atomicity guarantees in the largest workflow in the codebase had no coverage.
+
+Removed. The real transaction now runs in every test; injecting a transition by name is still available for a test that
+needs to observe one in isolation. Twenty tests were passing `/primary` as a project root, which the real transaction
+rightly refuses (it needs somewhere to take a lock), so they now build a real temp project via
+`makeValidationProjectRoot()`. Two tests had `Deno.cwd()` reaching into the developer's own checkout.
+
+**The stand-in was hiding a production bug.** `runDirectDeliveryPublicationTransition` catches the merge error and
+returns a result, and the caller then threw a _fresh_ `Error` carrying only `message`. That discarded the typed merge
+failure — `mergeFailureKind`, `mergeWorktreePath`, `mergeRepairCwd` — so after a real merge conflict, merge repair was
+dispatched into the wrong worktree with a generic reason. The fake had a special case rethrowing those errors, which
+masked it. `TransitionResult` now carries `cause`, and the Direct Delivery caller rethrows the original error.
+
+### 11. Failed settlement was a one-line warning
+
+When recording a merge failure did not commit, validation emitted `Could not settle merge failure transaction: …` and
+continued. The repository had changed but the Plan's record of it had not, so the Plan could still read `implemented`
+with no reason attached. It now states the gap in the user's terms, names the commands that resolve it, and carries the
+note into the halt reason so a run never ends describing state it failed to write.
+
+### 12. `expectedEffects` could not fail
+
+Each wrapper marked its own expected effect immediately after the callback returned, so the check asserted that the
+wrapper had called its own function. It now lists only effects the _caller_ proves: execution preparation requires
+`plan_event_recorded`, Direct Delivery requires `direct_delivery_target_ref_moved` (a publication that never moved the
+ref did not publish), review reopen requires `worktree_registry_abandoned`. The vacuous entries are gone rather than
+left looking like proof.
+
+## Open — recommended next
+
+### A. CAS at several call sites protects a zero-width window
+
+`loadCurrentPlanRevision(projectRoot, planName)` is called inline as the `expectedRevision` argument
+(`validation.js:3397`, `:3621`, `:3871`), i.e. read microseconds before the lock. The real protection is the re-read
+under lock inside the transition; these arguments mostly document intent. Harmless, but do not count them as concurrency
+protection when reasoning about the design.
+
+### B. Registry read still throws for ordinary callers
+
+`assertRegistryIntegrity` on read is correct for code about to mutate an attempt, and finding #5 removes the way
+RunWield manufactured a violation. But a hand-edited or externally-merged registry can still make every worktree command
+fail with a bare invariant message. Consider routing those callers through a typed result that names `wld plans doctor`
+the way the transition layer now does.
