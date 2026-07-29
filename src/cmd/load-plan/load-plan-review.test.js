@@ -75,6 +75,61 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
     assertEquals(messages.some((m) => m.includes("Load canceled")), false);
 });
 
+Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("planner_re_review");
+    const fixture = makeRuntimeFixture();
+    /** @type {Array<Record<string, any>>} */
+    const planningCalls = [];
+    /** @type {Array<{ event: string, currentStatus: string }>} */
+    const events = [];
+
+    await runLoadPlanCommand(["plan-ready-rereview"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-ready-rereview"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-ready-rereview",
+                    path: "plans/plan-ready-rereview.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                events.push({ event: event.event, currentStatus: event.currentStatus });
+                return Promise.resolve({ ...event.details.triageMeta, status: "feedback" });
+            },
+            runPlanningAgent: (/** @type {Record<string, any>} */ args) => {
+                planningCalls.push(args);
+                return Promise.resolve({ outcome: "canceled" });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(prompts[0].options.slice(0, 3).map((option) => option.value), [
+        "proceed",
+        "planner_re_review",
+        "review",
+    ]);
+    assertEquals(events, [{ event: "review_reopened", currentStatus: "ready_for_work" }]);
+    assertEquals(planningCalls.length, 1);
+    assertEquals(planningCalls[0].agentName, AGENTS.PLANNER);
+    assertEquals(planningCalls[0].triageMeta.status, "feedback");
+    assertEquals(
+        String(planningCalls[0].initialRequest).includes("Plan Re-review Requested: plan-ready-rereview"),
+        true,
+    );
+});
+
 Deno.test("runLoadPlanCommand approved review uses the Runtime review interaction", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");

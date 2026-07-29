@@ -2,6 +2,11 @@
 
 ## Bugs
 
+- [ ] P0 "RunWield Workflow halted: User code review exited without approval or feedback." Workflow halt is meaningless,
+      unless the user explicitly said stop runwield should never end the workflow early. In that example a qustion
+      should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
+      else re open the review.
+
 Today, planId is assigned lazily by ensurePlanIdentity (plan-store.js:2941), and only four production callers ever
 trigger it:
 

@@ -394,6 +394,23 @@ function buildReReviewRevisionRequest(planName, feedback) {
 }
 
 /**
+ * Build the prompt that sends an executable Plan back to the planning agent for
+ * direct re-review without first opening the local review UI.
+ *
+ * @param {string} planName
+ * @returns {string}
+ */
+function buildPlannerReReviewRequest(planName) {
+    return [
+        `## Plan Re-review Requested: ${planName}`,
+        "",
+        `The user wants plans/${planName}.md to go back through Planner re-review before execution.`,
+        "Review the current Plan, revise it with the edit tool if changes are needed, and keep the existing user request in scope.",
+        "When the Plan is ready, call plan_written again to submit it for review.",
+    ].join("\n");
+}
+
+/**
  * @param {Array<{hash: string, date: string, subject: string}>} commits
  * @returns {string[]}
  */
@@ -3809,6 +3826,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
             while (true) {
                 const answer = reviewForced ? "review" : await uiAPI.promptSelect("What would you like to do?", [
                     { value: "proceed", label: "Proceed with execution" },
+                    ...(plan.attrs.status === "ready_for_work"
+                        ? [{ value: "planner_re_review", label: "Send back to Planner for re-review" }]
+                        : []),
                     { value: "review", label: "Re-open for review (edit/annotate)" },
                     {
                         value: "user_verify",
@@ -3870,6 +3890,54 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         recordPlanEvent,
                         resolveValidationExecutionContextForRecovery,
                     });
+                    return;
+                }
+
+                if (answer === "planner_re_review") {
+                    restoreAgentName = planFlowRestoreAgent;
+                    const preReviewStatus = plan.attrs.status;
+
+                    await reopenPlanForReview({
+                        projectRoot,
+                        plan,
+                        currentStatus: preReviewStatus,
+                        findWorktreeById,
+                        findWorktreeByPlanName,
+                        updateWorktreeRegistryEntry,
+                        updatePlanFrontMatter,
+                        recordPlanEvent,
+                        session,
+                    });
+                    await switchPlanAgent(agentName);
+
+                    const outcome = await runPlanningAgent({
+                        agentName,
+                        initialRequest: buildPlannerReReviewRequest(plan.planName),
+                        triageMeta: plan.attrs,
+                    });
+
+                    const planningDecision = decidePostPlanning(outcome, {
+                        planningAgentName: agentName,
+                        fallbackTriageMeta: plan.attrs,
+                    });
+                    await executePostPlanningDecision({
+                        decision: planningDecision,
+                        fallbackPlanContent: plan.markdown || plan.body || "",
+                        uiAPI,
+                        executePlan,
+                        decidePostExecution,
+                        runValidationLoop,
+                        runSlicerAgent,
+                        loadPlan,
+                        listCommitsTouchingPathsSince,
+                        session,
+                        finalizePlanImplementation,
+                        recordPlanEvent,
+                        resolveValidationExecutionContextForRecovery,
+                    });
+                    if (shouldKeepPlanningAgentActive(planningDecision)) {
+                        skipRouterRestore = true;
+                    }
                     return;
                 }
 

@@ -51,7 +51,7 @@ export function createSeeImageTool(opts) {
         name: "see_image",
         label: "see_image",
         description:
-            "Inspect an attached/session image or safe project-relative image path using the configured visionFallback.model. Returns a textual description for text-only primary models.",
+            "Inspect an image only using the configured visionFallback.model. imageRef must be an attachment:<uuid> reference or a safe project-relative .png, .jpg, .jpeg, .gif, or .webp path. This tool cannot inspect documents, source files, or other non-image files; use the appropriate file-reading tool instead. Returns a textual description for text-only primary models.",
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
             try {

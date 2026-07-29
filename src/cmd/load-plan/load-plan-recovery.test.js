@@ -157,7 +157,7 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                         affectedPaths: [],
                         status: "failed",
                         executionBaselineTree: "baseline-tree",
-                        worktreeId: "wt-1",
+                        worktreeId: "wt-non-git-reset",
                         worktreePath: "/tmp/recorded-worktree",
                         worktreeBranch: "runwield/worktree/plan-non-git-reset",
                         worktreeStatus: "execution_failed",
@@ -202,7 +202,7 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
     assertEquals(restored, false);
     assertEquals(removed, false);
     const registry = /** @type {{ id?: string, updates?: Record<string, unknown> }} */ (registryUpdate || {});
-    assertEquals(registry.id, "wt-1");
+    assertEquals(registry.id, "wt-non-git-reset");
     assertEquals(registry.updates?.status, "abandoned");
     const updates = /** @type {Record<string, unknown>} */ (clearedUpdates || {});
     assertEquals(updates.status, "ready_for_work");
