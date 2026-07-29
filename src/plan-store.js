@@ -1553,7 +1553,50 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
         }
     }
     await atomicWriteTextFile(filePath, nextMarkdown);
-    return await getPlanRevisionForText(nextMarkdown);
+    const revision = await getPlanRevisionForText(nextMarkdown);
+    recordPlanWriteRevision(filePath, revision);
+    return revision;
+}
+
+/**
+ * Revisions this process wrote, keyed by Plan path.
+ *
+ * Every RunWield-owned Plan write funnels through
+ * `writePlanMarkdownWithRevision`, so this is a complete record of what RunWield
+ * itself put on disk. It lets a failed transaction tell its own partial write
+ * apart from an unmanaged external edit: if the file still holds exactly the
+ * bytes RunWield last wrote, restoring the pre-transaction bytes cannot destroy
+ * anyone else's work. Anything else stays fail-closed.
+ *
+ * Deliberately in-process and non-durable. After a crash the map is empty, so no
+ * restore is attempted and recovery goes through the journal instead.
+ *
+ * @type {Map<string, string>}
+ */
+const planWriteRevisions = new Map();
+
+/** Bound the map so a long-lived Workspace server cannot grow it without limit. */
+const PLAN_WRITE_REVISION_LIMIT = 512;
+
+/** @param {string} filePath @param {string} revision */
+function recordPlanWriteRevision(filePath, revision) {
+    planWriteRevisions.delete(filePath);
+    planWriteRevisions.set(filePath, revision);
+    while (planWriteRevisions.size > PLAN_WRITE_REVISION_LIMIT) {
+        const oldest = planWriteRevisions.keys().next();
+        if (oldest.done) break;
+        planWriteRevisions.delete(oldest.value);
+    }
+}
+
+/**
+ * The revision RunWield last wrote to this Plan path in this process, if any.
+ *
+ * @param {string} filePath
+ * @returns {string | undefined}
+ */
+export function getRecordedPlanWriteRevision(filePath) {
+    return planWriteRevisions.get(filePath);
 }
 
 /**

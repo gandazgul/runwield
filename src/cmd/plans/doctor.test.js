@@ -157,3 +157,104 @@ Deno.test("plans doctor command prints grouped diagnosis with actionable next st
     assertEquals(output.includes("Next steps:"), true);
     assertEquals(output.includes("Run plans doctor --repair"), true);
 });
+
+Deno.test("plans doctor --repair fixes provable registry drift without touching Git artifacts", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-repair-" });
+    try {
+        await savePlan(cwd, "renamed-plan", "# Renamed\n", {
+            planId: "plan-a",
+            classification: "FEATURE",
+            status: "in_progress",
+            summary: "s",
+            affectedPaths: [],
+            worktreeId: "wt-a",
+        });
+        await savePlan(cwd, "legacy-plan", "# Legacy\n", {
+            planId: "plan-b",
+            classification: "FEATURE",
+            status: "in_progress",
+            summary: "s",
+            affectedPaths: [],
+            worktreeId: "wt-b",
+        });
+        const base = {
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc",
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        // planName drifted away from the Plan that owns the planId.
+        await addEntry(cwd, {
+            ...base,
+            id: "wt-a",
+            planName: "old-name",
+            planId: "plan-a",
+            branch: "runwield/worktree/a",
+            path: join(cwd, "wt-a"),
+        });
+        // Legacy entry with no planId, but the Plan points back at this exact
+        // attempt. addEntry refuses to create one, so write it as v1 data would be.
+        const registryPath = getWorktreeRegistryPath(cwd);
+        const registry = JSON.parse(await Deno.readTextFile(registryPath));
+        registry.entries.push({
+            ...base,
+            id: "wt-b",
+            planName: "stale-legacy-name",
+            branch: "runwield/worktree/b",
+            path: join(cwd, "wt-b"),
+        });
+        await Deno.writeTextFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+        const report = await runPlansDoctor(cwd, true);
+        assertEquals(report.repaired >= 2, true, `expected both drifts repaired, got ${report.repaired}`);
+        assertEquals((await findById(cwd, "wt-a"))?.planName, "renamed-plan");
+        // Bound by the Plan's worktreeId back-pointer, which name-based migration
+        // cannot use because the entry's cached name no longer matches any Plan.
+        assertEquals((await findById(cwd, "wt-b"))?.planId, "plan-b");
+        assertEquals((await findById(cwd, "wt-b"))?.planName, "legacy-plan");
+        // Repair is metadata-only: no attempt may be removed.
+        assertEquals((await listEntries(cwd)).length, 2);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor does not report an archived Plan's attempt as a dangling planId", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-archived-" });
+    try {
+        await Deno.mkdir(join(cwd, "plans", "archived"), { recursive: true });
+        await Deno.writeTextFile(
+            join(cwd, "plans", "archived", "done.md"),
+            injectFrontMatter("# Done\n", {
+                planId: "plan-archived",
+                classification: "FEATURE",
+                status: "verified",
+                summary: "s",
+                affectedPaths: [],
+            }),
+        );
+        await addEntry(cwd, {
+            id: "wt-archived",
+            planName: "done",
+            planId: "plan-archived",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc",
+            branch: "runwield/worktree/done",
+            path: join(cwd, "wt-archived"),
+            status: "merged",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(
+            report.issues.some((issue) => issue.kind === "registry_plan_id_not_found"),
+            false,
+            "an archived Plan still owns its planId",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});

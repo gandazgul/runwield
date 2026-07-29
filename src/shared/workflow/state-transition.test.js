@@ -1,9 +1,10 @@
 import { assert, assertEquals } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import {
     getTransitionJournalPath,
     listTransitionRecoveryRecords,
+    reconcileTransitionRecoveryRecords,
     runArchiveTransition,
     runDirectDeliveryPublicationTransition,
     runExecutionPreparationTransition,
@@ -405,13 +406,17 @@ Deno.test("execution preparation transition locks resources and journals blocked
     const cwd = await makeProject();
     try {
         await savePlan(cwd, "demo", "# Demo", { status: "ready_for_work", classification: "FEATURE" });
+        // Interrupted after the worktree exists: that is the state a journal is for.
         const result = await runExecutionPreparationTransition({
             projectRoot: cwd,
             planName: "demo",
             planId: "plan-1",
             worktreeId: "wt-1",
             targetRef: "main",
-            prepare: () => Promise.reject(new Error("registry settlement interrupted")),
+            prepare: async ({ markEffect }) => {
+                await markEffect("git_worktree_created", { worktreeId: "wt-1" });
+                throw new Error("registry settlement interrupted");
+            },
         });
 
         assertEquals(result.status, "needs_recovery");
@@ -623,11 +628,17 @@ Deno.test("semantic transition matrix records operation-specific resources, effe
         const failedCwd = await makeProject();
         try {
             await savePlan(failedCwd, "demo", "# Demo", { status: "ready_for_work", classification: "FEATURE" });
+            // Fail after a durable effect is marked: that is the case a journal
+            // exists for. A fault before any effect is a plain rejection and must
+            // stay retryable instead of stranding the Plan.
             const failure = await runValidationOutcomeTransition({
                 projectRoot: failedCwd,
                 planName: "demo",
                 outcome: "failed",
-                settle: () => Promise.reject(new Error(`${testCase.name} injected fault`)),
+                settle: async ({ markEffect }) => {
+                    await markEffect("worktree_registry_updated", { status: "validation_failed" });
+                    throw new Error(`${testCase.name} injected fault`);
+                },
             });
             assertEquals(failure.status, "needs_recovery");
             const [record] = await listTransitionRecoveryRecords(failedCwd);
@@ -636,6 +647,23 @@ Deno.test("semantic transition matrix records operation-specific resources, effe
             assert(Array.isArray(record.recoveryActions));
         } finally {
             await Deno.remove(failedCwd, { recursive: true }).catch(() => {});
+        }
+
+        // The same fault raised before any effect is a plain rejection: it must
+        // roll back cleanly and leave the Plan operable, not journal and block it.
+        const cleanCwd = await makeProject();
+        try {
+            await savePlan(cleanCwd, "demo", "# Demo", { status: "ready_for_work", classification: "FEATURE" });
+            const cleanFailure = await runValidationOutcomeTransition({
+                projectRoot: cleanCwd,
+                planName: "demo",
+                outcome: "failed",
+                settle: () => Promise.reject(new Error(`${testCase.name} clean fault`)),
+            });
+            assertEquals(cleanFailure.status, "rolled_back");
+            assertEquals((await listTransitionRecoveryRecords(cleanCwd)).length, 0);
+        } finally {
+            await Deno.remove(cleanCwd, { recursive: true }).catch(() => {});
         }
     }
 });
@@ -715,6 +743,187 @@ Deno.test("transitions block unresolved journals even when the Plan file is miss
             updates: { status: "ready_for_work" },
         });
         assertEquals(planOnly.status, "blocked");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a rejected precondition leaves no journal and the Plan stays usable", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "p-1",
+            classification: "FEATURE",
+            status: "draft",
+            summary: "s",
+            affectedPaths: [],
+        });
+        // validation_passed is not reachable from draft: a pure rule rejection.
+        await recordPlanEvent({ cwd, planName: "demo", event: "validation_passed" }).catch(() => {});
+        assertEquals(
+            (await listTransitionRecoveryRecords(cwd)).length,
+            0,
+            "a rejection that changed no bytes must not journal",
+        );
+        // The Plan must remain operable; a journal here would block it forever.
+        const attrs = await recordPlanEvent({ cwd, planName: "demo", event: "review_approved" });
+        assertEquals(attrs.status, "approved");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("Plan Recovery supersedes an unresolved journal and clears it", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "p-1",
+            classification: "FEATURE",
+            status: "in_progress",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const journalPath = getTransitionJournalPath(cwd, "stranded-transition");
+        await Deno.mkdir(dirname(journalPath), { recursive: true });
+        await Deno.writeTextFile(
+            journalPath,
+            JSON.stringify({
+                version: 1,
+                transitionId: "stranded-transition",
+                operation: "implementation_checkpoint",
+                planName: "demo",
+                resources: [{ kind: "plan", id: "demo" }],
+                state: "needs_recovery",
+                completedEffects: [{ effect: "implementation_checkpoint_settled", completedAt: "now" }],
+            }),
+        );
+        // Ordinary work stays blocked while the repository is uncertain.
+        const blocked = await runPlanFrontMatterTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            operation: "demo_refresh",
+            updates: { status: "ready_for_work" },
+        });
+        assertEquals(blocked.status, "blocked");
+
+        const recovery = await runRecoveryTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            action: "reset",
+            recover: () => Promise.resolve({ ok: true }),
+        });
+        assertEquals(recovery.status, "committed", "recovery must not be blocked by the record it resolves");
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0, "recovery retires what it superseded");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("reconciliation closes settled journals but keeps ones with durable effects", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "p-1",
+            classification: "FEATURE",
+            status: "draft",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const plan = await loadPlan(cwd, "demo");
+        const dir = dirname(getTransitionJournalPath(cwd, "x"));
+        await Deno.mkdir(dir, { recursive: true });
+        const write = async (/** @type {string} */ id, /** @type {Record<string, unknown>} */ record) =>
+            await Deno.writeTextFile(
+                getTransitionJournalPath(cwd, id),
+                JSON.stringify({ version: 1, transitionId: id, planName: "demo", ...record }),
+            );
+        await write("committed-cleanup-lost", { state: "committed", operation: "plan_event" });
+        await write("nothing-happened", {
+            state: "needs_recovery",
+            operation: "plan_event",
+            completedEffects: [],
+            beforeFacts: { plan: { revision: plan?.revision } },
+        });
+        await write("durable-effect", {
+            state: "needs_recovery",
+            operation: "direct_delivery_publication",
+            completedEffects: [{ effect: "direct_delivery_target_ref_moved", completedAt: "now" }],
+            beforeFacts: { plan: { revision: plan?.revision } },
+        });
+
+        const reconciliations = await reconcileTransitionRecoveryRecords(cwd, { apply: true });
+        const byId = new Map(reconciliations.map((entry) => [entry.transitionId, entry]));
+        assertEquals(byId.get("committed-cleanup-lost")?.resolved, true);
+        assertEquals(byId.get("nothing-happened")?.resolved, true);
+        assertEquals(byId.get("durable-effect")?.resolvable, false, "a moved target ref needs human proof");
+
+        const remaining = await listTransitionRecoveryRecords(cwd);
+        assertEquals(remaining.length, 1);
+        assertEquals(remaining[0].transitionId, "durable-effect");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a transition undoes the Plan write it can prove it made", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
+        const before = await loadPlan(cwd, "demo");
+        assert(before);
+
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            outcome: "failed",
+            settle: async ({ beforePlan }) => {
+                // A real partial write through RunWield's own writer, then a fault.
+                await updatePlanFrontMatter(cwd, "demo", { failureReason: "half applied" }, beforePlan?.attrs || {}, {
+                    expectedRevision: beforePlan?.revision,
+                });
+                throw new Error("interrupted after writing the Plan");
+            },
+        });
+
+        assertEquals(failure.status, "rolled_back", "an undone partial write must not strand the Plan");
+        const after = await loadPlan(cwd, "demo");
+        assertEquals(after?.revision, before.revision, "the Plan is byte-identical to its pre-transaction state");
+        assertEquals(after?.attrs.failureReason ?? null, null);
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a transition refuses to undo bytes written outside RunWield", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
+        const before = await loadPlan(cwd, "demo");
+        assert(before);
+
+        let externalMarkdown = "";
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            outcome: "failed",
+            settle: async ({ beforePlan }) => {
+                await updatePlanFrontMatter(cwd, "demo", { failureReason: "half applied" }, beforePlan?.attrs || {}, {
+                    expectedRevision: beforePlan?.revision,
+                });
+                // An editor or shell command writes last: RunWield is no longer the
+                // proven author, so the partial write must not be reverted over it.
+                const current = await loadPlan(cwd, "demo");
+                externalMarkdown = `${current?.markdown}\n<!-- hand edited -->\n`;
+                await Deno.writeTextFile(before.path, externalMarkdown);
+                throw new Error("interrupted after an outside edit");
+            },
+        });
+
+        assertEquals(failure.status, "needs_recovery", "unproven authorship must fail closed");
+        assertEquals(await Deno.readTextFile(before.path), externalMarkdown, "the outside edit survives untouched");
+        const [record] = await listTransitionRecoveryRecords(cwd);
+        assertEquals(record.uncertainty, "plan_bytes_changed");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

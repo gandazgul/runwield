@@ -84,6 +84,33 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../../shared/session/session-runtime-interactions.js";
+
+/**
+ * Turn a non-committed transition into an error that tells the user what to do
+ * next. The transaction layer returns typed recovery recipes precisely so an
+ * interrupted lifecycle operation is never a dead end; dropping them here would
+ * leave the user with a bare failure and no route forward.
+ *
+ * @param {import('../../shared/workflow/state-transition.ts').TransitionResult} transition
+ * @param {string} fallbackMessage
+ * @returns {Error}
+ */
+function transitionFailureError(transition, fallbackMessage) {
+    const recovery = (transition.recoveryActions || [])
+        .map((action) => {
+            const detail = action.command ? `${action.description} (${action.command})` : action.description;
+            return `  - ${action.label}: ${detail}`;
+        })
+        .join("\n");
+    const blocked = transition.status === "blocked"
+        ? "\nThis Plan has an unresolved lifecycle transition. " +
+            `Run \`${CLI_BIN} plans doctor --repair\` to close records that are provably settled.`
+        : "";
+    return new Error(
+        `${transition.message || fallbackMessage}${blocked}${recovery ? `\nRecovery options:\n${recovery}` : ""}`,
+    );
+}
+
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -810,7 +837,7 @@ async function resetHeldPlanToDraft({
         },
     });
     if (transition.status !== "committed") {
-        throw new Error(transition.message || "Hold reset recovery transaction failed.");
+        throw transitionFailureError(transition, "Hold reset recovery transaction failed.");
     }
     const transitionValue =
         /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});
@@ -1474,7 +1501,7 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
         expectedRevision: plan.revision,
     });
     if (transition.status !== "committed") {
-        throw new Error(transition.message || `Recovery metadata transition failed for ${plan.planName}.`);
+        throw transitionFailureError(transition, `Recovery metadata transition failed for ${plan.planName}.`);
     }
     return /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value);
 }
@@ -1562,7 +1589,7 @@ async function reopenPlanForReview({
         },
     });
     if (transition.status !== "committed") {
-        throw new Error(transition.message || `Review reopen transition failed for ${plan.planName}.`);
+        throw transitionFailureError(transition, `Review reopen transition failed for ${plan.planName}.`);
     }
     session.clearActiveExecutionWorkflow();
     plan.attrs = { ...plan.attrs, .../** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value) };
@@ -2268,7 +2295,7 @@ async function handlePlanRecovery({
                     },
                 });
                 if (transition.status !== "committed") {
-                    throw new Error(transition.message || `Recovery reset transaction failed for ${plan.planName}.`);
+                    throw transitionFailureError(transition, `Recovery reset transaction failed for ${plan.planName}.`);
                 }
                 const transitionValue =
                     /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});
@@ -2444,7 +2471,10 @@ async function handlePlanRecovery({
                     }),
             });
             if (resetTransition.status !== "committed") {
-                throw new Error(resetTransition.message || `Recovery reset transaction failed for ${plan.planName}.`);
+                throw transitionFailureError(
+                    resetTransition,
+                    `Recovery reset transaction failed for ${plan.planName}.`,
+                );
             }
             const resetTransitionValue =
                 /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (resetTransition.value || {});
@@ -2857,7 +2887,7 @@ async function handlePlanRecovery({
                 },
             });
             if (transition.status !== "committed") {
-                throw new Error(transition.message || `Recovery abandon transaction failed for ${plan.planName}.`);
+                throw transitionFailureError(transition, `Recovery abandon transaction failed for ${plan.planName}.`);
             }
             const transitionValue =
                 /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});

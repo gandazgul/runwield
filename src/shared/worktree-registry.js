@@ -346,6 +346,43 @@ export async function updateEntry(projectRoot, id, updates) {
 }
 
 /**
+ * Repair an entry's identity fields from proven Plan facts.
+ *
+ * `updateEntry` treats identity as immutable so ordinary callers cannot quietly
+ * rebind an attempt to a different Plan. Reconciliation still has to correct
+ * drift, so it gets this narrow door instead: a missing `planId` may be filled
+ * in, and `planName` may be corrected, but an existing `planId` is never
+ * reassigned and no path, branch, base, or status field is touched. Callers must
+ * have proven the pairing (Plan `worktreeId` naming this exact attempt, or the
+ * `planId` owner naming the Plan) before calling.
+ *
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {{ planName?: string, planId?: string }} identity
+ */
+export async function reconcileEntryIdentity(projectRoot, id, identity) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const index = entries.findIndex((entry) => entry.id === id);
+        if (index === -1) throw new Error(`Worktree registry entry not found: ${id}`);
+        const entry = entries[index];
+        if (identity.planId && entry.planId && identity.planId !== entry.planId) {
+            throw new Error(
+                `Refusing to rebind worktree registry entry ${id} from planId ${entry.planId} to ${identity.planId}.`,
+            );
+        }
+        entries[index] = {
+            ...entry,
+            ...(identity.planName ? { planName: identity.planName } : {}),
+            ...(identity.planId && !entry.planId ? { planId: identity.planId } : {}),
+            updatedAt: new Date().toISOString(),
+        };
+        await writeRegistry(projectRoot, entries);
+        return entries[index];
+    });
+}
+
+/**
  * @param {string} projectRoot
  * @param {string} id
  */

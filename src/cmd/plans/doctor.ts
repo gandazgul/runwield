@@ -13,8 +13,8 @@ import {
     loadPlanStrict,
     parsePlanFrontMatter,
 } from "../../plan-store.js";
-import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
-import { listEntries, pruneEntry } from "../../shared/worktree-registry.js";
+import { reconcileTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
+import { listEntries, pruneEntry, reconcileEntryIdentity } from "../../shared/worktree-registry.js";
 
 /** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
 interface DeliveryEvidenceSnapshot {
@@ -88,10 +88,11 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 category: "Lifecycle transitions",
                 severity: "Critical",
                 diagnosis:
-                    "A lifecycle transaction did not finish cleanly and may need recovery before more Plan work continues.",
+                    "A lifecycle transaction did not finish cleanly and blocks further work on its Plan until it is resolved.",
                 nextSteps: [
-                    "Review the transition recovery record named above.",
-                    "Use the matching RunWield recovery command or rerun the interrupted operation after confirming the worktree is safe.",
+                    `Run ${CLI_BIN} plans doctor --repair to close records that repository facts prove are already settled.`,
+                    `If it remains, run ${CLI_BIN} load-plan <plan> and choose a recovery action; recovery supersedes the record and clears it on success.`,
+                    "Records naming durable effects are left in place on purpose: confirm the worktree, branch, and target ref before forcing them.",
                 ],
             };
         case "registry_integrity_error":
@@ -397,18 +398,26 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
     await collectPlanIssues(getPlansDir(projectRoot), [], issues, discoveredPlanIds);
     await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
 
-    const records = await listTransitionRecoveryRecords(projectRoot);
-    for (const record of records) {
+    let repaired = 0;
+
+    // Retire the journals whose records repository facts prove are finished.
+    // Until one is cleared it blocks every later transition on its Plan, so
+    // leaving a provably-settled record in place would strand the Plan.
+    const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, { apply: repair });
+    for (const reconciliation of reconciliations) {
+        if (reconciliation.resolved) {
+            repaired += 1;
+            continue;
+        }
         issues.push({
             kind: "unresolved_transition",
-            planName: typeof record.planName === "string" ? record.planName : undefined,
-            message: `Unresolved transition ${record.transitionId || record.path || "unknown"}: ${
-                record.state || "needs_recovery"
-            }`,
+            planName: reconciliation.planName,
+            repairable: reconciliation.resolvable,
+            message: `Unresolved transition ${reconciliation.transitionId || "unknown"} (${
+                reconciliation.operation || "unknown operation"
+            }, ${reconciliation.state || "needs_recovery"}): ${reconciliation.reason}`,
         });
     }
-
-    let repaired = 0;
 
     let entries: Awaited<ReturnType<typeof listEntries>> = [];
     try {
@@ -465,7 +474,19 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
             }
         }
     }
-    const planIds = new Map(planResources.filter((plan) => plan.attrs.planId).map((plan) => [plan.attrs.planId, plan]));
+    // Archived Plans keep their planId and can still own a recoverable attempt,
+    // so resolving ids from active Plans alone reports a healthy archived attempt
+    // as a dangling reference. Track both, and remember which is which.
+    const planIdOwners = new Map<string, { name: string; archived: boolean }>();
+    for (const plan of planResources) {
+        if (plan.attrs.planId) planIdOwners.set(plan.attrs.planId, { name: plan.name, archived: false });
+    }
+    for (const plan of archivedPlans) {
+        const planId = (plan.attrs as { planId?: unknown }).planId;
+        if (typeof planId === "string" && !planIdOwners.has(planId)) {
+            planIdOwners.set(planId, { name: plan.name, archived: true });
+        }
+    }
     const activeByPlan = new Map();
     const seenIds = new Set();
     for (const entry of entries) {
@@ -491,33 +512,58 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 activeByPlan.set(key, entry.id);
             }
         }
-        if (entry.planId && !planIds.has(entry.planId)) {
+        if (entry.planId && !planIdOwners.has(entry.planId)) {
             issues.push({
                 kind: "registry_plan_id_not_found",
                 planName: entry.planName,
                 worktreeId: entry.id,
                 message: `Registry entry ${entry.id} references missing planId ${entry.planId}.`,
             });
-        } else if (entry.planId && planIds.get(entry.planId)?.name !== entry.planName) {
+        } else if (entry.planId && planIdOwners.get(entry.planId)?.name !== entry.planName) {
+            // planId is the stable authority and planName is display evidence, so a
+            // disagreement is provable one-directional drift: the Plan that owns the
+            // id names the attempt. Rewriting the cached name touches no Git state.
+            const owner = planIdOwners.get(entry.planId);
+            const renamable = Boolean(owner && !owner.archived);
             issues.push({
                 kind: "registry_plan_identity_mismatch",
                 planName: entry.planName,
                 worktreeId: entry.id,
-                message:
-                    `Registry entry ${entry.id} stores planName ${entry.planName} but planId ${entry.planId} belongs to ${
-                        planIds.get(entry.planId)?.name
-                    }.`,
+                repairable: renamable,
+                message: renamable
+                    ? `Registry entry ${entry.id} stores planName ${entry.planName} but planId ${entry.planId} belongs to ${owner?.name}; --repair renames the entry to match the owning Plan.`
+                    : `Registry entry ${entry.id} stores planName ${entry.planName} but planId ${entry.planId} belongs to archived Plan ${owner?.name}; restore or abandon the attempt deliberately.`,
             });
+            if (repair && renamable && owner) {
+                await reconcileEntryIdentity(projectRoot, entry.id, { planName: owner.name });
+                repaired += 1;
+            }
         }
         if (!entry.planId) {
+            // Bind a legacy entry only when exactly one Plan's worktreeId names
+            // this exact attempt. That back-pointer is real evidence; matching on
+            // Plan name is not, and name-based migration cannot resolve an entry
+            // whose cached name has drifted. Ambiguity is left for a human.
+            const claimants = planResources.filter((plan) => plan.attrs.worktreeId === entry.id && plan.attrs.planId);
+            const claimant = claimants.length === 1 ? claimants[0] : undefined;
             issues.push({
                 kind: "registry_missing_plan_id",
                 planName: entry.planName,
                 worktreeId: entry.id,
-                repairable: false,
-                message:
-                    `Registry entry ${entry.id} for ${entry.planName} has no planId; run load-plan or recreate the attempt to bind it safely.`,
+                repairable: Boolean(claimant),
+                message: claimant
+                    ? `Registry entry ${entry.id} has no planId; --repair binds it to ${claimant.attrs.planId} (${claimant.name}) because that Plan's worktreeId already names this attempt.`
+                    : claimants.length > 1
+                    ? `Registry entry ${entry.id} has no planId and ${claimants.length} Plans claim this attempt; resolve the conflicting worktreeId pointers before binding it.`
+                    : `Registry entry ${entry.id} for ${entry.planName} has no planId and no Plan claims this exact attempt; run load-plan or recreate the attempt to bind it safely.`,
             });
+            if (repair && claimant) {
+                await reconcileEntryIdentity(projectRoot, entry.id, {
+                    planId: claimant.attrs.planId,
+                    ...(claimant.name !== entry.planName ? { planName: claimant.name } : {}),
+                });
+                repaired += 1;
+            }
         }
         try {
             const stat = await Deno.stat(entry.path);
