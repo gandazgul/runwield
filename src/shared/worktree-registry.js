@@ -4,31 +4,12 @@
  */
 
 import { dirname, join } from "@std/path";
+import { getLockHostname, isPidAlive } from "./process-liveness.ts";
 import { RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
 import { listPlanResources } from "../plan-store.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
-
-function getHostname() {
-    try {
-        return Deno.hostname();
-    } catch {
-        return "unknown";
-    }
-}
-
-/** @param {number} pid */
-async function isPidAlive(pid) {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    const command = new Deno.Command("kill", {
-        args: ["-0", String(pid)],
-        stdout: "null",
-        stderr: "null",
-    });
-    const { code } = await command.output();
-    return code === 0;
-}
 
 /**
  * @typedef {Object} WorktreeRegistryEntry
@@ -260,7 +241,7 @@ async function isStaleLock(lockPath) {
         const text = await Deno.readTextFile(lockPath);
         const parsed = JSON.parse(text);
         const age = Date.now() - Number(parsed.createdAtMs || 0);
-        if (parsed.hostname && parsed.hostname === getHostname()) {
+        if (parsed.hostname && parsed.hostname === getLockHostname()) {
             return !(await isPidAlive(Number(parsed.pid)));
         }
         return age > LOCK_TIMEOUT_MS;
@@ -285,7 +266,7 @@ export async function withWorktreeRegistryLock(projectRoot, fn) {
         try {
             const file = await Deno.open(lockPath, { createNew: true, write: true });
             try {
-                const payload = JSON.stringify({ pid: Deno.pid, hostname: getHostname(), createdAtMs: Date.now() });
+                const payload = JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), createdAtMs: Date.now() });
                 await file.write(new TextEncoder().encode(payload));
             } finally {
                 file.close();

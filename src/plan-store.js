@@ -9,16 +9,18 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
+import { getLockHostname, isLockHolderGone } from "./shared/process-liveness.ts";
 import { basename, dirname, join, relative, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
     CLI_BIN,
+    getRunWieldRuntimeDir,
     isPlannedChangeClassification,
     normalizePlanClassification,
     normalizeWorkKind,
+    PLAN_LOCKS_DIR_NAME,
     PLANS_DIR_NAME,
     ROUTING_INTENT_PLANNED_CHANGE,
-    RUNWIELD_DIR_NAME,
 } from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
@@ -1421,7 +1423,12 @@ async function acquireSimpleLock(lockPath) {
                 await file.truncate(0);
                 await file.seek(0, Deno.SeekMode.Start);
                 await file.write(
-                    new TextEncoder().encode(JSON.stringify({ pid: Deno.pid, updatedAtMs: Date.now() })),
+                    new TextEncoder().encode(
+                        // The hostname makes the pid meaningful: a waiter can ask the
+                        // operating system whether this exact holder is still alive
+                        // instead of waiting out a timeout after a crash.
+                        JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() }),
+                    ),
                 );
                 await file.sync();
             };
@@ -1438,8 +1445,23 @@ async function acquireSimpleLock(lockPath) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
             let stale = false;
             try {
-                const stat = await Deno.stat(lockPath);
-                stale = !stat.mtime || Date.now() - stat.mtime.getTime() > PLAN_LOCK_STALE_MS;
+                const lockContents = await Deno.readTextFile(lockPath);
+                // Deliberately no same-process shortcut here. Re-entrancy is handled by
+                // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
+                // whether *this* call chain already holds the lock. Treating any lock
+                // written by this pid as already-held would let two concurrent tasks in
+                // one process both proceed, which is the mutual exclusion this lock
+                // exists to provide.
+                //
+                // A dead holder is reclaimed at once. Age alone cannot tell a crash from
+                // legitimate work, so waiting it out made a killed process block every
+                // operation on this Plan for the whole stale window — RunWield's own
+                // bookkeeping locking the user out of their Plan.
+                stale = await isLockHolderGone(lockContents);
+                if (!stale) {
+                    const stat = await Deno.stat(lockPath);
+                    stale = !stat.mtime || Date.now() - stat.mtime.getTime() > PLAN_LOCK_STALE_MS;
+                }
             } catch {
                 stale = true;
             }
@@ -1447,7 +1469,14 @@ async function acquireSimpleLock(lockPath) {
                 await Deno.remove(lockPath).catch(() => {});
                 continue;
             }
-            if (Date.now() > deadline) throw new Error(`Timed out waiting for Plan lock: ${lockPath}`);
+            if (Date.now() > deadline) {
+                throw new Error(
+                    `Another RunWield process has been working on this Plan for over ${
+                        Math.round(PLAN_LOCK_WAIT_TIMEOUT_MS / 60_000)
+                    } minutes and has not released it (${lockPath}). ` +
+                        `If no RunWield process is running, clear the abandoned lock with \`${CLI_BIN} plans doctor --repair\`.`,
+                );
+            }
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
     }
@@ -1487,7 +1516,7 @@ export async function withPlanLock(cwd, planName, fn) {
     const key = `${resolve(cwd)}:${lockSafeSegment(planName)}`;
     return await withProcessAwarePlanLock(
         key,
-        join(cwd, RUNWIELD_DIR_NAME, "plan-locks", `${lockSafeSegment(planName)}.lock`),
+        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, `${lockSafeSegment(planName)}.lock`),
         fn,
     );
 }
@@ -1500,7 +1529,11 @@ export async function withPlanLock(cwd, planName, fn) {
  */
 export async function withPlanCatalogLock(cwd, fn) {
     const key = `${resolve(cwd)}:catalog`;
-    return await withProcessAwarePlanLock(key, join(cwd, RUNWIELD_DIR_NAME, "plan-locks", "catalog.lock"), fn);
+    return await withProcessAwarePlanLock(
+        key,
+        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, "catalog.lock"),
+        fn,
+    );
 }
 
 /**

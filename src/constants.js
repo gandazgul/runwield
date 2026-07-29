@@ -162,6 +162,32 @@ export const PLAN_UI_COMMAND_LABEL = "plans ui";
 /** Directory name for project-local RunWield metadata. */
 export const RUNWIELD_DIR_NAME = ".wld";
 
+/**
+ * Directory holding a project's RunWield runtime state — locks and lifecycle
+ * journals.
+ *
+ * Normally `<project>/.wld`. Under a sandboxed test run it moves into that run's
+ * sandbox instead, because these files serialize work *per project* and every test
+ * that does not build its own project uses the checkout as its project root. Two
+ * test runs at once therefore contended on the same lock files in the developer's
+ * repository, and the loser waited out the lock timeout — one run could block
+ * another for minutes, and a killed run left a lock that blocked everything after
+ * it. Namespacing by sandbox keeps the mechanism identical and simply stops one run
+ * from being another run's concurrent writer.
+ *
+ * @param {string} projectRoot
+ * @returns {string}
+ */
+export function getRunWieldRuntimeDir(projectRoot) {
+    const sandboxHome = readOptionalEnv("WLD_TEST_SANDBOX_HOME");
+    if (!sandboxHome) return join(projectRoot, RUNWIELD_DIR_NAME);
+    // Keyed by project root so a test that does use its own project still gets its
+    // own lock namespace, and readable so a stray file can be traced back.
+    const slug = String(projectRoot).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-80) ||
+        "project";
+    return join(sandboxHome, "project-runtime", slug, RUNWIELD_DIR_NAME);
+}
+
 /** Durable execution worktree registry filename inside .wld/. */
 export const WORKTREE_REGISTRY_FILE = "worktrees.json";
 

@@ -2582,3 +2582,30 @@ Deno.test("onboardExternalPlan adopts a plain markdown Plan and preserves the bo
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("a Plan lock left by a dead process is reclaimed immediately", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-dead-lock-" });
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "draft", classification: "FEATURE" });
+        const lockPath = join(cwd, ".wld", "plan-locks", "demo.lock");
+        await Deno.mkdir(join(cwd, ".wld", "plan-locks"), { recursive: true });
+        // A lock naming this host and a pid that is definitely gone. Waiting for it to
+        // look old enough would block every operation on this Plan for the whole stale
+        // window, which is RunWield's bookkeeping locking the user out of their Plan.
+        await Deno.writeTextFile(
+            lockPath,
+            JSON.stringify({ pid: 2147483646, hostname: Deno.hostname(), updatedAtMs: Date.now() }),
+        );
+
+        const started = Date.now();
+        const held = await withPlanLock(cwd, "demo", () => Promise.resolve("acquired"));
+        assertEquals(held, "acquired");
+        assertEquals(
+            Date.now() - started < 5_000,
+            true,
+            "a dead holder must be reclaimed at once, not waited out",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});

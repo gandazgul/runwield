@@ -5,7 +5,7 @@
 
 import { dirname, join } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { CLI_BIN, PLAN_TRANSITIONS_DIR_NAME, RUNWIELD_DIR_NAME } from "../../constants.js";
+import { CLI_BIN, getRunWieldRuntimeDir, PLAN_TRANSITIONS_DIR_NAME } from "../../constants.js";
 import {
     atomicWriteTextFile,
     getKnownFrontMatterRevision,
@@ -153,7 +153,7 @@ export async function withOrderedTransitionResources<T>(
 }
 
 export function getTransitionJournalDir(projectRoot: string): string {
-    return join(projectRoot, RUNWIELD_DIR_NAME, PLAN_TRANSITIONS_DIR_NAME);
+    return join(getRunWieldRuntimeDir(projectRoot), PLAN_TRANSITIONS_DIR_NAME);
 }
 
 export function getTransitionJournalPath(projectRoot: string, transitionId: string): string {
