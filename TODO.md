@@ -36,6 +36,7 @@
 - [x] After hitting other on a user-interview question, there's no way to go back to the multiple choice options. The
       user has to cancel the interview and the model gets nothing. Esc should go back to the multiple choice options, a
       second Esc then cancels the interview.
+- [ ] Implement this from claude: `Resume this session with:\nclaude --resume eee7ef72-6d78-4961-bcfa-668dc80b3122`
 
 ## Backlog
 

@@ -203,6 +203,7 @@ graph TD
 - [Sessions](sessions.md) - RunWield session paths, root-agent behavior, resume, and compaction notes.
 - [Providers and models](providers.md) - RunWield credential/config paths and links to Pi provider setup.
 - [Customization](customization.md) - settings, agent overrides, prompts, skills, and themes.
+- [Troubleshooting](troubleshooting.md) - missing runtime helpers, plan review UI, plan loading, and agent overrides.
 - [Contributing](contributing.md) - development setup, contribution guidelines, ADRs, and PRDs.
 
 ### RunWield reference

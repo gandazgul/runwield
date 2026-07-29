@@ -1,36 +1,34 @@
-Language Strictness: Write 100% pure JavaScript (.js). NEVER write .ts files. NEVER use TypeScript syntax (interfaces,
-type aliases) in executable code. ALL typing must be done via JSDoc comments. Except in src/ui/workspace/ where
-TypeScript syntax is allowed.
+The main codebase is JS with JSDoc, but we are migrating to TypeScript. Write new files in TypeScript, and migrate
+existing JS files when you touch them for other reasons.
 
-JSDoc Convention: Prefer @typedef for object shapes over inline parameter annotations or inline @type casts. Define
-types once and reference them. This keeps call-sites clean and avoids style drift between agents.
+JSDoc: prefer `@typedef` for object shapes over inline annotations or `@type` casts — define the type once and reference
+it. Type function parameters in the param block, never with `@type` declarations in the function body.
 
-Example — define a typedef at the top of the module or in a shared types file:
+## Running Tests
 
-/**
+Run the suite with `deno task test` (or `deno run -A scripts/run-tests.js <deno test args>`). Never run `deno test`
+directly: it puts every test file in one process, and against a real `HOME` that rewrites your own `~/.wld` and
+mnemosyne database. `scripts/run-tests.js` gives each file its own process and a sandboxed `HOME` and
+`MNEMOSYNE_DB_PATH` — its header explains the details.
 
-- @typedef {Object} MergeOptions
-- @property {string} projectRoot
-- @property {string} branch
-- @property {string} [worktreePath]
-- @property {string[]} [allowedDirtyPaths] */
+Two rules keep it that way:
 
-then use it on the function: /** @param {MergeOptions} opts */
-
-Additionally, for function params always make function param blocks rather @type declarations in the function body.
+- Resolve home and cwd through `getHomeDir()` / `getCwd()` in `src/constants.js`. Never read `Deno.env.get("HOME")` or
+  `Deno.cwd()` directly in `src/`, and never cache either in a module-level `const` — each test file's realm loads at an
+  arbitrary moment, so a snapshot can outlive the value it captured. The `runwield/no-module-scope-process-state` lint
+  rule enforces this.
+- Wrap any test that mutates `HOME` or the working directory in `withProcessGlobalTestLock`
+  (`src/testing/process-global-lock.js`).
 
 ## Frontend UX Work
 
-For frontend UX work, use the current RunWield browser design system and Workspace surfaces as the blueprint so new UI
-work does not drift from the established look, feel, and UX.
+Use the current RunWield browser design system and Workspace surfaces as the blueprint so new UI does not drift from the
+established look and feel.
 
-- Start with `docs/design-system.md` for the canonical UX guidance, then verify details against current source.
-- Treat `src/ui/design-system/` as the shared implementation baseline: `tokens.css`, `components.css`,
-  `theme-bridge.js`, and React primitives in `components/react/RunWieldPrimitives.jsx`.
-- Use RunWield `--rw-*` semantic tokens and the theme bridge instead of hard-coded colors or a separate visual theme.
-- Preserve the current Workspace aesthetic, follow the existing patterns.
-- For Plannotator components bridge its Tailwind/Radix-style tokens back to RunWield `--rw-*` variables rather than
-  adopting a separate Plannotator visual identity.
-- Before adding a new visual pattern, check whether an existing Workspace/design-system pattern already covers it; if a
-  reusable pattern is genuinely needed, document it in `docs/design-system.md` and add it to the shared design-system
-  layer in the same change.
+- Start with `docs/design-system.md`, then verify details against current source.
+- Treat `src/ui/design-system/` as the implementation baseline: `tokens.css`, `components.css`, `theme-bridge.js`, and
+  `components/react/RunWieldPrimitives.jsx`.
+- Use `--rw-*` semantic tokens and the theme bridge, never hard-coded colors. Bridge Plannotator's Tailwind/Radix tokens
+  back to `--rw-*` rather than adopting a separate visual identity.
+- Before adding a visual pattern, check whether an existing one covers it. If a new one is genuinely needed, document it
+  in `docs/design-system.md` and add it to the shared design-system layer in the same change.

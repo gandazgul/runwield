@@ -1,0 +1,36 @@
+# Troubleshooting
+
+## Mnemosyne, Cymbal, or agent-browser is missing
+
+Interactive agent workflows require all three binaries in `PATH`. Rerun the RunWield installer to restore missing
+required helpers into the same install directory as `wld`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
+```
+
+If you use a custom directory, pass the same `WLD_INSTALL_DIR` again. Existing helper binaries found on `PATH` or in the
+install directory are preserved; remove a RunWield-managed helper from `WLD_INSTALL_DIR` before rerunning if you want
+the installer to fetch a fresh copy.
+
+## Plan review UI does not open
+
+Plan review runs inside the Workspace UI. For source checkouts, confirm the reviewed Plannotator source checkout and
+published Plannotator packages are available:
+
+- `third_party/plannotator/` exists and matches `third_party/plannotator-revision.txt`.
+- `deno task workspace:dev:plan-review` starts the fixture-backed review route.
+- `deno task workspace:check` can resolve the `@plannotator/*` imports from `deno.json` and Workspace aliases.
+
+## A saved plan is not loading
+
+- Use `wld plans` to list plan names.
+- Use `wld load-plan <name>` for a plan in `plans/`.
+- Use `wld load-plan plans/<name>.md` for a direct path.
+- Use `/resume` only for chat sessions, not plan files.
+
+## Agent behavior looks off
+
+- Check local overrides in `<repo>/.wld/agents/`.
+- Check home overrides in `~/.wld/agents/`.
+- Run `/reload` in the TUI after changing memories, settings, prompt templates, skills, models, or themes.
