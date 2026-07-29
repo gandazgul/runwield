@@ -2,16 +2,11 @@ import { assertEquals } from "@std/assert";
 import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
 import { addEntry } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
-/** @param {string} cwd @param {string[]} args */
-async function git(cwd, args) {
-    const command = new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" });
-    const output = await command.output();
-    if (output.code !== 0) {
-        throw new Error(new TextDecoder().decode(output.stderr) || new TextDecoder().decode(output.stdout));
-    }
-    return new TextDecoder().decode(output.stdout).trim();
-}
+// One base repository for the module, copied per test. Building it per test cost
+// more than every Git query these tests run against it.
+const baseRepo = defineCommittedGitFixture({ "file.txt": "base\n" });
 
 Deno.test("resolveValidationExecutionContext blocks FEATURE validation without durable mode or worktree identity", async () => {
     const cwd = await Deno.makeTempDir();
@@ -42,15 +37,9 @@ Deno.test("resolveValidationExecutionContext accepts explicit non-Git mode", asy
 });
 
 Deno.test("resolveValidationExecutionContext allows a legacy creation tree to differ from a retry baseline", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
-        await git(projectRoot, ["init", "-b", "main"]);
-        await git(projectRoot, ["config", "user.email", "test@example.com"]);
-        await git(projectRoot, ["config", "user.name", "Test"]);
-        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
-        await git(projectRoot, ["add", "."]);
-        await git(projectRoot, ["commit", "-m", "init"]);
         const creationTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
@@ -97,15 +86,9 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
 });
 
 Deno.test("resolveValidationExecutionContext recovers missing worktree metadata from registry by plan name", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
-        await git(projectRoot, ["init", "-b", "main"]);
-        await git(projectRoot, ["config", "user.email", "test@example.com"]);
-        await git(projectRoot, ["config", "user.name", "Test"]);
-        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
-        await git(projectRoot, ["add", "."]);
-        await git(projectRoot, ["commit", "-m", "init"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
@@ -260,15 +243,9 @@ Deno.test("resolveValidationExecutionContext blocks contradictory explicit mode"
 });
 
 Deno.test("resolveValidationExecutionContext recovers committed worktree baseline without a copied Plan file", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
-        await git(projectRoot, ["init", "-b", "main"]);
-        await git(projectRoot, ["config", "user.email", "test@example.com"]);
-        await git(projectRoot, ["config", "user.name", "Test"]);
-        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
-        await git(projectRoot, ["add", "."]);
-        await git(projectRoot, ["commit", "-m", "init"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
@@ -338,15 +315,9 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
 });
 
 Deno.test("resolveValidationExecutionContext blocks worktree Plan ID mismatch", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
-        await git(projectRoot, ["init", "-b", "main"]);
-        await git(projectRoot, ["config", "user.email", "test@example.com"]);
-        await git(projectRoot, ["config", "user.name", "Test"]);
-        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
-        await git(projectRoot, ["add", "."]);
-        await git(projectRoot, ["commit", "-m", "init"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
@@ -392,15 +363,9 @@ Deno.test("resolveValidationExecutionContext blocks worktree Plan ID mismatch", 
 });
 
 Deno.test("resolveValidationExecutionContext blocks selected path differing from Plan path", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
-        await git(projectRoot, ["init", "-b", "main"]);
-        await git(projectRoot, ["config", "user.email", "test@example.com"]);
-        await git(projectRoot, ["config", "user.name", "Test"]);
-        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
-        await git(projectRoot, ["add", "."]);
-        await git(projectRoot, ["commit", "-m", "init"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         const otherPath = `${parent}/other`;
