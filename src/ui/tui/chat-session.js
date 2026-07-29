@@ -502,6 +502,7 @@ export async function runScopedSubmitHandoffLoop(
  *   interactionDependencies?: import('./runtime-interaction-adapter.js').TuiInteractionDependencies,
  *   terminal?: any,
  *   skipModelWelcome?: boolean,
+ *   configureUiAPI?: (uiAPI: import('./types.js').UiAPI) => void,
  * }} [options]
  */
 export async function startInteractiveSession(initialUserRequest, options = {}) {
@@ -963,6 +964,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         getActiveModelState: () => getRuntimeSnapshot().activeModel,
         __deps: { getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd) },
     });
+    options.configureUiAPI?.(uiAPI);
 
     if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
         await renderBootBanner({
@@ -1003,7 +1005,24 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
+            if (msg.includes("No configured model found")) {
+                await maybeShowModelWelcome({
+                    uiAPI,
+                    editor,
+                    tui,
+                    sessionId,
+                    sessionRuntime,
+                    initialAgentInternalName,
+                    initialAgentModel: options.initialAgentModel,
+                    setActiveModel: setCurrentActiveModel,
+                    commandRegistry,
+                    getModelRegistry,
+                    getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
+                    forceModelSelection: true,
+                });
+            } else {
+                uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
+            }
         }
     }
 
@@ -1517,8 +1536,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         }
     }
 
-    // Trigger initial user request
-    if (initialUserRequest) {
+    // Trigger initial user request only after model setup leaves the session runnable.
+    if (initialUserRequest && !modelWelcomeResult.noModel) {
         editor.setText(initialUserRequest);
         editor.onSubmit(initialUserRequest);
     }

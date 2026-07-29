@@ -8,6 +8,8 @@ import {
     routerToGuideInquiryScenario,
     runtimeInteractionContractScenario,
     sessionReplacementContractScenario,
+    startupNoProvidersOpensLoginScenario,
+    startupProviderWithoutModelsOpensModelScenario,
 } from "./initial-scenarios.js";
 import { GoldenScenarioActor, runGoldenScenario } from "../testing/mod.js";
 
@@ -38,6 +40,8 @@ const scenarioExportNames = new Map([
     [fauxProviderProtocolScenario, "fauxProviderProtocolScenario"],
     [runtimeInteractionContractScenario, "runtimeInteractionContractScenario"],
     [sessionReplacementContractScenario, "sessionReplacementContractScenario"],
+    [startupNoProvidersOpensLoginScenario, "startupNoProvidersOpensLoginScenario"],
+    [startupProviderWithoutModelsOpensModelScenario, "startupProviderWithoutModelsOpensModelScenario"],
 ]);
 
 for (const scenario of initialGoldenScenarios) {

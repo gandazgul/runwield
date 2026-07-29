@@ -42,6 +42,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * @property {Array<(result: GoldenScenarioResult) => void | Promise<void>>} [assertions]
  * @property {number} [timeoutMs]
  * @property {boolean} [composedTui]
+ * @property {"default" | "none" | "provider-without-models"} [modelSetup]
  */
 
 /**
@@ -347,13 +348,32 @@ async function runComposedTuiScenario(scenario, options) {
             for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
             Deno.chdir(env.projectRoot);
         }
-        const initStatePath = env?.runwieldDir ? join(env.runwieldDir, "init-state.json") : null;
+        const runwieldDir = env?.runwieldDir || Deno.env.get("RUNWIELD_HOME") || null;
+        const initStatePath = runwieldDir ? join(runwieldDir, "init-state.json") : null;
         if (initStatePath) {
             const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
             _setTestStatePath(initStatePath);
         }
+        if (runwieldDir && scenario.modelSetup === "none") {
+            await Deno.remove(join(runwieldDir, "models.json")).catch(() => {});
+            await Deno.writeTextFile(
+                join(runwieldDir, "settings.json"),
+                JSON.stringify({ theme: "default", notifications: { enabled: false } }),
+            );
+        } else if (runwieldDir && scenario.modelSetup === "provider-without-models") {
+            await Deno.writeTextFile(
+                join(runwieldDir, "models.json"),
+                JSON.stringify({ providers: { empty: { name: "Empty Golden Provider", apiKey: "golden-test-key" } } }),
+            );
+            await Deno.writeTextFile(
+                join(runwieldDir, "settings.json"),
+                JSON.stringify({ theme: "default", notifications: { enabled: false } }),
+            );
+        }
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
-        const fauxProvider = await registerGoldenFauxProviderForEnvironment({ runwieldDir: env?.runwieldDir });
+        const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+            ? null
+            : await registerGoldenFauxProviderForEnvironment({ runwieldDir: runwieldDir || undefined });
         const actor = new GoldenScenarioActor(scenario.script || []);
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
@@ -371,6 +391,8 @@ async function runComposedTuiScenario(scenario, options) {
         let artifactDir = null;
         /** @type {Array<{ event: string, status?: unknown, updatedAt?: unknown }>} */
         const persistedLifecycleEvents = [];
+        /** @type {null | { registry: Record<string, any>, quitName: string, execute: unknown }} */
+        let startupModelSetupCommandPatch = null;
         const writeHeartbeat = async () => {
             if (!options.heartbeatPath) return;
             await Deno.mkdir(join(options.heartbeatPath, ".."), { recursive: true }).catch(() => {});
@@ -402,7 +424,19 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
         try {
-            fauxProvider.setResponses(
+            if (scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models") {
+                const { commandRegistry, COMMAND_NAMES } = await import("../../../cmd/registry.js");
+                startupModelSetupCommandPatch = {
+                    registry: commandRegistry,
+                    quitName: COMMAND_NAMES.QUIT,
+                    execute: commandRegistry[COMMAND_NAMES.QUIT].execute,
+                };
+                commandRegistry[COMMAND_NAMES.QUIT].execute = () => {
+                    events.push("startup:quit");
+                    return Promise.resolve();
+                };
+            }
+            fauxProvider?.setResponses(
                 (scenario.script || []).map(() => (context) => {
                     const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                     const agent = snapshot?.activeAgent || "unknown";
@@ -420,7 +454,21 @@ async function runComposedTuiScenario(scenario, options) {
                 terminal,
                 sessionStartMode: scenario.sessionStartMode || "new",
                 initialAgentName: scenario.initialAgentName || "router",
-                initialAgentModel: `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                    ? undefined
+                    : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                configureUiAPI: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                    ? (uiAPI) => {
+                        uiAPI.promptSelect = (prompt) => {
+                            events.push(`startup:prompt-select:${String(prompt).split("\n", 1)[0]}`);
+                            return Promise.resolve(null);
+                        };
+                        uiAPI.showModelSelector = () => {
+                            events.push("startup:model-selector");
+                            return Promise.resolve();
+                        };
+                    }
+                    : undefined,
                 interactionDependencies: reviewSurface
                     ? {
                         submitPlanForReview: async (request) => {
@@ -714,9 +762,13 @@ async function runComposedTuiScenario(scenario, options) {
             }
             throw error;
         } finally {
+            if (startupModelSetupCommandPatch) {
+                startupModelSetupCommandPatch.registry[startupModelSetupCommandPatch.quitName].execute =
+                    startupModelSetupCommandPatch.execute;
+            }
             unsubscribe();
             await composition?.dispose?.();
-            fauxProvider.unregister?.();
+            fauxProvider?.unregister?.();
             if (env) {
                 Deno.chdir(previousCwd);
                 if (previousHome === undefined) Deno.env.delete("HOME");

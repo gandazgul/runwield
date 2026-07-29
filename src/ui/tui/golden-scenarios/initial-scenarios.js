@@ -57,6 +57,25 @@ function assertKeyboardHelpVisible(result) {
 }
 
 /** @param {GoldenScenarioResult} result */
+function assertStartupLoginPromptOpened(result) {
+    assertEventIncludes(result, "startup:prompt-select:Welcome to RunWield");
+    assertEventIncludes(result, "startup:quit");
+    assert(
+        !result.events.includes("startup:model-selector"),
+        "Expected no-provider startup to open login before model selection.",
+    );
+}
+
+/** @param {GoldenScenarioResult} result */
+function assertStartupModelSelectorOpened(result) {
+    assertEventIncludes(result, "startup:model-selector");
+    assert(
+        !result.events.includes("startup:prompt-select:Welcome to RunWield"),
+        "Expected configured-provider startup to open model selection without login onboarding.",
+    );
+}
+
+/** @param {GoldenScenarioResult} result */
 function assertReviewFeedbackEvent(result) {
     assertEventIncludes(result, "interaction:PLAN_REVIEW:feedback");
     assertEventIncludes(result, "review_feedback");
@@ -185,6 +204,26 @@ export const helpSlashCommandScenario = {
         { type: "waitForIdle" },
     ],
     assertions: [assertHelpSlashVisible, assertKeyboardHelpVisible],
+};
+
+export const startupNoProvidersOpensLoginScenario = {
+    name: "startup-no-providers-opens-login",
+    composedTui: true,
+    modelSetup: "none",
+    terminal: { columns: 100, rows: 30 },
+    actions: [],
+    assertions: [assertStartupLoginPromptOpened],
+    timeoutMs: 5000,
+};
+
+export const startupProviderWithoutModelsOpensModelScenario = {
+    name: "startup-provider-without-models-opens-model",
+    composedTui: true,
+    modelSetup: "provider-without-models",
+    terminal: { columns: 100, rows: 30 },
+    actions: [],
+    assertions: [assertStartupModelSelectorOpened],
+    timeoutMs: 5000,
 };
 
 export const planReviewTransactionContractScenario = {
@@ -373,4 +412,6 @@ export const initialGoldenScenarios = [
     fauxProviderProtocolScenario,
     runtimeInteractionContractScenario,
     sessionReplacementContractScenario,
+    startupNoProvidersOpensLoginScenario,
+    startupProviderWithoutModelsOpensModelScenario,
 ];
