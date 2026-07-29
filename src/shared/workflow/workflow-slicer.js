@@ -207,7 +207,12 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
     const findChildren = __deps?.findPlansByParent || findPlansByParent;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const materialize = __deps?.materializeSlicerDraft || materializeSlicerDraft;
-    const lockCatalog = __deps?.withPlanCatalogLock || (__deps ? (_cwd, fn) => fn() : withPlanCatalogLock);
+    // The real catalog lock and the real decomposition transaction run in tests too.
+    // Disabling them whenever any dependency was injected left the composite Epic
+    // transaction — the thing that keeps a half-written child set from finalizing —
+    // with no coverage at all. A test that needs to observe either one injects it by
+    // name.
+    const lockCatalog = __deps?.withPlanCatalogLock || withPlanCatalogLock;
     return defineTool({
         name: "slicer_finalize_decomposition",
         label: "Finalize Epic Decomposition",
@@ -376,39 +381,32 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                         throw error;
                     }
                 };
-                const result = /** @type {any} */ (await (__deps
-                    ? lockCatalog(cwd, runFinalizeBody)
-                    : lockCatalog(cwd, async () => {
-                        const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
-                            (params.children || []);
-                        const plannedChildNames = childDescriptors.map((child) =>
-                            slicerChildPlanName(planName, child)
+                const result = /** @type {any} */ (await (lockCatalog(cwd, async () => {
+                    const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
+                        (params.children || []);
+                    const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));
+                    const existingChildNames = (await findChildren(cwd, planName)).map((child) => child.name);
+                    const transition = await runEpicDecompositionFinalizeTransition({
+                        projectRoot: cwd,
+                        planName,
+                        resources: [
+                            { kind: "catalog" },
+                            { kind: "plan", id: planName },
+                            ...existingChildNames.map((name) => ({
+                                kind: /** @type {const} */ ("plan"),
+                                id: name,
+                            })),
+                            ...plannedChildNames.map((name) => ({ kind: /** @type {const} */ ("plan"), id: name })),
+                        ],
+                        finalize: async () => await runFinalizeBody(),
+                    });
+                    if (transition.status !== "committed") {
+                        throw new Error(
+                            transition.message || `Epic decomposition transaction failed for ${planName}.`,
                         );
-                        const existingChildNames = (await findChildren(cwd, planName)).map((child) =>
-                            child.name
-                        );
-                        const transition = await runEpicDecompositionFinalizeTransition({
-                            projectRoot: cwd,
-                            planName,
-                            resources: [
-                                { kind: "catalog" },
-                                { kind: "plan", id: planName },
-                                ...existingChildNames.map((name) => ({
-                                    kind: /** @type {const} */ ("plan"),
-                                    id: name,
-                                })),
-                                ...plannedChildNames.map((name) => ({ kind: /** @type {const} */ ("plan"), id: name })),
-                            ],
-                            finalize: async () =>
-                                await runFinalizeBody(),
-                        });
-                        if (transition.status !== "committed") {
-                            throw new Error(
-                                transition.message || `Epic decomposition transaction failed for ${planName}.`,
-                            );
-                        }
-                        return transition.value;
-                    })));
+                    }
+                    return transition.value;
+                })));
                 if (result.alreadyReady) {
                     return {
                         content: [{

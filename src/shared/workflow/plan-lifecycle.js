@@ -571,6 +571,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.worktreePath = details.worktreePath || updates.worktreePath;
         updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
         updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
+        updates.deliveryEvidence = details.deliveryEvidence || updates.deliveryEvidence;
         updates.worktreeStatus = "merge_conflict";
         updates.failureReason = details.failureReason || "Worktree merge failed.";
     }

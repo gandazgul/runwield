@@ -2194,80 +2194,59 @@ Deno.test("runSlicerAgent reports failure through a system-status event", async 
 });
 
 Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before finalizing approved Epic", async () => {
-    /** @type {any} */
-    let recorded = null;
-    /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[], parentWorktreeBaseBranch?: string }>} */
-    const materializeCalls = [];
-    const childDescriptors = [{
-        order: 1,
-        title: "Child",
-        summary: "Child summary",
-        affectedPaths: ["src/a.js"],
-        dependencies: [],
-        content: "# Child",
-    }];
-    const writeResults = [{
-        name: "epic-a/01-child",
-        path: "/repo/plans/epic-a/01-child.md",
-        title: "Child",
-        action: "created",
-        dependencies: [],
-        metadata: { classification: "FEATURE", status: "draft", parentPlan: "epic-a" },
-    }];
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: {
-                            classification: "PROJECT",
-                            status: "approved",
-                            worktreeBaseBranch: "feature-base",
-                        },
-                    }),
-                ),
-            materializeSlicerDraft: (args) => {
-                materializeCalls.push(args);
-                return Promise.resolve(/** @type {any} */ (writeResults));
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", {
+            classification: "PROJECT",
+            status: "approved",
+            worktreeBaseBranch: "feature-base",
+        });
+        /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[], parentWorktreeBaseBranch?: string }>} */
+        const materializeCalls = [];
+        const childDescriptors = [{
+            order: 1,
+            title: "Child",
+            summary: "Child summary",
+            affectedPaths: ["src/a.js"],
+            dependencies: [],
+            content: "# Child",
+        }];
+        const tool = createSlicerFinalizeTool({
+            planName: "epic-a",
+            cwd,
+            __deps: {
+                // Observe the handoff, then do the real write, so the composite
+                // transaction settles against Plan files that actually exist.
+                materializeSlicerDraft: (args) => {
+                    materializeCalls.push(args);
+                    return materializeSlicerDraft(args);
+                },
             },
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: (args) => {
-                recorded = args;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
-            },
-        },
-    });
+        });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize", children: childDescriptors },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize", children: childDescriptors },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(materializeCalls.length, 1);
-    assertEquals(materializeCalls[0].cwd, "/repo");
-    assertEquals(materializeCalls[0].epicPlanName, "epic-a");
-    assertEquals(materializeCalls[0].children, childDescriptors);
-    assertEquals(materializeCalls[0].parentWorktreeBaseBranch, "feature-base");
-    assertEquals(typeof /** @type {any} */ (materializeCalls[0]).writeOptions?.onChildPlanWritten, "function");
-    assertEquals(recorded.event, "decomposition_finalized");
-    assertEquals(recorded.currentStatus, "approved");
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults,
-        error: "",
-    });
+        assertEquals(materializeCalls.length, 1);
+        assertEquals(materializeCalls[0].cwd, cwd);
+        assertEquals(materializeCalls[0].epicPlanName, "epic-a");
+        assertEquals(materializeCalls[0].children, childDescriptors);
+        assertEquals(materializeCalls[0].parentWorktreeBaseBranch, "feature-base");
+        assertEquals(typeof /** @type {any} */ (materializeCalls[0]).writeOptions?.onChildPlanWritten, "function");
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.error, "");
+        // The Epic Event and the child files commit together, so both are on disk.
+        assertEquals((await loadPlan(cwd, "epic-a"))?.attrs.status, "ready_for_work");
+        assertEquals((await loadPlan(cwd, "epic-a/01-child"))?.attrs.parentPlan, "epic-a");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("createSlicerFinalizeTool rolls back partially written child drafts when materialization fails", async () => {
@@ -2314,90 +2293,65 @@ Deno.test("createSlicerFinalizeTool rolls back partially written child drafts wh
 });
 
 Deno.test("createSlicerFinalizeTool can finalize existing child FEATURE plans without writing", async () => {
-    /** @type {any} */
-    let recorded = null;
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", status: "ready_for_decomposition" },
-                    }),
-                ),
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: (args) => {
-                recorded = args;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
-            },
-        },
-    });
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", { classification: "PROJECT", status: "ready_for_decomposition" });
+        await savePlan(cwd, "epic-a/01-child", "# Child", {
+            classification: "FEATURE",
+            status: "draft",
+            parentPlan: "epic-a",
+            order: 1,
+        });
+        const tool = createSlicerFinalizeTool({ planName: "epic-a", cwd });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize" },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize" },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(recorded.event, "decomposition_finalized");
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults: [],
-        error: "",
-    });
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.writeResults, []);
+        assertEquals(result.details.error, "");
+        assertEquals((await loadPlan(cwd, "epic-a"))?.attrs.status, "ready_for_work");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("createSlicerFinalizeTool leaves already finalized Epics ready without recording another lifecycle event", async () => {
-    let recordCount = 0;
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", status: "ready_for_work" },
-                    }),
-                ),
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: () => {
-                recordCount++;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
-            },
-        },
-    });
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", { classification: "PROJECT", status: "ready_for_work" });
+        await savePlan(cwd, "epic-a/01-child", "# Child", {
+            classification: "FEATURE",
+            status: "draft",
+            parentPlan: "epic-a",
+            order: 1,
+        });
+        const before = await loadPlan(cwd, "epic-a");
+        const tool = createSlicerFinalizeTool({ planName: "epic-a", cwd });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize" },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize" },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(recordCount, 0);
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults: [],
-        error: "",
-    });
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.writeResults, []);
+        // Replaying the Plan Event would rewrite the Epic; an already-ready Epic is
+        // left byte-identical instead.
+        assertEquals((await loadPlan(cwd, "epic-a"))?.revision, before?.revision);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("materializeSlicerDraft delegates child Planned Change draft writes without forcing parent Work Kind", async () => {
