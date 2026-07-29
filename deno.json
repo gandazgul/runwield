@@ -37,8 +37,8 @@
         "dockview-react": "npm:dockview-react@^7.0.2",
         "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
         "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.8.0",
-        "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.3.2",
-        "@plannotator/markdown-editor/themes/plannotator.css": "npm:@plannotator/markdown-editor@^0.3.2/themes/plannotator.css",
+        "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.4.0",
+        "@plannotator/markdown-editor/themes/plannotator.css": "npm:@plannotator/markdown-editor@^0.4.0/themes/plannotator.css",
         "@plannotator/ui/": "./third_party/plannotator/packages/ui/",
         "@plannotator/shared/": "./third_party/plannotator/packages/shared/",
         "@plannotator/ai/": "./third_party/plannotator/packages/ai/",
@@ -148,7 +148,9 @@
         "test:golden-tui": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
     },
     "lint": {
-        "plugins": ["./scripts/lint-rules/no-module-scope-process-state.js"]
+        "plugins": [
+            "./scripts/lint-rules/no-module-scope-process-state.js"
+        ]
     },
     "fmt": {
         "lineWidth": 120,
