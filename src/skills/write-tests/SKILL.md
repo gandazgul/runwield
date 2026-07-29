@@ -79,8 +79,8 @@ This failure mode is worst when the substitution is conditional. A helper that s
 system it touches. If a test needs twenty injected dependencies to prove one function returns the right value, it is
 asserting its own wiring.
 
-A placeholder that isn't a real thing — a path like `/primary` that no directory backs — is a signal the test needs a
-real fixture, not a more elaborate fake.
+A placeholder that isn't a real thing — a path like `/project` or `/tmp/fake` that no directory backs, an id no record
+uses — is a signal the test needs a real fixture, not a more elaborate fake.
 
 Order of preference:
 
@@ -110,6 +110,26 @@ Signs you owe a contract test:
 That last one is the test to run on your own tests: if the boundary call were subtly wrong, would anything fail? Verify
 it directly by breaking the call on purpose and confirming a test goes red.
 
+### Enforce it, do not just advise it
+
+Guidance loses to convenience. If a project cares about this, the rule belongs in CI as a ratchet, not only in a style
+guide:
+
+- Freeze today's seams per module by name — not just a count, or one seam can be swapped for another at a flat total.
+- Fail the build on any new seam, on any seam that replaces code the project owns, and on any seam whose value depends
+  on whether anything was injected at all.
+- Let the baseline tighten and never loosen, so "re-baseline it" cannot make a failure disappear.
+- Put the reasoning in the failure output. Whoever hits it — person or agent — is reading the error, not the docs.
+
+Check whether the project already has such a check before adding seams, and if it does, tighten its baseline in the same
+change that removes one.
+
+Before reaching for a fake on cost grounds, measure. "Real is too slow" is usually true of the _setup_ rather than the
+operations, and those have very different fixes. One worked example: individual Git commands measured 5–30ms each, while
+building a repository from scratch cost 29–71ms — so the answer was to build one fixture per test module and copy it for
+each test (5ms), not to fake Git at all. Reuse beats substitution whenever the real thing is fast once it exists. Save
+fakes for boundaries measured in seconds: model or agent calls, CI runs, network round trips.
+
 ```typescript
 // GOOD: real collaborator, real fixture
 test("order total includes tax", () => {
@@ -127,13 +147,13 @@ test("order total includes tax", () => {
     expect(mockTax.apply).toHaveBeenCalledWith(100);
 });
 
-// GOOD: the external boundary is faked, so every branch that derives from it is cheap
-// to reach — and all of them are covered, failures included.
-test("records the conflict when publishing hits a merge conflict", async () => {
-    const project = await makeTempProject(); // real files, real state machine
-    const result = await publish(project, { git: { merge: () => Promise.reject(mergeConflict()) } });
-    expect(result.status).toBe("needs_recovery");
-    expect(await readPlan(project, "demo")).toMatchObject({ status: "implemented" });
+// GOOD: only the external boundary is faked, so every branch that derives from it is
+// cheap to reach — and all of them are covered, failures included.
+test("keeps the order unpaid when the payment gateway declines", async () => {
+    const store = await makeTempStore(); // real files, real state machine
+    const result = await checkout(store, "order-1", { gateway: { charge: () => Promise.reject(declined()) } });
+    expect(result.status).toBe("payment_failed");
+    expect(await readOrder(store, "order-1")).toMatchObject({ status: "unpaid" });
 });
 
 // NEVER: swapping out your own transaction boundary because the fixture was awkward

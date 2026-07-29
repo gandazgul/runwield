@@ -7,6 +7,12 @@
       should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
       else re open the review.
 
+-
+  - [ ] Composition tests — the guarantee only exists when parts compose, so it can only be observed there.
+  - Mutation checks — break the call on purpose; if nothing goes red, the test is decorative. That's how I found eleven
+    ancestry tests passing with reversed arguments.
+  - Structural enforcement — no seam at all, plus a ratchet so it can't come back.
+
 Today, planId is assigned lazily by ensurePlanIdentity (plan-store.js:2941), and only four production callers ever
 trigger it:
 

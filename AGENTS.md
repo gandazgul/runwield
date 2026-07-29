@@ -24,6 +24,37 @@ Two rules keep it that way:
 - Wrap any test that mutates `HOME` or the working directory in `withProcessGlobalTestLock`
   (`src/testing/process-global-lock.js`).
 
+## Test Seams and Dependency Injection
+
+RunWield is migrating off the `__deps`/`__testDeps` dependency bag to capability ports. See
+`plans/replace-deps-bag-with-capability-ports.md` for the plan and `src/skills/write-tests/SKILL.md` for the reasoning.
+Until that finishes, `deno task seams:check` guards the ground already taken, and it runs in `deno task ci`.
+
+An injection seam is a public claim that something is **not ours**. Treat it as an architectural decision, not a testing
+convenience:
+
+- **Never add a seam for RunWield's own machinery.** Plan writes, lifecycle transitions, registry writes, and locks are
+  the code under test even when they are not the subject of the test. A guarantee that only exists when components
+  compose (atomicity, "all or nothing") cannot be tested with the composing part removed. The ratchet fails the build on
+  any new one.
+- **Never write a conditional seam.** `__deps ? fake : real` makes a module's behaviour depend on whether anything at
+  all was injected, so injecting a clock can silently disable a transaction. This has caused real defects here and is
+  rejected with no exceptions.
+- **Do not add seams to a module that has none**, and do not add a new name to a module that has some. Fake the
+  _environment_ instead: `defineGitFixture` (`src/shared/git-test-fixture.ts`) gives a real Git repository for ~5ms, and
+  `makeValidationProjectRoot` gives a real Plan project. A real fixture is cheaper than authoring a fake.
+- **Seams are for genuine boundaries only**: things that leave the process (subprocess, network), or are slow and
+  nondeterministic (agent turns, CI runs, clocks). Everything else is ours.
+
+When you legitimately _remove_ seams, tighten the ratchet in the same change:
+
+```
+deno task seams:update
+```
+
+It only ever tightens — an update that would add a seam or raise a count is rejected, so re-baselining is not a way to
+make a failure go away. If `seams:check` fails, fix the code; do not update the baseline to match it.
+
 ## Frontend UX Work
 
 Use the current RunWield browser design system and Workspace surfaces as the blueprint so new UI does not drift from the
