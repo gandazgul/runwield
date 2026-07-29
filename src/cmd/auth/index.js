@@ -1,4 +1,4 @@
-/**
+/*
  * @module cmd/auth
  * Login/logout/status commands for RunWield-owned model authentication.
  */
@@ -13,6 +13,13 @@ const LOGIN_BACK_VALUE = "__runwield_login_back__";
 /**
  * @typedef {Object} CommandDependencies
  * @property {typeof getModelRegistryFn} [getModelRegistry]
+ */
+
+/**
+ * @typedef {Object} AuthProviderOption
+ * @property {string} id
+ * @property {string} name
+ * @property {"oauth" | "api_key"} authType
  */
 
 /**
@@ -32,6 +39,14 @@ function getUi(options) {
 }
 
 /**
+ * @param {any} registry
+ * @returns {Promise<void>}
+ */
+async function hydrateModelRegistry(registry) {
+    if (typeof registry.getRuntime === "function") await registry.getRuntime();
+}
+
+/**
  * @param {unknown} registry
  * @param {string} providerId
  * @returns {string}
@@ -46,12 +61,83 @@ function getProviderDisplayName(registry, providerId) {
 }
 
 /**
- * @param {{ authStorage: { getOAuthProviders: () => Array<{ id: string, name: string }> }, getAll: () => Array<{ provider: string }> }} registry
+ * @param {any} registry
+ * @returns {Array<{ id: string, name: string }>}
+ */
+function getOAuthProviders(registry) {
+    if (typeof registry.getOAuthProviders === "function") return registry.getOAuthProviders();
+    return registry.authStorage?.getOAuthProviders?.() || [];
+}
+
+/**
+ * @param {any} registry
+ * @returns {Promise<AuthProviderOption[]>}
+ */
+async function listStoredCredentialProviders(registry) {
+    if (typeof registry.listStoredCredentialProviders === "function") {
+        return await registry.listStoredCredentialProviders();
+    }
+    /** @type {AuthProviderOption[]} */
+    const providers = [];
+    for (const providerId of registry.authStorage?.list?.() || []) {
+        const credential = registry.authStorage.get(providerId);
+        if (credential) {
+            providers.push({
+                id: providerId,
+                name: getProviderDisplayName(registry, providerId),
+                authType: credential.type,
+            });
+        }
+    }
+    return providers.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * @param {any} registry
+ * @param {string} providerId
+ * @returns {Promise<"oauth" | "api_key" | undefined>}
+ */
+async function getStoredCredentialType(registry, providerId) {
+    if (typeof registry.getStoredCredentialType === "function") {
+        return await registry.getStoredCredentialType(providerId);
+    }
+    return registry.authStorage?.get?.(providerId)?.type;
+}
+
+/**
+ * @param {any} registry
+ * @param {string} providerId
+ * @param {string} apiKey
+ * @returns {Promise<void>}
+ */
+async function setProviderApiKey(registry, providerId, apiKey) {
+    if (typeof registry.setProviderApiKey === "function") {
+        await registry.setProviderApiKey(providerId, apiKey);
+        return;
+    }
+    await registry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+}
+
+/**
+ * @param {any} registry
+ * @param {string} providerId
+ * @returns {Promise<void>}
+ */
+async function logoutProvider(registry, providerId) {
+    if (typeof registry.logoutProvider === "function") {
+        await registry.logoutProvider(providerId);
+        return;
+    }
+    await registry.authStorage.logout(providerId);
+}
+
+/**
+ * @param {{ authStorage?: { getOAuthProviders?: () => Array<{ id: string, name: string }> }, getOAuthProviders?: () => Array<{ id: string, name: string }>, getAll: () => Array<{ provider: string }> }} registry
  * @param {"oauth" | "api_key"} authType
- * @returns {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>}
+ * @returns {Array<AuthProviderOption>}
  */
 export function getLoginProviderOptions(registry, authType) {
-    const oauthProviders = registry.authStorage.getOAuthProviders();
+    const oauthProviders = getOAuthProviders(registry);
     const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
 
     if (authType === "oauth") {
@@ -68,23 +154,11 @@ export function getLoginProviderOptions(registry, authType) {
 }
 
 /**
- * @param {{ authStorage: { list: () => string[], get: (providerId: string) => { type: "oauth" | "api_key" } | undefined } }} registry
- * @returns {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>}
+ * @param {any} registry
+ * @returns {Promise<AuthProviderOption[]>}
  */
-function getLogoutProviderOptions(registry) {
-    /** @type {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>} */
-    const providers = [];
-    for (const providerId of registry.authStorage.list()) {
-        const credential = registry.authStorage.get(providerId);
-        if (credential) {
-            providers.push({
-                id: providerId,
-                name: getProviderDisplayName(registry, providerId),
-                authType: credential.type,
-            });
-        }
-    }
-    return providers.sort((a, b) => a.name.localeCompare(b.name));
+async function getLogoutProviderOptions(registry) {
+    return (await listStoredCredentialProviders(registry)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -99,9 +173,6 @@ function parseAuthType(value) {
 }
 
 /**
- * Wrap a terminal-visible URL in an OSC 8 hyperlink so wrapped URLs remain a
- * single clickable target in terminals that support explicit hyperlinks.
- *
  * @param {string} url
  * @returns {string}
  */
@@ -127,10 +198,10 @@ async function promptForAuthType(uiAPI) {
 
 /**
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>} providers
+ * @param {AuthProviderOption[]} providers
  * @param {"login" | "logout"} mode
  * @param {{ allowBack?: boolean }} [options]
- * @returns {Promise<{ id: string, name: string, authType: "oauth" | "api_key" } | "back" | null>}
+ * @returns {Promise<AuthProviderOption | "back" | null>}
  */
 async function promptForProvider(uiAPI, providers, mode, options = {}) {
     const providerOptions = providers.map((provider) => ({
@@ -154,48 +225,91 @@ async function promptForProvider(uiAPI, providers, mode, options = {}) {
 /**
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {{ id: string, name: string }} provider
- * @param {{ authStorage: { login: (providerId: string, callbacks: any) => Promise<void> } }} registry
+ * @param {any} registry
  */
 async function loginWithSubscription(uiAPI, provider, registry) {
     try {
-        await registry.authStorage.login(provider.id, {
-            onAuth: (/** @type {{ url: string, instructions?: string }} */ info) => {
-                uiAPI.appendSystemMessage(
-                    [
-                        `Open this URL to login to ${provider.name}:`,
-                        formatClickableTerminalUrl(info.url),
-                        info.instructions || "",
-                    ].filter(Boolean).join("\n"),
-                );
-            },
-            onPrompt: async (/** @type {{ message: string, placeholder?: string }} */ prompt) => {
-                const value = await uiAPI.promptText(prompt.message, {
-                    placeholder: prompt.placeholder,
-                    allowEmpty: false,
-                });
-                if (value === null) throw new Error("Login cancelled");
-                return value;
-            },
-            onProgress: (/** @type {string} */ message) => {
-                uiAPI.appendSystemMessage(message);
-            },
-            onSelect: async (
-                /** @type {{ message: string, options: Array<{ id: string, label: string }> }} */ prompt,
-            ) => {
-                const selected = await uiAPI.promptSelect(
-                    prompt.message,
-                    prompt.options.map((option) => ({ value: option.id, label: option.label })),
-                );
-                return selected || undefined;
-            },
-            onManualCodeInput: async () => {
-                const value = await uiAPI.promptText("Paste redirect URL below, or complete login in browser:", {
-                    allowEmpty: false,
-                });
-                if (value === null) throw new Error("Login cancelled");
-                return value;
-            },
-        });
+        if (typeof registry.loginProvider === "function") {
+            await registry.loginProvider(provider.id, "oauth", {
+                notify: (/** @type {import('@earendil-works/pi-ai').AuthEvent} */ event) => {
+                    if (event.type === "auth_url") {
+                        uiAPI.appendSystemMessage(
+                            [
+                                `Open this URL to login to ${provider.name}:`,
+                                formatClickableTerminalUrl(event.url),
+                                event.instructions || "",
+                            ].filter(Boolean).join("\n"),
+                        );
+                    } else if (event.type === "progress" || event.type === "info") {
+                        uiAPI.appendSystemMessage(event.message);
+                    } else if (event.type === "device_code") {
+                        uiAPI.appendSystemMessage(
+                            `Open ${
+                                formatClickableTerminalUrl(event.verificationUri)
+                            } and enter code ${event.userCode}`,
+                        );
+                    }
+                },
+                prompt: async (/** @type {import('@earendil-works/pi-ai').AuthPrompt} */ prompt) => {
+                    if (prompt.type === "select") {
+                        const selected = await uiAPI.promptSelect(
+                            prompt.message,
+                            prompt.options.map((/** @type {{ id: string, label: string }} */ option) => ({
+                                value: option.id,
+                                label: option.label,
+                            })),
+                        );
+                        if (!selected) throw new Error("Login cancelled");
+                        return selected;
+                    }
+                    const value = await uiAPI.promptText(prompt.message, {
+                        placeholder: prompt.placeholder,
+                        allowEmpty: false,
+                    });
+                    if (value === null) throw new Error("Login cancelled");
+                    return value;
+                },
+            });
+        } else {
+            await registry.authStorage.login(provider.id, {
+                onAuth: (/** @type {{ url: string, instructions?: string }} */ info) => {
+                    uiAPI.appendSystemMessage(
+                        [
+                            `Open this URL to login to ${provider.name}:`,
+                            formatClickableTerminalUrl(info.url),
+                            info.instructions || "",
+                        ].filter(Boolean).join("\n"),
+                    );
+                },
+                onPrompt: async (/** @type {{ message: string, placeholder?: string }} */ prompt) => {
+                    const value = await uiAPI.promptText(prompt.message, {
+                        placeholder: prompt.placeholder,
+                        allowEmpty: false,
+                    });
+                    if (value === null) throw new Error("Login cancelled");
+                    return value;
+                },
+                onProgress: (/** @type {string} */ message) => {
+                    uiAPI.appendSystemMessage(message);
+                },
+                onSelect: async (
+                    /** @type {{ message: string, options: Array<{ id: string, label: string }> }} */ prompt,
+                ) => {
+                    const selected = await uiAPI.promptSelect(
+                        prompt.message,
+                        prompt.options.map((option) => ({ value: option.id, label: option.label })),
+                    );
+                    return selected || undefined;
+                },
+                onManualCodeInput: async () => {
+                    const value = await uiAPI.promptText("Paste redirect URL below, or complete login in browser:", {
+                        allowEmpty: false,
+                    });
+                    if (value === null) throw new Error("Login cancelled");
+                    return value;
+                },
+            });
+        }
         uiAPI.abortActivePrompt?.();
     } catch (error) {
         uiAPI.abortActivePrompt?.();
@@ -206,17 +320,15 @@ async function loginWithSubscription(uiAPI, provider, registry) {
 /**
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {{ id: string, name: string }} provider
- * @param {{ authStorage: { set: (providerId: string, credential: { type: "api_key", key: string }) => void } }} registry
+ * @param {any} registry
  */
 async function loginWithApiKey(uiAPI, provider, registry) {
     const apiKey = await uiAPI.promptText(`Enter API key for ${provider.name}:`, {
         allowEmpty: false,
         persistResult: false,
     });
-    if (apiKey === null) {
-        throw new Error("Login cancelled");
-    }
-    registry.authStorage.set(provider.id, { type: "api_key", key: apiKey.trim() });
+    if (apiKey === null) throw new Error("Login cancelled");
+    await setProviderApiKey(registry, provider.id, apiKey.trim());
 }
 
 /**
@@ -225,10 +337,7 @@ async function loginWithApiKey(uiAPI, provider, registry) {
  */
 async function configureInteractiveSessionAfterLogin(options, registry) {
     const availableModels = typeof registry.getAvailable === "function" ? registry.getAvailable() : [];
-    if (availableModels.length > 0) {
-        await options.uiAPI?.showModelSelector?.();
-    }
-
+    if (availableModels.length > 0) await options.uiAPI?.showModelSelector?.();
     if (options.sessionId && options.sessionRuntime) {
         await options.sessionRuntime.switchAgent(options.sessionId, { agentName: AGENTS.ROUTER });
     }
@@ -247,18 +356,17 @@ export async function runLoginCommand(argv, options = {}) {
 
     const deps = getDeps(options);
     const registry = (deps.getModelRegistry || getModelRegistryFn)();
+    await hydrateModelRegistry(registry);
     let authType = argv[0] ? parseAuthType(argv[0]) : null;
     const providerArg = authType ? argv[1] : argv[0];
 
     if (!authType && providerArg) {
-        const oauthProviderIds = new Set(registry.authStorage.getOAuthProviders().map((provider) => provider.id));
+        const oauthProviderIds = new Set(getOAuthProviders(registry).map((provider) => provider.id));
         authType = oauthProviderIds.has(providerArg) ? "oauth" : "api_key";
     }
 
     while (true) {
-        if (!authType) {
-            authType = await promptForAuthType(uiAPI);
-        }
+        if (!authType) authType = await promptForAuthType(uiAPI);
         if (!authType) return;
 
         const providers = getLoginProviderOptions(registry, authType);
@@ -281,16 +389,11 @@ export async function runLoginCommand(argv, options = {}) {
         if (!provider) return;
 
         try {
-            if (provider.authType === "oauth") {
-                await loginWithSubscription(uiAPI, provider, registry);
-            } else {
-                await loginWithApiKey(uiAPI, provider, registry);
-            }
-            registry.refresh?.();
+            if (provider.authType === "oauth") await loginWithSubscription(uiAPI, provider, registry);
+            else await loginWithApiKey(uiAPI, provider, registry);
+            await registry.refresh?.();
             uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
-            if (!options.skipPostLoginSetup) {
-                await configureInteractiveSessionAfterLogin(options, registry);
-            }
+            if (!options.skipPostLoginSetup) await configureInteractiveSessionAfterLogin(options, registry);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (message !== "Login cancelled") {
@@ -314,7 +417,8 @@ export async function runLogoutCommand(argv, options = {}) {
 
     const deps = getDeps(options);
     const registry = (deps.getModelRegistry || getModelRegistryFn)();
-    const providers = getLogoutProviderOptions(registry);
+    await hydrateModelRegistry(registry);
+    const providers = await getLogoutProviderOptions(registry);
     if (providers.length === 0) {
         uiAPI.appendSystemMessage("No stored credentials to remove.");
         return;
@@ -329,8 +433,8 @@ export async function runLogoutCommand(argv, options = {}) {
     if (!provider) return;
 
     try {
-        registry.authStorage.logout(provider.id);
-        registry.refresh?.();
+        await logoutProvider(registry, provider.id);
+        await registry.refresh?.();
         uiAPI.appendSystemMessage(`Logged out of ${provider.name}.`);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -339,15 +443,23 @@ export async function runLogoutCommand(argv, options = {}) {
 }
 
 /**
- * @param {{ authStorage: { get: (providerId: string) => { type: string } | undefined }, getProviderAuthStatus: (providerId: string) => { source?: string, label?: string }, getAvailable: () => unknown[], getAll: () => Array<{ provider: string }> }} registry
+ * @param {any} registry
  * @param {string} providerId
  * @returns {string}
  */
-function formatProviderStatus(registry, providerId) {
-    const credential = registry.authStorage.get(providerId);
+function formatProviderStatusSync(registry, providerId) {
+    const credential = registry.authStorage?.get?.(providerId);
     if (credential?.type === "oauth") return "subscription stored";
     if (credential?.type === "api_key") return "API key stored";
+    return formatProviderAuthStatus(registry, providerId);
+}
 
+/**
+ * @param {any} registry
+ * @param {string} providerId
+ * @returns {string}
+ */
+function formatProviderAuthStatus(registry, providerId) {
     const status = registry.getProviderAuthStatus(providerId);
     switch (status.source) {
         case "environment":
@@ -368,29 +480,60 @@ function formatProviderStatus(registry, providerId) {
 }
 
 /**
- * @param {{ authStorage: { getOAuthProviders: () => Array<{ id: string, name: string }>, list: () => string[], get: (providerId: string) => { type: string } | undefined }, getProviderAuthStatus: (providerId: string) => { source?: string, label?: string }, getAvailable: () => unknown[], getAll: () => Array<{ provider: string }> }} registry
+ * @param {any} registry
+ * @param {string} providerId
+ * @returns {Promise<string>}
+ */
+async function formatProviderStatusAsync(registry, providerId) {
+    const credentialType = await getStoredCredentialType(registry, providerId);
+    if (credentialType === "oauth") return "subscription stored";
+    if (credentialType === "api_key") return "API key stored";
+    return formatProviderAuthStatus(registry, providerId);
+}
+
+/**
+ * Synchronous test/helper formatting for legacy registry fakes.
+ * @param {any} registry
  * @returns {string}
  */
 export function formatAuthStatus(registry) {
-    const oauthProviderIds = registry.authStorage.getOAuthProviders().map((provider) => provider.id);
-    const configuredProviderIds = registry.authStorage.list();
+    const oauthProviderIds = getOAuthProviders(registry).map((provider) => provider.id);
+    const configuredProviderIds = registry.authStorage?.list?.() || [];
     const providerIds = new Set([...oauthProviderIds, ...configuredProviderIds]);
-
     for (const model of registry.getAll()) {
         const status = registry.getProviderAuthStatus(model.provider);
         if (status.source) providerIds.add(model.provider);
     }
+    return formatAuthStatusLines(registry, providerIds, formatProviderStatusSync);
+}
 
-    const lines = [
-        `Available models: ${registry.getAvailable().length}`,
-        "Providers:",
-    ];
+/**
+ * @param {any} registry
+ * @returns {Promise<string>}
+ */
+async function formatAuthStatusForRuntime(registry) {
+    const oauthProviderIds = getOAuthProviders(registry).map((provider) => provider.id);
+    const storedProviders = await listStoredCredentialProviders(registry);
+    const providerIds = new Set([...oauthProviderIds, ...storedProviders.map((provider) => provider.id)]);
+    for (const model of registry.getAll()) {
+        const status = registry.getProviderAuthStatus(model.provider);
+        if (status.source) providerIds.add(model.provider);
+    }
+    return await formatAuthStatusLinesAsync(registry, providerIds);
+}
 
+/**
+ * @param {any} registry
+ * @param {Set<string>} providerIds
+ * @param {(registry: any, providerId: string) => string} formatProviderStatus
+ * @returns {string}
+ */
+function formatAuthStatusLines(registry, providerIds, formatProviderStatus) {
+    const lines = [`Available models: ${registry.getAvailable().length}`, "Providers:"];
     if (providerIds.size === 0) {
         lines.push("- none configured");
         return lines.join("\n");
     }
-
     for (const providerId of Array.from(providerIds).sort()) {
         lines.push(
             `- ${getProviderDisplayName(registry, providerId)} (${providerId}): ${
@@ -398,7 +541,28 @@ export function formatAuthStatus(registry) {
             }`,
         );
     }
+    return lines.join("\n");
+}
 
+/**
+ * @param {any} registry
+ * @param {Set<string>} providerIds
+ * @returns {Promise<string>}
+ */
+async function formatAuthStatusLinesAsync(registry, providerIds) {
+    const lines = [`Available models: ${registry.getAvailable().length}`, "Providers:"];
+    if (providerIds.size === 0) {
+        lines.push("- none configured");
+        return lines.join("\n");
+    }
+    for (const providerId of Array.from(providerIds).sort()) {
+        lines.push(
+            `- ${getProviderDisplayName(registry, providerId)} (${providerId}): ${await formatProviderStatusAsync(
+                registry,
+                providerId,
+            )}`,
+        );
+    }
     return lines.join("\n");
 }
 
@@ -409,12 +573,8 @@ export function formatAuthStatus(registry) {
 export async function runStatusCommand(_argv, options = {}) {
     const deps = getDeps(options);
     const registry = (deps.getModelRegistry || getModelRegistryFn)();
-    const status = formatAuthStatus(registry);
-
-    if (options.uiAPI) {
-        options.uiAPI.appendSystemMessage(status);
-    } else {
-        console.log(status);
-    }
-    await Promise.resolve();
+    await hydrateModelRegistry(registry);
+    const status = await formatAuthStatusForRuntime(registry);
+    if (options.uiAPI) options.uiAPI.appendSystemMessage(status);
+    else console.log(status);
 }

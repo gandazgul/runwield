@@ -351,7 +351,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     const model = typeof mergedAttrs.model === "string" && mergedAttrs.model.trim() ? mergedAttrs.model.trim() : "";
     const description = typeof mergedAttrs.description === "string" ? mergedAttrs.description.trim() : "";
     const thinkingLevel = typeof mergedAttrs.thinkingLevel === "string" &&
-            ["off", "minimal", "low", "medium", "high", "xhigh"].includes(mergedAttrs.thinkingLevel)
+            ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(mergedAttrs.thinkingLevel)
         ? mergedAttrs.thinkingLevel
         : undefined;
     const temperature = normalizeTemperature(mergedAttrs.temperature);

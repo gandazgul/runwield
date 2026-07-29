@@ -446,7 +446,7 @@ export async function setActiveModel(runtime, sessionId, model, provider) {
 }
 
 /**
- * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"} level
+ * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} level
  * @param {string} [projectRoot]
  */
 export async function persistThinkingLevel(level, projectRoot) {
@@ -720,6 +720,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         ["medium", "thinkingMedium"],
         ["high", "thinkingHigh"],
         ["xhigh", "thinkingXhigh"],
+        ["max", "thinkingMax"],
     ]);
 
     /**

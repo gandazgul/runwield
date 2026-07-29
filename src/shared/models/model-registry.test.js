@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { discoverProviderModel, migratePiModelConfigOnce } from "./model-registry.js";
+import { discoverProviderModel, migratePiModelConfigOnce, RunWieldModelRegistry } from "./model-registry.js";
 
 Deno.test("migratePiModelConfigOnce copies Pi files into RunWield when missing", async () => {
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-config-" });
@@ -56,6 +56,82 @@ Deno.test("migratePiModelConfigOnce supports legacy ~/.pi file location", async 
 
         assertEquals(result.copied, ["auth.json"]);
         assertEquals(await Deno.readTextFile(join(runwieldDir, "auth.json")), '{"openai-codex":{"type":"oauth"}}');
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("RunWieldModelRegistry availability delegates to runtime snapshot when hydrated", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-registry-runtime-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "models.json"),
+            JSON.stringify({
+                providers: {
+                    configured: {
+                        baseUrl: "https://example.test/v1",
+                        api: "openai-completions",
+                        apiKey: "configured-key",
+                        models: [{ id: "local-only" }],
+                    },
+                },
+            }),
+        );
+        const availableModel = { provider: "runtime", id: "available" };
+        const registry = new RunWieldModelRegistry({
+            configDir: tempDir,
+            runtime: /** @type {any} */ ({
+                getAvailableSnapshot: () => [availableModel],
+            }),
+        });
+
+        assertEquals(registry.getAvailable(), [availableModel]);
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("RunWieldModelRegistry sync availability filters local models by configured auth", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-registry-sync-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "models.json"),
+            JSON.stringify({
+                providers: {
+                    authed: {
+                        baseUrl: "https://authed.example.test/v1",
+                        api: "openai-completions",
+                        apiKey: "configured-key",
+                        models: [{ id: "available" }],
+                    },
+                    unauthed: {
+                        baseUrl: "https://unauthed.example.test/v1",
+                        api: "openai-completions",
+                        models: [{ id: "hidden" }],
+                    },
+                },
+            }),
+        );
+        const registry = new RunWieldModelRegistry({ configDir: tempDir });
+
+        assertEquals(registry.getAvailable().map((model) => `${model.provider}/${model.id}`), ["authed/available"]);
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("RunWieldModelRegistry cold sync availability includes built-in models with stored credentials", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-registry-cold-builtin-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "auth.json"),
+            JSON.stringify({ openai: { type: "api_key", key: "test-key" } }),
+        );
+        const registry = new RunWieldModelRegistry({ configDir: tempDir });
+
+        const availableRefs = registry.getAvailable().map((model) => `${model.provider}/${model.id}`);
+
+        assertEquals(availableRefs.some((ref) => ref.startsWith("openai/")), true);
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }

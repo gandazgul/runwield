@@ -62,7 +62,7 @@ const TOOL_PARAMS = Type.Object({
  * @property {(cwd: string) => Promise<DelegatedChangeSnapshot | null>} [captureChangeSnapshot]
  * @property {(cwd: string) => Promise<string[] | null>} [captureChangedPaths]
  * @property {string} [modelOverride]
- * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [thinkingLevelOverride]
+ * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [thinkingLevelOverride]
  */
 
 /**

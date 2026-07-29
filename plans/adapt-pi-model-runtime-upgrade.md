@@ -19,20 +19,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T12:29:26-04:00"
-updatedAt: "2026-07-28T13:49:41.733Z"
-status: "implemented"
+updatedAt: "2026-07-29T03:36:39.245Z"
+status: "verified"
 origin: "internal"
-failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: src/shared/session/hosted-session.js"
 implementedAt: "2026-07-28T03:06:10.921Z"
+verifiedAt: "2026-07-29T03:36:39.245Z"
 userVerifiedAt: null
+userVerificationNote: null
 executionReport: "- Implemented Pi 0.82.1 runtime integration: `ModelRuntime` creation/caching, RunWield model facade, `createAgentSession({ modelRuntime })`, TUI model selector runtime wiring, and `streamFunction` temperature wrapping.\n- Updated Earendil imports to upgradeable `^0.82.1` ranges, removed latest-observed aliases, and regenerated `deno.lock` resolving Pi packages to 0.82.1.\n- Added end-to-end `max` thinking-level support and coverage for HostedSession/SessionRuntime cycling.\n- Verification passed: `deno task -q check`, targeted session/model tests, `deno task -q lint`, `deno task -q test`, and `deno task -q ci`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "e820905a35e2d9f2d9f9589e4ade4a94399ebade"
-worktreeId: "0131223f"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-adapt-pi-model-runtime-upgrade-0131223f"
-worktreeBranch: "runwield/worktree/adapt-pi-model-runtime-upgrade-0131223f"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "2f43f58fefbdd77aaf8c6d38abfd4cee7e875c9e"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "2898b4ee20bfee3834515c968f48dacf092b8db2"
 ---
 
 # Adapt Pi ModelRuntime Upgrade
