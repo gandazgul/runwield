@@ -5,7 +5,14 @@
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { join } from "@std/path";
-import { CLI_BIN, getCwd, PLAN_LOCKS_DIR_NAME, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE } from "../../constants.js";
+import {
+    CLI_BIN,
+    getCwd,
+    getRunWieldRuntimeDir,
+    PLAN_LOCKS_DIR_NAME,
+    RUNWIELD_DIR_NAME,
+    WORKTREE_REGISTRY_FILE,
+} from "../../constants.js";
 import {
     getPlansDir,
     listArchivedPlans,
@@ -19,6 +26,7 @@ import {
     reconcileTransitionRecoveryRecords,
     type TransitionReconciliation,
 } from "../../shared/workflow/state-transition.ts";
+import { isLockHolderGone, isLockHolderUnattributable } from "../../shared/process-liveness.ts";
 import {
     inspectWorktreeRegistry,
     listEntries,
@@ -736,7 +744,7 @@ async function collectStalePlanLockIssues(
     projectRoot: string,
     repair: boolean,
 ): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
-    const lockDir = join(projectRoot, RUNWIELD_DIR_NAME, PLAN_LOCKS_DIR_NAME);
+    const lockDir = join(getRunWieldRuntimeDir(projectRoot), PLAN_LOCKS_DIR_NAME);
     const STALE_AFTER_MS = 10 * 60_000;
     const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
     try {
@@ -745,7 +753,15 @@ async function collectStalePlanLockIssues(
             const path = join(lockDir, entry.name);
             const stat = await Deno.stat(path).catch(() => null);
             const ageMs = stat?.mtime ? Date.now() - stat.mtime.getTime() : Number.POSITIVE_INFINITY;
-            if (ageMs < STALE_AFTER_MS) continue;
+            // A lock whose process is gone is abandoned no matter how recent it is.
+            // Waiting for it to look old enough is what leaves a Plan unusable after a
+            // crash, which is the case this check exists for.
+            const contents = await Deno.readTextFile(path).catch(() => "");
+            const holderGone = await isLockHolderGone(contents);
+            // An unattributable lock names no process to check, so it can never prove
+            // itself dead. Explicit repair is the only thing that clears it.
+            const unattributable = isLockHolderUnattributable(contents);
+            if (!holderGone && !unattributable && ageMs < STALE_AFTER_MS) continue;
             if (repair) {
                 await Deno.remove(path).catch(() => {});
                 results.push({ repaired: true });
@@ -755,9 +771,13 @@ async function collectStalePlanLockIssues(
                 issue: {
                     kind: "stale_plan_lock",
                     repairable: true,
-                    message: `Plan lock ${path} has not been refreshed in ${
-                        Math.round(ageMs / 60_000)
-                    } minutes, so the process that held it is gone. Until it is cleared, operations on that Plan wait before failing.`,
+                    message: unattributable
+                        ? `Plan lock ${path} records no process that can be checked, so nothing will ever release it automatically. It predates holder tracking or was truncated by a crash.`
+                        : holderGone
+                        ? `Plan lock ${path} was left by a RunWield process that is no longer running. Operations on that Plan reclaim it automatically now, so this is leftover cleanup.`
+                        : `Plan lock ${path} has not been refreshed in ${
+                            Math.round(ageMs / 60_000)
+                        } minutes, so the process that held it is gone. Until it is cleared, operations on that Plan wait before failing.`,
                     commands: [`${CLI_BIN} plans doctor --repair`, `rm ${path}`],
                     repairSummary: "--repair deletes the abandoned lock file. No Plan or Git state is touched.",
                 },
@@ -771,11 +791,20 @@ async function collectStalePlanLockIssues(
 
 export async function runPlansDoctor(projectRoot: string, repair = false) {
     const issues: DoctorIssue[] = [];
+    let repaired = 0;
+
+    // Abandoned locks are cleared before anything else, because much of the scan
+    // below acquires those same locks. Diagnosing lock trouble after taking a lock
+    // means doctor waits on the exact file it exists to clean up — the one command
+    // the user was told to run would be the one that hangs.
+    for (const lockIssue of await collectStalePlanLockIssues(projectRoot, repair)) {
+        if (lockIssue.repaired) repaired += 1;
+        else if (lockIssue.issue) issues.push(lockIssue.issue);
+    }
+
     const discoveredPlanIds = new Map<string, string>();
     await collectPlanIssues(getPlansDir(projectRoot), [], issues, discoveredPlanIds);
     await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
-
-    let repaired = 0;
 
     // Read the registry without enforcing invariants first. A violated invariant
     // must not blind the report: the per-entry facts below are what the user needs
@@ -832,10 +861,6 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
         // Persist the v1→v2 migration only once the file is known to be consistent;
         // migrating around a conflict is how a readable registry becomes unreadable.
         await listEntries(projectRoot, { migrate: true }).catch(() => []);
-    }
-    for (const lockIssue of await collectStalePlanLockIssues(projectRoot, repair)) {
-        if (lockIssue.repaired) repaired += 1;
-        else if (lockIssue.issue) issues.push(lockIssue.issue);
     }
     const registryPaths = new Set(entries.map((entry) => entry.path));
     for (const path of gitWorktreePaths) {

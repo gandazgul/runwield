@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { injectFrontMatter, savePlan } from "../../plan-store.js";
+import { getRunWieldRuntimeDir, PLAN_LOCKS_DIR_NAME } from "../../constants.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
 import {
     listTransitionRecoveryRecords,
@@ -8,6 +9,18 @@ import {
     runValidationOutcomeTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
+import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
+
+// main, plus a side branch carrying work that never reached it.
+const ancestryRepo = defineGitFixture(async (repo) => {
+    await Deno.writeTextFile(join(repo, "file.txt"), "base\n");
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "-m", "base"]);
+    await git(repo, ["checkout", "-b", "side"]);
+    await Deno.writeTextFile(join(repo, "file.txt"), "unpublished\n");
+    await git(repo, ["commit", "-am", "unpublished"]);
+    await git(repo, ["checkout", "main"]);
+});
 
 Deno.test("plans doctor reports missing worktree paths without abandoning attempts automatically", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-" });
@@ -430,8 +443,11 @@ Deno.test("plans doctor keeps a journal whose worktree may still hold work", asy
 Deno.test("plans doctor clears an abandoned Plan lock", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-lock-" });
     try {
-        const lockPath = join(cwd, ".wld", "plan-locks", "demo.lock");
-        await Deno.mkdir(join(cwd, ".wld", "plan-locks"), { recursive: true });
+        // Ask where locks live rather than hardcoding it: under a sandboxed test run
+        // they are namespaced per run so two suites cannot block each other.
+        const lockDir = join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME);
+        const lockPath = join(lockDir, "demo.lock");
+        await Deno.mkdir(lockDir, { recursive: true });
         await Deno.writeTextFile(lockPath, JSON.stringify({ pid: 999999, updatedAtMs: 0 }));
         const old = new Date(Date.now() - 60 * 60_000);
         await Deno.utime(lockPath, old, old);
@@ -457,40 +473,10 @@ Deno.test("doctor proves publication from real Git ancestry in both directions",
     // just as happily with the arguments reversed. This one pins what
     // `merge-base --is-ancestor` actually means for us, so the faked tests above are
     // safe to trust about everything else.
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-git-" });
-    const run = async (/** @type {string[]} */ args) => {
-        const { success, stderr } = await new Deno.Command("git", {
-            args,
-            cwd,
-            stdout: "null",
-            stderr: "piped",
-        }).output();
-        if (!success) throw new Error(new TextDecoder().decode(stderr));
-    };
-    const revParse = async (/** @type {string} */ ref) => {
-        const { stdout } = await new Deno.Command("git", {
-            args: ["rev-parse", ref],
-            cwd,
-            stdout: "piped",
-            stderr: "null",
-        }).output();
-        return new TextDecoder().decode(stdout).trim();
-    };
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-git-" });
     try {
-        await run(["init", "-b", "main"]);
-        await run(["config", "user.email", "test@example.com"]);
-        await run(["config", "user.name", "Test"]);
-        await Deno.writeTextFile(join(cwd, "file.txt"), "base\n");
-        await run(["add", "."]);
-        await run(["commit", "-m", "base"]);
-        const publishedCommit = await revParse("HEAD");
-
-        // A second commit only on a side branch: real work that never reached main.
-        await run(["checkout", "-b", "side"]);
-        await Deno.writeTextFile(join(cwd, "file.txt"), "unpublished\n");
-        await run(["commit", "-am", "unpublished"]);
-        const unpublishedCommit = await revParse("HEAD");
-        await run(["checkout", "main"]);
+        const publishedCommit = await git(cwd, ["rev-parse", "main"]);
+        const unpublishedCommit = await git(cwd, ["rev-parse", "side"]);
 
         const evidenceFor = (/** @type {string} */ commit) => ({
             version: 1,
