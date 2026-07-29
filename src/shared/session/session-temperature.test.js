@@ -52,7 +52,7 @@ function completedStream(model, errorMessage) {
 }
 
 /**
- * @param {(model: import('@earendil-works/pi-ai').Model<any>, options: import('@earendil-works/pi-ai').SimpleStreamOptions | undefined, calls: StreamCall[]) => import('@earendil-works/pi-ai').AssistantMessageEventStream} responder
+ * @param {(model: import('@earendil-works/pi-ai').Model<any>, options: import('@earendil-works/pi-ai').SimpleStreamOptions | undefined, calls: StreamCall[]) => import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} responder
  * @returns {{ session: import('@earendil-works/pi-coding-agent').AgentSession, calls: StreamCall[] }}
  */
 function fakeSession(responder) {
@@ -209,4 +209,31 @@ Deno.test("applySessionTemperature remembers discovered temperature capability f
         { maxTokens: 100 },
         { maxTokens: 100 },
     ]);
+});
+
+Deno.test("applySessionTemperature retries rejected temperature capability requests", async () => {
+    const model = testModel({ id: "kimi-k3-preview", provider: "moonshotai", api: "openai-completions" });
+    const { session, calls } = fakeSession((model, options) => {
+        if (options?.temperature !== undefined) {
+            return Promise.reject(
+                new Error(
+                    '400: {"message":"invalid temperature: only 1 is allowed for this model","type":"invalid_request_error"}',
+                ),
+            );
+        }
+        return completedStream(model);
+    });
+    applySessionTemperature(session, 0.4);
+
+    const events = [];
+    const source = await session.agent.streamFunction(model, { messages: [] }, { maxTokens: 100 });
+    for await (const event of source) {
+        events.push(event.type);
+    }
+
+    assertEquals(calls.map((call) => call.options), [
+        { maxTokens: 100, temperature: 0.4 },
+        { maxTokens: 100 },
+    ]);
+    assertEquals(events, ["start", "done"]);
 });

@@ -467,6 +467,62 @@ Deno.test("buildAgentSession applies invocation thinking override before setting
     });
 });
 
+Deno.test("buildAgentSession disables developer role for Kimi code models", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-kimi-compat-" });
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        "kimi-code": {
+                            baseUrl: "https://api.kimi.com/coding/v1",
+                            api: "openai-completions",
+                            apiKey: "test-key",
+                            models: [
+                                {
+                                    id: "k3-256k",
+                                    reasoning: true,
+                                    input: ["text"],
+                                    compat: { supportsTemperature: false },
+                                },
+                            ],
+                        },
+                    },
+                }),
+            );
+
+            const built = await buildAgentSession({
+                cwd: tempHome,
+                agentName: "operator",
+                modelOverride: "kimi-code/k3-256k",
+                _agentDefOverride: {
+                    name: "operator",
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test operator",
+                    tools: ["read"],
+                    systemPrompt: "Prompt.",
+                },
+            });
+
+            assertEquals(built.resolvedModel.compat?.supportsDeveloperRole, false);
+            assertEquals(built.resolvedModel.compat?.supportsTemperature, false);
+            built.session.dispose();
+        } finally {
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await removeTempDir(tempHome);
+        }
+    });
+});
+
 Deno.test("buildAgentSession auto-wires delegate_agent only when retained by effective Agent policy", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = Deno.env.get("HOME");

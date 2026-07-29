@@ -736,7 +736,36 @@ function isKnownNoSamplingModelFamily(model) {
     const api = String(model.api || "").toLowerCase();
     const id = String(model.id || "").toLowerCase();
     return provider === "openai-codex" || api === "openai-codex-responses" ||
-        provider.includes("kimi-coding") || id.includes("kimi-code") || id.includes("kimi-coding");
+        provider.includes("kimi") || id.includes("kimi-code") || id.includes("kimi-coding");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {boolean}
+ */
+function isKimiModelFamily(model) {
+    const provider = String(model.provider || "").toLowerCase();
+    const id = String(model.id || "").toLowerCase();
+    return provider.includes("kimi") || id.includes("kimi-code") || id.includes("kimi-coding");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {import('@earendil-works/pi-ai').Model<any>}
+ */
+function withModelCompatibility(model) {
+    if (!isKimiModelFamily(model)) return model;
+    const compatibleModel = {
+        ...model,
+        compat: {
+            .../** @type {Record<string, unknown> | undefined} */ (model.compat),
+            supportsDeveloperRole: false,
+            supportsTemperature: false,
+        },
+    };
+    const source = modelSelectionSourceByModel.get(model);
+    if (source) modelSelectionSourceByModel.set(compatibleModel, source);
+    return compatibleModel;
 }
 
 /**
@@ -773,7 +802,16 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, o
      * @returns {Promise<"retry" | "done">}
      */
     async function forward(sourcePromise, canRetry) {
-        const source = await sourcePromise;
+        let source;
+        try {
+            source = await sourcePromise;
+        } catch (error) {
+            if (canRetry && isUnsupportedTemperatureError(error)) {
+                onUnsupportedTemperature?.();
+                return "retry";
+            }
+            throw error;
+        }
         let emittedAssistantContent = false;
         /** @type {import('@earendil-works/pi-ai').AssistantMessageEvent[]} */
         const pendingLifecycleEvents = [];
@@ -1631,13 +1669,15 @@ export async function buildAgentSession({
 
     const modelRuntime = await getModelRuntime();
     const modelRegistry = getModelRegistry();
-    const resolvedModel = await resolveModel(
-        modelOverride,
-        agentDef,
-        agentName,
-        modelRegistry,
-        targetHostedSession || undefined,
-        sessionCwd,
+    const resolvedModel = withModelCompatibility(
+        await resolveModel(
+            modelOverride,
+            agentDef,
+            agentName,
+            modelRegistry,
+            targetHostedSession || undefined,
+            sessionCwd,
+        ),
     );
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
     const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
