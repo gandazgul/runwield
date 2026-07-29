@@ -24,6 +24,7 @@ import {
     loadExternalPlan,
     loadPlan,
     loadPlanBodyById,
+    onboardExternalPlan,
     parsePlanFrontMatter,
     PLAN_FRONT_MATTER_KEY_ORDER,
     PLAN_FRONT_MATTER_KEYS,
@@ -2510,5 +2511,74 @@ testWithFs("withPlanLock serializes concurrent same-process tasks while allowing
         assertEquals(events, ["first-enter", "nested-enter", "first-exit", "second-enter"]);
     } finally {
         await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("a plain markdown file in plans/ is readable and is never claimed by a passive read", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-external-plan-" });
+    try {
+        const bare = "# Random notes\n\nI wrote this in vim.\n";
+        await Deno.mkdir(join(cwd, "plans"), { recursive: true });
+        const path = join(cwd, "plans", "random.md");
+        await Deno.writeTextFile(path, bare);
+
+        // Reads must tolerate the missing Front Matter rather than panic.
+        const loaded = await loadPlan(cwd, "random");
+        assertEquals(loaded?.attrs.status, "draft", "parsing falls back to defaults");
+        assertEquals(loaded?.hasFrontMatter, false, "but the file's un-onboarded state stays visible");
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), ["random"]);
+
+        // Listing is not consent. Backfilling identity here would let opening a Plan
+        // Board or reading the worktree registry stamp metadata into the user's file.
+        const resources = await listPlanResources(cwd);
+        assertEquals(resources.map((resource) => resource.name), ["random"]);
+        assertEquals(resources[0].planId, "", "no identity is invented for an un-onboarded file");
+        assertEquals(await Deno.readTextFile(path), bare, "the user's file is byte-for-byte untouched");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("onboardExternalPlan adopts a plain markdown Plan and preserves the body exactly", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-onboard-plan-" });
+    try {
+        const bare = "# Old plan\n\nProse the user wrote, with `---` inside it.\n";
+        await Deno.mkdir(join(cwd, "plans"), { recursive: true });
+        const path = join(cwd, "plans", "old.md");
+        await Deno.writeTextFile(path, bare);
+        // A Plan that has existed for weeks before RunWield saw it.
+        const past = new Date("2026-06-01T12:00:00.000Z");
+        await Deno.utime(path, past, past);
+        const createdBefore = (await Deno.stat(path)).birthtime;
+
+        const adopted = await onboardExternalPlan(cwd, "old", { now: () => new Date("2026-07-01T00:00:00.000Z") });
+        assertEquals(adopted.onboarded, true);
+
+        const attrs = parsePlanFrontMatter(await Deno.readTextFile(path)).attrs;
+        assertEquals(attrs.classification, "PLANNED_CHANGE");
+        assertEquals(attrs.status, "draft");
+        assertEquals(attrs.origin, "external");
+        assertEquals(attrs.complexity, "MEDIUM");
+        assertEquals(attrs.summary, "");
+        assertEquals(attrs.affectedPaths, []);
+        assertEquals(attrs.workKind, undefined, "work kind is unknown until someone decides it");
+        assertEquals(attrs.updatedAt, "2026-07-01T00:00:00.000Z");
+        assertEquals(Boolean(attrs.planId), true, "onboarding gives the Plan a durable identity");
+        // The atomic rename resets the file's birthtime, so the Plan's real age only
+        // survives because it was captured before the write.
+        assertEquals(attrs.createdAt, createdBefore?.toISOString());
+        assertEquals(parsePlanFrontMatter(await Deno.readTextFile(path)).body, bare, "the body is untouched");
+
+        // Idempotent: loading a Plan twice must not rewrite metadata the lifecycle set.
+        const onboarded = await loadPlan(cwd, "old");
+        await updatePlanFrontMatter(cwd, "old", { status: "approved" }, {}, {
+            expectedRevision: onboarded?.revision,
+        });
+        const again = await onboardExternalPlan(cwd, "old");
+        assertEquals(again.onboarded, false);
+        assertEquals(again.resource.planId, adopted.resource.planId, "identity is stable");
+        assertEquals((await loadPlan(cwd, "old"))?.attrs.status, "approved", "lifecycle state is not reset");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });

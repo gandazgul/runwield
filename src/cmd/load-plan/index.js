@@ -12,6 +12,7 @@ import {
     compareChildPlansByOrder,
     findPlansByParent as findPlansByParentFn,
     loadPlan as loadPlanFn,
+    onboardExternalPlan,
     resolvePlan as resolvePlanFn,
     resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
@@ -3588,6 +3589,25 @@ export async function runLoadPlanCommand(argv, options = {}) {
     try {
         const plan = await resolvePlan(projectRoot, planArg);
         loadedPlanName = plan.planName;
+        // Loading is the deliberate action that adopts a plain markdown file the user
+        // wrote into plans/. Reads elsewhere tolerate the missing Front Matter and
+        // leave the file alone; here it stops being an anonymous file and becomes a
+        // Plan with a durable identity, so the rest of this flow has something to
+        // record lifecycle state on.
+        if (plan.hasFrontMatter === false) {
+            const adopted = await onboardExternalPlan(projectRoot, plan.planName);
+            if (adopted.onboarded) {
+                plan.attrs = adopted.resource.attrs;
+                plan.markdown = adopted.resource.markdown;
+                plan.body = adopted.resource.body;
+                uiAPI.appendSystemMessage(
+                    `Adopted ${plan.planName} as a RunWield Plan: added front matter (status draft, external origin) ` +
+                        "and left your text untouched.",
+                    false,
+                    "RunWield",
+                );
+            }
+        }
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(
             `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,

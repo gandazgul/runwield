@@ -14,11 +14,10 @@ import {
     loadArchivedPlan,
     loadPlan,
     updateArchivedPlanFrontMatter,
-    updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
-import { runRecoveryTransition } from "../workflow/state-transition.ts";
+import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
@@ -319,22 +318,22 @@ export async function previewWorkRecordBackfill(cwd) {
  */
 async function updateSourceFrontMatter(cwd, source, updates) {
     if (source.sourceKind === "archived") return await updateArchivedPlanFrontMatter(cwd, source.name, updates);
-    const transition = await runRecoveryTransition({
+    // A Work Record backlink is post-settlement bookkeeping, so it gets an ordinary
+    // Plan transaction. Plan Recovery is deliberately not used here: recovery
+    // supersedes unresolved recovery journals and retires them on success, which
+    // would let a backlink write silently destroy the evidence for an uncertain
+    // publication it knows nothing about.
+    const transition = await runPlanFrontMatterTransition({
         projectRoot: cwd,
         planName: source.name,
-        action: "recover",
-        recover: async ({ beforePlan }) => {
-            if (!beforePlan) throw new Error(`Plan not found: ${source.name}`);
-            return await updatePlanFrontMatter(cwd, source.name, updates, beforePlan.attrs, {
-                expectedRevision: beforePlan.revision,
-            });
-        },
+        operation: "work_record_backlink",
+        updates,
+        recoveryAttrs: source.attrs || {},
     });
     if (transition.status !== "committed") {
         throw new Error(transition.message || `Could not link Work Record to Plan ${source.name}.`);
     }
-    const value = /** @type {{ value: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value);
-    return value.value;
+    return /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value);
 }
 
 /**

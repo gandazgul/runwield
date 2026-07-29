@@ -1091,6 +1091,46 @@ ${diffContext}`
 const CURRENT_VALIDATION_PROGRESS = new WeakMap();
 
 /**
+ * Attach an unrecorded-outcome note to a halt reason.
+ *
+ * A halt reason is what the user reads and what the Plan's failure reason keeps.
+ * If RunWield also failed to write that outcome down, saying only why the work
+ * stopped would imply the Plan reflects it.
+ *
+ * @param {string} reason
+ * @param {string} unsettledNote
+ * @returns {string}
+ */
+function appendUnsettledNote(reason, unsettledNote) {
+    return unsettledNote ? `${reason} ${unsettledNote}` : reason;
+}
+
+/**
+ * Explain a lifecycle settlement that did not commit.
+ *
+ * When recording an outcome fails, the Plan's metadata is behind what actually
+ * happened in the repository — the merge really did fail, but the Plan may still
+ * read `implemented` with no reason attached. That gap is RunWield's own
+ * bookkeeping, so it must be stated plainly with the commands that resolve it,
+ * never left as a one-line warning the user is expected to decode.
+ *
+ * @param {import('./state-transition.ts').TransitionResult} transition
+ * @param {string} intent What RunWield was trying to record.
+ * @returns {string}
+ */
+function describeUnsettledTransition(transition, intent) {
+    const commands = (transition.recoveryActions || [])
+        .map((action) => action.command)
+        .filter((command, index, all) => command && all.indexOf(command) === index);
+    return [
+        `RunWield could not record ${intent}: ${transition.message}`,
+        "The repository change already happened; only RunWield's record of it is behind, so the Plan may still show " +
+        "its previous status until this is resolved.",
+        ...(commands.length > 0 ? [`Resolve it with: ${commands.join("  or  ")}`] : []),
+    ].join(" ");
+}
+
+/**
  * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} text
  * @param {"info" | "success" | "warning" | "error" | boolean} [level]
@@ -1643,60 +1683,15 @@ export async function runValidationLoop({
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
+    // The real transaction runs in tests too. Substituting a no-op stand-in whenever
+    // any dependency was injected meant the whole validation-loop suite ran without
+    // journaling, locking, revision checks, or rollback — so it proved the
+    // choreography while leaving the atomicity guarantees untested. A test that
+    // genuinely needs to observe a transition in isolation injects it by name.
     const runValidationOutcomeTransitionImpl = __deps?.runValidationOutcomeTransition ||
-        (__deps
-            ? async (opts) => {
-                try {
-                    return {
-                        status: /** @type {const} */ ("committed"),
-                        transitionId: "test-validation-transition",
-                        operation: `validation_${opts.outcome}`,
-                        value: {
-                            value: await opts.settle({
-                                transitionId: "test-validation-transition",
-                                beforePlan: null,
-                                markEffect: () => Promise.resolve(),
-                            }),
-                        },
-                    };
-                } catch (error) {
-                    return {
-                        status: /** @type {const} */ ("needs_recovery"),
-                        transitionId: "test-validation-transition",
-                        operation: `validation_${opts.outcome}`,
-                        message: error instanceof Error ? error.message : String(error),
-                    };
-                }
-            }
-            : runValidationOutcomeTransition);
+        runValidationOutcomeTransition;
     const runDirectDeliveryPublicationTransitionImpl = __deps?.runDirectDeliveryPublicationTransition ||
-        (__deps
-            ? async (opts) => {
-                try {
-                    return {
-                        status: /** @type {const} */ ("committed"),
-                        transitionId: "test-direct-delivery-transition",
-                        operation: "direct_delivery_publication",
-                        value: {
-                            value: await opts.publish({
-                                transitionId: "test-direct-delivery-transition",
-                                beforePlan: null,
-                                markEffect: () => Promise.resolve(),
-                                registerRollback: () => {},
-                            }),
-                        },
-                    };
-                } catch (error) {
-                    if (error && typeof error === "object" && "mergeFailureKind" in error) throw error;
-                    return {
-                        status: /** @type {const} */ ("needs_recovery"),
-                        transitionId: "test-direct-delivery-transition",
-                        operation: "direct_delivery_publication",
-                        message: error instanceof Error ? error.message : String(error),
-                    };
-                }
-            }
-            : runDirectDeliveryPublicationTransition);
+        runDirectDeliveryPublicationTransition;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const loadReviewerFeedbackEngineerDefImpl = __deps?.loadReviewerFeedbackEngineerDef ||
         loadReviewerFeedbackEngineerDef;
@@ -2888,6 +2883,9 @@ export async function runValidationLoop({
         let pendingRepairMergeWorktreePath;
         let mergeBackCompleted = false;
         let postMergeVerificationHalted = false;
+        // Set when RunWield failed to record a lifecycle outcome. Carried into the
+        // halt reason so a run never ends describing state it did not manage to write.
+        let unsettledLifecycleNote = "";
         /** @type {import('../../plan-store.js').WorktreeDeliveryEvidence | undefined} */
         let deliveryEvidence;
         /** @type {string | undefined} */
@@ -3215,6 +3213,11 @@ export async function runValidationLoop({
                                 },
                             }).then((transition) => {
                                 if (transition.status !== "committed") {
+                                    // Rethrow the original failure, not a summary of it. The merge
+                                    // handler below classifies typed merge errors and reads the
+                                    // worktree to repair in off them; a fresh Error would strip that
+                                    // and send repair to the wrong checkout with a generic reason.
+                                    if (transition.cause !== undefined) throw transition.cause;
                                     throw new Error(
                                         transition.message ||
                                             `Direct Delivery publication transaction did not commit for ${planName}.`,
@@ -3451,11 +3454,11 @@ export async function runValidationLoop({
                                 },
                             });
                             if (transition.status !== "committed") {
-                                emitRunWieldSystemStatus(
-                                    hostedSession,
-                                    `Could not settle merge verification failure transaction: ${transition.message}`,
-                                    true,
+                                unsettledLifecycleNote = describeUnsettledTransition(
+                                    transition,
+                                    `the merge verification failure for ${planName}`,
                                 );
+                                emitRunWieldSystemStatus(hostedSession, unsettledLifecycleNote, true);
                             }
                         } else if (worktreeId) {
                             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
@@ -3464,7 +3467,10 @@ export async function runValidationLoop({
                         }
                         postMergeVerificationHalted = true;
                         executionComplete = false;
-                        haltReason = `Post-merge verification repair did not complete: ${mergeVerificationFailure}`;
+                        haltReason = appendUnsettledNote(
+                            `Post-merge verification repair did not complete: ${mergeVerificationFailure}`,
+                            unsettledLifecycleNote,
+                        );
                         break;
                     }
                     pendingRepairMergeWorktreePath = undefined;
@@ -3676,11 +3682,11 @@ export async function runValidationLoop({
                             },
                         });
                         if (transition.status !== "committed") {
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Could not settle merge failure transaction: ${transition.message}`,
-                                true,
+                            unsettledLifecycleNote = describeUnsettledTransition(
+                                transition,
+                                `the merge failure for ${planName}`,
                             );
+                            emitRunWieldSystemStatus(hostedSession, unsettledLifecycleNote, true);
                         }
                     } else if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
@@ -3783,7 +3789,7 @@ export async function runValidationLoop({
                         progress,
                     );
                     executionComplete = false;
-                    haltReason = `Worktree merge failed: ${reason}`;
+                    haltReason = appendUnsettledNote(`Worktree merge failed: ${reason}`, unsettledLifecycleNote);
                 }
             }
         }

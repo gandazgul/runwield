@@ -5,13 +5,16 @@
 
 import { dirname, join } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { PLAN_TRANSITIONS_DIR_NAME, RUNWIELD_DIR_NAME } from "../../constants.js";
+import { CLI_BIN, PLAN_TRANSITIONS_DIR_NAME, RUNWIELD_DIR_NAME } from "../../constants.js";
 import {
     atomicWriteTextFile,
+    getKnownFrontMatterRevision,
+    getRecordedPlanWriteFrontMatterRevision,
     getRecordedPlanWriteRevision,
     loadPlan,
     loadPlanStrict,
     parsePlanFrontMatter,
+    splitPlanMarkdownBody,
     updatePlanFrontMatter,
     withPlanCatalogLock,
     withPlanLock,
@@ -34,6 +37,16 @@ export interface TransitionResult {
     value?: unknown;
     message?: string;
     recoveryActions?: TransitionRecoveryAction[];
+    /**
+     * The error that ended the transition, unchanged.
+     *
+     * Turning a failure into a result must not flatten it to a string. Callers
+     * classify typed failures — a merge conflict carries the worktree to repair in
+     * and the kind of conflict it was — and reducing that to `message` silently
+     * downgrades their recovery to a generic one. Present only on `rolled_back` and
+     * `needs_recovery`, where something actually threw.
+     */
+    cause?: unknown;
 }
 
 export interface TransitionResource {
@@ -97,6 +110,24 @@ function transitionResourceKey(resource: TransitionResource): string {
 }
 
 /**
+ * Whether a resource key identifies something a stalled transition can still own.
+ *
+ * The catalog is a lock-ordering device, not a claim: almost every composite
+ * operation takes it, so treating it as ownership makes one unresolved journal
+ * block validation, publication, and archive for every Plan in the project — a
+ * project-wide outage caused by a single stranded Plan. Ownership is the Plan
+ * itself, the exact attempt, and the target ref, which are the resources whose
+ * state a half-finished transition can actually have left uncertain.
+ */
+function isOwnershipResourceKey(key: string): boolean {
+    return !key.startsWith("catalog:");
+}
+
+function ownershipResourceKeys(resources: TransitionResource[]): Set<string> {
+    return new Set(resources.map(transitionResourceKey).filter(isOwnershipResourceKey));
+}
+
+/**
  * Acquire transition resources in deterministic order. Non-Plan resources are
  * represented by lock files in the Plan lock namespace until they get dedicated
  * lock stores; this prevents same-attempt/target-ref races without introducing
@@ -156,29 +187,110 @@ async function removeJournal(projectRoot: string, transitionId: string) {
  * restore is safe. If it holds anything else, someone outside the lock wrote
  * last and we fail closed with a journal.
  *
+ * The body is handled separately because RunWield does not own it. When the file
+ * holds RunWield's Front Matter but a body someone else edited, the safe undo is
+ * a Front-Matter-only revert: put back the metadata this transaction changed and
+ * leave the user's prose exactly as they wrote it. That case is expected, not
+ * exceptional — bodies are edited outside RunWield by design.
+ *
  * @returns the restored revision, or null when restoring is not provably safe.
  */
 async function restoreOwnPlanWrite(
     { projectRoot, planName, beforePlan, currentRevision }: {
         projectRoot: string;
         planName: string;
-        beforePlan: NonNullable<PlanSnapshot>;
+        beforePlan: LockedPlan;
         currentRevision?: string;
     },
 ): Promise<string | null> {
     if (!currentRevision) return null;
-    if (currentRevision !== getRecordedPlanWriteRevision(beforePlan.path)) return null;
+    const ownsWholeFile = currentRevision === getRecordedPlanWriteRevision(beforePlan.path);
+    const current = ownsWholeFile ? null : await loadPlan(projectRoot, planName).catch(() => null);
+    let restoredMarkdown = beforePlan.markdown;
+    if (!ownsWholeFile) {
+        // Not our bytes as a whole. The only remaining provably-safe undo is the
+        // Front Matter, and only if RunWield is still its author.
+        if (
+            !current || current.revision !== currentRevision || !current.frontMatterRevision ||
+            current.frontMatterRevision !== getRecordedPlanWriteFrontMatterRevision(beforePlan.path)
+        ) return null;
+        try {
+            restoredMarkdown = `${splitPlanMarkdownBody(beforePlan.markdown).frontMatterBlock}${
+                splitPlanMarkdownBody(current.markdown).body
+            }`;
+        } catch {
+            return null;
+        }
+    }
     try {
-        // Compare-and-set against the bytes we just proved are ours, so a writer
-        // that slips in between the check and the write loses the race instead of
-        // being overwritten.
-        await writePlanMarkdownWithRevision(beforePlan.path, beforePlan.markdown, currentRevision);
+        // Compare-and-set against the bytes we just proved carry our metadata, so a
+        // writer that slips in between the check and the write loses the race
+        // instead of being overwritten.
+        await writePlanMarkdownWithRevision(beforePlan.path, restoredMarkdown, currentRevision);
     } catch {
         return null;
     }
     const restored = await loadPlan(projectRoot, planName).catch(() => null);
-    const restoredRevision = restored?.revision;
-    return restoredRevision && restoredRevision === beforePlan.revision ? restoredRevision : null;
+    if (!restored?.revision) return null;
+    if (ownsWholeFile) return restored.revision === beforePlan.revision ? restored.revision : null;
+    // A Front-Matter-only revert cannot reproduce the original whole-file revision,
+    // so the proof is that the metadata matches and the user's body survived.
+    return restored.frontMatterRevision && restored.frontMatterRevision === beforePlan.frontMatterRevision &&
+            restored.body === current?.body
+        ? restored.revision
+        : null;
+}
+
+/** A Plan snapshot read under the transition's own lock. */
+type LockedPlan = NonNullable<PlanSnapshot>;
+
+/**
+ * Decide whether an expected Plan revision is still a usable precondition.
+ *
+ * RunWield owns Plan Front Matter; the user owns the body and may edit it with any
+ * tool, at any time, without telling RunWield. A whole-file revision token goes
+ * stale for both reasons at once, and only one of them is a conflict: another
+ * writer changed the metadata this operation is about to change. Rejecting a
+ * lifecycle action because someone rewrote a paragraph of prose would make the
+ * body RunWield's property, which it is not.
+ *
+ * Body-only drift is proven, never assumed: the expected token's Front Matter
+ * block must be known to this process and byte-identical to what is on disk now.
+ * An unknown token (a different process, a restart) falls back to strict
+ * whole-file comparison.
+ */
+function classifyPlanPrecondition(expectedRevision: string, beforePlan: PlanSnapshot): {
+    stale: boolean;
+    bodyOnlyDrift: boolean;
+} {
+    if (!beforePlan) return { stale: true, bodyOnlyDrift: false };
+    if (beforePlan.revision === expectedRevision) return { stale: false, bodyOnlyDrift: false };
+    const expectedFrontMatterRevision = getKnownFrontMatterRevision(expectedRevision);
+    const bodyOnlyDrift = Boolean(
+        expectedFrontMatterRevision && beforePlan.frontMatterRevision &&
+            expectedFrontMatterRevision === beforePlan.frontMatterRevision,
+    );
+    return { stale: !bodyOnlyDrift, bodyOnlyDrift };
+}
+
+/**
+ * Decide whether the Plan file holds nothing this transaction left behind.
+ *
+ * Byte-identical is the easy proof. The other accepted proof is that the Front
+ * Matter — the only part a lifecycle transition writes — is unchanged while the
+ * body differs from bytes RunWield authored: that difference belongs to the user,
+ * who owns the body, so there is nothing here for RunWield to undo. Body drift
+ * that RunWield itself wrote is still outstanding work.
+ */
+function planEffectsAreSettled(beforePlan: PlanSnapshot, current: PlanSnapshot): boolean {
+    if (!beforePlan) return true;
+    if (!current) return false;
+    if (current.revision === beforePlan.revision) return true;
+    if (
+        !current.frontMatterRevision || !beforePlan.frontMatterRevision ||
+        current.frontMatterRevision !== beforePlan.frontMatterRevision
+    ) return false;
+    return current.revision !== getRecordedPlanWriteRevision(beforePlan.path);
 }
 
 /** One compensating action's outcome, as recorded during failure handling. */
@@ -210,9 +322,8 @@ interface CompletedEffect {
  * compensation that itself succeeded.
  */
 function classifyTransitionFailure(
-    { beforeRevision, currentRevision, completedEffects, rollbackResults, irreversibleEffects }: {
-        beforeRevision?: string;
-        currentRevision?: string;
+    { planSettled, completedEffects, rollbackResults, irreversibleEffects }: {
+        planSettled: boolean;
         completedEffects: CompletedEffect[];
         rollbackResults: RollbackResult[];
         irreversibleEffects: string[];
@@ -234,10 +345,73 @@ function classifyTransitionFailure(
     }
     // Checked last because, unlike the conditions above, this one is repairable:
     // the caller can undo a Plan write it can prove it made and ask again.
-    if (currentRevision !== beforeRevision) {
-        return { provablyClean: false, reason: "plan_bytes_changed" };
-    }
+    if (!planSettled) return { provablyClean: false, reason: "plan_bytes_changed" };
     return { provablyClean: true };
+}
+
+/**
+ * Actions for a Plan file RunWield cannot parse. The user owns the body and may
+ * have edited the file by hand, so the fix is theirs to make — which means the
+ * message has to name the file and the exact command that re-checks it.
+ */
+function planFileActions(planName: string, path: string): TransitionRecoveryAction[] {
+    return [
+        {
+            label: `Repair the Front Matter in ${planName}`,
+            description:
+                `Open ${path} and fix the YAML between the leading --- markers. RunWield owns that block; your body text below it is untouched and does not need to be valid YAML.`,
+        },
+        {
+            label: "Re-check the Plan file",
+            description: "Confirms RunWield can read the Plan again and reports anything else it finds.",
+            command: `${CLI_BIN} plans doctor`,
+        },
+        {
+            label: "Compare against the last committed version",
+            description: "Shows what changed in the Front Matter if the file was working before.",
+            command: `git diff -- ${path}`,
+        },
+    ];
+}
+
+/**
+ * Explain a block caused by an unresolved journal in the user's terms.
+ *
+ * The record is RunWield's own bookkeeping, so a bare internal id and an
+ * operation label is not an explanation — it reads as RunWield failing at its own
+ * paperwork and handing the bill to the user. Say what is being protected, and
+ * point at the command that resolves it.
+ */
+function unresolvedTransitionMessage(
+    record: Record<string, unknown>,
+    operation: string,
+    planName: string,
+): string {
+    const previous = typeof record.operation === "string" ? record.operation : "a lifecycle operation";
+    return `${planName} has an unfinished lifecycle operation (${previous}) that RunWield could not confirm, so it is ` +
+        `holding off on ${operation} rather than stacking a second change on uncertain state.`;
+}
+
+function unresolvedTransitionActions(planName: string): TransitionRecoveryAction[] {
+    return [
+        {
+            label: "Let RunWield close what it can prove",
+            description:
+                "Checks the repository and clears the record if the interrupted work is provably finished or provably never happened.",
+            command: `${CLI_BIN} plans doctor --repair`,
+        },
+        {
+            label: "See exactly what is unresolved",
+            description: "Reports the record, the effects it names, and what evidence is still missing.",
+            command: `${CLI_BIN} plans doctor`,
+        },
+        {
+            label: "Resolve it through Plan Recovery",
+            description:
+                "Recovery supersedes the record: pick continue, retry, merge, or abandon and RunWield clears it on success.",
+            command: `${CLI_BIN} load-plan ${planName}`,
+        },
+    ];
 }
 
 function planAction(planName: string) {
@@ -280,6 +454,13 @@ async function runSemanticTransition<T>(
         apply: (ctx: RollbackTransitionContext & { expectedRevision?: string }) => Promise<T>;
         recoveryActions?: TransitionRecoveryAction[];
         postconditions?: Record<string, unknown>;
+        /**
+         * Effects the transition refuses to commit without.
+         *
+         * Only ever effects the caller marks. Listing an effect this wrapper marks
+         * itself asserts that the wrapper called its own function, which is not a
+         * postcondition — it reads like proof while guaranteeing nothing.
+         */
         expectedEffects?: string[];
         verify?: (value: T) => Promise<Record<string, unknown> | void>;
         /**
@@ -328,30 +509,28 @@ async function runSemanticTransition<T>(
         async () =>
             await withOrderedTransitionResources(projectRoot, resources, async () => {
                 const strictBefore = await loadPlanStrict(projectRoot, planName);
-                if (strictBefore.kind === "malformed") {
-                    await writeState("needs_recovery", {
-                        error: strictBefore.error.message,
-                        recoveryActions: actions,
-                    });
-                    return {
-                        status: "needs_recovery",
-                        transitionId,
-                        operation,
-                        message: strictBefore.error.message,
-                        recoveryActions: actions,
-                    };
-                }
+                // A Plan file RunWield cannot read is a blocked precondition, not a
+                // partial transition: nothing has been applied yet, so there is
+                // nothing to recover. Journaling it would leave a record no evidence
+                // can ever close — the journal carries no before-revision to compare
+                // — and that record would block every later operation on this Plan
+                // even after the file is fixed. `wld plans doctor` reports the file
+                // itself, which is the actual problem to solve.
                 if (strictBefore.kind !== "loaded" && strictBefore.kind !== "not_found") {
-                    const message = "message" in strictBefore
+                    const message = strictBefore.kind === "malformed"
+                        ? strictBefore.error.message
+                        : "message" in strictBefore
                         ? strictBefore.message
                         : "error" in strictBefore
                         ? strictBefore.error.message
                         : `Plan not found: ${planName}`;
-                    await writeState("needs_recovery", {
-                        error: message,
-                        recoveryActions: actions,
-                    });
-                    return { status: "needs_recovery", transitionId, operation, message, recoveryActions: actions };
+                    return {
+                        status: "blocked",
+                        transitionId,
+                        operation,
+                        message,
+                        recoveryActions: planFileActions(planName, strictBefore.path),
+                    };
                 }
                 const beforePlan = strictBefore.kind === "loaded"
                     ? {
@@ -360,11 +539,12 @@ async function runSemanticTransition<T>(
                         attrs: strictBefore.attrs,
                         body: strictBefore.body,
                         revision: strictBefore.revision,
+                        frontMatterRevision: strictBefore.frontMatterRevision,
                     }
                     : null;
                 const existingRecoveryRecords = await listTransitionRecoveryRecords(projectRoot);
-                const resourceKeys = new Set(resources.map(transitionResourceKey));
-                const conflictingRecoveryRecord = existingRecoveryRecords.find((record) => {
+                const resourceKeys = ownershipResourceKeys(resources);
+                const conflictsWithThisTransition = (record: Record<string, unknown>) => {
                     if (
                         record.transitionId === transitionId ||
                         activeTransitionIds.has(String(record.transitionId || ""))
@@ -375,36 +555,33 @@ async function runSemanticTransition<T>(
                         if (!resource || typeof resource !== "object") return false;
                         const { kind, id } = resource as JournaledResource;
                         if (typeof kind !== "string") return false;
-                        return resourceKeys.has(`${kind}:${typeof id === "string" ? id : ""}`);
+                        const key = `${kind}:${typeof id === "string" ? id : ""}`;
+                        return isOwnershipResourceKey(key) && resourceKeys.has(key);
                     });
-                });
+                };
+                const conflictingRecoveryRecord = existingRecoveryRecords.find(conflictsWithThisTransition);
                 if (conflictingRecoveryRecord && !supersedesUnresolved) {
-                    const message = `Unresolved lifecycle transition ${
-                        conflictingRecoveryRecord.transitionId || "unknown"
-                    } must be recovered before starting ${operation} for ${planName}.`;
-                    return { status: "blocked", transitionId, operation, message, recoveryActions: actions };
+                    return {
+                        status: "blocked",
+                        transitionId,
+                        operation,
+                        message: unresolvedTransitionMessage(conflictingRecoveryRecord, operation, planName),
+                        recoveryActions: unresolvedTransitionActions(planName),
+                    };
                 }
                 const supersededRecords = supersedesUnresolved
-                    ? existingRecoveryRecords.filter((record) =>
-                        record.transitionId !== transitionId &&
-                        !activeTransitionIds.has(String(record.transitionId || "")) &&
-                        (record.planName === planName ||
-                            (Array.isArray(record.resources) &&
-                                record.resources.some((resource: unknown) => {
-                                    if (!resource || typeof resource !== "object") return false;
-                                    const { kind, id } = resource as JournaledResource;
-                                    if (typeof kind !== "string") return false;
-                                    return resourceKeys.has(`${kind}:${typeof id === "string" ? id : ""}`);
-                                })))
-                    )
+                    ? existingRecoveryRecords.filter(conflictsWithThisTransition)
                     : [];
-                if (expectedRevision !== undefined && beforePlan?.revision !== expectedRevision) {
-                    const message = beforePlan
-                        ? `Stale transition precondition for ${planName}: expected ${expectedRevision}, found ${beforePlan.revision}.`
-                        : `Stale transition precondition for ${planName}: expected ${expectedRevision}, but Plan is missing.`;
-                    // Stale/precondition mismatches are typed caller outcomes, not partial lifecycle effects.
-                    // Do not durably journal them: recovery scans treat any remaining journal as unresolved work.
-                    return { status: "blocked", transitionId, operation, message, recoveryActions: actions };
+                if (expectedRevision !== undefined) {
+                    const precondition = classifyPlanPrecondition(expectedRevision, beforePlan);
+                    if (precondition.stale) {
+                        const message = beforePlan
+                            ? `${planName} changed after this operation read it, so RunWield stopped instead of overwriting the newer Plan metadata.`
+                            : `${planName} is missing, so this operation has nothing to update.`;
+                        // Stale/precondition mismatches are typed caller outcomes, not partial lifecycle effects.
+                        // Do not durably journal them: recovery scans treat any remaining journal as unresolved work.
+                        return { status: "blocked", transitionId, operation, message, recoveryActions: actions };
+                    }
                 }
                 const attemptBeforeFacts = await Promise.all(
                     resources
@@ -509,16 +686,16 @@ async function runSemanticTransition<T>(
                             });
                         }
                     }
-                    const currentPlanRevision = (await loadPlan(projectRoot, planName).catch(() => null))?.revision;
-                    const classify = (currentRevision?: string) =>
+                    const currentPlan = await loadPlan(projectRoot, planName).catch(() => null);
+                    const currentPlanRevision = currentPlan?.revision;
+                    const classify = (planSettled: boolean) =>
                         classifyTransitionFailure({
-                            beforeRevision: beforePlan?.revision,
-                            currentRevision,
+                            planSettled,
                             completedEffects,
                             rollbackResults,
                             irreversibleEffects,
                         });
-                    let outcome = classify(currentPlanRevision);
+                    let outcome = classify(planEffectsAreSettled(beforePlan, currentPlan));
                     // Registered compensations already ran above; the Plan write is
                     // the one effect they cannot cover, so undo it here when this
                     // transaction can prove it was the writer. Only worth trying when
@@ -531,7 +708,7 @@ async function runSemanticTransition<T>(
                             beforePlan,
                             currentRevision: currentPlanRevision,
                         });
-                        if (restoredRevision) outcome = classify(restoredRevision);
+                        if (restoredRevision) outcome = classify(true);
                     }
                     // A journal blocks every later transition on these resources until
                     // something proves the repository safe, so only write one when this
@@ -539,7 +716,14 @@ async function runSemanticTransition<T>(
                     // precondition that never touched a byte must not strand the Plan.
                     if (outcome.provablyClean) {
                         await removeJournal(projectRoot, transitionId);
-                        return { status: "rolled_back", transitionId, operation, message, recoveryActions: actions };
+                        return {
+                            status: "rolled_back",
+                            transitionId,
+                            operation,
+                            message,
+                            recoveryActions: actions,
+                            cause: error,
+                        };
                     }
                     await writeState("needs_recovery", {
                         error: message,
@@ -548,7 +732,14 @@ async function runSemanticTransition<T>(
                         ...(rollbackResults.length > 0 ? { rollbackResults } : {}),
                         recoveryActions: actions,
                     });
-                    return { status: "needs_recovery", transitionId, operation, message, recoveryActions: actions };
+                    return {
+                        status: "needs_recovery",
+                        transitionId,
+                        operation,
+                        message,
+                        recoveryActions: actions,
+                        cause: error,
+                    };
                 }
             }),
     );
@@ -585,7 +776,7 @@ export async function runExecutionPreparationTransition<T>(
         operation: "execution_preparation",
         resources,
         expectedRevision,
-        expectedEffects: ["execution_prepared"],
+        expectedEffects: ["plan_event_recorded"],
         apply: async (ctx) => {
             const value = await prepare(ctx);
             const preparationProof = verifyPreparation ? await verifyPreparation(value, ctx) : { planName };
@@ -620,47 +811,23 @@ async function runPlanTransition<T>(
     const transitionId = crypto.randomUUID();
     return await withPlanLock(projectRoot, planName, async () => {
         const strictBefore = await loadPlanStrict(projectRoot, planName);
-        if (strictBefore.kind === "malformed") {
-            await writeJournal(projectRoot, transitionId, {
-                version: 1,
-                transitionId,
-                operation,
-                planName,
-                state: "needs_recovery",
-                error: strictBefore.error.message,
-                recoveryActions: planAction(planName),
-                updatedAt: new Date().toISOString(),
-            });
-            return {
-                status: "needs_recovery",
-                transitionId,
-                operation,
-                message: strictBefore.error.message,
-                recoveryActions: planAction(planName),
-            };
-        }
+        // Unreadable Plan bytes are a blocked precondition, not partial work. See
+        // the matching branch in runSemanticTransition: journaling this would
+        // create a record nothing can ever close.
         if (strictBefore.kind !== "loaded" && strictBefore.kind !== "not_found") {
-            const message = "message" in strictBefore
+            const message = strictBefore.kind === "malformed"
+                ? strictBefore.error.message
+                : "message" in strictBefore
                 ? strictBefore.message
                 : "error" in strictBefore
                 ? strictBefore.error.message
                 : `Plan not found: ${planName}`;
-            await writeJournal(projectRoot, transitionId, {
-                version: 1,
-                transitionId,
-                operation,
-                planName,
-                state: "needs_recovery",
-                error: message,
-                recoveryActions: planAction(planName),
-                updatedAt: new Date().toISOString(),
-            });
             return {
-                status: "needs_recovery",
+                status: "blocked",
                 transitionId,
                 operation,
                 message,
-                recoveryActions: planAction(planName),
+                recoveryActions: planFileActions(planName, strictBefore.path),
             };
         }
         const beforePlan = strictBefore.kind === "loaded"
@@ -670,6 +837,7 @@ async function runPlanTransition<T>(
                 attrs: strictBefore.attrs,
                 body: strictBefore.body,
                 revision: strictBefore.revision,
+                frontMatterRevision: strictBefore.frontMatterRevision,
             }
             : null;
         const activeTransitionIds = activeSemanticTransitions.getStore() || new Set();
@@ -687,18 +855,25 @@ async function runPlanTransition<T>(
             });
         });
         if (conflictingRecoveryRecord) {
-            const message = `Unresolved lifecycle transition ${
-                conflictingRecoveryRecord.transitionId || "unknown"
-            } must be recovered before starting ${operation} for ${planName}.`;
-            return { status: "blocked", transitionId, operation, message, recoveryActions: planAction(planName) };
+            const message = unresolvedTransitionMessage(conflictingRecoveryRecord, operation, planName);
+            return {
+                status: "blocked",
+                transitionId,
+                operation,
+                message,
+                recoveryActions: unresolvedTransitionActions(planName),
+            };
         }
-        if (expectedRevision !== undefined && beforePlan?.revision !== expectedRevision) {
-            const message = beforePlan
-                ? `Stale transition precondition for ${planName}: expected ${expectedRevision}, found ${beforePlan.revision}.`
-                : `Stale transition precondition for ${planName}: expected ${expectedRevision}, but Plan is missing.`;
-            // Stale/precondition mismatches are typed caller outcomes, not partial lifecycle effects.
-            // Do not durably journal them: recovery scans treat any remaining journal as unresolved work.
-            return { status: "blocked", transitionId, operation, message, recoveryActions: planAction(planName) };
+        if (expectedRevision !== undefined) {
+            const precondition = classifyPlanPrecondition(expectedRevision, beforePlan);
+            if (precondition.stale) {
+                const message = beforePlan
+                    ? `${planName} changed after this operation read it, so RunWield stopped instead of overwriting the newer Plan metadata.`
+                    : `${planName} is missing, so this operation has nothing to update.`;
+                // Stale/precondition mismatches are typed caller outcomes, not partial lifecycle effects.
+                // Do not durably journal them: recovery scans treat any remaining journal as unresolved work.
+                return { status: "blocked", transitionId, operation, message, recoveryActions: planAction(planName) };
+            }
         }
         await writeJournal(projectRoot, transitionId, {
             version: 1,
@@ -752,16 +927,18 @@ async function runPlanTransition<T>(
             // belong to normal operation reach here — a stale review decision is
             // the designed outcome of reviewing an edited Plan — and must leave
             // the Plan retryable rather than blocked.
-            const currentPlanRevision = (await loadPlan(projectRoot, planName).catch(() => null))?.revision;
+            const currentPlan = await loadPlan(projectRoot, planName).catch(() => null);
+            const currentPlanRevision = currentPlan?.revision;
             // Undoing a partial write is the whole compensation at this layer: the
-            // Plan file is the only durable thing `apply` may touch here. When the
-            // bytes never changed, or when they changed and we can prove we were
-            // the writer, the repository is provably back to its starting state
+            // Plan file is the only durable thing `apply` may touch here. When
+            // nothing RunWield owns changed, or when it changed and we can prove we
+            // were the writer, the repository is provably back to its starting state
             // and the Plan must stay usable rather than be blocked by a journal.
-            const restoredRevision = beforePlan && currentPlanRevision !== beforePlan.revision
+            const settled = planEffectsAreSettled(beforePlan, currentPlan);
+            const restoredRevision = beforePlan && !settled
                 ? await restoreOwnPlanWrite({ projectRoot, planName, beforePlan, currentRevision: currentPlanRevision })
                 : null;
-            if (!beforePlan || currentPlanRevision === beforePlan.revision || restoredRevision) {
+            if (!beforePlan || settled || restoredRevision) {
                 await removeJournal(projectRoot, transitionId);
                 return {
                     status: "rolled_back",
@@ -769,6 +946,7 @@ async function runPlanTransition<T>(
                     operation,
                     message,
                     recoveryActions: planAction(planName),
+                    cause: error,
                 };
             }
             await writeJournal(projectRoot, transitionId, {
@@ -790,6 +968,7 @@ async function runPlanTransition<T>(
                 operation,
                 message,
                 recoveryActions: planAction(planName),
+                cause: error,
             };
         }
     });
@@ -812,7 +991,6 @@ export async function runPlanLifecycleEventTransition<T>(
             operation: `plan_event:${opts.event}`,
             resources: opts.resources,
             expectedRevision: opts.expectedRevision,
-            expectedEffects: ["plan_event_recorded"],
             apply: async (ctx) => {
                 const value = await opts.record(ctx);
                 await ctx.markEffect("plan_event_recorded", { planName: opts.planName, event: opts.event });
@@ -856,7 +1034,7 @@ export async function runReviewReopenTransition<T>(
         operation: "review_reopened",
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["worktree_registry_abandoned", "review_reopened_settled"],
+        expectedEffects: ["worktree_registry_abandoned"],
         apply: async (ctx) => {
             const value = await opts.reopen(ctx);
             await ctx.markEffect("review_reopened_settled", { planName: opts.planName, worktreeId: opts.worktreeId });
@@ -922,6 +1100,33 @@ export async function listTransitionRecoveryRecords(projectRoot: string) {
     return records;
 }
 
+/** A durable effect as read back from a journal, before anything is proven. */
+export interface JournaledEffect {
+    effect: string;
+    proof?: Record<string, unknown>;
+    completedAt?: string;
+}
+
+/**
+ * A verdict on one journaled effect, from current repository facts.
+ *
+ * `settled` means the effect needs nothing further: either its intended
+ * postcondition is present, or it provably never landed. Both are closable —
+ * what is not closable is not knowing which.
+ */
+export interface EffectVerdict {
+    settled: boolean;
+    reason: string;
+    /** Set when resolving this effect would destroy something (a branch, a worktree). */
+    destructive?: boolean;
+}
+
+/** Proves journaled effects from repository facts. Supplied by the reconciliation caller. */
+export type EffectProver = (
+    effect: JournaledEffect,
+    record: Record<string, unknown>,
+) => Promise<EffectVerdict> | EffectVerdict;
+
 /** A journal record paired with whether it can be retired without a human. */
 export interface TransitionReconciliation {
     transitionId: string;
@@ -933,6 +1138,12 @@ export interface TransitionReconciliation {
     /** Why it is resolvable, or what remains uncertain. */
     reason: string;
     resolved?: boolean;
+    /** The effects the record claims, with each one's verdict when a prover ran. */
+    effects?: Array<JournaledEffect & { verdict?: EffectVerdict }>;
+    /** The recovery recipe the transition itself journaled, when it left one. */
+    recoveryActions?: TransitionRecoveryAction[];
+    /** Journal file path, so a report can name the artifact it is talking about. */
+    path?: string;
 }
 
 /**
@@ -945,13 +1156,19 @@ export interface TransitionReconciliation {
  * to close its own records.
  *
  * A record is resolvable only on positive evidence: the transition already
- * committed (so only the cleanup delete was lost), or it marked no durable
- * effect and the Plan is byte-identical to what it read. Anything else — a
- * changed Plan, a marked effect, an irreversible Git move — stays for a human.
+ * committed (so only the cleanup delete was lost), it marked no durable effect and
+ * the Plan still holds the metadata it read, or a caller-supplied prover confirmed
+ * every effect it did mark. Anything else — changed metadata, an effect nothing
+ * can vouch for, an irreversible Git move that is not visible in the repository —
+ * stays for a human.
+ *
+ * @param proveEffect supplies repository evidence about journaled effects. Without
+ * one, any recorded effect keeps the record open, because this module can see Plan
+ * bytes but not Git refs or the worktree registry.
  */
 export async function reconcileTransitionRecoveryRecords(
     projectRoot: string,
-    { apply = false }: { apply?: boolean } = {},
+    { apply = false, proveEffect }: { apply?: boolean; proveEffect?: EffectProver } = {},
 ): Promise<TransitionReconciliation[]> {
     const records = await listTransitionRecoveryRecords(projectRoot);
     const reconciliations: TransitionReconciliation[] = [];
@@ -960,7 +1177,15 @@ export async function reconcileTransitionRecoveryRecords(
         const planName = typeof record.planName === "string" ? record.planName : undefined;
         const operation = typeof record.operation === "string" ? record.operation : undefined;
         const state = typeof record.state === "string" ? record.state : undefined;
-        const base = { transitionId, planName, operation, state };
+        const recoveryActions = Array.isArray(record.recoveryActions)
+            ? (record.recoveryActions as TransitionRecoveryAction[])
+            : undefined;
+        const path = typeof record.path === "string"
+            ? record.path
+            : transitionId
+            ? getTransitionJournalPath(projectRoot, transitionId)
+            : undefined;
+        const base = { transitionId, planName, operation, state, recoveryActions, path };
 
         if (!transitionId) {
             reconciliations.push({ ...base, resolvable: false, reason: "journal file is unreadable or has no id" });
@@ -974,16 +1199,35 @@ export async function reconcileTransitionRecoveryRecords(
             });
             continue;
         }
-        const completedEffects = Array.isArray(record.completedEffects) ? record.completedEffects : [];
+        const completedEffects: JournaledEffect[] =
+            (Array.isArray(record.completedEffects) ? record.completedEffects : [])
+                .filter((effect: unknown): effect is JournaledEffect =>
+                    Boolean(effect) && typeof (effect as JournaledEffect).effect === "string"
+                );
         if (completedEffects.length > 0) {
-            const names = completedEffects
-                .map((effect: unknown) => (effect as CompletedEffect)?.effect)
-                .filter(Boolean)
-                .join(", ");
+            if (!proveEffect) {
+                reconciliations.push({
+                    ...base,
+                    effects: completedEffects,
+                    resolvable: false,
+                    reason: `durable effects were recorded and need proof before closing: ${
+                        completedEffects.map((effect) => effect.effect).join(", ")
+                    }`,
+                });
+                continue;
+            }
+            const judged = [];
+            for (const effect of completedEffects) {
+                judged.push({ ...effect, verdict: await proveEffect(effect, record) });
+            }
+            const unsettled = judged.filter((effect) => !effect.verdict.settled);
             reconciliations.push({
                 ...base,
-                resolvable: false,
-                reason: `durable effects were recorded and need proof before closing: ${names}`,
+                effects: judged,
+                resolvable: unsettled.length === 0,
+                reason: unsettled.length === 0
+                    ? judged.map((effect) => `${effect.effect} (${effect.verdict.reason})`).join("; ")
+                    : unsettled.map((effect) => `${effect.effect}: ${effect.verdict.reason}`).join("; "),
             });
             continue;
         }
@@ -991,24 +1235,39 @@ export async function reconcileTransitionRecoveryRecords(
             reconciliations.push({ ...base, resolvable: false, reason: "no Plan recorded; cannot prove Plan state" });
             continue;
         }
-        const beforeFacts = (record.beforeFacts || {}) as { plan?: { revision?: unknown; missing?: unknown } };
-        const journaledRevision = typeof beforeFacts.plan?.revision === "string"
-            ? beforeFacts.plan.revision
-            : undefined;
+        const beforeFacts = (record.beforeFacts || record.before || {}) as {
+            plan?: { revision?: unknown; missing?: unknown };
+            revision?: unknown;
+            missing?: unknown;
+        };
+        const journaledPlan = beforeFacts.plan || beforeFacts;
+        const journaledRevision = typeof journaledPlan.revision === "string" ? journaledPlan.revision : undefined;
         const current = await loadPlan(projectRoot, planName).catch(() => null);
-        if (journaledRevision === undefined && beforeFacts.plan?.missing !== true) {
+        if (journaledRevision === undefined && journaledPlan.missing !== true) {
             reconciliations.push({
                 ...base,
                 resolvable: false,
-                reason: "journal recorded no Plan revision, so an unchanged Plan cannot be proven",
+                reason: "journal recorded no Plan revision, so unchanged Plan metadata cannot be proven",
             });
             continue;
         }
-        const unchanged = beforeFacts.plan?.missing === true ? !current : current?.revision === journaledRevision;
+        // Body drift is not drift: the user owns the body and may rewrite it at any
+        // time, so a record whose Front Matter still matches describes no
+        // outstanding RunWield work even though the file bytes differ.
+        const unchanged = journaledPlan.missing === true ? !current : Boolean(
+            current &&
+                (current.revision === journaledRevision ||
+                    (current.frontMatterRevision !== undefined &&
+                        current.frontMatterRevision === getKnownFrontMatterRevision(journaledRevision))),
+        );
         reconciliations.push(
             unchanged
-                ? { ...base, resolvable: true, reason: "no durable effect recorded and the Plan is unchanged" }
-                : { ...base, resolvable: false, reason: "the Plan changed after this transition was journaled" },
+                ? { ...base, resolvable: true, reason: "no durable effect recorded and the Plan metadata is unchanged" }
+                : {
+                    ...base,
+                    resolvable: false,
+                    reason: "the Plan metadata changed after this transition was journaled",
+                },
         );
     }
     if (apply) {
@@ -1066,13 +1325,9 @@ export async function runImplementationCheckpointTransition<T>(
         operation: "implementation_checkpoint",
         resources,
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["implementation_checkpoint_settled"],
         apply: async (ctx) => {
-            const beforeCount = ctx.beforePlan ? 0 : 0;
             const value = await opts.checkpoint(ctx);
-            if (beforeCount === 0) {
-                await ctx.markEffect("implementation_checkpoint_settled", opts.checkpointProof || {});
-            }
+            await ctx.markEffect("implementation_checkpoint_settled", opts.checkpointProof || {});
             return {
                 checkpointProof: opts.checkpointProof || {},
                 postconditions: { planEvent: "implementation_finished", registryStatus: "completed" },
@@ -1101,7 +1356,6 @@ export async function runValidationOutcomeTransition<T>(
         operation: `validation_${opts.outcome}`,
         resources,
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["validation_outcome_settled"],
         apply: async (ctx) => {
             const value = await opts.settle(ctx);
             await ctx.markEffect("validation_outcome_settled", { outcome: opts.outcome, ...(opts.proof || {}) });
@@ -1150,7 +1404,7 @@ export async function runDirectDeliveryPublicationTransition<T>(
             registryStatus: "merged",
             cleanup: "post_publication",
         },
-        expectedEffects: ["direct_delivery_published"],
+        expectedEffects: ["direct_delivery_target_ref_moved"],
         irreversibleEffects: ["direct_delivery_target_ref_moved"],
         apply: async (ctx) => {
             const value = await opts.publish(ctx);
@@ -1183,7 +1437,6 @@ export async function runEpicDecompositionFinalizeTransition<T>(
         operation: "epic_decomposition_finalize",
         resources: opts.resources,
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["decomposition_finalized"],
         apply: async (ctx) => {
             const value = await opts.finalize(ctx);
             await ctx.markEffect("decomposition_finalized", {
@@ -1213,7 +1466,6 @@ export async function runRecoveryTransition<T>(
         resources,
         supersedesUnresolved: true,
         expectedRevision: opts.expectedRevision,
-        expectedEffects: [`recovery_${opts.action}_settled`],
         apply: async (ctx) => {
             const value = await opts.recover(ctx);
             await ctx.markEffect(`recovery_${opts.action}_settled`, { action: opts.action });
@@ -1234,7 +1486,6 @@ export async function runArchiveTransition<T>(
         operation: `plan_${opts.action}`,
         resources: [{ kind: "catalog" }, { kind: "plan", id: opts.planName }],
         expectedRevision: opts.expectedRevision,
-        expectedEffects: [`archive_${opts.action}_settled`],
         apply: async (ctx) => {
             const value = await opts.move(ctx);
             await ctx.markEffect(`archive_${opts.action}_settled`, { action: opts.action });

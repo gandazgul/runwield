@@ -5,7 +5,12 @@
  */
 
 import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
-import { ensurePlanIdentity, loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import {
+    ensurePlanIdentity,
+    getPlanFrontMatterRevisionForText,
+    loadPlan,
+    resolvePlanExecutionPolicy,
+} from "../../plan-store.js";
 import { join } from "@std/path";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -1271,9 +1276,26 @@ export async function startActiveExecutionWorkflow(
                     }`,
                 );
             }
-            if (beforePlan && beforePlan.markdown !== canonicalPlanSource.markdown) {
+            // The Plan is read twice under the same lock: once as the transition's
+            // locked snapshot, once here as the source that will be materialized into
+            // the worktree. Those must agree, or execution runs against metadata the
+            // lifecycle checks never saw.
+            //
+            // Compare Front Matter, not whole-file bytes: RunWield owns Front Matter
+            // and the user owns the body, so a body edit between the two reads is
+            // legitimate and must not abort a valid run. This is the same
+            // ownership-scoped comparison the transition layer uses for its
+            // preconditions — one primitive, not a second list of fields to keep in
+            // sync with the first.
+            const canonicalFrontMatterRevision = await getPlanFrontMatterRevisionForText(
+                canonicalPlanSource.markdown,
+            );
+            if (
+                beforePlan && beforePlan.frontMatterRevision &&
+                beforePlan.frontMatterRevision !== canonicalFrontMatterRevision
+            ) {
                 throw new Error(
-                    `Plan ${planName} changed while preparing execution; reload the Plan and review current bytes before executing.`,
+                    `Plan ${planName} had its front matter change while preparing execution; reload the Plan and start execution again.`,
                 );
             }
             lockedCanonicalPlanSource = canonicalPlanSource;

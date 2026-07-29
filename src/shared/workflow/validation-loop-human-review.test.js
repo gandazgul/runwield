@@ -4,7 +4,12 @@ import { runValidationLoop } from "./validation.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 
-import { makeRecordedSession, makeUi, noOpWorktreePlanHandoffDeps } from "./validation-test-helpers.js";
+import {
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    noOpWorktreePlanHandoffDeps,
+} from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
@@ -12,6 +17,7 @@ function makeValidationUi() {
 }
 
 Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */
     const actions = [];
@@ -22,7 +28,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -96,6 +102,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
 });
 
 Deno.test("runValidationLoop ask mode can skip human review and merge", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -110,7 +117,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -172,6 +179,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
 });
 
 Deno.test("runValidationLoop ask mode opens human review before merge when approved", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -186,7 +194,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -390,6 +398,7 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
 });
 
 Deno.test("runValidationLoop treats human review exit as validation failure without merge", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */
     const actions = [];
@@ -402,7 +411,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",

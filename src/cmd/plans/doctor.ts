@@ -5,7 +5,7 @@
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { join } from "@std/path";
-import { CLI_BIN, getCwd } from "../../constants.js";
+import { CLI_BIN, getCwd, PLAN_LOCKS_DIR_NAME, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE } from "../../constants.js";
 import {
     getPlansDir,
     listArchivedPlans,
@@ -13,8 +13,21 @@ import {
     loadPlanStrict,
     parsePlanFrontMatter,
 } from "../../plan-store.js";
-import { reconcileTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
-import { listEntries, pruneEntry, reconcileEntryIdentity } from "../../shared/worktree-registry.js";
+import {
+    type EffectProver,
+    getTransitionJournalDir,
+    reconcileTransitionRecoveryRecords,
+    type TransitionReconciliation,
+} from "../../shared/workflow/state-transition.ts";
+import {
+    inspectWorktreeRegistry,
+    listEntries,
+    pruneEntry,
+    reconcileEntryIdentity,
+} from "../../shared/worktree-registry.js";
+
+/** A registry attempt as stored, before doctor proves anything about it. */
+type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
 
 /** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
 interface DeliveryEvidenceSnapshot {
@@ -30,6 +43,13 @@ interface DoctorIssue {
     planName?: string;
     worktreeId?: string;
     repairable?: boolean;
+    /**
+     * Commands for this exact occurrence, ready to paste. Instance-specific paths
+     * and ids belong here; `IssueGuidance.nextSteps` covers the general advice.
+     */
+    commands?: string[];
+    /** What --repair did, or would do. Printed so the action is never a surprise. */
+    repairSummary?: string;
 }
 
 interface IssueGuidance {
@@ -54,10 +74,12 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Plan files",
                 severity: "Critical",
-                diagnosis: "RunWield cannot reliably read this Plan file.",
+                diagnosis:
+                    "RunWield cannot parse the Front Matter block in this Plan file, so it will not touch the file at all.",
                 nextSteps: [
-                    "Open the named file and fix the front matter or replace the unexpected path with a regular .md file.",
-                    "Run plans doctor again before loading or archiving this Plan.",
+                    "Only the YAML between the leading --- markers has to be valid. Your body text below it is yours and is never parsed, so nothing there can cause this.",
+                    "RunWield left the file byte-for-byte as it found it, so a git diff shows exactly what changed.",
+                    `Lifecycle commands for this Plan stay blocked until it parses; re-run ${CLI_BIN} plans doctor to confirm the fix.`,
                 ],
             };
         case "duplicate_plan_id":
@@ -84,25 +106,50 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 ],
             };
         case "unresolved_transition":
+        case "unresolved_transition_in_worktree":
             return {
                 category: "Lifecycle transitions",
                 severity: "Critical",
                 diagnosis:
-                    "A lifecycle transaction did not finish cleanly and blocks further work on its Plan until it is resolved.",
+                    "A lifecycle operation was interrupted and RunWield cannot yet prove how it ended, so it is holding further changes to that Plan rather than stacking onto uncertain state.",
                 nextSteps: [
-                    `Run ${CLI_BIN} plans doctor --repair to close records that repository facts prove are already settled.`,
-                    `If it remains, run ${CLI_BIN} load-plan <plan> and choose a recovery action; recovery supersedes the record and clears it on success.`,
-                    "Records naming durable effects are left in place on purpose: confirm the worktree, branch, and target ref before forcing them.",
+                    "The detail line names the exact effect involved; that is the only thing worth checking.",
+                    "Nothing here is lost work: the Plan, its worktree, and its branch are all untouched while the record stands.",
+                    "Plan Recovery supersedes these records, so a successful recovery action clears them for you.",
+                ],
+            };
+        case "stale_plan_lock":
+            return {
+                category: "Lifecycle transitions",
+                severity: "Cleanup",
+                diagnosis:
+                    "A lock file outlived the process that created it. RunWield reclaims these on its own, but only after making the next command wait.",
+                nextSteps: [
+                    "Nothing is at risk: the file records only that a process was working on the Plan.",
+                    "Clear it now to avoid an unexplained pause the next time you touch this Plan.",
                 ],
             };
         case "registry_integrity_error":
             return {
                 category: "Worktree registry",
                 severity: "Critical",
-                diagnosis: "RunWield could not load its worktree registry, so active attempt state may be hidden.",
+                diagnosis:
+                    "RunWield's own worktree registry file is unreadable, so attempt state is hidden until it is restored.",
                 nextSteps: [
-                    "Inspect .wld/worktrees.json for invalid JSON or schema drift.",
-                    "Restore the registry from backup or repair it before creating, merging, or abandoning worktrees.",
+                    "This file is RunWield's bookkeeping, not your work: no Plan content or Git commit depends on it.",
+                    "It is normally committed, so checking out the last good copy is the fastest fix; git worktree list shows what actually exists if you need to rebuild it.",
+                    "Attempts RunWield forgets are still recoverable from their branches and directories, which are untouched.",
+                ],
+            };
+        case "unsupported_schema_version":
+            return {
+                category: "Worktree registry",
+                severity: "Critical",
+                diagnosis:
+                    "The worktree registry was written by a newer RunWield than the one running now, so this version must not rewrite it.",
+                nextSteps: [
+                    "Upgrade RunWield to the version that wrote this registry rather than downgrading the file.",
+                    "Do not start, merge, or abandon attempts with this version in the meantime.",
                 ],
             };
         case "orphan_git_worktree":
@@ -218,14 +265,28 @@ function formatDoctorReport(issues: DoctorIssue[], repaired: number, repair: boo
             lines.push(`   Detail: ${issue.message}`);
             lines.push("   Next steps:");
             for (const step of guidance.nextSteps) lines.push(`   - ${step}`);
-            if (issue.repairable) lines.push("   Repair: Safe automated repair is available with --repair.");
+            if (issue.commands?.length) {
+                lines.push(issue.commands.length === 1 ? "   Run:" : "   Run one of:");
+                for (const command of issue.commands) lines.push(`     ${command}`);
+            }
+            if (issue.repairSummary) lines.push(`   Repair: ${issue.repairSummary}`);
+            else if (issue.repairable) lines.push("   Repair: Safe automated repair is available with --repair.");
             lines.push("");
         });
     }
 
-    if (repair) lines.push(`[RunWield] Applied ${repaired} safe repair(s).`);
-    else if (issues.some((issue) => issue.repairable)) {
-        lines.push(`[RunWield] Some cleanup is safe to automate. Re-run: ${CLI_BIN} plans doctor --repair`);
+    if (repair) {
+        lines.push(`[RunWield] Applied ${repaired} safe repair(s).`);
+        if (issues.length > 0) {
+            lines.push(
+                "The issues above need a decision RunWield will not make for you. Nothing was deleted: " +
+                    "every worktree, branch, and Plan file named above is still exactly where it was.",
+            );
+        }
+    } else if (issues.some((issue) => issue.repairable)) {
+        lines.push(
+            `[RunWield] Some of this is safe for RunWield to fix by itself. Run: ${CLI_BIN} plans doctor --repair`,
+        );
     }
     return lines.join("\n").trimEnd();
 }
@@ -264,7 +325,12 @@ async function collectPlanIssues(
             if (!isPlanPath) continue;
             const result = await loadPlanStrict(join(root, ".."), planName);
             if (result.kind === "malformed") {
-                issues.push({ kind: "malformed_plan", planName, message: result.error.message });
+                issues.push({
+                    kind: "malformed_plan",
+                    planName,
+                    message: result.error.message,
+                    commands: [`git diff -- ${entryPath}`, `git checkout -- ${entryPath}`],
+                });
             } else if (result.kind !== "loaded") {
                 issues.push({
                     kind: `plan_${result.kind}`,
@@ -366,6 +432,166 @@ async function collectArchivedPlanParseIssues(
     await visit([]);
 }
 
+/**
+ * Effects a semantic transition marks once its own body finished successfully.
+ *
+ * These name no external state of their own: the wrapper adds them after the
+ * operation applied and, where the operation proves its result (Direct Delivery
+ * verifies ancestry before marking), after that proof. A record carrying one
+ * failed in verification or journal cleanup, not in the work itself.
+ */
+const COMPLETION_MARKER_EFFECTS = new Set([
+    "execution_prepared",
+    "implementation_checkpoint_settled",
+    "validation_outcome_settled",
+    "direct_delivery_published",
+    "decomposition_finalized",
+    "review_reopened_settled",
+    "archive_archive_settled",
+    "archive_restore_settled",
+    "recovery_recover_settled",
+    "recovery_reset_settled",
+    "recovery_recreate_settled",
+    "recovery_abandon_settled",
+    "plan_event_recorded",
+]);
+
+const REGISTRY_STATUS_EFFECTS = new Set([
+    "worktree_registry_updated",
+    "worktree_registry_settled",
+    "worktree_registry_abandoned",
+    "recovery_recreate_registry_settled",
+]);
+
+const WORKTREE_CREATION_EFFECTS = new Set([
+    "git_worktree_created",
+    "git_worktree_reused",
+    "recovery_recreate_git_worktree_created",
+]);
+
+/**
+ * Judge journaled effects from current repository facts.
+ *
+ * RunWield writes these records, so RunWield has to be able to close them. The
+ * standard is evidence either way: an effect is settled when the repository shows
+ * its intended result, and equally settled when it provably never landed — both
+ * leave nothing half-done. Only genuine ambiguity, like a merge that ran without
+ * reaching the target branch, is worth a human's attention, and that is exactly
+ * the case where guessing would cost someone their work.
+ */
+function buildEffectProver(
+    projectRoot: string,
+    facts: { registryEntries: RegistryEntry[]; gitWorktreePaths: string[] },
+): EffectProver {
+    const entryById = new Map(facts.registryEntries.map((entry) => [entry.id, entry]));
+    const trackedPaths = new Set(facts.registryEntries.map((entry) => entry.path));
+    return async (effect, record) => {
+        const proof = (effect.proof || {}) as Record<string, unknown>;
+        const worktreeId = typeof proof.worktreeId === "string" ? proof.worktreeId : undefined;
+
+        if (REGISTRY_STATUS_EFFECTS.has(effect.effect)) {
+            const entry = worktreeId ? entryById.get(worktreeId) : undefined;
+            if (!worktreeId) return { settled: true, reason: "no attempt named, so no registry row is outstanding" };
+            if (!entry) {
+                return {
+                    settled: true,
+                    reason:
+                        `attempt ${worktreeId} is not in the registry, so the recorded status change has nothing left to apply`,
+                };
+            }
+            // The registry is rewritten whole under its own lock, so a status update
+            // either landed or never started. Neither leaves a partial row.
+            return {
+                settled: true,
+                reason:
+                    `registry attempt ${worktreeId} reads ${entry.status} and registry writes are atomic, so no partial update is outstanding`,
+            };
+        }
+
+        if (WORKTREE_CREATION_EFFECTS.has(effect.effect)) {
+            const path = typeof proof.path === "string" ? proof.path : undefined;
+            if (!path) return { settled: false, reason: "the record names no worktree path to inspect" };
+            const exists = await Deno.stat(path).then((stat) => stat.isDirectory).catch(() => false);
+            if (!exists) {
+                return { settled: true, reason: `worktree ${path} does not exist, so nothing was left behind` };
+            }
+            if (trackedPaths.has(path)) {
+                return { settled: true, reason: `worktree ${path} exists and the registry tracks it` };
+            }
+            return {
+                settled: false,
+                reason: `worktree ${path} exists but no registry attempt claims it, so it may hold unsaved work`,
+                destructive: true,
+            };
+        }
+
+        if (effect.effect === "direct_delivery_target_ref_moved") {
+            const targetBranch = typeof proof.targetBranch === "string" ? proof.targetBranch : undefined;
+            const executionCommit = typeof proof.sealedExecutionCommit === "string"
+                ? proof.sealedExecutionCommit
+                : undefined;
+            if (!targetBranch || !executionCommit) {
+                return { settled: false, reason: "the record does not name both a target branch and a sealed commit" };
+            }
+            if (await isGitAncestor(projectRoot, executionCommit, targetBranch)) {
+                const metadataCommit = typeof proof.executionMetadataCommit === "string"
+                    ? proof.executionMetadataCommit
+                    : undefined;
+                if (metadataCommit && !(await isGitAncestor(projectRoot, metadataCommit, targetBranch))) {
+                    return {
+                        settled: false,
+                        reason:
+                            `${executionCommit} reached ${targetBranch} but its metadata commit ${metadataCommit} did not, so the Plan metadata may not be published`,
+                    };
+                }
+                return { settled: true, reason: `${executionCommit} is contained in ${targetBranch}` };
+            }
+            return {
+                settled: false,
+                reason:
+                    `the merge ran but ${executionCommit} is not contained in ${targetBranch}, so publication cannot be proven either way`,
+            };
+        }
+
+        if (effect.effect === "direct_delivery_publication_started") {
+            const preserved = Array.isArray(proof.preservedPlanPaths)
+                ? proof.preservedPlanPaths.filter((value): value is string => typeof value === "string")
+                : [];
+            const missing = [];
+            for (const relativePath of preserved) {
+                if (!(await Deno.stat(join(projectRoot, relativePath)).then(() => true).catch(() => false))) {
+                    missing.push(relativePath);
+                }
+            }
+            if (missing.length > 0) {
+                return {
+                    settled: false,
+                    reason: `Plan files staged for publication are missing from the checkout: ${missing.join(", ")}`,
+                };
+            }
+            return { settled: true, reason: "every Plan file staged for publication is present in the checkout" };
+        }
+
+        if (COMPLETION_MARKER_EFFECTS.has(effect.effect)) {
+            const planName = typeof record.planName === "string" ? record.planName : undefined;
+            if (!planName) return { settled: false, reason: "the record names no Plan to confirm" };
+            const loaded = await loadPlanStrict(projectRoot, planName);
+            if (loaded.kind !== "loaded") {
+                return { settled: false, reason: `Plan ${planName} cannot be read (${loaded.kind})` };
+            }
+            return {
+                settled: true,
+                reason:
+                    `the operation had already applied and proved itself when it was interrupted; Plan ${planName} reads ${
+                        loaded.attrs.status ?? "an unset status"
+                    }`,
+            };
+        }
+
+        return { settled: false, reason: `RunWield has no evidence rule for the effect ${effect.effect}` };
+    };
+}
+
 async function runGitLines(projectRoot: string, args: string[]) {
     const command = new Deno.Command("git", { args, cwd: projectRoot, stdout: "piped", stderr: "null" });
     const { code, stdout } = await command.output();
@@ -392,6 +618,157 @@ async function listGitWorktreePaths(projectRoot: string) {
         .filter(Boolean);
 }
 
+/**
+ * Turn one unresolved journal into something a person can act on.
+ *
+ * The record is RunWield's own bookkeeping, so "unresolved_transition
+ * 4f2a-…: worktree_registry_updated" is not a report, it is a receipt for a
+ * problem the user did not cause. Name the Plan, say which effect lacks evidence
+ * and why, and give the commands that either resolve it or show them what to look
+ * at — including, as the last resort, the exact file to delete once they have
+ * decided.
+ */
+function capitalize(text: string): string {
+    return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+}
+
+function describeUnresolvedTransition(reconciliation: TransitionReconciliation): DoctorIssue {
+    const unproven = (reconciliation.effects || []).filter((effect) => effect.verdict && !effect.verdict.settled);
+    const commands: string[] = [];
+    if (reconciliation.resolvable) {
+        // Nothing to investigate: --repair is the whole answer, so anything else here
+        // is noise that makes a solved problem look like a decision.
+        commands.push(`${CLI_BIN} plans doctor --repair`);
+    } else {
+        if (reconciliation.planName) commands.push(`${CLI_BIN} load-plan ${reconciliation.planName}`);
+        for (const action of reconciliation.recoveryActions || []) {
+            if (action.command && !commands.includes(action.command)) commands.push(action.command);
+        }
+        for (const effect of unproven) {
+            const proof = (effect.proof || {}) as Record<string, unknown>;
+            if (typeof proof.path === "string") commands.push(`git -C ${proof.path} status --short`);
+            if (typeof proof.targetBranch === "string" && typeof proof.sealedExecutionCommit === "string") {
+                commands.push(`git branch --contains ${proof.sealedExecutionCommit}`);
+                commands.push(`git log --oneline ${proof.targetBranch} -5`);
+            }
+        }
+        // Listed last and only here: deleting the record is the escape hatch for a user
+        // who has checked the state themselves, not a first move.
+        if (reconciliation.path) {
+            commands.push(`cat ${reconciliation.path}`);
+            commands.push(`rm ${reconciliation.path}`);
+        }
+    }
+    const detail = reconciliation.resolvable
+        ? `Everything it recorded is accounted for: ${reconciliation.reason}.`
+        : unproven.length > 0
+        // Already effect-prefixed by reconciliation, so it reads as a clause.
+        ? `Waiting on ${reconciliation.reason}.`
+        : `${capitalize(reconciliation.reason)}.`;
+    return {
+        kind: "unresolved_transition",
+        planName: reconciliation.planName,
+        repairable: reconciliation.resolvable,
+        message: `${reconciliation.operation || "A lifecycle operation"} on ${
+            reconciliation.planName || "an unnamed Plan"
+        } stopped at "${
+            reconciliation.state || "needs_recovery"
+        }" before RunWield could confirm the outcome. ${detail}`,
+        commands: [...new Set(commands)],
+        repairSummary: reconciliation.resolvable
+            ? "--repair closes this record; the repository already proves it is finished."
+            : "Left in place on purpose: closing it without proof could hide unpublished or unsaved work. " +
+                "Resolve it through load-plan, or delete the record above once you have confirmed the state yourself.",
+    };
+}
+
+/**
+ * Journals written inside an execution worktree.
+ *
+ * Some retry paths run their transaction with the worktree as the project root, so
+ * their records land in the worktree's own `.wld/`. Nothing else looks there:
+ * `plans doctor` scans the primary checkout, so such a record is invisible while
+ * still blocking the retry that would clear it. Surfacing them is the difference
+ * between "retry does nothing, no idea why" and a named file.
+ */
+async function collectWorktreeJournalIssues(
+    projectRoot: string,
+    entries: RegistryEntry[],
+    repair: boolean,
+): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
+    const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
+    for (const entry of entries) {
+        if (entry.path === projectRoot) continue;
+        const journalDir = getTransitionJournalDir(entry.path);
+        if (!(await Deno.stat(journalDir).then((stat) => stat.isDirectory).catch(() => false))) continue;
+        const reconciliations = await reconcileTransitionRecoveryRecords(entry.path, { apply: repair }).catch(() => []);
+        for (const reconciliation of reconciliations) {
+            if (reconciliation.resolved) {
+                results.push({ repaired: true });
+                continue;
+            }
+            const issue = describeUnresolvedTransition(reconciliation);
+            results.push({
+                issue: {
+                    ...issue,
+                    kind: "unresolved_transition_in_worktree",
+                    worktreeId: entry.id,
+                    message:
+                        `${issue.message} This record lives inside the execution worktree at ${entry.path}, so it blocks retries that run there.`,
+                },
+            });
+        }
+    }
+    return results;
+}
+
+/**
+ * Plan lock files left behind by a process that died holding one.
+ *
+ * A live lock is heartbeat-refreshed, so an untouched one is either abandoned or
+ * about to be reclaimed automatically. The automatic path costs the next command a
+ * long wait first, and its timeout message is a raw lock path, so reporting and
+ * clearing these is strictly kinder than letting them expire. Deleting an
+ * abandoned lock file destroys nothing: RunWield owns the file, and it holds no
+ * state beyond "someone was here".
+ */
+async function collectStalePlanLockIssues(
+    projectRoot: string,
+    repair: boolean,
+): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
+    const lockDir = join(projectRoot, RUNWIELD_DIR_NAME, PLAN_LOCKS_DIR_NAME);
+    const STALE_AFTER_MS = 10 * 60_000;
+    const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
+    try {
+        for await (const entry of Deno.readDir(lockDir)) {
+            if (!entry.isFile || !entry.name.endsWith(".lock")) continue;
+            const path = join(lockDir, entry.name);
+            const stat = await Deno.stat(path).catch(() => null);
+            const ageMs = stat?.mtime ? Date.now() - stat.mtime.getTime() : Number.POSITIVE_INFINITY;
+            if (ageMs < STALE_AFTER_MS) continue;
+            if (repair) {
+                await Deno.remove(path).catch(() => {});
+                results.push({ repaired: true });
+                continue;
+            }
+            results.push({
+                issue: {
+                    kind: "stale_plan_lock",
+                    repairable: true,
+                    message: `Plan lock ${path} has not been refreshed in ${
+                        Math.round(ageMs / 60_000)
+                    } minutes, so the process that held it is gone. Until it is cleared, operations on that Plan wait before failing.`,
+                    commands: [`${CLI_BIN} plans doctor --repair`, `rm ${path}`],
+                    repairSummary: "--repair deletes the abandoned lock file. No Plan or Git state is touched.",
+                },
+            });
+        }
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    return results;
+}
+
 export async function runPlansDoctor(projectRoot: string, repair = false) {
     const issues: DoctorIssue[] = [];
     const discoveredPlanIds = new Map<string, string>();
@@ -400,41 +777,81 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
 
     let repaired = 0;
 
-    // Retire the journals whose records repository facts prove are finished.
-    // Until one is cleared it blocks every later transition on its Plan, so
-    // leaving a provably-settled record in place would strand the Plan.
-    const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, { apply: repair });
+    // Read the registry without enforcing invariants first. A violated invariant
+    // must not blind the report: the per-entry facts below are what the user needs
+    // in order to act, and they are exactly what a throwing read would discard.
+    const inspection = await inspectWorktreeRegistry(projectRoot);
+    const gitWorktreePaths = await listGitWorktreePaths(projectRoot);
+    if (inspection.readError) {
+        issues.push({
+            kind: "registry_integrity_error",
+            message: `Worktree registry file could not be read: ${inspection.readError.message}`,
+            commands: [
+                `git diff -- ${join(RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE)}`,
+                `git checkout -- ${join(RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE)}`,
+                "git worktree list --porcelain",
+            ],
+        });
+    }
+    for (const integrityIssue of inspection.integrityIssues) {
+        issues.push({
+            kind: integrityIssue.kind,
+            message: integrityIssue.message,
+            worktreeId: integrityIssue.ids[0],
+            commands: [
+                ...integrityIssue.ids.map((id) => {
+                    const entry = inspection.entries.find((candidate) => candidate.id === id);
+                    return entry ? `git -C ${entry.path} status --short` : `git worktree list --porcelain`;
+                }),
+                `${CLI_BIN} load-plan ${
+                    inspection.entries.find((entry) => integrityIssue.ids.includes(entry.id))?.planName || "<plan>"
+                }`,
+            ],
+        });
+    }
+    const entries = inspection.entries;
+
+    // Retire the journals whose records repository facts prove are finished. Until
+    // one is cleared it blocks every later transition on its Plan, so leaving a
+    // provably-settled record in place would strand the Plan over RunWield's own
+    // bookkeeping.
+    const proveEffect = buildEffectProver(projectRoot, { registryEntries: entries, gitWorktreePaths });
+    const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, { apply: repair, proveEffect });
     for (const reconciliation of reconciliations) {
         if (reconciliation.resolved) {
             repaired += 1;
             continue;
         }
-        issues.push({
-            kind: "unresolved_transition",
-            planName: reconciliation.planName,
-            repairable: reconciliation.resolvable,
-            message: `Unresolved transition ${reconciliation.transitionId || "unknown"} (${
-                reconciliation.operation || "unknown operation"
-            }, ${reconciliation.state || "needs_recovery"}): ${reconciliation.reason}`,
-        });
+        issues.push(describeUnresolvedTransition(reconciliation));
     }
-
-    let entries: Awaited<ReturnType<typeof listEntries>> = [];
-    try {
-        entries = await listEntries(projectRoot, { migrate: repair });
-    } catch (error) {
-        issues.push({
-            kind: "registry_integrity_error",
-            message: `Worktree registry could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
-        });
+    for (const worktreeJournal of await collectWorktreeJournalIssues(projectRoot, entries, repair)) {
+        if (worktreeJournal.repaired) repaired += 1;
+        else if (worktreeJournal.issue) issues.push(worktreeJournal.issue);
+    }
+    if (repair && inspection.integrityIssues.length === 0 && !inspection.readError) {
+        // Persist the v1→v2 migration only once the file is known to be consistent;
+        // migrating around a conflict is how a readable registry becomes unreadable.
+        await listEntries(projectRoot, { migrate: true }).catch(() => []);
+    }
+    for (const lockIssue of await collectStalePlanLockIssues(projectRoot, repair)) {
+        if (lockIssue.repaired) repaired += 1;
+        else if (lockIssue.issue) issues.push(lockIssue.issue);
     }
     const registryPaths = new Set(entries.map((entry) => entry.path));
-    const gitWorktreePaths = await listGitWorktreePaths(projectRoot);
     for (const path of gitWorktreePaths) {
         if (path !== projectRoot && !registryPaths.has(path)) {
             issues.push({
                 kind: "orphan_git_worktree",
-                message: `Git worktree ${path} is not recorded in the RunWield worktree registry.`,
+                message:
+                    `Git has a worktree at ${path} that no RunWield attempt claims. It may be yours, or the remains of an attempt RunWield lost track of.`,
+                commands: [
+                    `git -C ${path} status --short`,
+                    `git -C ${path} log --oneline -5`,
+                    `git worktree remove ${path}`,
+                ],
+                repairSummary:
+                    "Never removed automatically: an unclaimed worktree is the one place uncommitted work can be hiding. " +
+                    "The status command above tells you whether anything is there.",
             });
         }
     }
@@ -449,7 +866,16 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
         if (!registryBranches.has(branch)) {
             issues.push({
                 kind: "orphan_worktree_branch",
-                message: `RunWield worktree branch ${branch} has no registry entry.`,
+                message:
+                    `Branch ${branch} was created by RunWield for an execution attempt that is no longer in the registry.`,
+                commands: [
+                    `git log --oneline ${branch} -10`,
+                    `git branch --contains ${branch}`,
+                    `git branch -d ${branch}`,
+                ],
+                repairSummary:
+                    "Never deleted automatically. `git branch -d` (lower-case d) refuses to delete unmerged work, " +
+                    "so it is the safe way to clear this once you have looked at the log.",
             });
         }
     }
@@ -469,7 +895,15 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                     kind: "uncertain_publication",
                     planName: plan.name,
                     message:
-                        `Delivery Evidence for ${plan.name} says ${evidence.executionCommit} was published to ${evidence.targetBranch}, but Git ancestry does not prove it. Recover by inspecting the worktree branch/transition journal before marking the Plan settled.`,
+                        `${plan.name} records that ${evidence.executionCommit} was published to ${evidence.targetBranch}, but that commit is not contained in that branch today. Either the publication never completed, or the branch was rewritten afterwards.`,
+                    commands: [
+                        `git log --oneline ${evidence.targetBranch} -10`,
+                        `git branch --contains ${evidence.executionCommit}`,
+                        `git show --stat ${evidence.executionCommit}`,
+                    ],
+                    repairSummary:
+                        "Not repaired automatically: RunWield will not move a branch or rewrite Delivery Evidence on your behalf. " +
+                        "If the commit exists on another branch, the work is safe and only the target needs updating.",
                 });
             }
         }
@@ -488,28 +922,27 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
         }
     }
     const activeByPlan = new Map();
-    const seenIds = new Set();
     for (const entry of entries) {
-        if (seenIds.has(entry.id)) {
-            issues.push({
-                kind: "duplicate_worktree_id",
-                worktreeId: entry.id,
-                message: `Duplicate worktree id ${entry.id}.`,
-            });
-        }
-        seenIds.add(entry.id);
-        if (!["merged", "abandoned", "removed"].includes(entry.status)) {
-            const key = entry.planId || entry.planName;
-            const prior = activeByPlan.get(key);
+        // Attempts whose planId is set are checked by inspectWorktreeRegistry, which
+        // sees the whole file at once. Only the legacy shape — a live attempt with no
+        // stable id — needs a name-keyed check here, and only that shape is reported,
+        // so a conflict is never listed twice.
+        if (!entry.planId && !["merged", "abandoned", "removed"].includes(entry.status)) {
+            const prior = activeByPlan.get(entry.planName);
             if (prior) {
                 issues.push({
                     kind: "duplicate_live_attempt",
                     planName: entry.planName,
                     worktreeId: entry.id,
-                    message: `Plan ${entry.planName} has multiple nonterminal attempts (${prior}, ${entry.id}).`,
+                    message:
+                        `Plan ${entry.planName} has two unfinished attempts recorded under its name with no stable id: ${prior} and ${entry.id}. RunWield will not guess which one is current.`,
+                    commands: [
+                        `git -C ${entry.path} status --short`,
+                        `${CLI_BIN} load-plan ${entry.planName}`,
+                    ],
                 });
             } else {
-                activeByPlan.set(key, entry.id);
+                activeByPlan.set(entry.planName, entry.id);
             }
         }
         if (entry.planId && !planIdOwners.has(entry.planId)) {
@@ -517,7 +950,13 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 kind: "registry_plan_id_not_found",
                 planName: entry.planName,
                 worktreeId: entry.id,
-                message: `Registry entry ${entry.id} references missing planId ${entry.planId}.`,
+                message:
+                    `Registry attempt ${entry.id} belongs to planId ${entry.planId}, but no Plan (active or archived) carries that id — the Plan file was probably renamed or deleted outside RunWield.`,
+                commands: [
+                    `grep -rl "${entry.planId}" plans/`,
+                    `git -C ${entry.path} status --short`,
+                    `git log --oneline ${entry.branch} -5`,
+                ],
             });
         } else if (entry.planId && planIdOwners.get(entry.planId)?.name !== entry.planName) {
             // planId is the stable authority and planName is display evidence, so a
@@ -531,8 +970,14 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 worktreeId: entry.id,
                 repairable: renamable,
                 message: renamable
-                    ? `Registry entry ${entry.id} stores planName ${entry.planName} but planId ${entry.planId} belongs to ${owner?.name}; --repair renames the entry to match the owning Plan.`
-                    : `Registry entry ${entry.id} stores planName ${entry.planName} but planId ${entry.planId} belongs to archived Plan ${owner?.name}; restore or abandon the attempt deliberately.`,
+                    ? `Registry attempt ${entry.id} still calls its Plan ${entry.planName}, but planId ${entry.planId} belongs to ${owner?.name} — the Plan was renamed.`
+                    : `Registry attempt ${entry.id} still calls its Plan ${entry.planName}, but planId ${entry.planId} belongs to archived Plan ${owner?.name}.`,
+                commands: renamable
+                    ? [`${CLI_BIN} plans doctor --repair`]
+                    : [`${CLI_BIN} plans restore ${owner?.name}`, `${CLI_BIN} load-plan ${owner?.name}`],
+                repairSummary: renamable
+                    ? `--repair updates the cached name to ${owner?.name}. Nothing else changes: planId is the authority, and no path, branch, or Git state is touched.`
+                    : "Restore the archived Plan before touching the attempt, so the attempt has an owner that can resolve it.",
             });
             if (repair && renamable && owner) {
                 await reconcileEntryIdentity(projectRoot, entry.id, { planName: owner.name });
@@ -552,10 +997,22 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 worktreeId: entry.id,
                 repairable: Boolean(claimant),
                 message: claimant
-                    ? `Registry entry ${entry.id} has no planId; --repair binds it to ${claimant.attrs.planId} (${claimant.name}) because that Plan's worktreeId already names this attempt.`
+                    ? `Registry attempt ${entry.id} predates stable Plan ids, and Plan ${claimant.name} already points at this exact attempt.`
                     : claimants.length > 1
-                    ? `Registry entry ${entry.id} has no planId and ${claimants.length} Plans claim this attempt; resolve the conflicting worktreeId pointers before binding it.`
-                    : `Registry entry ${entry.id} for ${entry.planName} has no planId and no Plan claims this exact attempt; run load-plan or recreate the attempt to bind it safely.`,
+                    ? `Registry attempt ${entry.id} predates stable Plan ids and ${claimants.length} Plans claim it: ${
+                        claimants.map((plan) => plan.name).join(", ")
+                    }. Only one Plan can own an attempt.`
+                    : `Registry attempt ${entry.id} predates stable Plan ids and no Plan points at it, so RunWield cannot tell which Plan it belongs to.`,
+                commands: claimant ? [`${CLI_BIN} plans doctor --repair`] : [
+                    `git -C ${entry.path} status --short`,
+                    `git log --oneline ${entry.branch} -5`,
+                    `grep -rln "worktreeId: \\"${entry.id}\\"" plans/`,
+                ],
+                repairSummary: claimant
+                    ? `--repair records planId ${claimant.attrs.planId} on the attempt. That is a metadata write only; the worktree, branch, and Plan file are untouched.`
+                    : claimants.length > 1
+                    ? "Remove the stale worktreeId from whichever Plan does not own this attempt, then re-run --repair."
+                    : "Inspect the branch above. If it holds work you want, resolve it through load-plan; if not, the attempt can be abandoned there.",
             });
             if (repair && claimant) {
                 await reconcileEntryIdentity(projectRoot, entry.id, {
@@ -576,8 +1033,17 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 worktreeId: entry.id,
                 repairable: safelyPrunable,
                 message: safelyPrunable
-                    ? `Registry entry ${entry.id} points at missing settled worktree path ${entry.path}; --repair prunes this stale settled artifact.`
-                    : `Registry entry ${entry.id} points at missing active/recoverable worktree path ${entry.path}; inspect the attempt before abandoning it.`,
+                    ? `Registry attempt ${entry.id} points at ${entry.path}, which no longer exists. The attempt is already ${entry.status}, so this is leftover bookkeeping.`
+                    : `Registry attempt ${entry.id} is ${entry.status} but its worktree ${entry.path} is gone, so RunWield cannot reach the work it recorded.`,
+                commands: safelyPrunable ? [`${CLI_BIN} plans doctor --repair`] : [
+                    `git log --oneline ${entry.branch} -10`,
+                    `git worktree list --porcelain`,
+                    `${CLI_BIN} load-plan ${entry.planName}`,
+                ],
+                repairSummary: safelyPrunable
+                    ? "--repair drops the registry row. The attempt was already settled, so no work can be lost."
+                    : `The branch ${entry.branch} still holds any committed work from this attempt — check it before abandoning. ` +
+                        "If the directory was deleted but the branch is intact, load-plan can merge or recreate from it.",
             });
             if (repair && safelyPrunable) {
                 await pruneEntry(projectRoot, entry.id);

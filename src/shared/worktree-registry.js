@@ -85,26 +85,53 @@ async function migrateLegacyRegistryEntries(projectRoot, entries, resources) {
         byName.set(plan.name, matches);
     }
     const migrationIssues = [];
+    // Exact worktreeId back-pointers first, in a pass of their own. A Plan naming
+    // this exact attempt is real evidence; a matching Plan name is not. Resolving
+    // the proven pairings before the guessed ones makes the outcome independent of
+    // the order entries happen to sit in the file.
     for (const entry of entries) {
         if (entry.planId || !entry.planName) continue;
         const exactPlan = byExactAttempt.get(`${entry.planName}\0${entry.id}`);
+        if (!exactPlan?.attrs.planId) continue;
+        entry.planId = exactPlan.attrs.planId;
+        delete entry.migrationIssue;
+        changed = true;
+    }
+    for (const entry of entries) {
+        if (entry.planId || !entry.planName) continue;
         const namedPlans = byName.get(entry.planName) || [];
-        const plan = exactPlan || (namedPlans.length === 1 ? namedPlans[0] : null);
-        if (plan?.attrs.planId) {
+        const plan = namedPlans.length === 1 ? namedPlans[0] : null;
+        // Binding by Plan name alone can give two legacy attempts for one Plan the
+        // same planId, which violates the one-live-attempt invariant and makes the
+        // whole registry unreadable — every worktree command would then fail on data
+        // RunWield itself migrated. Leave the id unset and record the conflict so
+        // `wld plans doctor` can show both attempts and a human decides which
+        // survives.
+        const wouldDuplicateLiveAttempt = Boolean(
+            plan?.attrs.planId && NONTERMINAL_STATUSES.has(entry.status) &&
+                entries.some((other) =>
+                    other.id !== entry.id && other.planId === plan.attrs.planId &&
+                    NONTERMINAL_STATUSES.has(other.status)
+                ),
+        );
+        if (plan?.attrs.planId && !wouldDuplicateLiveAttempt) {
             entry.planId = plan.attrs.planId;
             delete entry.migrationIssue;
             changed = true;
             continue;
         }
-        if (NONTERMINAL_STATUSES.has(entry.status)) {
-            migrationIssues.push({
-                id: entry.id,
-                planName: entry.planName,
-                reason: namedPlans.length > 1 ? "ambiguous_plan_name" : "plan_not_found_or_missing_plan_id",
-                candidates: namedPlans.map((candidate) => candidate.name),
-                recordedAt: new Date().toISOString(),
-            });
-        }
+        if (!NONTERMINAL_STATUSES.has(entry.status)) continue;
+        migrationIssues.push({
+            id: entry.id,
+            planName: entry.planName,
+            reason: wouldDuplicateLiveAttempt
+                ? "duplicate_live_attempt_for_plan"
+                : namedPlans.length > 1
+                ? "ambiguous_plan_name"
+                : "plan_not_found_or_missing_plan_id",
+            candidates: namedPlans.map((candidate) => candidate.name),
+            recordedAt: new Date().toISOString(),
+        });
     }
     if (migrationIssues.length > 0) {
         const path = join(projectRoot, RUNWIELD_DIR_NAME, "worktree-registry-migration-issues.json");
@@ -280,6 +307,94 @@ export async function withWorktreeRegistryLock(projectRoot, fn) {
     } finally {
         await Deno.remove(lockPath).catch(() => {});
     }
+}
+
+/**
+ * Read the registry without enforcing its invariants.
+ *
+ * Every other reader fails closed on a violated invariant, which is right for
+ * code about to mutate an attempt and wrong for the tool whose job is to explain
+ * the violation. `listEntries()` throwing means a diagnostic built on it reports
+ * "registry could not be loaded" and loses every per-entry fact it needed — the
+ * user is told their file is broken and handed nothing to act on. This returns the
+ * entries as they are, plus what is wrong with them.
+ *
+ * Never mutates or migrates. Diagnosis must not change what it is diagnosing.
+ *
+ * @param {string} projectRoot
+ * @returns {Promise<{ version: number, entries: WorktreeRegistryEntry[], integrityIssues: Array<{ kind: string, message: string, ids: string[] }>, readError?: Error }>}
+ */
+export async function inspectWorktreeRegistry(projectRoot) {
+    /** @type {Array<{ kind: string, message: string, ids: string[] }>} */
+    const integrityIssues = [];
+    let text;
+    try {
+        text = await Deno.readTextFile(getWorktreeRegistryPath(projectRoot));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return { version: 2, entries: [], integrityIssues };
+        return {
+            version: 0,
+            entries: [],
+            integrityIssues,
+            readError: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(text);
+    } catch (error) {
+        return {
+            version: 0,
+            entries: [],
+            integrityIssues,
+            readError: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+    const version = typeof parsed.version === "number" ? parsed.version : 1;
+    const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+    if (version > 2) {
+        integrityIssues.push({
+            kind: "unsupported_schema_version",
+            message: `Registry schema version ${version} is newer than this RunWield understands (2).`,
+            ids: [],
+        });
+    }
+    /** @type {Map<string, string[]>} */
+    const byId = new Map();
+    for (const entry of entries) {
+        const ids = byId.get(entry.id) || [];
+        ids.push(entry.id);
+        byId.set(entry.id, ids);
+    }
+    for (const [id, ids] of byId) {
+        if (ids.length > 1) {
+            integrityIssues.push({
+                kind: "duplicate_worktree_id",
+                message: `Worktree id ${id} appears ${ids.length} times, so attempt lookups are ambiguous.`,
+                ids: [id],
+            });
+        }
+    }
+    /** @type {Map<string, WorktreeRegistryEntry[]>} */
+    const liveByPlan = new Map();
+    for (const entry of entries) {
+        if (!entry.planId || !NONTERMINAL_STATUSES.has(entry.status)) continue;
+        const live = liveByPlan.get(entry.planId) || [];
+        live.push(entry);
+        liveByPlan.set(entry.planId, live);
+    }
+    for (const [planId, live] of liveByPlan) {
+        if (live.length > 1) {
+            integrityIssues.push({
+                kind: "duplicate_live_attempt",
+                message: `Plan ${live[0].planName} (${planId}) has ${live.length} unfinished attempts: ${
+                    live.map((entry) => `${entry.id} (${entry.status})`).join(", ")
+                }.`,
+                ids: live.map((entry) => entry.id),
+            });
+        }
+    }
+    return { version, entries, integrityIssues };
 }
 
 /** @param {string} projectRoot @param {{ migrate?: boolean }} [options] */

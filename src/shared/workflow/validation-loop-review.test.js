@@ -7,6 +7,7 @@ import { __resetSettingsForTests } from "../settings.js";
 import {
     makeRecordedSession,
     makeUi,
+    makeValidationProjectRoot,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -111,6 +112,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
 });
 
 Deno.test("runValidationLoop runs validation and reviewer in active execution cwd", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     /** @type {Array<string | undefined>} */
@@ -128,7 +130,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",

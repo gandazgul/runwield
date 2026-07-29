@@ -2,6 +2,11 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { injectFrontMatter, savePlan } from "../../plan-store.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
+import {
+    listTransitionRecoveryRecords,
+    runExecutionPreparationTransition,
+    runValidationOutcomeTransition,
+} from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
 
 Deno.test("plans doctor reports missing worktree paths without abandoning attempts automatically", async () => {
@@ -254,6 +259,274 @@ Deno.test("plans doctor does not report an archived Plan's attempt as a dangling
             false,
             "an archived Plan still owns its planId",
         );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor diagnoses a registry conflict instead of going blind on it", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-conflict-" });
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "plan-1",
+            classification: "FEATURE",
+            status: "in_progress",
+            summary: "s",
+            affectedPaths: [],
+            worktreeId: "wt-a",
+        });
+        const base = {
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        // Two live attempts for one Plan: legacy v1 shape, which the invariant-enforcing
+        // readers refuse to load at all.
+        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            getWorktreeRegistryPath(cwd),
+            JSON.stringify({
+                version: 1,
+                entries: [
+                    {
+                        ...base,
+                        id: "wt-a",
+                        planName: "demo",
+                        branch: "rw/a",
+                        path: join(cwd, "wt-a"),
+                        status: "completed",
+                    },
+                    {
+                        ...base,
+                        id: "wt-b",
+                        planName: "demo",
+                        branch: "rw/b",
+                        path: join(cwd, "wt-b"),
+                        status: "active",
+                    },
+                ],
+            }),
+        );
+
+        // --repair must not report less than a read-only run: a violated invariant is
+        // exactly when the per-entry detail matters most.
+        for (const repair of [false, true]) {
+            const report = await runPlansDoctor(cwd, repair);
+            const kinds = report.issues.map((issue) => issue.kind);
+            assertEquals(
+                kinds.includes("registry_integrity_error"),
+                false,
+                `repair=${repair}: "could not be loaded" is not a diagnosis`,
+            );
+            assertEquals(kinds.includes("duplicate_live_attempt"), true, `repair=${repair}: names the conflict`);
+            const conflict = report.issues.find((issue) => issue.kind === "duplicate_live_attempt");
+            assertEquals(conflict?.message.includes("wt-a"), true);
+            assertEquals(conflict?.message.includes("wt-b"), true);
+            assertEquals((conflict?.commands || []).length > 0, true, "the user needs commands, not a verdict");
+        }
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor closes a journal whose durable effects the repository proves", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-journal-" });
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "plan-1",
+            classification: "FEATURE",
+            status: "implemented",
+            summary: "s",
+            affectedPaths: [],
+        });
+        await addEntry(cwd, {
+            id: "wt-1",
+            planName: "demo",
+            planId: "plan-1",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc",
+            branch: "runwield/worktree/demo",
+            path: join(cwd, "wt-1"),
+            status: "merge_conflict",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        // A merge-failure settlement interrupted after its registry write: the effect is
+        // atomic, so there is no half-applied row to be afraid of.
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            worktreeId: "wt-1",
+            outcome: "merge_failed",
+            settle: async ({ markEffect }) => {
+                await markEffect("worktree_registry_updated", { worktreeId: "wt-1", status: "merge_conflict" });
+                throw new Error("interrupted before settling");
+            },
+        });
+        assertEquals(failure.status, "needs_recovery");
+
+        const reported = await runPlansDoctor(cwd, false);
+        const unresolved = reported.issues.find((issue) => issue.kind === "unresolved_transition");
+        assertEquals(Boolean(unresolved), true);
+        assertEquals(unresolved?.repairable, true);
+        assertEquals(unresolved?.message.includes("demo"), true, "the message names the Plan, not just an id");
+
+        const repaired = await runPlansDoctor(cwd, true);
+        assertEquals(repaired.repaired >= 1, true);
+        assertEquals(
+            repaired.issues.some((issue) => issue.kind === "unresolved_transition"),
+            false,
+            "RunWield must be able to close its own bookkeeping",
+        );
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0);
+        assertEquals((await findById(cwd, "wt-1"))?.status, "merge_conflict", "the attempt is left untouched");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor keeps a journal whose worktree may still hold work", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-keep-" });
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", {
+            planId: "plan-1",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const orphanPath = join(cwd, "orphan-worktree");
+        await Deno.mkdir(orphanPath, { recursive: true });
+        const failure = await runExecutionPreparationTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            worktreeId: "wt-1",
+            prepare: async ({ markEffect }) => {
+                await markEffect("git_worktree_created", { worktreeId: "wt-1", path: orphanPath, branch: "rw/demo" });
+                throw new Error("registry settlement interrupted");
+            },
+        });
+        assertEquals(failure.status, "needs_recovery");
+
+        const report = await runPlansDoctor(cwd, true);
+        const unresolved = report.issues.find((issue) => issue.kind === "unresolved_transition");
+        assertEquals(Boolean(unresolved), true, "an unclaimed worktree is never closed automatically");
+        assertEquals(unresolved?.repairable, false);
+        assertEquals(unresolved?.message.includes(orphanPath), true, "the message names the directory to inspect");
+        assertEquals(
+            (unresolved?.commands || []).some((command) => command.includes(orphanPath)),
+            true,
+            "and the command that shows whether anything is in it",
+        );
+        assertEquals(await Deno.stat(orphanPath).then((stat) => stat.isDirectory), true, "nothing is deleted");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor clears an abandoned Plan lock", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-lock-" });
+    try {
+        const lockPath = join(cwd, ".wld", "plan-locks", "demo.lock");
+        await Deno.mkdir(join(cwd, ".wld", "plan-locks"), { recursive: true });
+        await Deno.writeTextFile(lockPath, JSON.stringify({ pid: 999999, updatedAtMs: 0 }));
+        const old = new Date(Date.now() - 60 * 60_000);
+        await Deno.utime(lockPath, old, old);
+
+        const reported = await runPlansDoctor(cwd, false);
+        const stale = reported.issues.find((issue) => issue.kind === "stale_plan_lock");
+        assertEquals(Boolean(stale), true);
+        assertEquals(stale?.repairable, true);
+        assertEquals(await Deno.stat(lockPath).then(() => true), true, "report-only leaves it in place");
+
+        const repaired = await runPlansDoctor(cwd, true);
+        assertEquals(repaired.repaired >= 1, true);
+        assertEquals(await Deno.stat(lockPath).then(() => true).catch(() => false), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("doctor proves publication from real Git ancestry in both directions", async () => {
+    // The only test here that runs real Git, and the reason it has to: every other
+    // ancestry assertion lives in a directory with no repository, where the check
+    // fails for lack of Git rather than for lack of ancestry. Those tests would pass
+    // just as happily with the arguments reversed. This one pins what
+    // `merge-base --is-ancestor` actually means for us, so the faked tests above are
+    // safe to trust about everything else.
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-git-" });
+    const run = async (/** @type {string[]} */ args) => {
+        const { success, stderr } = await new Deno.Command("git", {
+            args,
+            cwd,
+            stdout: "null",
+            stderr: "piped",
+        }).output();
+        if (!success) throw new Error(new TextDecoder().decode(stderr));
+    };
+    const revParse = async (/** @type {string} */ ref) => {
+        const { stdout } = await new Deno.Command("git", {
+            args: ["rev-parse", ref],
+            cwd,
+            stdout: "piped",
+            stderr: "null",
+        }).output();
+        return new TextDecoder().decode(stdout).trim();
+    };
+    try {
+        await run(["init", "-b", "main"]);
+        await run(["config", "user.email", "test@example.com"]);
+        await run(["config", "user.name", "Test"]);
+        await Deno.writeTextFile(join(cwd, "file.txt"), "base\n");
+        await run(["add", "."]);
+        await run(["commit", "-m", "base"]);
+        const publishedCommit = await revParse("HEAD");
+
+        // A second commit only on a side branch: real work that never reached main.
+        await run(["checkout", "-b", "side"]);
+        await Deno.writeTextFile(join(cwd, "file.txt"), "unpublished\n");
+        await run(["commit", "-am", "unpublished"]);
+        const unpublishedCommit = await revParse("HEAD");
+        await run(["checkout", "main"]);
+
+        const evidenceFor = (/** @type {string} */ commit) => ({
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: commit,
+            targetBranch: "main",
+            targetHeadBeforeMerge: publishedCommit,
+        });
+
+        await savePlan(cwd, "published", "# Published\n", {
+            planId: "plan-published",
+            classification: "FEATURE",
+            status: "verified",
+            summary: "s",
+            affectedPaths: [],
+            deliveryEvidence: evidenceFor(publishedCommit),
+        });
+        const publishedReport = await runPlansDoctor(cwd, false);
+        assertEquals(
+            publishedReport.issues.some((issue) => issue.kind === "uncertain_publication"),
+            false,
+            "a commit contained in the target branch is proven published",
+        );
+
+        await savePlan(cwd, "unpublished", "# Unpublished\n", {
+            planId: "plan-unpublished",
+            classification: "FEATURE",
+            status: "verified",
+            summary: "s",
+            affectedPaths: [],
+            deliveryEvidence: evidenceFor(unpublishedCommit),
+        });
+        const unpublishedReport = await runPlansDoctor(cwd, false);
+        const uncertain = unpublishedReport.issues.filter((issue) => issue.kind === "uncertain_publication");
+        assertEquals(uncertain.length, 1, "a commit that never reached the target branch is not proven");
+        assertEquals(uncertain[0].planName, "unpublished");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

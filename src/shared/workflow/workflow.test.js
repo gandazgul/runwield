@@ -2670,3 +2670,124 @@ Deno.test("executePlan records content-free runtime-style metrics", async () => 
         );
     }
 });
+
+Deno.test("execution preparation ignores Plan body edits the user owns", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-exec-body-" });
+    try {
+        await savePlan(projectRoot, "body-plan", "# Body Plan\n\nOriginal body.\n", {
+            planId: "plan-body",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const stored = await loadPlan(projectRoot, "body-plan");
+        const hostedSession = makeHostedSession("exec-body", projectRoot);
+
+        const result = await startActiveExecutionWorkflow({
+            planName: "body-plan",
+            triageMeta: { planId: "plan-body", classification: "FEATURE" },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            __deps: {
+                probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                findReusableWorktree: () => Promise.resolve(null),
+                // Same lifecycle front matter, different body: the user edited their
+                // Plan outside RunWield, which must not abort execution.
+                loadCanonicalExecutionPlanSource: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            kind: "loaded",
+                            path: stored?.path,
+                            relativePath: "plans/body-plan.md",
+                            markdown: `${stored?.markdown}\n\nEdited in another editor.\n`,
+                            attrs: { ...stored?.attrs },
+                        }),
+                    ),
+                createExecutionWorktree: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            id: "wt1",
+                            path: "/tmp/wt1",
+                            branch: "runwield/worktree/body-plan-wt1",
+                            baseBranch: "main",
+                        }),
+                    ),
+                ensureExecutionPlanFile: () =>
+                    Promise.resolve({ kind: "restored", relativePath: "plans/body-plan.md" }),
+                captureWorktreeTree: () => Promise.resolve("tree1"),
+                updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            },
+        });
+        assertEquals(result.planName, "body-plan");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("execution preparation still refuses when lifecycle front matter drifts", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-exec-fm-" });
+    try {
+        await savePlan(projectRoot, "fm-plan", "# FM Plan\n", {
+            planId: "plan-fm",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const stored = await loadPlan(projectRoot, "fm-plan");
+        const hostedSession = makeHostedSession("exec-fm", projectRoot);
+
+        await assertRejects(
+            () =>
+                startActiveExecutionWorkflow({
+                    planName: "fm-plan",
+                    triageMeta: { planId: "plan-fm", classification: "FEATURE" },
+                    currentStatus: "ready_for_work",
+                    hostedSession,
+                    __deps: {
+                        probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                        resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                        findReusableWorktree: () => Promise.resolve(null),
+                        // Front matter drifted on disk between the locked read and the
+                        // read that materializes the Plan. Drift it in the markdown, the
+                        // way a real edit would: attrs are derived from those bytes, so a
+                        // fixture that changes attrs alone cannot happen in practice.
+                        loadCanonicalExecutionPlanSource: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    kind: "loaded",
+                                    path: stored?.path,
+                                    relativePath: "plans/fm-plan.md",
+                                    markdown: String(stored?.markdown).replace(
+                                        'status: "ready_for_work"',
+                                        'status: "on_hold"',
+                                    ),
+                                    attrs: { ...stored?.attrs, status: "on_hold" },
+                                }),
+                            ),
+                        createExecutionWorktree: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    id: "wt1",
+                                    path: "/tmp/wt1",
+                                    branch: "runwield/worktree/fm-plan-wt1",
+                                    baseBranch: "main",
+                                }),
+                            ),
+                        ensureExecutionPlanFile: () =>
+                            Promise.resolve({ kind: "restored", relativePath: "plans/fm-plan.md" }),
+                        captureWorktreeTree: () => Promise.resolve("tree1"),
+                        updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                        recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+                    },
+                }),
+            Error,
+            "front matter change",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});

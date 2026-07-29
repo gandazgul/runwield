@@ -429,7 +429,7 @@ Deno.test("execution preparation transition locks resources and journals blocked
     }
 });
 
-Deno.test("Plan front matter transition preserves malformed bytes as recovery evidence", async () => {
+Deno.test("Plan front matter transition preserves malformed bytes and stays retryable", async () => {
     const cwd = await makeProject();
     try {
         await Deno.mkdir(join(cwd, "plans"), { recursive: true });
@@ -442,9 +442,30 @@ Deno.test("Plan front matter transition preserves malformed bytes as recovery ev
             operation: "test_malformed",
             updates: { status: "approved" },
         });
-        assertEquals(result.status, "needs_recovery");
-        assertEquals(await Deno.readTextFile(path), malformed);
-        assert((await listTransitionRecoveryRecords(cwd)).length >= 1);
+        assertEquals(result.status, "blocked");
+        assertEquals(await Deno.readTextFile(path), malformed, "malformed bytes are evidence and must survive");
+        // Unreadable Plan bytes are a precondition, not partial work. Journaling it
+        // would leave a record carrying no before-revision — nothing could ever prove
+        // it settled — so the Plan would stay blocked even after the file was fixed.
+        assertEquals(
+            await listTransitionRecoveryRecords(cwd),
+            [],
+            "a rejected precondition must not strand the Plan behind an unclosable journal",
+        );
+        assert(
+            result.recoveryActions?.some((action) => action.command?.includes("plans doctor")),
+            "the user has to be told how to check the file they need to fix",
+        );
+
+        // Fixing the file is all it takes: no recovery step, no leftover state.
+        await Deno.writeTextFile(path, '---\nstatus: "draft"\n---\n# Bad\n');
+        const retried = await runPlanFrontMatterTransition({
+            projectRoot: cwd,
+            planName: "bad",
+            operation: "test_malformed",
+            updates: { status: "approved" },
+        });
+        assertEquals(retried.status, "committed");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
@@ -567,7 +588,16 @@ Deno.test("semantic transition matrix records operation-specific resources, effe
                     worktreeId: "wt-1",
                     targetRef: "main",
                     publicationProof: { executionCommit: "b".repeat(40) },
-                    publish: () => Promise.resolve({ ok: true }),
+                    // Mirrors the real publisher: moving the target ref is the effect
+                    // that makes this a publication, and the transition now refuses to
+                    // commit without it.
+                    publish: async ({ markEffect }) => {
+                        await markEffect("direct_delivery_target_ref_moved", {
+                            targetBranch: "main",
+                            sealedExecutionCommit: "b".repeat(40),
+                        });
+                        return { ok: true };
+                    },
                 }),
             expectedResources: [
                 "catalog:",
@@ -895,7 +925,7 @@ Deno.test("a transition undoes the Plan write it can prove it made", async () =>
     }
 });
 
-Deno.test("a transition refuses to undo bytes written outside RunWield", async () => {
+Deno.test("a transition refuses to undo Front Matter written outside RunWield", async () => {
     const cwd = await makeProject();
     try {
         await savePlan(cwd, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
@@ -911,10 +941,14 @@ Deno.test("a transition refuses to undo bytes written outside RunWield", async (
                 await updatePlanFrontMatter(cwd, "demo", { failureReason: "half applied" }, beforePlan?.attrs || {}, {
                     expectedRevision: beforePlan?.revision,
                 });
-                // An editor or shell command writes last: RunWield is no longer the
-                // proven author, so the partial write must not be reverted over it.
+                // Someone edits the metadata itself outside RunWield's lock. RunWield is
+                // no longer the proven author of the Front Matter, so its partial write
+                // must not be reverted over theirs.
                 const current = await loadPlan(cwd, "demo");
-                externalMarkdown = `${current?.markdown}\n<!-- hand edited -->\n`;
+                externalMarkdown = `${current?.markdown}`.replace(
+                    'status: "implemented"',
+                    'status: "implemented"\nfailureReason: "hand edited"',
+                );
                 await Deno.writeTextFile(before.path, externalMarkdown);
                 throw new Error("interrupted after an outside edit");
             },
@@ -924,6 +958,162 @@ Deno.test("a transition refuses to undo bytes written outside RunWield", async (
         assertEquals(await Deno.readTextFile(before.path), externalMarkdown, "the outside edit survives untouched");
         const [record] = await listTransitionRecoveryRecords(cwd);
         assertEquals(record.uncertainty, "plan_bytes_changed");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a failed transition reverts its own Front Matter without touching an edited body", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n\noriginal prose\n", {
+            status: "implemented",
+            classification: "FEATURE",
+        });
+        const before = await loadPlan(cwd, "demo");
+        assert(before);
+
+        let userBody = "";
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            outcome: "failed",
+            settle: async ({ beforePlan }) => {
+                await updatePlanFrontMatter(cwd, "demo", { failureReason: "half applied" }, beforePlan?.attrs || {}, {
+                    expectedRevision: beforePlan?.revision,
+                });
+                // The user rewrites the body in their own editor, which they are entitled
+                // to do at any time: RunWield owns Front Matter, the user owns the body.
+                const current = await loadPlan(cwd, "demo");
+                assert(current);
+                const rewritten = current.markdown.replace("original prose", "prose the user rewrote in vim");
+                await Deno.writeTextFile(before.path, rewritten);
+                userBody = rewritten.slice(rewritten.indexOf("# Demo"));
+                throw new Error("interrupted after the user edited the body");
+            },
+        });
+
+        assertEquals(failure.status, "rolled_back", "reverting our own metadata is a clean rollback");
+        const after = await loadPlan(cwd, "demo");
+        assertEquals(after?.attrs.failureReason ?? null, null, "the half-applied metadata is undone");
+        assertEquals(after?.body, userBody, "the body the user wrote is left exactly as they wrote it");
+        assertEquals(
+            await listTransitionRecoveryRecords(cwd),
+            [],
+            "a body edit must not leave the Plan blocked behind a recovery record",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a user body edit does not block a Front Matter transition", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n\noriginal prose\n", {
+            status: "ready_for_work",
+            classification: "FEATURE",
+        });
+        const before = await loadPlan(cwd, "demo");
+        assert(before);
+        // The Plan RunWield read is the Plan RunWield is about to change — except the
+        // user rewrote the prose in between, which is theirs to do.
+        const rewritten = before.markdown.replace("original prose", "prose the user rewrote in vim");
+        await Deno.writeTextFile(before.path, rewritten);
+
+        const result = await runPlanFrontMatterTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            operation: "hold",
+            updates: { status: "on_hold" },
+            expectedRevision: before.revision,
+        });
+
+        assertEquals(result.status, "committed", "body drift is not a lifecycle conflict");
+        const after = await loadPlan(cwd, "demo");
+        assertEquals(after?.attrs.status, "on_hold");
+        assert(after?.body.includes("rewrote in vim"), "the user's prose survives the lifecycle change");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a stranded Plan does not block lifecycle work on unrelated Plans", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "alpha", "# A\n", { status: "implemented", classification: "FEATURE", planId: "p-a" });
+        await savePlan(cwd, "beta", "# B\n", { status: "implemented", classification: "FEATURE", planId: "p-b" });
+        const stranded = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "alpha",
+            worktreeId: "wt-a",
+            outcome: "merge_failed",
+            settle: async ({ markEffect }) => {
+                await markEffect("worktree_registry_updated", { worktreeId: "wt-a", status: "merge_conflict" });
+                throw new Error("interrupted after a durable effect");
+            },
+        });
+        assertEquals(stranded.status, "needs_recovery");
+
+        // Composite transitions all lock the Plan catalog, so treating that lock as
+        // ownership would turn one stranded Plan into a project-wide outage.
+        const unrelated = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "beta",
+            worktreeId: "wt-b",
+            outcome: "failed",
+            settle: () => Promise.resolve("settled"),
+        });
+        assertEquals(unrelated.status, "committed", "an unrelated Plan must remain workable");
+
+        const blocked = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "alpha",
+            worktreeId: "wt-a",
+            outcome: "failed",
+            settle: () => Promise.resolve("settled"),
+        });
+        assertEquals(blocked.status, "blocked", "the stranded Plan itself is still protected");
+        assert(
+            blocked.recoveryActions?.some((action) => action.command?.includes("plans doctor --repair")),
+            "a block on RunWield's own bookkeeping has to name the command that clears it",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("reconciliation closes a record whose effects a prover accounts for", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "verified", classification: "FEATURE", planId: "p-1" });
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            worktreeId: "wt-1",
+            outcome: "merge_failed",
+            settle: async ({ markEffect }) => {
+                await markEffect("worktree_registry_updated", { worktreeId: "wt-1", status: "merged" });
+                throw new Error("interrupted after the registry write");
+            },
+        });
+        assertEquals(failure.status, "needs_recovery");
+
+        // Without evidence about Git and the registry, this module must keep the record.
+        const unproven = await reconcileTransitionRecoveryRecords(cwd);
+        assertEquals(unproven[0].resolvable, false);
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 1);
+
+        const resolved = await reconcileTransitionRecoveryRecords(cwd, {
+            apply: true,
+            proveEffect: (effect) => ({
+                settled: effect.effect === "worktree_registry_updated",
+                reason: "registry rows are written atomically",
+            }),
+        });
+        assertEquals(resolved[0].resolved, true);
+        assertEquals(resolved[0].effects?.[0].verdict?.settled, true);
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0, "RunWield closes its own bookkeeping");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

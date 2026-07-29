@@ -1313,6 +1313,31 @@ export async function getPlanRevisionForText(text) {
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Revision of the Front Matter block alone.
+ *
+ * RunWield owns Plan Front Matter; the user owns the body and may edit it with
+ * any tool, at any time, without telling RunWield. A whole-file revision cannot
+ * tell those two apart, so lifecycle preconditions that use it reject a Plan
+ * whose body someone legitimately rewrote. This token isolates the half RunWield
+ * actually owns, so "did the metadata I read change?" can be answered without
+ * caring what happened to the prose.
+ *
+ * Returns undefined when the text has no closed leading Front Matter block —
+ * there is no metadata to compare, and callers must fall back to whole-file
+ * comparison rather than treat an unparseable file as unchanged.
+ *
+ * @param {string} text
+ * @returns {Promise<string | undefined>}
+ */
+export async function getPlanFrontMatterRevisionForText(text) {
+    try {
+        return await getPlanRevisionForText(splitPlanMarkdownBody(text).frontMatterBlock);
+    } catch {
+        return undefined;
+    }
+}
+
 /** @param {string} path */
 async function syncDirectory(path) {
     try {
@@ -1480,7 +1505,7 @@ export async function withPlanCatalogLock(cwd, fn) {
 
 /**
  * @param {string} filePath
- * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
+ * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string, frontMatterRevision: string|undefined, hasFrontMatter: boolean } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
  */
 async function loadPlanFileStrict(filePath) {
     let stat;
@@ -1498,7 +1523,22 @@ async function loadPlanFileStrict(filePath) {
         const revision = await getPlanRevisionForText(markdown);
         try {
             const { attrs, body } = parsePlanFrontMatter(markdown);
-            return { kind: "loaded", path: filePath, markdown, attrs, body, revision };
+            const frontMatterRevision = await getPlanFrontMatterRevisionForText(markdown);
+            rememberFrontMatterRevision(revision, frontMatterRevision);
+            // A Plan file with no Front Matter at all is not a broken Plan — it is a
+            // markdown file the user put in plans/ that RunWield has not onboarded.
+            // Parsing yields defaults so reads never fail, but the distinction has to
+            // survive: only a deliberate onboarding may write metadata into it.
+            return {
+                kind: "loaded",
+                path: filePath,
+                markdown,
+                attrs,
+                body,
+                revision,
+                frontMatterRevision,
+                hasFrontMatter: hasFrontMatter(markdown),
+            };
         } catch (error) {
             return {
                 kind: "malformed",
@@ -1517,6 +1557,48 @@ async function loadPlanFileStrict(filePath) {
 function planIssueMessage(result) {
     const issue = /** @type {{ message?: string, error?: Error, path?: string }} */ (result || {});
     return issue.message || issue.error?.message || issue.path || "Plan file issue";
+}
+
+/**
+ * Front Matter revision for each whole-file Plan revision this process has seen.
+ *
+ * Both tokens are content hashes, so this mapping is immutable: a given whole-file
+ * revision always had exactly one Front Matter block. That makes it safe to cache
+ * and to trust later, which is what lets an operation holding only a whole-file
+ * token ask the question it actually cares about — "did the metadata change, or
+ * did the user just rewrite the prose?" — without every caller having to thread a
+ * second token through.
+ *
+ * Bounded and in-process. A token this process never read is simply unknown, and
+ * unknown falls back to strict whole-file comparison.
+ *
+ * @type {Map<string, string>}
+ */
+const frontMatterRevisionsByPlanRevision = new Map();
+
+const KNOWN_REVISION_LIMIT = 1024;
+
+/** @param {string} revision @param {string|undefined} frontMatterRevision */
+function rememberFrontMatterRevision(revision, frontMatterRevision) {
+    if (!frontMatterRevision) return;
+    frontMatterRevisionsByPlanRevision.delete(revision);
+    frontMatterRevisionsByPlanRevision.set(revision, frontMatterRevision);
+    while (frontMatterRevisionsByPlanRevision.size > KNOWN_REVISION_LIMIT) {
+        const oldest = frontMatterRevisionsByPlanRevision.keys().next();
+        if (oldest.done) break;
+        frontMatterRevisionsByPlanRevision.delete(oldest.value);
+    }
+}
+
+/**
+ * The Front Matter revision belonging to a whole-file Plan revision, when this
+ * process has seen those exact bytes.
+ *
+ * @param {string|undefined} revision
+ * @returns {string | undefined}
+ */
+export function getKnownFrontMatterRevision(revision) {
+    return revision ? frontMatterRevisionsByPlanRevision.get(revision) : undefined;
 }
 
 /**
@@ -1554,7 +1636,9 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
     }
     await atomicWriteTextFile(filePath, nextMarkdown);
     const revision = await getPlanRevisionForText(nextMarkdown);
-    recordPlanWriteRevision(filePath, revision);
+    const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
+    recordPlanWriteRevision(filePath, revision, frontMatterRevision);
+    rememberFrontMatterRevision(revision, frontMatterRevision);
     return revision;
 }
 
@@ -1571,17 +1655,23 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
  * Deliberately in-process and non-durable. After a crash the map is empty, so no
  * restore is attempted and recovery goes through the journal instead.
  *
- * @type {Map<string, string>}
+ * The Front Matter revision is recorded alongside the whole-file one because the
+ * two answer different questions. Whole-file authorship proves nothing was
+ * touched at all; Front Matter authorship proves RunWield still owns the half it
+ * is allowed to rewrite, which is what lets a failed transition undo its own
+ * metadata on top of a body the user edited meanwhile.
+ *
+ * @type {Map<string, { revision: string, frontMatterRevision?: string }>}
  */
 const planWriteRevisions = new Map();
 
 /** Bound the map so a long-lived Workspace server cannot grow it without limit. */
 const PLAN_WRITE_REVISION_LIMIT = 512;
 
-/** @param {string} filePath @param {string} revision */
-function recordPlanWriteRevision(filePath, revision) {
+/** @param {string} filePath @param {string} revision @param {string} [frontMatterRevision] */
+function recordPlanWriteRevision(filePath, revision, frontMatterRevision) {
     planWriteRevisions.delete(filePath);
-    planWriteRevisions.set(filePath, revision);
+    planWriteRevisions.set(filePath, { revision, frontMatterRevision });
     while (planWriteRevisions.size > PLAN_WRITE_REVISION_LIMIT) {
         const oldest = planWriteRevisions.keys().next();
         if (oldest.done) break;
@@ -1596,7 +1686,17 @@ function recordPlanWriteRevision(filePath, revision) {
  * @returns {string | undefined}
  */
 export function getRecordedPlanWriteRevision(filePath) {
-    return planWriteRevisions.get(filePath);
+    return planWriteRevisions.get(filePath)?.revision;
+}
+
+/**
+ * The Front Matter revision RunWield last wrote to this Plan path, if any.
+ *
+ * @param {string} filePath
+ * @returns {string | undefined}
+ */
+export function getRecordedPlanWriteFrontMatterRevision(filePath) {
+    return planWriteRevisions.get(filePath)?.frontMatterRevision;
 }
 
 /**
@@ -1964,7 +2064,7 @@ export async function createPulledCollaborationPlan(cwd, options) {
  *
  * @param {string} cwd
  * @param {string} planName - Filename without .md
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision?: string } | null>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision?: string, frontMatterRevision?: string, hasFrontMatter?: boolean } | null>}
  */
 export async function loadPlan(cwd, planName) {
     const result = await loadPlanStrict(cwd, planName);
@@ -1976,6 +2076,8 @@ export async function loadPlan(cwd, planName) {
             attrs: result.attrs,
             body: result.body,
             revision: result.revision,
+            frontMatterRevision: result.frontMatterRevision,
+            hasFrontMatter: result.hasFrontMatter,
         };
     }
     if (result.kind === "malformed") throw result.error;
@@ -2794,7 +2896,7 @@ function assertNoDuplicatePlanIds(byId) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol }} [options]
+ * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
  * @returns {Promise<PlanResource>}
  */
 async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
@@ -2817,6 +2919,25 @@ async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
         let planId = normalizePlanId(plan.attrs.planId);
         let markdown = plan.markdown;
         let attrs = { ...plan.attrs, planId };
+
+        // A file with no Front Matter has not been onboarded, and a listing is not
+        // consent to onboard it. Backfilling here would let opening a Plan Board or
+        // reading the worktree registry stamp RunWield metadata into a markdown file
+        // the user merely dropped in plans/. Onboarding is deliberate: see
+        // onboardExternalPlan(), which /load-plan calls.
+        if (!plan.hasFrontMatter && !options.onboardExternal) {
+            return {
+                planName: name,
+                name,
+                relativePath: `${PLANS_DIR_NAME}/${name}.md`,
+                path: plan.path,
+                planId: "",
+                attrs: plan.attrs,
+                body: plan.body,
+                markdown: plan.markdown,
+                revision: plan.revision,
+            };
+        }
 
         if (!planId) {
             do {
@@ -2847,11 +2968,81 @@ async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol }} [options]
+ * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
  * @returns {Promise<PlanResource>}
  */
 export async function ensurePlanIdentity(cwd, planName, options = {}) {
     return await withPlanCatalogLock(cwd, async () => await ensurePlanIdentityLocked(cwd, planName, options));
+}
+
+/**
+ * Adopt a plain markdown file in `plans/` as a RunWield Plan.
+ *
+ * Users write Plans in their own editors and drop them in `plans/`. Such a file
+ * has no Front Matter, and every read path already tolerates that — parsing
+ * yields defaults so nothing panics. What it must not stay is anonymous: without
+ * durable metadata it has no identity, no status, and no place in the lifecycle.
+ *
+ * This is the one place that writes metadata into such a file, and it only ever
+ * runs from a deliberate user action (`/load-plan`), never from a listing. The
+ * body is preserved byte for byte — the user owns it. `createdAt` comes from the
+ * file's own creation time rather than the clock, because the Plan existed before
+ * RunWield learned about it and its age is real history.
+ *
+ * Idempotent: a file that already has Front Matter is returned untouched, so
+ * loading a Plan twice cannot rewrite metadata the lifecycle has since set.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {{ idGenerator?: () => string, now?: () => Date }} [options]
+ * @returns {Promise<{ resource: PlanResource, onboarded: boolean }>}
+ */
+export async function onboardExternalPlan(cwd, planName, options = {}) {
+    const { name } = canonicalizeStoredPlanName(planName);
+    const existing = await loadPlan(cwd, name);
+    if (!existing) throw new Error(`Plan not found: ${planName}`);
+    if (existing.hasFrontMatter) {
+        return {
+            resource: await ensurePlanIdentity(cwd, name, { idGenerator: options.idGenerator }),
+            onboarded: false,
+        };
+    }
+
+    const fileCreatedAt = await Deno.stat(existing.path)
+        .then((info) => info.birthtime || info.mtime || null)
+        .catch(() => null);
+    const now = options.now ? options.now() : new Date();
+    return await withPlanCatalogLock(cwd, async () => {
+        const resource = await withPlanLock(cwd, name, async () => {
+            const plan = await loadPlan(cwd, name);
+            if (!plan) throw new Error(`Plan not found: ${planName}`);
+            // Re-checked under the lock: another onboarding may have won the race, and
+            // adopting twice would overwrite the identity the first one established.
+            if (plan.hasFrontMatter) return null;
+            const markdown = injectFrontMatter(plan.markdown, {
+                classification: DEFAULT_FRONT_MATTER.classification,
+                complexity: DEFAULT_FRONT_MATTER.complexity,
+                summary: DEFAULT_FRONT_MATTER.summary,
+                affectedPaths: [],
+                createdAt: (fileCreatedAt || now).toISOString(),
+                updatedAt: now.toISOString(),
+                status: "draft",
+                origin: "external",
+            });
+            await writePlanMarkdownWithRevision(plan.path, markdown, plan.revision);
+            return true;
+        });
+        // planId generation belongs to the identity writer, which already handles
+        // collision retry against the whole catalog. Onboarding sets the metadata that
+        // makes this file a Plan; that call gives it a durable id.
+        return {
+            resource: await ensurePlanIdentityLocked(cwd, name, {
+                idGenerator: options.idGenerator,
+                onboardExternal: true,
+            }),
+            onboarded: Boolean(resource),
+        };
+    });
 }
 
 /**
@@ -3207,7 +3398,7 @@ export function countChildPlanProgress(children) {
  *
  * @param {string} cwd
  * @param {string} arg - Plan name (e.g., "add-dark-mode" or "epic/feature1") or file path
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, planName: string }>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, planName: string, hasFrontMatter?: boolean }>}
  */
 export async function resolvePlan(cwd, arg) {
     try {
