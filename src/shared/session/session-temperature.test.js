@@ -89,24 +89,34 @@ function testModel(overrides) {
     };
 }
 
-Deno.test("applySessionTemperature omits temperature for the Codex provider", async () => {
-    const { session, calls } = fakeSession((model) => completedStream(model));
-    applySessionTemperature(session, 0.4);
+Deno.test("applySessionTemperature omits temperature for known no-sampling model families", async () => {
+    const noSamplingModels = [
+        testModel({
+            id: "gpt-5.6-sol",
+            provider: "openai-codex",
+            api: "openai-codex-responses",
+        }),
+        testModel({
+            id: "kimi-code",
+            provider: "kimi-coding",
+            api: "openai-completions",
+        }),
+    ];
 
-    const model = testModel({
-        id: "gpt-5.6-sol",
-        provider: "openai-codex",
-        api: "openai-codex-responses",
-    });
-    const events = [];
-    const source = await session.agent.streamFunction(model, { messages: [] }, { temperature: 0.9 });
-    for await (const event of source) {
-        events.push(event.type);
+    for (const model of noSamplingModels) {
+        const { session, calls } = fakeSession((model) => completedStream(model));
+        applySessionTemperature(session, 0.4);
+
+        const events = [];
+        const source = await session.agent.streamFunction(model, { messages: [] }, { temperature: 0.9 });
+        for await (const event of source) {
+            events.push(event.type);
+        }
+
+        assertEquals(calls.length, 1);
+        assertEquals(calls[0].options, {});
+        assertEquals(events, ["start", "done"]);
     }
-
-    assertEquals(calls.length, 1);
-    assertEquals(calls[0].options, {});
-    assertEquals(events, ["start", "done"]);
 });
 
 Deno.test("applySessionTemperature still configures providers that accept it", async () => {
@@ -144,4 +154,59 @@ Deno.test("applySessionTemperature retries exact unsupported parameter errors wi
         { maxTokens: 100 },
     ]);
     assertEquals(events, ["start", "done"]);
+});
+
+Deno.test("applySessionTemperature retries temperature capability errors", async () => {
+    const temperatureCapabilityErrors = [
+        '400: {"message":"invalid temperature: only 1 is allowed for this model","type":"invalid_request_error"}',
+        "temperature is not supported by this model",
+        "temperature is not allowed for this model",
+    ];
+
+    for (const [index, errorMessage] of temperatureCapabilityErrors.entries()) {
+        const { session, calls } = fakeSession((model, options) => {
+            if (options?.temperature !== undefined) {
+                return completedStream(model, errorMessage);
+            }
+            return completedStream(model);
+        });
+        applySessionTemperature(session, 0.4);
+
+        const model = testModel({ id: `fixed-temperature-model-${index}` });
+        const events = [];
+        const source = await session.agent.streamFunction(model, { messages: [] }, { maxTokens: 100 });
+        for await (const event of source) {
+            events.push(event.type);
+        }
+
+        assertEquals(calls.map((call) => call.options), [
+            { maxTokens: 100, temperature: 0.4 },
+            { maxTokens: 100 },
+        ]);
+        assertEquals(events, ["start", "done"]);
+    }
+});
+
+Deno.test("applySessionTemperature remembers discovered temperature capability failures", async () => {
+    const model = testModel({ id: "runtime-discovered-no-temperature" });
+    const { session, calls } = fakeSession((model, options) => {
+        if (options?.temperature !== undefined) {
+            return completedStream(model, "temperature is not accepted by this model");
+        }
+        return completedStream(model);
+    });
+    applySessionTemperature(session, 0.4);
+
+    for (let i = 0; i < 2; i += 1) {
+        const source = await session.agent.streamFunction(model, { messages: [] }, { maxTokens: 100 });
+        for await (const _event of source) {
+            // Consume the wrapped stream.
+        }
+    }
+
+    assertEquals(calls.map((call) => call.options), [
+        { maxTokens: 100, temperature: 0.4 },
+        { maxTokens: 100 },
+        { maxTokens: 100 },
+    ]);
 });
