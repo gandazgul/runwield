@@ -1,4 +1,5 @@
 ---
+planId: "6c43c06a-1c9b-4f11-8d92-61679b424caf"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -9,13 +10,25 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-29T09:32:03-04:00"
-updatedAt: "2026-07-29T13:33:21.000Z"
-status: "ready_for_work"
+updatedAt: "2026-07-29T15:29:48.862Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-29T15:01:46.171Z"
+verifiedAt: "2026-07-29T15:29:48.862Z"
 userVerifiedAt: null
+executionReport: "- Created `docs/entity-model.md` with four small Mermaid ER diagrams plus identity/ownership/lifecycle/source-of-truth notes and a persistence/authority table.\n- Updated `architecture.md` with prominent and targeted links to the entity model, and replaced current-workflow `FEATURE` wording with `PLANNED_CHANGE` while preserving only explicit legacy/Work Kind references.\n- Verified formatting with `deno fmt --check architecture.md docs/entity-model.md` (passed).\n- Manually checked Mermaid fence completeness, link target presence, canonical terminology, legacy `FEATURE` usage, and source-of-truth caveats; `deno task check` was not run because only Markdown docs were changed."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-29T15:29:48.315Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "6f3a61aca5653b55cc44b3f68cb331ea9a7a317c"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "080f4b1a24a0fdbd794b770d2552a4e2e7278df1"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "entity model docs"
-planId: "6c43c06a-1c9b-4f11-8d92-61679b424caf"
 ---
 
 # RunWield Entity Model Documentation
