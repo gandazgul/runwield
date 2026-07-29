@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CLI_BIN, CWD } from "../../constants.js";
+import { CLI_BIN, getCwd } from "../../constants.js";
 import {
     hashPlanBody as hashPlanBodyFn,
     listPlanResources as listPlanResourcesFn,
@@ -114,7 +114,7 @@ function redactedError(error, secrets) {
  * @param {Record<string, any>} [deps]
  */
 export async function pushPlanRevision(pushOptions, deps = {}) {
-    const cwd = pushOptions.cwd || deps.cwd || CWD;
+    const cwd = pushOptions.cwd || deps.cwd || getCwd();
     const now = deps.now || new Date().toISOString();
     const target = pushOptions.target;
     const listPlanResources = deps.listPlanResources || listPlanResourcesFn;
@@ -288,7 +288,7 @@ export async function runPlansPushCommand(argv, options = {}) {
     }
     const pushed = await pushPlanRevision({
         target: /** @type {string} */ (parsed.target),
-        cwd: deps.cwd || CWD,
+        cwd: deps.cwd || getCwd(),
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
     }, deps);

@@ -239,14 +239,28 @@ function getRuntimeContextCapacity(session) {
 }
 
 /**
+ * Decide whether a projected attention record is newly observed for a session.
+ *
+ * The projector reports the last attention entry in the entire committed
+ * transcript, so the same record repeats on every sync. Matching it against the
+ * freshly replayed event batch cannot work: `createReplayEvents` has no branch
+ * for `runwield.attention` entries, so that eventId is never present in the
+ * batch and the comparison was permanently false. Compare against the id
+ * observed on the previous sync instead, and treat "never observed" as a silent
+ * seed so adopting a session whose transcript already contains an attention
+ * entry does not notify about history.
+ *
  * @param {{ attention?: { eventId?: string | null } | null } | null | undefined} summary
- * @param {Array<{ eventId?: string }>} events
+ * @param {string | null | undefined} previousAttentionEventId id observed on the
+ *   previous sync, `null` when that sync saw none, `undefined` when this session
+ *   has never been synchronized
  * @returns {boolean}
  */
-export function shouldEmitProjectedAttention(summary, events) {
+export function shouldEmitProjectedAttention(summary, previousAttentionEventId) {
     const attentionEventId = typeof summary?.attention?.eventId === "string" ? summary.attention.eventId : null;
     if (!attentionEventId) return false;
-    return events.some((event) => event.eventId === attentionEventId);
+    if (previousAttentionEventId === undefined) return false;
+    return attentionEventId !== previousAttentionEventId;
 }
 
 export class SessionRuntime {
@@ -278,6 +292,8 @@ export class SessionRuntime {
     #pendingManagedCreations;
     /** @type {Map<string, { projectId: string }>} */
     #pendingManagedCreationProjects;
+    /** @type {Map<string, string | null>} */
+    #observedAttentionEventIds;
     /** @type {import('../owner-coordination/index.js').OwnerCoordinationStore | null} */
     #ownerCoordinationStore;
     /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
@@ -301,6 +317,7 @@ export class SessionRuntime {
         this.#busyOperationDepths = new Map();
         this.#pendingManagedCreations = new Map();
         this.#pendingManagedCreationProjects = new Map();
+        this.#observedAttentionEventIds = new Map();
         this.#ownerCoordinationStore = options.ownerCoordinationStore || null;
         this.#ownerProcessKind = options.ownerProcessKind || "test";
         this.#ownerInstanceId = options.ownerInstanceId || crypto.randomUUID();
@@ -1630,6 +1647,7 @@ export class SessionRuntime {
             this.#busyOperationDepths.delete(id);
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
+            this.#observedAttentionEventIds.delete(id);
         }
         return { ok: true, closed };
     }
@@ -2078,13 +2096,18 @@ export class SessionRuntime {
             };
             hostedSession.setManagedMetadata(nextMetadata);
             managed = hostedSession.getManagedMetadata?.() || nextMetadata;
+            const projectedAttention = summary.attention || null;
+            // Record the observation on every sync, including non-emitting ones, so
+            // the adoption sync seeds the baseline and only genuinely new attention
+            // records reach the notifier.
+            const previousAttentionEventId = this.#observedAttentionEventIds.get(sessionId);
+            this.#observedAttentionEventIds.set(sessionId, projectedAttention?.eventId ?? null);
             if (emitEvents) {
                 for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
                 }
-                const projectedAttention = summary.attention || null;
-                if (projectedAttention && shouldEmitProjectedAttention(summary, events)) {
+                if (projectedAttention && shouldEmitProjectedAttention(summary, previousAttentionEventId)) {
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
                         eventId: projectedAttention.eventId,

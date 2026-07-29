@@ -6,7 +6,7 @@
  * that would shadow a built-in slash command.
  */
 
-import { CWD, HOME_DIR } from "../../constants.js";
+import { getCwd, getHomeDir } from "../../constants.js";
 import { recordSnipMissingWarningShown, shouldShowSnipMissingWarning } from "../../cmd/init/init-state.js";
 import { hasSnipBinary } from "../../shared/runtime-preflight.js";
 
@@ -41,8 +41,9 @@ function toUserFacingAgentMdPath(file, projectRoot) {
     if (projectRoot && file.path.startsWith(projectRoot)) {
         return `.${file.path.slice(projectRoot.length)}`;
     }
-    if ((file.source === "home" || file.source === "external") && HOME_DIR && file.path.startsWith(HOME_DIR)) {
-        return `~${file.path.slice(HOME_DIR.length)}`;
+    const homeDir = getHomeDir();
+    if ((file.source === "home" || file.source === "external") && homeDir && file.path.startsWith(homeDir)) {
+        return `~${file.path.slice(homeDir.length)}`;
     }
     return file.path;
 }
@@ -73,7 +74,7 @@ export async function renderBootBanner({
     chatPromptAgentName,
     sessionRuntime,
     sessionId,
-    projectRoot = CWD,
+    projectRoot = getCwd(),
     __deps,
 }) {
     const listSkillsImpl = __deps?.listSkills || (() => {

@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CLI_BIN, CWD } from "../../constants.js";
+import { CLI_BIN, getCwd } from "../../constants.js";
 import {
     createPulledCollaborationPlan as createPulledCollaborationPlanFn,
     hashPlanBody as hashPlanBodyFn,
@@ -160,7 +160,7 @@ function redactedError(error, secrets) {
  * @param {Record<string, any>} [deps]
  */
 export async function pullPlanForRevision(pullOptions, deps = {}) {
-    const cwd = pullOptions.cwd || deps.cwd || CWD;
+    const cwd = pullOptions.cwd || deps.cwd || getCwd();
     const now = deps.now || new Date().toISOString();
     const target = pullOptions.target;
     const isUrl = looksLikeUrl(target);
@@ -456,7 +456,7 @@ export async function runPlansPullCommand(argv, options = {}) {
     }
     const pulled = await pullPlanForRevision({
         target: /** @type {string} */ (parsed.target),
-        cwd: deps.cwd || CWD,
+        cwd: deps.cwd || getCwd(),
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         to: parsed.to,

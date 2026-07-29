@@ -4,11 +4,20 @@
  */
 
 import { dirname, join } from "@std/path";
-import { AGENT_DEFS_DIR, HOME_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, getHomeDir, SKILLS_DIR } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
 
-const BUNDLED_AGENT_DEFS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-agent-definitions") : null;
-const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-skills") : null;
+/** @returns {string | null} */
+function bundledAgentDefsCacheDir() {
+    const homeDir = getHomeDir();
+    return homeDir ? join(homeDir, ".wld", "bundled-agent-definitions") : null;
+}
+
+/** @returns {string | null} */
+function bundledSkillsCacheDir() {
+    const homeDir = getHomeDir();
+    return homeDir ? join(homeDir, ".wld", "bundled-skills") : null;
+}
 
 /** @type {Promise<string | null> | null} */
 let extractionPromise = null;
@@ -56,15 +65,16 @@ async function copyTreeFromBundle(sourceDir, destinationDir) {
 export function extractBundledAgentDefs() {
     if (extractionPromise) return extractionPromise;
     extractionPromise = (async () => {
-        if (!BUNDLED_AGENT_DEFS_CACHE_DIR || !(await directoryExists(AGENT_DEFS_DIR))) return null;
+        const cacheDir = bundledAgentDefsCacheDir();
+        if (!cacheDir || !(await directoryExists(AGENT_DEFS_DIR))) return null;
         try {
-            await Deno.remove(BUNDLED_AGENT_DEFS_CACHE_DIR, { recursive: true });
+            await Deno.remove(cacheDir, { recursive: true });
         } catch {
             // The extraction target does not exist on first use.
         }
         try {
-            await copyTreeFromBundle(AGENT_DEFS_DIR, BUNDLED_AGENT_DEFS_CACHE_DIR);
-            return BUNDLED_AGENT_DEFS_CACHE_DIR;
+            await copyTreeFromBundle(AGENT_DEFS_DIR, cacheDir);
+            return cacheDir;
         } catch {
             return null;
         }
@@ -76,10 +86,11 @@ export function extractBundledAgentDefs() {
 export function extractBundledSkills() {
     if (bundledSkillsExtractionPromise) return bundledSkillsExtractionPromise;
     bundledSkillsExtractionPromise = (async () => {
-        if (!BUNDLED_SKILLS_CACHE_DIR || !(await directoryExists(SKILLS_DIR))) return null;
+        const cacheDir = bundledSkillsCacheDir();
+        if (!cacheDir || !(await directoryExists(SKILLS_DIR))) return null;
         try {
-            await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
-            return BUNDLED_SKILLS_CACHE_DIR;
+            await copyTreeFromBundle(SKILLS_DIR, cacheDir);
+            return cacheDir;
         } catch {
             return null;
         }

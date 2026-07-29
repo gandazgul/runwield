@@ -1,13 +1,16 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import { join } from "@std/path";
+import { fromFileUrl, join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
-import { AGENTS, CWD } from "../../../constants.js";
+import { AGENTS } from "../../../constants.js";
 import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
 
-const localAgentsDir = join(CWD, ".wld", "agents");
+// Anchored to this file, not Deno.cwd(): test realms share one process, so a
+// concurrent test file's chdir would otherwise point these at its temp dir.
+const REPO_ROOT = fromFileUrl(new URL("../../../..", import.meta.url));
+const localAgentsDir = join(REPO_ROOT, ".wld", "agents");
 const routerOverridePath = join(localAgentsDir, "router.md");
 
 /**
@@ -82,7 +85,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     await Deno.writeTextFile(routerOverridePath, override);
 
     try {
-        const def = await loadAgentDef("router", CWD);
+        const def = await loadAgentDef("router", REPO_ROOT);
 
         const expectedProtected = [
             "memory_recall",
@@ -177,7 +180,7 @@ Deno.test("layered Agent Definition overrides can remove delegate_agent", async 
 });
 
 Deno.test("Frontend Engineer autonomous base tools include task completion without pair checkpoint", async () => {
-    const def = await loadAgentDef(AGENTS.FRONTEND_ENGINEER, CWD);
+    const def = await loadAgentDef(AGENTS.FRONTEND_ENGINEER, REPO_ROOT);
 
     assertEquals(def.tools.includes("task_completed"), true);
     assertEquals(def.tools.includes("pair_checkpoint"), false);
@@ -185,8 +188,8 @@ Deno.test("Frontend Engineer autonomous base tools include task completion witho
 
 Deno.test("Router and Recorder do not expose delegate_agent by default", async () => {
     const [router, recorder] = await Promise.all([
-        loadAgentDef(AGENTS.ROUTER, CWD),
-        loadAgentDef("recorder", CWD),
+        loadAgentDef(AGENTS.ROUTER, REPO_ROOT),
+        loadAgentDef("recorder", REPO_ROOT),
     ]);
 
     assertEquals(router.tools.includes("delegate_agent"), false);
@@ -293,8 +296,8 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             __resetSettingsForTests();
             await writeVisionModelConfig(tempHome);
 
-            const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
-            const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
+            const targetHostedSession = new HostedSession({ id: "target-session", cwd: REPO_ROOT });
+            const otherHostedSession = new HostedSession({ id: "other-session", cwd: REPO_ROOT });
             const built = await buildAgentSession({
                 hostedSession: targetHostedSession,
                 agentName: AGENTS.GUIDE,
@@ -688,18 +691,18 @@ Deno.test("bundled Work Record tools are protected for planning roles and exclud
         ].join("\n"),
     );
     try {
-        const planner = await loadAgentDef(AGENTS.PLANNER, CWD);
+        const planner = await loadAgentDef(AGENTS.PLANNER, REPO_ROOT);
         assert(planner.tools.includes("work_record_search"));
         assert(planner.tools.includes("work_record_read"));
-        const guide = await loadAgentDef(AGENTS.GUIDE, CWD);
-        const recorder = await loadAgentDef(AGENTS.RECORDER, CWD);
-        const ideator = await loadAgentDef(AGENTS.IDEATOR, CWD);
-        const architect = await loadAgentDef(AGENTS.ARCHITECT, CWD);
+        const guide = await loadAgentDef(AGENTS.GUIDE, REPO_ROOT);
+        const recorder = await loadAgentDef(AGENTS.RECORDER, REPO_ROOT);
+        const ideator = await loadAgentDef(AGENTS.IDEATOR, REPO_ROOT);
+        const architect = await loadAgentDef(AGENTS.ARCHITECT, REPO_ROOT);
         for (const def of [guide, recorder, ideator, architect]) {
             assert(def.tools.includes("work_record_search"));
             assert(def.tools.includes("work_record_read"));
         }
-        const engineer = await loadAgentDef(AGENTS.ENGINEER, CWD);
+        const engineer = await loadAgentDef(AGENTS.ENGINEER, REPO_ROOT);
         assertEquals(engineer.tools.includes("work_record_search"), false);
         assertEquals(engineer.tools.includes("work_record_read"), false);
     } finally {

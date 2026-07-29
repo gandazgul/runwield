@@ -5,11 +5,15 @@
 
 import { basename, dirname, fromFileUrl, join } from "@std/path";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { AGENT_DEFS_DIR, AGENTS, HOME_DIR, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS, getHomeDir, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 
-const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "agents") : null;
+/** @returns {string | null} */
+function homeAgentDefsDir() {
+    const homeDir = getHomeDir();
+    return homeDir ? join(homeDir, ".wld", "agents") : null;
+}
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
@@ -35,7 +39,7 @@ export const _AGENT_ATTENTION_NUDGES = {
 function getAgentDefLayerDirs(projectRoot) {
     return [
         AGENT_DEFS_DIR,
-        ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
+        ...(homeAgentDefsDir() ? [/** @type {string} */ (homeAgentDefsDir())] : []),
         ...(projectRoot ? [join(projectRoot, ".wld", "agents")] : []),
     ];
 }
@@ -47,7 +51,7 @@ function getAgentDefLayerDirs(projectRoot) {
 function getAgentDefDirsByPriority(projectRoot) {
     return [
         ...(projectRoot ? [join(projectRoot, ".wld", "agents")] : []),
-        ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
+        ...(homeAgentDefsDir() ? [/** @type {string} */ (homeAgentDefsDir())] : []),
         AGENT_DEFS_DIR,
     ];
 }
@@ -69,7 +73,7 @@ export async function resolveAgentDefsDir(projectRoot) {
         [
             "Could not find any agent defs directory.",
             ...(localAgentDefsDir ? [`Tried local: ${localAgentDefsDir}`] : []),
-            ...(HOME_AGENT_DEFS_DIR ? [`Tried home: ${HOME_AGENT_DEFS_DIR}`] : []),
+            ...(homeAgentDefsDir() ? [`Tried home: ${homeAgentDefsDir()}`] : []),
             `Tried bundled: ${AGENT_DEFS_DIR}`,
         ].join(" "),
     );

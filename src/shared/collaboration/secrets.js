@@ -3,6 +3,7 @@
 import { dirname, join } from "@std/path";
 import { redactCapabilityValue, redactSecrets } from "./capabilities.js";
 import { assertRecord, normalizeLocalSecretRecord } from "./protocol.js";
+import { getHomeDir } from "../../constants.js";
 
 export const SECRET_STORE_SCHEMA_VERSION = 1;
 export const PROJECT_SECRET_STORE_RELATIVE_PATH = ".wld/collaboration-secrets.json";
@@ -26,7 +27,7 @@ export function secretRecordKey(planId, spaceId) {
  * @param {string} [homeDir]
  * @returns {string}
  */
-export function getGlobalSecretStorePath(homeDir = Deno.env.get("HOME") ?? "") {
+export function getGlobalSecretStorePath(homeDir = getHomeDir()) {
     return join(homeDir, ".wld", "collaboration-secrets.json");
 }
 

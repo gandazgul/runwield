@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { basename, dirname } from "@std/path";
-import { HOME_DIR } from "../constants.js";
+import { getHomeDir } from "../constants.js";
 
 import { findByPlanName } from "./worktree-registry.js";
 import {
@@ -14,14 +14,16 @@ import {
 } from "./worktree.js";
 
 import { git, makeRepo } from "./worktree-test-helpers.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 
 Deno.test("resolveWorktreeParent uses session-style full cwd encoding by default", () => {
     const projectRoot = "/Users/alice/Documents/web/runwield";
 
-    if (HOME_DIR) {
+    const homeDir = getHomeDir();
+    if (homeDir) {
         assertEquals(
             resolveWorktreeParent(projectRoot, undefined),
-            `${HOME_DIR}/.wld/worktrees/--Users-alice-Documents-web-runwield--`,
+            `${homeDir}/.wld/worktrees/--Users-alice-Documents-web-runwield--`,
         );
     } else {
         assertEquals(resolveWorktreeParent(projectRoot, undefined), `${projectRoot}/.wld/worktrees`);
@@ -71,49 +73,55 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
 });
 
 Deno.test("createExecutionWorktree initializes submodules", async () => {
-    const projectRoot = await makeRepo();
-    const submoduleRoot = await makeRepo();
-    const worktreeRoot = await Deno.makeTempDir();
-    const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
-    let worktree;
-    try {
-        await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
-        await git(submoduleRoot, ["add", "."]);
-        await git(submoduleRoot, ["commit", "-m", "add module css"]);
-        Deno.env.set("GIT_ALLOW_PROTOCOL", "file");
-        await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
-        await git(projectRoot, ["commit", "-m", "add submodule"]);
+    // GIT_ALLOW_PROTOCOL is process-global and affects every concurrent git call.
+    await withProcessGlobalTestLock(async () => {
+        const projectRoot = await makeRepo();
+        const submoduleRoot = await makeRepo();
+        const worktreeRoot = await Deno.makeTempDir();
+        const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
+        /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+        let worktree;
+        try {
+            await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
+            await git(submoduleRoot, ["add", "."]);
+            await git(submoduleRoot, ["commit", "-m", "add module css"]);
+            Deno.env.set("GIT_ALLOW_PROTOCOL", "file");
+            await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
+            await git(projectRoot, ["commit", "-m", "add submodule"]);
 
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Submodule Plan", worktreeRoot });
+            worktree = await createExecutionWorktree({ projectRoot, planName: "Submodule Plan", worktreeRoot });
 
-        assertEquals(await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`), "body { color: red; }\n");
-        await removeExecutionWorktree({
-            projectRoot,
-            path: worktree.path,
-            branch: worktree.branch,
-            force: false,
-        });
-        await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
-        worktree = undefined;
-    } finally {
-        if (previousAllowedProtocols === undefined) {
-            Deno.env.delete("GIT_ALLOW_PROTOCOL");
-        } else {
-            Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
-        }
-        if (worktree) {
+            assertEquals(
+                await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`),
+                "body { color: red; }\n",
+            );
             await removeExecutionWorktree({
                 projectRoot,
                 path: worktree.path,
                 branch: worktree.branch,
-                force: true,
-            }).catch(() => {});
+                force: false,
+            });
+            await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
+            worktree = undefined;
+        } finally {
+            if (previousAllowedProtocols === undefined) {
+                Deno.env.delete("GIT_ALLOW_PROTOCOL");
+            } else {
+                Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
+            }
+            if (worktree) {
+                await removeExecutionWorktree({
+                    projectRoot,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    force: true,
+                }).catch(() => {});
+            }
+            await Deno.remove(projectRoot, { recursive: true });
+            await Deno.remove(submoduleRoot, { recursive: true });
+            await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(submoduleRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
-    }
+    });
 });
 
 Deno.test("findReusableWorktree selects the recorded execution id when plan names repeat", async () => {

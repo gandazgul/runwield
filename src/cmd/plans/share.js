@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CLI_BIN, CWD } from "../../constants.js";
+import { CLI_BIN, getCwd } from "../../constants.js";
 import {
     ensurePlanIdentity as ensurePlanIdentityFn,
     hashPlanBody as hashPlanBodyFn,
@@ -237,7 +237,7 @@ async function cleanupRemoteSpace(deps, serverUrl, spaceId, maintainerCapability
  * @returns {Promise<SharedPlanReviewLink>}
  */
 export async function sharePlanForReview(shareOptions, deps = {}) {
-    const cwd = shareOptions.cwd || deps.cwd || CWD;
+    const cwd = shareOptions.cwd || deps.cwd || getCwd();
     const target = shareOptions.target;
     const resource = await resolveActivePlan(cwd, target, deps);
     const args = {
@@ -464,7 +464,7 @@ export async function runPlansShareCommand(argv, options = {}) {
     }
     const shared = await sharePlanForReview({
         target: /** @type {string} */ (args.target),
-        cwd: deps.cwd || CWD,
+        cwd: deps.cwd || getCwd(),
         planServer: args.planServer,
         projectSecrets: args.projectSecrets,
         allowExisting: false,

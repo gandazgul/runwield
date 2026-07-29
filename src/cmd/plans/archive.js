@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CLI_BIN, CWD } from "../../constants.js";
+import { CLI_BIN, getCwd } from "../../constants.js";
 import {
     archivePlan as archivePlanFn,
     archivePlansByStatus as archivePlansByStatusFn,
@@ -104,7 +104,7 @@ export async function runPlansArchiveCommand(argv, options = {}) {
         const target = positionals[1];
         if (!target) throw new Error("Missing archived Plan name or id for restore.");
         if (positionals.length > 2) throw new Error(`Unexpected restore argument: ${positionals[2]}`);
-        const restored = await restoreArchivedPlan(CWD, target, { to: parsed.to });
+        const restored = await restoreArchivedPlan(getCwd(), target, { to: parsed.to });
         console.log(`[RunWield] Restored ${target} to ${restored.relativePath}`);
         return;
     }
@@ -112,7 +112,7 @@ export async function runPlansArchiveCommand(argv, options = {}) {
     if (parsed.all) {
         if (parsed.status === undefined) throw new Error("Missing --status for bulk archive.");
         if (positionals.length > 0) throw new Error(`Unexpected archive argument with --all: ${positionals[0]}`);
-        const result = await archivePlansByStatus(CWD, /** @type {any} */ (parsed.status), {
+        const result = await archivePlansByStatus(getCwd(), /** @type {any} */ (parsed.status), {
             reason: parsed.reason,
             force: Boolean(parsed.force),
         });
@@ -126,12 +126,12 @@ export async function runPlansArchiveCommand(argv, options = {}) {
     if (parsed.status !== undefined) throw new Error("--status requires --all for bulk archive.");
 
     if (positionals.length === 0) {
-        printArchivedPlans(await listArchivedPlans(CWD));
+        printArchivedPlans(await listArchivedPlans(getCwd()));
         return;
     }
 
     if (positionals.length > 1) throw new Error(`Unexpected archive argument: ${positionals[1]}`);
-    const archived = await archivePlan(CWD, positionals[0], {
+    const archived = await archivePlan(getCwd(), positionals[0], {
         reason: parsed.reason,
         force: Boolean(parsed.force),
     });

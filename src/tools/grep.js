@@ -9,6 +9,7 @@
 import { createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { basename, dirname, isAbsolute, join, normalize, relative } from "@std/path";
+import { getHomeDir } from "../constants.js";
 
 const grepSchema = Type.Object({
     pattern: Type.String({ description: "Search pattern (regex or literal string)." }),
@@ -55,7 +56,7 @@ const grepSchema = Type.Object({
  * @returns {string}
  */
 function resolveToCwd(targetPath, cwd) {
-    const expanded = targetPath.startsWith("~/") ? join(Deno.env.get("HOME") || "", targetPath.slice(2)) : targetPath;
+    const expanded = targetPath.startsWith("~/") ? join(getHomeDir(), targetPath.slice(2)) : targetPath;
     return isAbsolute(expanded) ? expanded : join(cwd, expanded);
 }
 

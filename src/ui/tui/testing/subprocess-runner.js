@@ -23,6 +23,14 @@ const SECRET_ENV_PATTERNS = [/API_KEY/i, /TOKEN/i, /AUTH/i, /SECRET/i, /PASSWORD
 const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
 
 /**
+ * How long a timed-out child gets to tear itself down before the runner stops
+ * asking. The child owns an isolated environment (a fake HOME plus a git
+ * fixture) that only it knows how to remove, and SIGKILL cannot be trapped, so
+ * killing outright stranded that directory on every timeout.
+ */
+const DEFAULT_TERMINATION_GRACE_MS = 3_000;
+
+/**
  * Line the child prints once it is ready to execute scenario actions. Seeing it
  * hands the deadline over from the startup budget to the scenario budget.
  */
@@ -59,7 +67,7 @@ export function sanitizeGoldenChildEnv(env = Deno.env.toObject()) {
  * the scenario's budget; until then the looser `startupTimeoutMs` applies.
  *
  * @param {string[]} args
- * @param {{ cwd?: string, env?: Record<string, string>, timeoutMs?: number, startupTimeoutMs?: number, awaitReadyMarker?: boolean }} [options]
+ * @param {{ cwd?: string, env?: Record<string, string>, timeoutMs?: number, startupTimeoutMs?: number, awaitReadyMarker?: boolean, terminationGraceMs?: number }} [options]
  * @returns {Promise<GoldenChildResult>}
  */
 export async function runGoldenChild(args, options = {}) {
@@ -73,13 +81,27 @@ export async function runGoldenChild(args, options = {}) {
     const child = command.spawn();
     const scenarioTimeoutMs = options.timeoutMs || 5000;
     let timedOut = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let escalation = null;
     const kill = () => {
         timedOut = true;
+        // Signal first so the child's termination handler can remove its isolated
+        // environment, then escalate for a child too wedged to answer. Going
+        // straight to SIGKILL leaked the whole fixture directory every timeout.
         try {
-            child.kill("SIGKILL");
+            child.kill("SIGTERM");
         } catch {
             // Process may have already exited.
+            return;
         }
+        escalation = setTimeout(() => {
+            try {
+                child.kill("SIGKILL");
+            } catch {
+                // Process exited during the grace window, which is the good case.
+            }
+        }, options.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
+        Deno.unrefTimer(escalation);
     };
     let ready = !options.awaitReadyMarker;
     let timeout = setTimeout(kill, ready ? scenarioTimeoutMs : options.startupTimeoutMs || DEFAULT_STARTUP_TIMEOUT_MS);
@@ -101,5 +123,6 @@ export async function runGoldenChild(args, options = {}) {
         };
     } finally {
         clearTimeout(timeout);
+        if (escalation !== null) clearTimeout(escalation);
     }
 }

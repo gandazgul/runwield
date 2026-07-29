@@ -2,6 +2,7 @@ import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import { getSettingsDir } from "../settings.js";
+import { getHomeDir } from "../../constants.js";
 
 const MODEL_CONFIG_FILES = ["models.json", "auth.json"];
 
@@ -221,7 +222,7 @@ function migrateModelConfigFilesOnce(options) {
  * @returns {{ copied: string[], skipped: string[], failed: Array<{ file: string, error: string }> }}
  */
 export function migratePiModelConfigOnce(options = {}) {
-    const homeDir = options.homeDir ?? Deno.env.get("HOME") ?? "";
+    const homeDir = options.homeDir ?? getHomeDir();
     const runwieldDir = options.runwieldDir ?? getRunWieldModelConfigDir();
     return migrateModelConfigFilesOnce({
         targetDir: runwieldDir,

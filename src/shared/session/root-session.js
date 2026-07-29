@@ -4,6 +4,7 @@
  */
 
 import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
+import { getHomeDir } from "../../constants.js";
 
 /**
  * Encode cwd into a filesystem-safe directory segment (Pi-style).
@@ -21,7 +22,7 @@ export function encodeCwdForSessionDir(cwd) {
  * @returns {string}
  */
 export function getRunWieldSessionsBaseDir() {
-    const home = Deno.env.get("HOME") || "~";
+    const home = getHomeDir() || "~";
     return join(home, ".wld", "sessions");
 }
 

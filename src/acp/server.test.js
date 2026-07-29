@@ -1094,7 +1094,7 @@ Deno.test("ACP session/cancel makes the in-flight prompt return cancelled", asyn
 Deno.test("ACP production modules do not import TUI adapter code", async () => {
     /** @type {string[]} */
     const violations = [];
-    for await (const entry of Deno.readDir("src/acp")) {
+    for await (const entry of Deno.readDir(new URL(".", import.meta.url))) {
         if (!entry.isFile || !entry.name.endsWith(".js") || entry.name.endsWith(".test.js")) continue;
         const path = `src/acp/${entry.name}`;
         const source = await Deno.readTextFile(path);

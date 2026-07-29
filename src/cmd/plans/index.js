@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CWD } from "../../constants.js";
+import { getCwd } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } from "../../plan-store.js";
 
 /**
@@ -161,7 +161,7 @@ export async function runPlansCommand(argv, options = {}) {
         return;
     }
 
-    const plans = await listPlans(CWD);
+    const plans = await listPlans(getCwd());
     if (plans.length === 0) {
         console.log("[RunWield] No saved plans found.");
         return;

@@ -4,7 +4,7 @@
  */
 
 import { join } from "@std/path";
-import { HOME_DIR, SNIP_FILTERS_DIR } from "../constants.js";
+import { getHomeDir, SNIP_FILTERS_DIR } from "../constants.js";
 
 const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
 const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
@@ -40,7 +40,7 @@ function withManagedMarker(content) {
  * @returns {{ userFiltersDir: string }}
  */
 export function getRunWieldSnipPaths(options = {}) {
-    const homeDir = options.homeDir || HOME_DIR || Deno.env.get("HOME") || Deno.cwd();
+    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
     return {
         userFiltersDir: join(homeDir, ".config", "snip", "filters"),
     };

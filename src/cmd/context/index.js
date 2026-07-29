@@ -4,6 +4,7 @@
  */
 
 import { theme } from "../../ui/theme/theme.js";
+import { getHomeDir } from "../../constants.js";
 
 const SOURCE_ORDER = ["local", "home", "bundled", "external", "mnemosyne", "runtime", "agent"];
 
@@ -30,7 +31,7 @@ function formatPercent(percent) {
  * @returns {string}
  */
 export function abbreviateHomePath(path) {
-    const home = Deno.env.get("HOME") || "";
+    const home = getHomeDir();
     if (!home || !path.startsWith(home)) return path;
     return `~${path.slice(home.length)}`;
 }

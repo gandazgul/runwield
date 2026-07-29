@@ -24,7 +24,7 @@ import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
-import { AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -78,7 +78,11 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 import { installEarlySteeringInterruption } from "./early-steering.js";
 
-const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
+/** @returns {string | null} */
+function homePromptsDir() {
+    const homeDir = getHomeDir();
+    return homeDir ? join(homeDir, ".wld", "prompts") : null;
+}
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
@@ -208,7 +212,7 @@ const promptTemplateModelByName = new Map();
 export function getPromptTemplatePaths(cwd) {
     return [
         ...(cwd ? [join(cwd, ".wld", "prompts")] : []),
-        ...(HOME_PROMPTS_DIR ? [HOME_PROMPTS_DIR] : []),
+        ...(homePromptsDir() ? [/** @type {string} */ (homePromptsDir())] : []),
         PROMPT_TEMPLATES_DIR,
     ];
 }
@@ -265,7 +269,9 @@ export async function listPromptTemplates(options = {}) {
     /** @type {Array<{dir: string, source: PromptTemplateSource}>} */
     const layers = [
         ...(cwd ? [{ dir: join(cwd, ".wld", "prompts"), source: /** @type {PromptTemplateSource} */ ("local") }] : []),
-        ...(HOME_PROMPTS_DIR ? [{ dir: HOME_PROMPTS_DIR, source: /** @type {PromptTemplateSource} */ ("home") }] : []),
+        ...(homePromptsDir()
+            ? [{ dir: /** @type {string} */ (homePromptsDir()), source: /** @type {PromptTemplateSource} */ ("home") }]
+            : []),
         { dir: PROMPT_TEMPLATES_DIR, source: "bundled" },
     ];
 
@@ -352,6 +358,7 @@ export async function listSkills(options = {}) {
 
     const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
 
+    const homeDir = getHomeDir();
     const layers = [
         ...(options.cwd
             ? [{
@@ -359,9 +366,9 @@ export async function listSkills(options = {}) {
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
             }]
             : []),
-        ...(HOME_DIR
+        ...(homeDir
             ? [{
-                dir: join(HOME_DIR, ".wld", "skills"),
+                dir: join(homeDir, ".wld", "skills"),
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("home"),
             }]
             : []),
@@ -370,9 +377,9 @@ export async function listSkills(options = {}) {
             source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled"),
         })),
         // ── External (Pi-compatible / marketplace) skills ──
-        ...(enableExternalSkills && HOME_DIR
+        ...(enableExternalSkills && homeDir
             ? [{
-                dir: join(HOME_DIR, ".agents", "skills"),
+                dir: join(homeDir, ".agents", "skills"),
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("external"),
             }]
             : []),
@@ -470,9 +477,10 @@ export async function listLoadedAgentMdFiles(cwd) {
     /** @type {{ path: string, source: "home" | "external" | "local" }[]} */
     const results = [];
 
-    for (const homePath of getGlobalAgentMdPaths(HOME_DIR)) {
+    const homeDir = getHomeDir();
+    for (const homePath of getGlobalAgentMdPaths(homeDir)) {
         if (await fileExists(homePath)) {
-            const source = homePath === join(HOME_DIR, ".agents", "AGENTS.md")
+            const source = homePath === join(homeDir, ".agents", "AGENTS.md")
                 ? /** @type {"external"} */ ("external")
                 : /** @type {"home"} */ ("home");
             results.push({ path: homePath, source });
@@ -1321,7 +1329,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
     const instructionItems = [];
     let globalAgentsMd = "";
-    const homeDir = options.homeDir || Deno.env.get("HOME") || "";
+    const homeDir = options.homeDir || getHomeDir();
     if (hasGlobalAgentsPlaceholder && homeDir) {
         const globalFile = await readGlobalInstructionFile(homeDir);
         if (globalFile) {

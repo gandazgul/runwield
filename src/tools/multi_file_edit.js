@@ -9,6 +9,7 @@
 import { defineTool, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { isAbsolute, join } from "@std/path";
+import { getHomeDir } from "../constants.js";
 
 const fileEditSchema = Type.Object({
     path: Type.String({ description: "Path to the file for this replacement, relative to root or the session cwd." }),
@@ -81,7 +82,7 @@ function detectLineEnding(content) {
  * @returns {string}
  */
 function resolveToBaseDir(targetPath, baseDir) {
-    const expanded = targetPath.startsWith("~") ? (Deno.env.get("HOME") || "") + targetPath.slice(1) : targetPath;
+    const expanded = targetPath.startsWith("~") ? getHomeDir() + targetPath.slice(1) : targetPath;
     if (isAbsolute(expanded)) return expanded;
     return join(baseDir, expanded);
 }

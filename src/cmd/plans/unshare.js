@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CLI_BIN, CWD } from "../../constants.js";
+import { CLI_BIN, getCwd } from "../../constants.js";
 import {
     clearPlanCollaborationMetadata as clearPlanCollaborationMetadataFn,
     listPlanResources as listPlanResourcesFn,
@@ -138,7 +138,7 @@ function confirmationMessage(details) {
  * @param {Record<string, any>} [deps]
  */
 export async function unsharePlan(unshareOptions, deps = {}) {
-    const cwd = unshareOptions.cwd || deps.cwd || CWD;
+    const cwd = unshareOptions.cwd || deps.cwd || getCwd();
     const now = deps.now || new Date().toISOString();
     const target = unshareOptions.target;
     const listPlanResources = deps.listPlanResources || listPlanResourcesFn;
@@ -318,7 +318,7 @@ export async function runPlansUnshareCommand(argv, options = {}) {
     }
     const result = await unsharePlan({
         target: /** @type {string} */ (parsed.target),
-        cwd: deps.cwd || CWD,
+        cwd: deps.cwd || getCwd(),
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         force: parsed.force,

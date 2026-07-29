@@ -654,7 +654,7 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
     assertEquals(snapshot?.thinkingLevel, "high");
 });
 
-Deno.test("SessionRuntime emits projected attention only when the attention event is newly replayed", () => {
+Deno.test("SessionRuntime emits projected attention only when the attention record changes", () => {
     const summary = {
         attention: {
             eventId: "attention-entry:attention_requested:0",
@@ -663,15 +663,17 @@ Deno.test("SessionRuntime emits projected attention only when the attention even
         },
     };
 
-    assertEquals(shouldEmitProjectedAttention(summary, []), false);
-    assertEquals(
-        shouldEmitProjectedAttention(summary, [{ eventId: "user-entry:user_message:0" }]),
-        false,
-    );
-    assertEquals(
-        shouldEmitProjectedAttention(summary, [{ eventId: "attention-entry:attention_requested:0" }]),
-        true,
-    );
+    // First observation seeds the baseline: a transcript adopted with an attention
+    // entry already in it must not notify about that history.
+    assertEquals(shouldEmitProjectedAttention(summary, undefined), false);
+    // Repeat syncs project the same record and must stay silent.
+    assertEquals(shouldEmitProjectedAttention(summary, "attention-entry:attention_requested:0"), false);
+    // A newly appended attention entry notifies once.
+    assertEquals(shouldEmitProjectedAttention(summary, "older-entry:attention_requested:0"), true);
+    assertEquals(shouldEmitProjectedAttention(summary, null), true);
+    // No attention in the projection is never an emission.
+    assertEquals(shouldEmitProjectedAttention({ attention: null }, "older-entry:attention_requested:0"), false);
+    assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 
 Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", async () => {

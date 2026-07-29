@@ -4,6 +4,7 @@
  */
 
 import { dirname, join } from "@std/path";
+import { getHomeDir } from "../../constants.js";
 
 export const OWNER_COORDINATION_DB_FILENAME = "owner-coordination.sqlite3";
 
@@ -14,7 +15,7 @@ export const OWNER_COORDINATION_DB_FILENAME = "owner-coordination.sqlite3";
  * @returns {string}
  */
 export function getOwnerCoordinationDatabasePath(options = {}) {
-    const home = options.home || Deno.env.get("HOME") || "~";
+    const home = options.home || getHomeDir() || "~";
     return join(home, ".wld", OWNER_COORDINATION_DB_FILENAME);
 }
 

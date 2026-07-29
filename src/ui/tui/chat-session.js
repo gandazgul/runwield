@@ -58,6 +58,7 @@ import { createGenerationGuard } from "./generation-guard.js";
 import { installUiApiOverrides } from "./ui-api-overrides.js";
 import { renderBootBanner } from "./boot-banner.js";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
+import { getHomeDir } from "../../constants.js";
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
@@ -365,7 +366,7 @@ function formatFooterCwd(cwd, home, projectCwd) {
  * @returns {string}
  */
 export function buildFooterLocationText(snapshot, options = {}) {
-    const home = options.home ?? Deno.env.get("HOME") ?? "";
+    const home = options.home ?? getHomeDir();
     const executionWorkflow = snapshot.activeExecutionWorkflow;
     const footerCwd = executionWorkflow?.executionCwd || snapshot.cwd || Deno.cwd();
     const branch = executionWorkflow?.worktreeBranch || options.resolveBranch?.(footerCwd) || "unknown";

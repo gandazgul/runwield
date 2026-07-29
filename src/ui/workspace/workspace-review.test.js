@@ -13,8 +13,12 @@ import {
 import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
 
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { fromFileUrl } from "@std/path";
 
-const TEST_PROJECT_ROOT = Deno.cwd();
+// Anchored to this file, not Deno.cwd(): test realms share one process, so a
+// concurrent file's chdir would otherwise pin this to its temp directory.
+const TEST_PROJECT_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
@@ -288,67 +292,70 @@ Deno.test("review guide and widget APIs require token and serve explainer state"
 });
 
 Deno.test("review guide jobs prefer WLD over external agent host CLIs", async () => {
-    const previousPath = Deno.env.get("PATH");
-    const previousCommand = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
-    const previousModel = Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL");
-    const binDir = await Deno.makeTempDir();
-    try {
-        for (const command of ["wld", "claude"]) {
-            const commandPath = `${binDir}/${command}`;
-            await Deno.writeTextFile(commandPath, "#!/bin/sh\necho '{}'\n");
-            await Deno.chmod(commandPath, 0o755);
-        }
-        Deno.env.set("PATH", previousPath ? `${binDir}:${previousPath}` : binDir);
-        Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
-        Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
+    // Mutates PATH, which every concurrently-running test's subprocesses inherit.
+    await withProcessGlobalTestLock(async () => {
+        const previousPath = Deno.env.get("PATH");
+        const previousCommand = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
+        const previousModel = Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL");
+        const binDir = await Deno.makeTempDir();
+        try {
+            for (const command of ["wld", "claude"]) {
+                const commandPath = `${binDir}/${command}`;
+                await Deno.writeTextFile(commandPath, "#!/bin/sh\necho '{}'\n");
+                await Deno.chmod(commandPath, 0o755);
+            }
+            Deno.env.set("PATH", previousPath ? `${binDir}:${previousPath}` : binDir);
+            Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+            Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
 
-        const state = createReviewAgentState({
-            cwd: Deno.cwd(),
-            token: "wld-token",
-            reviewPayload: {
-                rawPatch:
-                    "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
-                guidedReviewFixture: {
-                    schemaVersion: "1.0",
-                    title: "WLD guide",
-                    sections: [{
-                        title: "Core",
-                        role: "core",
-                        blocks: [{ type: "diff", file: "src/a.js" }],
-                    }],
-                    everythingElse: [],
+            const state = createReviewAgentState({
+                cwd: Deno.cwd(),
+                token: "wld-token",
+                reviewPayload: {
+                    rawPatch:
+                        "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+                    guidedReviewFixture: {
+                        schemaVersion: "1.0",
+                        title: "WLD guide",
+                        sections: [{
+                            title: "Core",
+                            role: "core",
+                            blocks: [{ type: "diff", file: "src/a.js" }],
+                        }],
+                        everythingElse: [],
+                    },
                 },
-            },
-            recordWorkflowMetric: () => Promise.resolve(null),
-        });
+                recordWorkflowMetric: () => Promise.resolve(null),
+            });
 
-        const launch = await reviewAgentApi(
-            new Request("http://localhost/api/agents/jobs", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ provider: "guide" }),
-            }),
-            new URL("http://localhost/api/agents/jobs"),
-            state,
-        );
-        assertEquals(launch?.status, 202);
-        if (!launch) throw new Error("expected job launch response");
-        const { job } = await launch.json();
-        await state.jobs.get(job.id)?.done;
+            const launch = await reviewAgentApi(
+                new Request("http://localhost/api/agents/jobs", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ provider: "guide" }),
+                }),
+                new URL("http://localhost/api/agents/jobs"),
+                state,
+            );
+            assertEquals(launch?.status, 202);
+            if (!launch) throw new Error("expected job launch response");
+            const { job } = await launch.json();
+            await state.jobs.get(job.id)?.done;
 
-        assertEquals(job.command, ["wld", "guided-review"]);
-        assertEquals(job.engine, "wld");
-        assertEquals(job.model, "wld");
-        await state.widgets.cleanup();
-    } finally {
-        if (previousPath === undefined) Deno.env.delete("PATH");
-        else Deno.env.set("PATH", previousPath);
-        if (previousCommand === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
-        else Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", previousCommand);
-        if (previousModel === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
-        else Deno.env.set("RUNWIELD_GUIDED_REVIEW_MODEL", previousModel);
-        await Deno.remove(binDir, { recursive: true });
-    }
+            assertEquals(job.command, ["wld", "guided-review"]);
+            assertEquals(job.engine, "wld");
+            assertEquals(job.model, "wld");
+            await state.widgets.cleanup();
+        } finally {
+            if (previousPath === undefined) Deno.env.delete("PATH");
+            else Deno.env.set("PATH", previousPath);
+            if (previousCommand === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+            else Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", previousCommand);
+            if (previousModel === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
+            else Deno.env.set("RUNWIELD_GUIDED_REVIEW_MODEL", previousModel);
+            await Deno.remove(binDir, { recursive: true });
+        }
+    });
 });
 
 Deno.test("review guide jobs ground provider prompt in Plan payload", async () => {

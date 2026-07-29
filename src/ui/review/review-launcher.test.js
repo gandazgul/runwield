@@ -1,17 +1,40 @@
 import { assertEquals } from "@std/assert";
 
-// Disable Astro built server import to avoid stale-dist race conditions
-// when tests run in parallel with workspace:build.
-Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
-
 import {
     startArtifactReadSurface,
     startCodeReviewSurface,
     startPlanReviewSurface,
     stopActiveReviewSurfaces,
 } from "./review-launcher.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
-Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", async () => {
+/**
+ * Disables the Astro built-server import, avoiding stale-dist races against
+ * workspace:build.
+ *
+ * WLD_WORKSPACE_DISABLE_BUILT_SERVER is process-global, so setting it at module
+ * scope leaked into every other test file and never got restored: whether a
+ * concurrent workspace test saw the built server depended on when this file's
+ * realm happened to load. Scope it per test, under the process-global lock.
+ *
+ * @param {string} name
+ * @param {() => void | Promise<void>} fn
+ */
+function reviewLauncherTest(name, fn) {
+    Deno.test(name, () =>
+        withProcessGlobalTestLock(async () => {
+            const previous = Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER");
+            Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
+            try {
+                await fn();
+            } finally {
+                if (previous === undefined) Deno.env.delete("WLD_WORKSPACE_DISABLE_BUILT_SERVER");
+                else Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", previous);
+            }
+        }));
+}
+
+reviewLauncherTest("stopActiveReviewSurfaces stops active plan and code review servers", async () => {
     let planStops = 0;
     let codeStops = 0;
 
@@ -52,7 +75,7 @@ Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", 
     assertEquals(codeStops, 1);
 });
 
-Deno.test("plan review surface reports URL before opening the browser", async () => {
+reviewLauncherTest("plan review surface reports URL before opening the browser", async () => {
     const surfaces = /** @type {any[]} */ ([]);
     const server = await startPlanReviewSurface({
         cwd: Deno.cwd(),
@@ -72,7 +95,7 @@ Deno.test("plan review surface reports URL before opening the browser", async ()
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
-Deno.test("review surface stop unregisters the server from process-exit cleanup", async () => {
+reviewLauncherTest("review surface stop unregisters the server from process-exit cleanup", async () => {
     let stops = 0;
     const server = await startPlanReviewSurface({
         cwd: Deno.cwd(),
@@ -95,7 +118,7 @@ Deno.test("review surface stop unregisters the server from process-exit cleanup"
     assertEquals(stops, 1);
 });
 
-Deno.test("code review surface forwards guided review payload to injected server", async () => {
+reviewLauncherTest("code review surface forwards guided review payload to injected server", async () => {
     /** @type {any} */
     let seen;
     const server = await startCodeReviewSurface({
@@ -135,7 +158,7 @@ Deno.test("code review surface forwards guided review payload to injected server
     assertEquals(seen?.autoStart, true);
 });
 
-Deno.test("artifact read surface opens Workspace-hosted read payload", async () => {
+reviewLauncherTest("artifact read surface opens Workspace-hosted read payload", async () => {
     const server = await startArtifactReadSurface({
         cwd: Deno.cwd(),
         markdown: "# Read Me",
@@ -158,7 +181,7 @@ Deno.test("artifact read surface opens Workspace-hosted read payload", async () 
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
-Deno.test("artifact read surface unregisters from active cleanup after stop", async () => {
+reviewLauncherTest("artifact read surface unregisters from active cleanup after stop", async () => {
     const server = await startArtifactReadSurface({
         cwd: Deno.cwd(),
         markdown: "# Plan",
@@ -174,7 +197,7 @@ Deno.test("artifact read surface unregisters from active cleanup after stop", as
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
-Deno.test("Workspace-hosted plan review includes trusted canonical execution policy", async () => {
+reviewLauncherTest("Workspace-hosted plan review includes trusted canonical execution policy", async () => {
     const server = await startPlanReviewSurface({
         cwd: Deno.cwd(),
         plan: `---
@@ -197,7 +220,7 @@ collaborationRecommendation: pair
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
-Deno.test("plan review surface forwards server output to its caller", async () => {
+reviewLauncherTest("plan review surface forwards server output to its caller", async () => {
     /** @type {Array<{ stream: "stdout" | "stderr", text: string }>} */
     const output = [];
     const server = await startPlanReviewSurface({
@@ -228,7 +251,7 @@ Deno.test("plan review surface forwards server output to its caller", async () =
     ]);
 });
 
-Deno.test("stopActiveReviewSurfaces stops Workspace-hosted plan and code review servers", async () => {
+reviewLauncherTest("stopActiveReviewSurfaces stops Workspace-hosted plan and code review servers", async () => {
     const planServer = await startPlanReviewSurface({
         cwd: Deno.cwd(),
         plan: "# Plan",
