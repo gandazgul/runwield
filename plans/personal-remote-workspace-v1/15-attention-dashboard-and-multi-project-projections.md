@@ -23,6 +23,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 15
 dependencies:
     - "14-cross-surface-workflow-invariant-hardening"
+planId: "544343e5-ad41-4698-8183-eae0cd3983b2"
 ---
 
 # Attention Dashboard and Multi-Project Projections

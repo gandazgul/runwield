@@ -24,6 +24,7 @@ status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 userVerificationNote: null
+planId: "81dd4419-cdc6-4c70-9476-73830dd60834"
 ---
 
 # Golden TUI Scenario Testing

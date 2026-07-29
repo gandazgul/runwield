@@ -25,6 +25,7 @@ order: 17
 dependencies:
     - "16-complete-workspace-session-navigation-and-timeline-ux"
     - "13-execution-segment-handoff-backend"
+planId: "f2df38b7-4a48-4e28-b41d-08a72c966536"
 ---
 
 # Workspace Plan Review, Approve, and Recovery UI

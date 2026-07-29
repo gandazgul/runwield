@@ -23,6 +23,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 16
 dependencies:
     - "15-attention-dashboard-and-multi-project-projections"
+planId: "7d873089-5c41-4c43-95cd-e748fdc6b38a"
 ---
 
 # Complete Workspace Session Navigation and Timeline UX

@@ -19,6 +19,7 @@ createdAt: "2026-07-27T16:46:20-04:00"
 updatedAt: "2026-07-27T20:51:20.306Z"
 status: "feedback"
 origin: "internal"
+planId: "25357d07-7bfe-457e-8db6-2e43ebd40000"
 ---
 
 # Deterministic Plan Review Resubmission

@@ -1,6 +1,6 @@
 ---
 planId: "f9544cf4-7c0c-4564-8e1c-52ee10369263"
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
 complexity: "HIGH"
 summary: "Refactor the Plan Lifecycle machine so every lifecycle/worktree transition is one transactional operation across Plan files, the worktree registry, Git, and durable recovery evidence."
 affectedPaths:
@@ -68,13 +68,16 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T00:56:36-04:00"
-updatedAt: "2026-07-27T03:57:09.315Z"
+updatedAt: "2026-07-29T04:15:24.756Z"
 status: "implemented"
 origin: "internal"
-failureReason: "User canceled validation after Semantic Review failure."
+failureReason: "Execution worktree changed after the validated candidate was sealed. Run Workflow Validation again before publishing these files: plans/golden-tui-scenario-testing/01-establish-golden-tui-scenario-harness.md, plans/golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio.md, plans/mid-run-tool-result-auto-compaction.md, plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md, plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md, plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md, plans/personal-remote-workspace-v1/13-execution-segment-handoff-backend.md, plans/release-candidate-and-promotion-flow.md"
 userVerifiedAt: null
 worktreeId: "a999678c"
-worktreeStatus: "validation_failed"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-transactional-plan-lifecycle-and-worktree-recove-a999678c"
+worktreeBranch: "runwield/worktree/transactional-plan-lifecycle-and-worktree-recove-a999678c"
+worktreeBaseBranch: "main"
+worktreeStatus: "merge_conflict"
 ---
 
 # Transactional Plan Lifecycle and Worktree Recovery

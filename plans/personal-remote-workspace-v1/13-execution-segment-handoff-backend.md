@@ -21,6 +21,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 13
 dependencies:
     - "12-plan-workflow-lease-enforcement"
+planId: "4f16e83d-f127-42cd-8ea3-39fbbfec35fb"
 ---
 
 # Execution and Semantic Repair Segment Handoff Backend

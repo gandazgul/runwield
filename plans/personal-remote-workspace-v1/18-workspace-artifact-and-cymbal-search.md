@@ -23,6 +23,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 18
 dependencies:
     - "15-attention-dashboard-and-multi-project-projections"
+planId: "836b78f6-8d04-4e7e-9b2d-20a04f99ad87"
 ---
 
 # Workspace Artifact and Cymbal Search

@@ -34,6 +34,7 @@ worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-r
 worktreeBranch: "runwield/worktree/golden-tui-scenario-testing-02-add-golden-tui-wo-76aa7a60"
 worktreeBaseBranch: "main"
 worktreeStatus: "validation_failed"
+planId: "2c5190b8-ef62-4347-8f64-f60323ddeb86"
 ---
 
 # Add Golden TUI Workflow Portfolio

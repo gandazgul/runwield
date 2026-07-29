@@ -23,6 +23,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 9
 dependencies:
     - "08-segment-manifest-and-legacy-migration"
+planId: "fa961cdd-f6c6-42ed-bdd8-bdb6322e1f72"
 ---
 
 # Aggregate Transcript Projection and Segment-Aware Sync

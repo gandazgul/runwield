@@ -20,6 +20,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 12
 dependencies:
     - "11-durable-checkpoints-and-interaction-persistence"
+planId: "217f472c-66b1-4725-adc5-e95ffeba5878"
 ---
 
 # Plan Workflow Lease Enforcement

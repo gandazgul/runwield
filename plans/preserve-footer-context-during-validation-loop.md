@@ -25,6 +25,7 @@ userVerifiedAt: null
 userVerificationNote: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "footer workflow context"
+planId: "ccba05d1-e42a-481e-a97d-c213ee7c6526"
 ---
 
 # Preserve Footer Context During Validation Loop

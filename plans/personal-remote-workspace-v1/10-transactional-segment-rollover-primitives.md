@@ -19,6 +19,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 10
 dependencies:
     - "09-aggregate-transcript-projection-and-segment-aware-sync"
+planId: "d8f8720d-53e5-435f-b6f2-23608eddbe45"
 ---
 
 # Transactional Segment Rollover Primitives

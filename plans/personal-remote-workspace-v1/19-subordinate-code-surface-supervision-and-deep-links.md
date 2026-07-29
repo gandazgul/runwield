@@ -23,6 +23,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 19
 dependencies:
     - "18-workspace-artifact-and-cymbal-search"
+planId: "04e3bd75-d4c5-4278-885f-c9c80fbaa115"
 ---
 
 # Subordinate Code Surface Supervision and Deep Links
