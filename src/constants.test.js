@@ -3,8 +3,10 @@ import {
     AGENT_DEFS_DIR,
     CATPPUCCIN_MOCHA_THEME_PATH,
     describeUnsandboxedTestRun,
+    formatPlannedWorkLabel,
     getHomeDir,
     isTestModulePath,
+    normalizeWorkKind,
     PROMPT_TEMPLATES_DIR,
     SKILLS_DIR,
     SNIP_FILTERS_DIR,
@@ -45,6 +47,13 @@ Deno.test("getHomeDir observes HOME changes made after module load", async () =>
         }
         assertEquals(getHomeDir(), originalHome ?? "");
     });
+});
+
+Deno.test("documentation Work Kind normalizes and labels planned documentation", () => {
+    assertEquals(normalizeWorkKind("DOCUMENTATION"), "DOCUMENTATION");
+    assertEquals(normalizeWorkKind("DOCS"), undefined);
+    assertEquals(normalizeWorkKind(null), undefined);
+    assertEquals(formatPlannedWorkLabel("DOCUMENTATION"), "Planned documentation");
 });
 
 Deno.test("test-module detection covers every convention deno test collects", () => {

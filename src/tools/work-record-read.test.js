@@ -17,7 +17,7 @@ Deno.test("work_record_read returns canonical body text and structured details",
                 summary: "Summary",
                 status: "superseded",
                 scope: "planned_change",
-                workKind: "BUG_FIX",
+                workKind: "DOCUMENTATION",
                 origin: "internal",
                 completionMode: "closed_without_verification",
                 sourcePlans: ["plan-1"],
@@ -34,8 +34,8 @@ Deno.test("work_record_read returns canonical body text and structured details",
 
     assertEquals(result.details.accessMode, "all");
     assertEquals(result.details.record.recordId, "rid-1");
-    assertStringIncludes(result.content[0].text, "work: Planned bug fix");
-    assertStringIncludes(result.content[0].text, "workKind: BUG_FIX");
+    assertStringIncludes(result.content[0].text, "work: Planned documentation");
+    assertStringIncludes(result.content[0].text, "workKind: DOCUMENTATION");
     assertStringIncludes(result.content[0].text, "WARNING: superseded by next.");
     assertStringIncludes(result.content[0].text, "## Details");
 });

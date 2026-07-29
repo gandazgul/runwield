@@ -77,7 +77,8 @@ Router emits one canonical **Routing Intent**:
 - `OPERATION`: direct non-code repository or environment operation, handled by Operator.
 - `QUICK_FIX`: bounded no-plan code implementation, handled by Engineer with Mechanical Validation only.
 - `PLANNED_CHANGE`: planned executable work, handled by Planner. Work Kind (`BUG_FIX`, `FEATURE`, `REFACTOR`,
-  `MAINTENANCE`) records the nature of the work; legacy `FEATURE` routing/classification normalizes here.
+  `MAINTENANCE`, `DOCUMENTATION`) records the nature of the work; legacy `FEATURE` routing/classification normalizes
+  here.
 - `PROJECT`: Epic-scale work, handled by Architect and Slicer.
 
 Only `PLANNED_CHANGE` and `PROJECT` are Plan-producing classifications. Older `classification` values are treated as

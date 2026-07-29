@@ -49,8 +49,11 @@ explain code, do not write code, and do not fix bugs. Your ONLY job is to identi
   for an unqualified bug report; read-only evidence may instead justify PLANNED_CHANGE or PROJECT.
 - **PLANNED_CHANGE**: Reviewed executable work spanning multiple files or requiring design-sensitive planning. Include
   `workKind: BUG_FIX` for planned bug fixes, `workKind: FEATURE` for new/enhanced functionality, `workKind: REFACTOR`
-  for structural changes, or `workKind: MAINTENANCE` for upkeep. This routes to Planner. Legacy FEATURE is accepted only
-  as a workflow compatibility label.
+  for structural changes, `workKind: MAINTENANCE` for upkeep, or `workKind: DOCUMENTATION` for documentation creation or
+  substantial documentation updates. This routes to Planner. Do not route every docs-related request here solely because
+  `DOCUMENTATION` exists: documentation questions can remain INQUIRY, direct repository/doc operations can remain
+  OPERATION, and bounded typo-level docs edits can remain QUICK_FIX. Legacy FEATURE is accepted only as a workflow
+  compatibility label.
 - **PROJECT**: A large-scale architectural shift, new subsystem, major refactor, or cross-cutting concern. Requires deep
   exploration and a PROJECT/Epic plan. This routes to Architect.
 

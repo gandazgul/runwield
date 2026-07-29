@@ -397,6 +397,19 @@ Deno.test("planId round trips and blank values normalize away", () => {
     assertEquals(blank.includes("planId:"), false);
 });
 
+Deno.test("documentation Work Kind front matter round trips and unknown values normalize away", () => {
+    const withDocumentation = injectFrontMatter("## Plan", {
+        classification: "PLANNED_CHANGE",
+        workKind: "DOCUMENTATION",
+    });
+    assertEquals(parsePlanFrontMatter(withDocumentation).attrs.workKind, "DOCUMENTATION");
+    assertStringIncludes(withDocumentation, 'workKind: "DOCUMENTATION"');
+
+    const unknown = injectFrontMatter("## Plan", { workKind: /** @type {any} */ ("DOCS") });
+    assertEquals(parsePlanFrontMatter(unknown).attrs.workKind, undefined);
+    assertEquals(unknown.includes("workKind:"), false);
+});
+
 Deno.test("order front matter round trips and numeric strings normalize", () => {
     const withOrder = injectFrontMatter("## Plan", { parentPlan: "epic-a", order: 3 });
     assertEquals(parsePlanFrontMatter(withOrder).attrs.order, 3);
@@ -1164,6 +1177,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 summary: "Let load-plan execute child features",
                 affectedPaths: ["src/cmd/load-plan/index.js"],
                 dependencies: ["project-breakdown-epic/01-preserve-epic-and-child-metadata"],
+                workKind: "DOCUMENTATION",
                 content: "# Load child FEATURES\n\n## Context\nDraft slice",
             },
         ]);
@@ -1202,6 +1216,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
+        assertEquals(second?.attrs.workKind, "DOCUMENTATION");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

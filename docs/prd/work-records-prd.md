@@ -60,7 +60,7 @@ Every Work Record has required `scope`:
 
 ```yaml
 scope: planned_change | epic | quick_fix
-workKind: BUG_FIX | FEATURE | REFACTOR | MAINTENANCE # optional for planned_change
+workKind: BUG_FIX | FEATURE | REFACTOR | MAINTENANCE | DOCUMENTATION # optional for planned_change
 ```
 
 - `planned_change`: a completed standalone Planned Change Plan or external/manual work assessed as

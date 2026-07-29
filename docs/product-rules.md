@@ -76,8 +76,8 @@ Users write Plans in their own editors and drop them in `plans/`. A plain markdo
 Onboarding defaults: generated `planId`, `classification: PLANNED_CHANGE`, `complexity: MEDIUM`, `summary: ""`,
 `affectedPaths: []`, `status: draft`, `origin: external`, `updatedAt` now, and `createdAt` from the file's own creation
 time — the Plan existed before RunWield saw it, and that age is real history. `workKind` is left unset:
-`BUG_FIX|FEATURE|REFACTOR|MAINTENANCE` has no "unknown" member, so absent _is_ unknown. `executionAgent` and
-`collaborationRecommendation` stay unset so policy resolution supplies the defaults.
+`BUG_FIX|FEATURE|REFACTOR|MAINTENANCE|DOCUMENTATION` has no "unknown" member, so absent _is_ unknown. `executionAgent`
+and `collaborationRecommendation` stay unset so policy resolution supplies the defaults.
 
 Onboarding is idempotent — a file that already has Front Matter is returned untouched, so loading a Plan twice cannot
 reset lifecycle state. `createdAt` must be captured before the write: the atomic rename resets the file's birthtime, so

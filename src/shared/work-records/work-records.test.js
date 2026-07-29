@@ -204,6 +204,20 @@ Deno.test("Work Record lifecycle helpers update final state fields only", () => 
     assertEquals(supersedeWorkRecord(INTERNAL_ATTRS, "33333333-3333-4333-8333-333333333333").status, "superseded");
 });
 
+Deno.test("Work Record documentation Work Kind normalizes and displays", () => {
+    const record = parseWorkRecordMarkdown(
+        formatWorkRecordMarkdown({
+            ...INTERNAL_ATTRS,
+            workKind: "DOCUMENTATION",
+        }, BODY),
+        { relativePath: "docs/work-records/documentation.md" },
+    );
+
+    assertEquals(record.attrs.workKind, "DOCUMENTATION");
+    assertEquals(formatHydratedWorkRecord(record).workKind, "DOCUMENTATION");
+    assertStringIncludes(formatWorkRecordList([record]), "Planned documentation");
+});
+
 Deno.test("Work Record list defaults to current records and warns on all records", () => {
     const current = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
         relativePath: "docs/work-records/current.md",

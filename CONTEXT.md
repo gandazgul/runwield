@@ -90,13 +90,18 @@ Operational, hotfix, patch, feature
 **PLANNED_CHANGE**: The Routing Intent and executable Plan Classification for material code work requiring a reviewed
 Plan, independent of Work Kind. _Avoid_: FEATURE when referring to workflow, planned feature
 
-**Work Kind**: The Plan Front Matter field describing requested work as `BUG_FIX`, `FEATURE`, `REFACTOR`, or
-`MAINTENANCE`, independently from Plan Classification. _Avoid_: Routing Intent, Plan Classification
+**Work Kind**: The Plan Front Matter field describing requested work as `BUG_FIX`, `FEATURE`, `REFACTOR`, `MAINTENANCE`,
+or `DOCUMENTATION`, independently from Plan Classification. _Avoid_: Routing Intent, Plan Classification
 
 **BUG_FIX**: A Work Kind for correcting behavior that fails existing intended or specified behavior. _Avoid_: QUICK_FIX,
 PLANNED_CHANGE
 
 **FEATURE Work Kind**: A Work Kind for adding or enhancing functionality. _Avoid_: PLANNED_CHANGE, planned work
+
+**DOCUMENTATION Work Kind**: A Work Kind for planned executable work whose primary outcome is documentation creation or
+substantial documentation updates. Use only after `PLANNED_CHANGE` routing has been selected; documentation questions
+remain `INQUIRY`, direct repository/doc operations remain `OPERATION`, and bounded typo-level documentation edits can
+remain `QUICK_FIX`. _Avoid_: INQUIRY, OPERATION, QUICK_FIX, Routing Intent
 
 **Legacy FEATURE Classification**: The old Routing Intent and Plan Classification value that means PLANNED_CHANGE rather
 than necessarily new functionality. _Avoid_: Enhancement, new feature
