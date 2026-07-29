@@ -80,15 +80,32 @@ sha_verify() {
 latest_tag_for_repo() {
   local repo="$1"
   local api_url="https://api.github.com/repos/${repo}/releases/latest"
-  local tag
-  tag="$(curl -fsSL "$api_url" | awk -F '"' '/"tag_name":/ { print $4; exit }')"
+  local web_url="https://github.com/${repo}/releases/latest"
+  local tag effective_url
 
-  if [[ -z "$tag" ]]; then
-    echo "[wld installer] Could not determine latest release tag from ${api_url}" >&2
-    return 1
+  tag="$(curl -fsSL "$api_url" 2>/dev/null | awk '
+    /"tag_name"[[:space:]]*:/ {
+      line = $0
+      sub(/^.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", line)
+      sub(/".*$/, "", line)
+      print line
+      exit
+    }
+  ' || true)"
+  if [[ -n "$tag" ]]; then
+    echo "$tag"
+    return 0
   fi
 
-  echo "$tag"
+  effective_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "$web_url" || true)"
+  tag="${effective_url##*/}"
+  if [[ "$effective_url" == */releases/tag/* && -n "$tag" && "$tag" != "latest" ]]; then
+    echo "$tag"
+    return 0
+  fi
+
+  echo "[wld installer] Could not determine latest release tag from ${api_url} or ${web_url}" >&2
+  return 1
 }
 
 release_asset_sha256() {
@@ -96,9 +113,10 @@ release_asset_sha256() {
   local version="$2"
   local asset_name="$3"
   local api_url="https://api.github.com/repos/${repo}/releases/tags/${version}"
+  local web_url="https://github.com/${repo}/releases/expanded_assets/${version}"
   local digest
 
-  digest="$(curl -fsSL "$api_url" | awk -v asset="$asset_name" '
+  digest="$(curl -fsSL "$api_url" 2>/dev/null | awk -v asset="$asset_name" '
     index($0, "\"name\": \"" asset "\"") { found = 1 }
     found && /\"digest\"[[:space:]]*:/ {
       line = $0
@@ -110,14 +128,29 @@ release_asset_sha256() {
         exit
       }
     }
-  ')"
-
-  if [[ -z "$digest" ]]; then
-    echo "[wld installer] Could not find a SHA-256 release asset digest for ${asset_name} in ${repo} ${version}." >&2
-    return 1
+  ' || true)"
+  if [[ -n "$digest" ]]; then
+    echo "$digest"
+    return 0
   fi
 
-  echo "$digest"
+  digest="$(curl -fsSL "$web_url" | awk -v asset="$asset_name" '
+    index($0, asset) { found = 1 }
+    found && /clipboard-button-sha256:[0-9a-fA-F]{64}/ {
+      line = $0
+      sub(/^.*clipboard-button-sha256:/, "", line)
+      sub(/[^0-9a-fA-F].*$/, "", line)
+      print line
+      exit
+    }
+  ' || true)"
+  if [[ -n "$digest" ]]; then
+    echo "$digest"
+    return 0
+  fi
+
+  echo "[wld installer] Could not find a SHA-256 release asset digest for ${asset_name} in ${repo} ${version}." >&2
+  return 1
 }
 
 sha_verify_asset_digest() {

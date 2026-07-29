@@ -23,6 +23,8 @@ async function runInherited(command, args) {
     return status.code ?? 1;
 }
 
+// CLI entry point; this top-level branch is the script's whole purpose.
+// deno-lint-ignore runwield/no-module-scope-process-state
 if (Deno.env.get("WLD_VALIDATION_WITH_SNIP") !== "1") {
     Deno.exit(await runInherited(commandName, commandArgs));
 }

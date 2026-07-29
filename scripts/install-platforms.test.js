@@ -43,6 +43,20 @@ Deno.test("install.sh maps Darwin/Linux amd64/arm64 assets and preserves positio
     }
 });
 
+Deno.test("install.sh falls back to GitHub web redirect when latest release API is unavailable", async () => {
+    const fixture = await createFixture({ latestApiFailsFor: ["runwield"] });
+    try {
+        const result = await runInstaller(fixture, { requestedVersion: null });
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        const curlLog = await readCurlLog(fixture.curlLog);
+        assertStringIncludes(curlLog, "https://api.github.com/repos/gandazgul/runwield/releases/latest");
+        assertStringIncludes(curlLog, "https://github.com/gandazgul/runwield/releases/latest");
+        assertStringIncludes(curlLog, `/download/${VERSIONS.runwield}/${fixture.assets.wld}`);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
 Deno.test("install.sh preserves helpers on PATH and in install dir, and idempotent reruns skip helper downloads", async () => {
     const fixture = await createFixture();
     const externalBin = join(fixture.root, "external-bin");

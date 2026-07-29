@@ -93,7 +93,7 @@ export function assetNamesFor(os, arch) {
 }
 
 /**
- * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: BinaryName, omitChecksumFor?: BinaryName, badDigestFor?: BinaryName, omitDigestFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName }} [options]
+ * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: BinaryName, omitChecksumFor?: BinaryName, badDigestFor?: BinaryName, omitDigestFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName, latestApiFailsFor?: string[], releaseApiFailsFor?: string[] }} [options]
  */
 export async function createFixture(options = {}) {
     const root = await Deno.makeTempDir();
@@ -145,6 +145,12 @@ export async function createFixture(options = {}) {
             join(fixtureDir, `${name}-release.json`),
             JSON.stringify({ assets: assetDigest ? [{ name: assets[name], digest: assetDigest }] : [] }, null, 2),
         );
+        const expandedAssetsHtml = assetDigest
+            ? `<a href="/${name}/download/${assets[name]}">${
+                assets[name]
+            }</a>\n<clipboard-copy id="clipboard-button-${assetDigest}"></clipboard-copy>\n`
+            : `<a href="/${name}/download/${assets[name]}">${assets[name]}</a>\n`;
+        await Deno.writeTextFile(join(fixtureDir, `${name}-expanded-assets.html`), expandedAssetsHtml);
     }
 
     await writeExecutable(
@@ -153,27 +159,63 @@ export async function createFixture(options = {}) {
 set -euo pipefail
 out=""
 url=""
+write_format=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
+    -w) write_format="$2"; shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
 done
 printf '%s\n' "$url" >> '${curlLog}'
+latest_api_failures=' ${(options.latestApiFailsFor ?? []).join(" ")} '
+release_api_failures=' ${(options.releaseApiFailsFor ?? []).join(" ")} '
 case "$url" in
-  *gandazgul/runwield*/releases/latest*) body='{"tag_name":"${VERSIONS.runwield}"}' ;;
-  *gandazgul/mnemosyne*/releases/latest*) body='{"tag_name":"${VERSIONS.mnemosyne}"}' ;;
-  *1broseidon/cymbal*/releases/latest*) body='{"tag_name":"${VERSIONS.cymbal}"}' ;;
-  *edouard-claude/snip*/releases/latest*) body='{"tag_name":"${VERSIONS.snip}"}' ;;
-  *gandazgul/mnemosyne*/releases/tags/*) file='${join(fixtureDir, "mnemosyne-release.json")}' ;;
-  *1broseidon/cymbal*/releases/tags/*) file='${join(fixtureDir, "cymbal-release.json")}' ;;
-  *edouard-claude/snip*/releases/tags/*) file='${join(fixtureDir, "snip-release.json")}' ;;
+  *api.github.com/repos/gandazgul/runwield/releases/latest*)
+    [[ "$latest_api_failures" == *' runwield '* ]] && exit 22
+    body='{"url":"https://api.github.com/repos/gandazgul/runwield/releases/1","tag_name":"${VERSIONS.runwield}"}'
+    ;;
+  *api.github.com/repos/gandazgul/mnemosyne/releases/latest*)
+    [[ "$latest_api_failures" == *' mnemosyne '* ]] && exit 22
+    body='{"url":"https://api.github.com/repos/gandazgul/mnemosyne/releases/1","tag_name":"${VERSIONS.mnemosyne}"}'
+    ;;
+  *api.github.com/repos/1broseidon/cymbal/releases/latest*)
+    [[ "$latest_api_failures" == *' cymbal '* ]] && exit 22
+    body='{"url":"https://api.github.com/repos/1broseidon/cymbal/releases/1","tag_name":"${VERSIONS.cymbal}"}'
+    ;;
+  *api.github.com/repos/edouard-claude/snip/releases/latest*)
+    [[ "$latest_api_failures" == *' snip '* ]] && exit 22
+    body='{"url":"https://api.github.com/repos/edouard-claude/snip/releases/1","tag_name":"${VERSIONS.snip}"}'
+    ;;
+  *github.com/gandazgul/runwield/releases/latest*) effective_url='https://github.com/gandazgul/runwield/releases/tag/${VERSIONS.runwield}' ;;
+  *github.com/gandazgul/mnemosyne/releases/latest*) effective_url='https://github.com/gandazgul/mnemosyne/releases/tag/${VERSIONS.mnemosyne}' ;;
+  *github.com/1broseidon/cymbal/releases/latest*) effective_url='https://github.com/1broseidon/cymbal/releases/tag/${VERSIONS.cymbal}' ;;
+  *github.com/edouard-claude/snip/releases/latest*) effective_url='https://github.com/edouard-claude/snip/releases/tag/${VERSIONS.snip}' ;;
+  *api.github.com/repos/gandazgul/mnemosyne/releases/tags/*)
+    [[ "$release_api_failures" == *' mnemosyne '* ]] && exit 22
+    file='${join(fixtureDir, "mnemosyne-release.json")}'
+    ;;
+  *api.github.com/repos/1broseidon/cymbal/releases/tags/*)
+    [[ "$release_api_failures" == *' cymbal '* ]] && exit 22
+    file='${join(fixtureDir, "cymbal-release.json")}'
+    ;;
+  *api.github.com/repos/edouard-claude/snip/releases/tags/*)
+    [[ "$release_api_failures" == *' snip '* ]] && exit 22
+    file='${join(fixtureDir, "snip-release.json")}'
+    ;;
+  *github.com/gandazgul/mnemosyne/releases/expanded_assets/*) file='${
+            join(fixtureDir, "mnemosyne-expanded-assets.html")
+        }' ;;
+  *github.com/1broseidon/cymbal/releases/expanded_assets/*) file='${join(fixtureDir, "cymbal-expanded-assets.html")}' ;;
+  *github.com/edouard-claude/snip/releases/expanded_assets/*) file='${join(fixtureDir, "snip-expanded-assets.html")}' ;;
   */SHA256SUMS) file='${join(fixtureDir, "SHA256SUMS")}' ;;
   */checksums.txt) file='${join(fixtureDir, "checksums.txt")}' ;;
   *) file='${fixtureDir}'/"$(basename "$url")" ;;
 esac
-if [[ -n "\${body:-}" ]]; then
+if [[ "$write_format" == '%{url_effective}' ]]; then
+  printf '%s' "\${effective_url:-$url}"
+elif [[ -n "\${body:-}" ]]; then
   if [[ -n "$out" ]]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
 else
   if [[ ! -f "$file" ]]; then echo "missing fixture $url" >&2; exit 22; fi
@@ -211,7 +253,7 @@ chmod 755 "$prefix/bin/agent-browser"
 
 /**
  * @param {Awaited<ReturnType<typeof createFixture>>} fixture
- * @param {{ extraPathDir?: string, requestedVersion?: string, noninteractive?: boolean, extraEnv?: Record<string, string> }} [options]
+ * @param {{ extraPathDir?: string, requestedVersion?: string | null, noninteractive?: boolean, extraEnv?: Record<string, string> }} [options]
  */
 export async function runInstaller(fixture, options = {}) {
     const pathPrefix = options.extraPathDir ? `${options.extraPathDir}:` : "";
@@ -226,8 +268,10 @@ export async function runInstaller(fixture, options = {}) {
         ...options.extraEnv,
     };
     if (options.noninteractive !== false) env.WLD_NONINTERACTIVE = "1";
+    const args = [repoPath("install.sh")];
+    if (options.requestedVersion !== null) args.push(options.requestedVersion ?? VERSIONS.runwield);
     const command = new Deno.Command("/bin/bash", {
-        args: [repoPath("install.sh"), options.requestedVersion ?? VERSIONS.runwield],
+        args,
         cwd: REPO_ROOT,
         env,
         stdout: "piped",
