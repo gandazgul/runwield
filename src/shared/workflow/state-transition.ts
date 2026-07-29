@@ -20,39 +20,78 @@ import { SharedPlanLockError } from "../collaboration/lock.js";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
 import { recordWorkflowMetric } from "./metrics.js";
 
-/**
- * @typedef {Object} TransitionRecoveryAction
- * @property {string} label
- * @property {string} description
- * @property {string} [command]
- */
+export interface TransitionRecoveryAction {
+    label: string;
+    description: string;
+    command?: string;
+}
+
+export interface TransitionResult {
+    status: "committed" | "rolled_back" | "needs_recovery" | "blocked";
+    transitionId: string;
+    operation: string;
+    value?: unknown;
+    message?: string;
+    recoveryActions?: TransitionRecoveryAction[];
+}
+
+export interface TransitionResource {
+    kind: "catalog" | "plan" | "attempt" | "target_ref";
+    id?: string;
+}
 
 /**
- * @typedef {Object} TransitionResult
- * @property {"committed"|"rolled_back"|"needs_recovery"|"blocked"} status
- * @property {string} transitionId
- * @property {string} operation
- * @property {unknown} [value]
- * @property {string} [message]
- * @property {TransitionRecoveryAction[]} [recoveryActions]
+ * A resource as it appears when read back from a journal file, where nothing is
+ * yet proven to match {@link TransitionResource}.
  */
+interface JournaledResource {
+    kind?: unknown;
+    id?: unknown;
+}
 
-/**
- * @typedef {Object} TransitionResource
- * @property {"catalog"|"plan"|"attempt"|"target_ref"} kind
- * @property {string} [id]
- */
+/** Canonical Plan snapshot handed to transition callbacks. */
+type PlanSnapshot = Awaited<ReturnType<typeof loadPlan>>;
 
-/** @type {AsyncLocalStorage<Set<string>>} */
-const activeSemanticTransitions = new AsyncLocalStorage();
+/** Record a durably-completed external effect in the transition journal. */
+type MarkEffect = (effect: string, proof?: Record<string, unknown>) => Promise<void>;
 
-/** @param {unknown} value */
-function compactError(value) {
+/** Register a compensating action run only if the transition rolls back. */
+type RegisterRollback = (label: string, run: () => Promise<void>) => void;
+
+/** Context for callbacks that only read canonical Plan state. */
+interface BaseTransitionContext {
+    transitionId: string;
+    beforePlan: PlanSnapshot;
+}
+
+/** Context for callbacks that perform journaled external effects. */
+interface EffectTransitionContext extends BaseTransitionContext {
+    markEffect: MarkEffect;
+}
+
+/** Context for callbacks that may also register compensating rollbacks. */
+interface RollbackTransitionContext extends EffectTransitionContext {
+    registerRollback: RegisterRollback;
+}
+
+/** Fields every semantic transition entry point accepts. */
+interface TransitionOptionsBase {
+    projectRoot: string;
+    planName: string;
+    planId?: string;
+    worktreeId?: string;
+    targetRef?: string;
+    expectedRevision?: string;
+    recordMetric?: typeof recordWorkflowMetric;
+}
+
+const activeSemanticTransitions = new AsyncLocalStorage<Set<string>>();
+
+function compactError(value: unknown): string {
     return value instanceof Error ? value.message : String(value);
 }
 
-/** @param {TransitionResource} resource */
-function transitionResourceKey(resource) {
+function transitionResourceKey(resource: TransitionResource): string {
     return `${resource.kind}:${resource.id || ""}`;
 }
 
@@ -61,18 +100,15 @@ function transitionResourceKey(resource) {
  * represented by lock files in the Plan lock namespace until they get dedicated
  * lock stores; this prevents same-attempt/target-ref races without introducing
  * one global lifecycle lock.
- *
- * @template T
- * @param {string} projectRoot
- * @param {TransitionResource[]} resources
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
  */
-export async function withOrderedTransitionResources(projectRoot, resources, fn) {
+export async function withOrderedTransitionResources<T>(
+    projectRoot: string,
+    resources: TransitionResource[],
+    fn: () => Promise<T>,
+): Promise<T> {
     const ordered = [...new Map(resources.map((resource) => [transitionResourceKey(resource), resource])).values()]
         .sort((a, b) => transitionResourceKey(a).localeCompare(transitionResourceKey(b)));
-    /** @param {number} index @returns {Promise<T>} */
-    const acquireAt = async (index) => {
+    const acquireAt = async (index: number): Promise<T> => {
         if (index >= ordered.length) return await fn();
         const resource = ordered[index];
         if (resource.kind === "catalog") return await withPlanCatalogLock(projectRoot, () => acquireAt(index + 1));
@@ -84,44 +120,27 @@ export async function withOrderedTransitionResources(projectRoot, resources, fn)
     return await acquireAt(0);
 }
 
-/** @param {string} projectRoot */
-export function getTransitionJournalDir(projectRoot) {
+export function getTransitionJournalDir(projectRoot: string): string {
     return join(projectRoot, RUNWIELD_DIR_NAME, PLAN_TRANSITIONS_DIR_NAME);
 }
 
-/**
- * @param {string} projectRoot
- * @param {string} transitionId
- */
-export function getTransitionJournalPath(projectRoot, transitionId) {
+export function getTransitionJournalPath(projectRoot: string, transitionId: string): string {
     return join(getTransitionJournalDir(projectRoot), `${transitionId}.json`);
 }
 
-/**
- * @param {string} projectRoot
- * @param {string} transitionId
- * @param {Record<string, unknown>} record
- */
-async function writeJournal(projectRoot, transitionId, record) {
+async function writeJournal(projectRoot: string, transitionId: string, record: Record<string, unknown>) {
     const path = getTransitionJournalPath(projectRoot, transitionId);
     await Deno.mkdir(dirname(path), { recursive: true });
     await atomicWriteTextFile(path, `${JSON.stringify(record, null, 2)}\n`);
 }
 
-/**
- * @param {string} projectRoot
- * @param {string} transitionId
- */
-async function removeJournal(projectRoot, transitionId) {
+async function removeJournal(projectRoot: string, transitionId: string) {
     await Deno.remove(getTransitionJournalPath(projectRoot, transitionId)).catch((error) => {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     });
 }
 
-/**
- * @param {string} planName
- */
-function planAction(planName) {
+function planAction(planName: string) {
     return [
         {
             label: "Reload the Plan and retry",
@@ -139,12 +158,8 @@ function planAction(planName) {
  * Run a semantic lifecycle transition across ordered resources with a durable
  * recovery journal. This is the boundary for operations that include Plan,
  * registry, Git/worktree, and target-ref effects.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, operation: string, resources: TransitionResource[], apply: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, expectedRevision?: string, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void>, registerRollback: (label: string, run: () => Promise<void>) => void }) => Promise<T>, expectedRevision?: string, recoveryActions?: TransitionRecoveryAction[], postconditions?: Record<string, unknown>, expectedEffects?: string[], verify?: (value: T) => Promise<Record<string, unknown>|void>, recordMetric?: typeof recordWorkflowMetric, settleSuccessfulRollback?: boolean, settleSuccessfulRollbackUnlessEffects?: string[], settleNoEffectFailure?: boolean }} opts
- * @returns {Promise<TransitionResult>}
  */
-async function runSemanticTransition(
+async function runSemanticTransition<T>(
     {
         projectRoot,
         planName,
@@ -160,15 +175,23 @@ async function runSemanticTransition(
         settleSuccessfulRollback = false,
         settleSuccessfulRollbackUnlessEffects = [],
         settleNoEffectFailure = false,
+    }: TransitionOptionsBase & {
+        operation: string;
+        resources: TransitionResource[];
+        apply: (ctx: RollbackTransitionContext & { expectedRevision?: string }) => Promise<T>;
+        recoveryActions?: TransitionRecoveryAction[];
+        postconditions?: Record<string, unknown>;
+        expectedEffects?: string[];
+        verify?: (value: T) => Promise<Record<string, unknown> | void>;
+        settleSuccessfulRollback?: boolean;
+        settleSuccessfulRollbackUnlessEffects?: string[];
+        settleNoEffectFailure?: boolean;
     },
-) {
+): Promise<TransitionResult> {
     const transitionId = crypto.randomUUID();
-    /** @type {Array<{ effect: string, proof?: Record<string, unknown>, completedAt: string }>} */
-    const completedEffects = [];
-    /** @type {Array<{ label: string, run: () => Promise<void> }>} */
-    const rollbackActions = [];
-    /** @param {string} state @param {Record<string, unknown>} [extra] */
-    const writeState = async (state, extra = {}) =>
+    const completedEffects: Array<{ effect: string; proof?: Record<string, unknown>; completedAt: string }> = [];
+    const rollbackActions: Array<{ label: string; run: () => Promise<void> }> = [];
+    const writeState = async (state: string, extra: Record<string, unknown> = {}) =>
         await writeJournal(projectRoot, transitionId, {
             version: 1,
             transitionId,
@@ -181,16 +204,11 @@ async function runSemanticTransition(
             updatedAt: new Date().toISOString(),
             ...extra,
         });
-    /**
-     * @param {string} effect
-     * @param {Record<string, unknown>} [proof]
-     */
-    const markEffect = async (effect, proof) => {
+    const markEffect: MarkEffect = async (effect, proof) => {
         completedEffects.push({ effect, ...(proof ? { proof } : {}), completedAt: new Date().toISOString() });
         await writeState("applying");
     };
-    /** @param {string} label @param {() => Promise<void>} run */
-    const registerRollback = (label, run) => {
+    const registerRollback: RegisterRollback = (label, run) => {
         rollbackActions.push({ label, run });
     };
     const actions = recoveryActions || planAction(planName);
@@ -245,10 +263,9 @@ async function runSemanticTransition(
                     ) return false;
                     if (record.planName === planName) return true;
                     if (!Array.isArray(record.resources)) return false;
-                    return record.resources.some((resource) => {
+                    return record.resources.some((resource: unknown) => {
                         if (!resource || typeof resource !== "object") return false;
-                        const kind = /** @type {{ kind?: unknown }} */ (resource).kind;
-                        const id = /** @type {{ id?: unknown }} */ (resource).id;
+                        const { kind, id } = resource as JournaledResource;
                         if (typeof kind !== "string") return false;
                         return resourceKeys.has(`${kind}:${typeof id === "string" ? id : ""}`);
                     });
@@ -402,12 +419,8 @@ async function runSemanticTransition(
  * creation, Plan materialization, baseline capture, registry settlement, and
  * execution_started Plan Event recording must all happen while holding the Plan,
  * exact attempt, and target-ref resources.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, worktreeId?: string, targetRef?: string, expectedRevision?: string, prepare: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void>, registerRollback: (label: string, run: () => Promise<void>) => void }) => Promise<T>, verifyPreparation?: (value: T, ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>> }) => Promise<unknown> | unknown, recordMetric?: typeof recordWorkflowMetric }} opts
- * @returns {Promise<TransitionResult>}
  */
-export async function runExecutionPreparationTransition(
+export async function runExecutionPreparationTransition<T>(
     {
         projectRoot,
         planName,
@@ -418,10 +431,12 @@ export async function runExecutionPreparationTransition(
         prepare,
         verifyPreparation,
         recordMetric,
+    }: TransitionOptionsBase & {
+        prepare: (ctx: RollbackTransitionContext) => Promise<T>;
+        verifyPreparation?: (value: T, ctx: BaseTransitionContext) => Promise<unknown> | unknown;
     },
-) {
-    /** @type {TransitionResource[]} */
-    const resources = [{ kind: "plan", id: planName }];
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "plan", id: planName }];
     if (worktreeId) resources.push({ kind: "attempt", id: worktreeId });
     if (targetRef) resources.push({ kind: "target_ref", id: targetRef });
     return await runSemanticTransition({
@@ -436,7 +451,7 @@ export async function runExecutionPreparationTransition(
             const preparationProof = verifyPreparation ? await verifyPreparation(value, ctx) : { planName };
             await ctx.markEffect(
                 "execution_prepared",
-                /** @type {Record<string, unknown>} */ (preparationProof || { planName }),
+                (preparationProof || { planName }) as Record<string, unknown>,
             );
             return value;
         },
@@ -456,14 +471,12 @@ export async function runExecutionPreparationTransition(
  * Run one same-Plan transaction with a durable journal and conservative rollback.
  * The apply callback must perform only effects protected by the acquired Plan lock
  * unless it records its own external proof before mutating Git or registry state.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, operation: string, apply: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>> }) => Promise<T>, expectedRevision?: string, recordMetric?: typeof recordWorkflowMetric }} opts
- * @returns {Promise<TransitionResult>}
  */
-async function runPlanTransition(
-    { projectRoot, planName, operation, apply, expectedRevision, recordMetric = recordWorkflowMetric },
-) {
+async function runPlanTransition<T>(
+    { projectRoot, planName, operation, apply, expectedRevision, recordMetric = recordWorkflowMetric }:
+        & TransitionOptionsBase
+        & { operation: string; apply: (ctx: BaseTransitionContext) => Promise<T> },
+): Promise<TransitionResult> {
     const transitionId = crypto.randomUUID();
     return await withPlanLock(projectRoot, planName, async () => {
         const strictBefore = await loadPlanStrict(projectRoot, planName);
@@ -527,10 +540,9 @@ async function runPlanTransition(
             }
             if (record.planName === planName) return true;
             if (!Array.isArray(record.resources)) return false;
-            return record.resources.some((resource) => {
+            return record.resources.some((resource: unknown) => {
                 if (!resource || typeof resource !== "object") return false;
-                const kind = /** @type {{ kind?: unknown }} */ (resource).kind;
-                const id = /** @type {{ id?: unknown }} */ (resource).id;
+                const { kind, id } = resource as JournaledResource;
                 return kind === "plan" && id === planName;
             });
         });
@@ -620,11 +632,14 @@ async function runPlanTransition(
 
 /**
  * Semantic boundary for lifecycle Plan Events owned by plan-lifecycle.js.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, event: string, resources?: TransitionResource[], expectedRevision?: string, record: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>> }) => Promise<T> }} opts
  */
-export async function runPlanLifecycleEventTransition(opts) {
+export async function runPlanLifecycleEventTransition<T>(
+    opts: TransitionOptionsBase & {
+        event: string;
+        resources?: TransitionResource[];
+        record: (ctx: BaseTransitionContext) => Promise<T>;
+    },
+): Promise<TransitionResult> {
     if (opts.resources && opts.resources.length > 0) {
         return await runSemanticTransition({
             projectRoot: opts.projectRoot,
@@ -651,11 +666,10 @@ export async function runPlanLifecycleEventTransition(opts) {
 
 /**
  * Semantic boundary for applying a Plan review approval/feedback decision.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, approved: boolean, expectedRevision?: string, decide: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>> }) => Promise<T> }} opts
  */
-export async function runPlanReviewDecisionTransition(opts) {
+export async function runPlanReviewDecisionTransition<T>(
+    opts: TransitionOptionsBase & { approved: boolean; decide: (ctx: BaseTransitionContext) => Promise<T> },
+): Promise<TransitionResult> {
     return await runPlanTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
@@ -667,11 +681,10 @@ export async function runPlanReviewDecisionTransition(opts) {
 
 /**
  * Semantic boundary for reopening a Plan review and abandoning its recorded execution attempt.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, worktreeId: string, expectedRevision?: string, reopen: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void> }) => Promise<T> }} opts
  */
-export async function runReviewReopenTransition(opts) {
+export async function runReviewReopenTransition<T>(
+    opts: TransitionOptionsBase & { worktreeId: string; reopen: (ctx: EffectTransitionContext) => Promise<T> },
+): Promise<TransitionResult> {
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
@@ -689,11 +702,16 @@ export async function runReviewReopenTransition(opts) {
 
 /**
  * Transactionally update Plan Front Matter and verify the requested fields.
- *
- * @param {{ projectRoot: string, planName: string, operation: string, updates: Record<string, unknown>, recoveryAttrs?: Record<string, unknown>, expectedRevision?: string }} opts
  */
 export async function runPlanFrontMatterTransition(
-    { projectRoot, planName, operation, updates, recoveryAttrs = {}, expectedRevision },
+    { projectRoot, planName, operation, updates, recoveryAttrs = {}, expectedRevision }: {
+        projectRoot: string;
+        planName: string;
+        operation: string;
+        updates: Record<string, unknown>;
+        recoveryAttrs?: Record<string, unknown>;
+        expectedRevision?: string;
+    },
 ) {
     return await runPlanTransition({
         projectRoot,
@@ -709,7 +727,7 @@ export async function runPlanFrontMatterTransition(
             if (!after) throw new Error(`Plan disappeared during ${operation}: ${planName}`);
             for (const [key, value] of Object.entries(updates)) {
                 if (value === undefined) continue;
-                const actual = /** @type {Record<string, unknown>} */ (after.attrs)[key];
+                const actual = (after.attrs as unknown as Record<string, unknown>)[key];
                 if (JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null)) {
                     throw new Error(`Plan transition ${operation} did not persist ${key}.`);
                 }
@@ -719,11 +737,8 @@ export async function runPlanFrontMatterTransition(
     });
 }
 
-/**
- * Return unresolved transition journal records for diagnostics.
- * @param {string} projectRoot
- */
-export async function listTransitionRecoveryRecords(projectRoot) {
+/** Return unresolved transition journal records for diagnostics. */
+export async function listTransitionRecoveryRecords(projectRoot: string) {
     const dir = getTransitionJournalDir(projectRoot);
     /** @type {Array<Record<string, unknown>>} */
     const records = [];
@@ -744,9 +759,15 @@ export async function listTransitionRecoveryRecords(projectRoot) {
 
 /**
  * Apply reviewed Plan markdown atomically when the original revision still matches.
- * @param {{ projectRoot: string, planName: string, reviewedMarkdown: string, expectedRevision?: string }} opts
  */
-export async function applyReviewedPlanMarkdown({ projectRoot, planName, reviewedMarkdown, expectedRevision }) {
+export async function applyReviewedPlanMarkdown(
+    { projectRoot, planName, reviewedMarkdown, expectedRevision }: {
+        projectRoot: string;
+        planName: string;
+        reviewedMarkdown: string;
+        expectedRevision?: string;
+    },
+) {
     return await runPlanTransition({
         projectRoot,
         planName,
@@ -766,13 +787,14 @@ export async function applyReviewedPlanMarkdown({ projectRoot, planName, reviewe
  * Semantic boundary for settling an implementation checkpoint. Callers provide
  * the already-captured checkpoint proof plus the bounded implementation effect;
  * the journal records the intended postcondition for recovery/doctor scans.
- *
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, worktreeId?: string, expectedRevision?: string, checkpointProof?: Record<string, unknown>, checkpoint: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void> }) => Promise<T> }} opts
  */
-export async function runImplementationCheckpointTransition(opts) {
-    /** @type {TransitionResource[]} */
-    const resources = [{ kind: "plan", id: opts.planName }];
+export async function runImplementationCheckpointTransition<T>(
+    opts: TransitionOptionsBase & {
+        checkpointProof?: Record<string, unknown>;
+        checkpoint: (ctx: EffectTransitionContext) => Promise<T>;
+    },
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "plan", id: opts.planName }];
     if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
@@ -799,12 +821,15 @@ export async function runImplementationCheckpointTransition(opts) {
 
 /**
  * Semantic boundary for validation pass/fail/retry outcomes.
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, worktreeId?: string, targetRef?: string, expectedRevision?: string, outcome: "passed"|"failed"|"retry"|"merge_failed", proof?: Record<string, unknown>, settle: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void> }) => Promise<T> }} opts
  */
-export async function runValidationOutcomeTransition(opts) {
-    /** @type {TransitionResource[]} */
-    const resources = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
+export async function runValidationOutcomeTransition<T>(
+    opts: TransitionOptionsBase & {
+        outcome: "passed" | "failed" | "retry" | "merge_failed";
+        proof?: Record<string, unknown>;
+        settle: (ctx: EffectTransitionContext) => Promise<T>;
+    },
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
     if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
     if (opts.targetRef) resources.push({ kind: "target_ref", id: opts.targetRef });
     return await runSemanticTransition({
@@ -828,12 +853,16 @@ export async function runValidationOutcomeTransition(opts) {
 
 /**
  * Semantic boundary for proof-bearing Direct Delivery publication.
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, worktreeId?: string, targetRef?: string, parentPlan?: string, siblingPlanNames?: string[], expectedRevision?: string, publicationProof?: Record<string, unknown>, publish: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void>, registerRollback: (label: string, run: () => Promise<void>) => void }) => Promise<T> }} opts
  */
-export async function runDirectDeliveryPublicationTransition(opts) {
-    /** @type {TransitionResource[]} */
-    const resources = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
+export async function runDirectDeliveryPublicationTransition<T>(
+    opts: TransitionOptionsBase & {
+        parentPlan?: string;
+        siblingPlanNames?: string[];
+        publicationProof?: Record<string, unknown>;
+        publish: (ctx: RollbackTransitionContext) => Promise<T>;
+    },
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
     if (opts.parentPlan) resources.push({ kind: "plan", id: opts.parentPlan });
     for (const siblingName of opts.siblingPlanNames || []) resources.push({ kind: "plan", id: siblingName });
     if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
@@ -879,10 +908,13 @@ export async function runDirectDeliveryPublicationTransition(opts) {
 
 /**
  * Semantic boundary for Epic decomposition finalization.
- * @template T
- * @param {{ projectRoot: string, planName: string, resources: TransitionResource[], expectedRevision?: string, finalize: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void> }) => Promise<T & { childNames?: string[], alreadyReady?: boolean }> }} opts
  */
-export async function runEpicDecompositionFinalizeTransition(opts) {
+export async function runEpicDecompositionFinalizeTransition<T>(
+    opts: TransitionOptionsBase & {
+        resources: TransitionResource[];
+        finalize: (ctx: EffectTransitionContext) => Promise<T & { childNames?: string[]; alreadyReady?: boolean }>;
+    },
+): Promise<TransitionResult> {
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
@@ -903,12 +935,14 @@ export async function runEpicDecompositionFinalizeTransition(opts) {
 
 /**
  * Semantic boundary for recovery/reset/recreate/abandon actions.
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, worktreeId?: string, expectedRevision?: string, action: "recover"|"reset"|"recreate"|"abandon", recover: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>>, markEffect: (effect: string, proof?: Record<string, unknown>) => Promise<void>, registerRollback: (label: string, run: () => Promise<void>) => void }) => Promise<T> }} opts
  */
-export async function runRecoveryTransition(opts) {
-    /** @type {TransitionResource[]} */
-    const resources = [{ kind: "plan", id: opts.planName }];
+export async function runRecoveryTransition<T>(
+    opts: TransitionOptionsBase & {
+        action: "recover" | "reset" | "recreate" | "abandon";
+        recover: (ctx: RollbackTransitionContext) => Promise<T>;
+    },
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "plan", id: opts.planName }];
     if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
@@ -927,10 +961,10 @@ export async function runRecoveryTransition(opts) {
 
 /**
  * Semantic boundary for archive/restore file movement.
- * @template T
- * @param {{ projectRoot: string, planName: string, planId?: string, expectedRevision?: string, action: "archive"|"restore", move: (ctx: { transitionId: string, beforePlan: Awaited<ReturnType<typeof loadPlan>> }) => Promise<T> }} opts
  */
-export async function runArchiveTransition(opts) {
+export async function runArchiveTransition<T>(
+    opts: TransitionOptionsBase & { action: "archive" | "restore"; move: (ctx: BaseTransitionContext) => Promise<T> },
+): Promise<TransitionResult> {
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,

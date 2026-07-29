@@ -122,7 +122,7 @@ export async function runPlansCommand(argv, options = {}) {
     }
     if (argv[0] === "doctor") {
         const runPlansDoctorCommand = runPlansDoctorCommandDep ||
-            (await import("./doctor.js")).runPlansDoctorCommand;
+            (await import("./doctor.ts")).runPlansDoctorCommand;
         await runPlansDoctorCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }

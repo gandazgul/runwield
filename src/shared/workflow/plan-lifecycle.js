@@ -19,11 +19,11 @@ import {
     updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
-import { runPlanLifecycleEventTransition } from "./state-transition.js";
+import { runPlanLifecycleEventTransition } from "./state-transition.ts";
 
 export class PlanLifecycleTransitionError extends Error {
     /**
-     * @param {import('./state-transition.js').TransitionResult} transition
+     * @param {import('./state-transition.ts').TransitionResult} transition
      * @param {string} [message]
      */
     constructor(transition, message) {
@@ -817,7 +817,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
             const siblingNames = parentPlanName
                 ? (await findPlansByParent(cwd, parentPlanName)).map((child) => child.name).sort()
                 : [];
-            /** @type {import('./state-transition.js').TransitionResource[]} */
+            /** @type {import('./state-transition.ts').TransitionResource[]} */
             const resources = [
                 { kind: "catalog" },
                 { kind: "plan", id: planName },

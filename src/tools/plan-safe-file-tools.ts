@@ -12,27 +12,44 @@ import {
     writePlanMarkdownWithRevisionLocked,
 } from "../plan-store.js";
 
-/** @param {unknown} value */
-function stringValue(value) {
+/** Result shape the wrapper returns for both its own guards and the wrapped tool. */
+interface PlanSafeToolResult {
+    content: Array<{ type: string; text: string }>;
+    isError?: boolean;
+    details?: unknown;
+}
+
+/** Signature of the Pi file-tool `execute` this wrapper delegates to. */
+type PlanFileToolExecute = (
+    this: unknown,
+    toolCallId: string,
+    params: PlanFileToolParams,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: unknown,
+) => Promise<PlanSafeToolResult>;
+
+/** The subset of Pi file-tool params these wrappers inspect. */
+interface PlanFileToolParams {
+    path?: unknown;
+    file_path?: unknown;
+    content?: unknown;
+    text?: unknown;
+    oldText?: unknown;
+    newText?: unknown;
+}
+
+function stringValue(value: unknown): string {
     return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
-/**
- * @param {string} cwd
- * @param {string} path
- */
-export function isCanonicalPlanMarkdownPath(cwd, path) {
+export function isCanonicalPlanMarkdownPath(cwd: string, path: string): boolean {
     const absolute = isAbsolute(path) ? path : join(cwd, path);
     const rel = relative(cwd, absolute).replaceAll("\\", "/");
     return rel.startsWith("plans/") && rel.endsWith(".md") && !rel.startsWith("plans/archived/");
 }
 
-/**
- * @param {string} cwd
- * @param {string} path
- * @returns {string}
- */
-function planNameFromCanonicalMarkdownPath(cwd, path) {
+function planNameFromCanonicalMarkdownPath(cwd: string, path: string): string {
     const absolute = isAbsolute(path) ? path : join(cwd, path);
     const rel = relative(cwd, absolute).replaceAll("\\", "/");
     if (!rel.startsWith("plans/") || !rel.endsWith(".md") || rel.startsWith("plans/archived/")) {
@@ -41,13 +58,7 @@ function planNameFromCanonicalMarkdownPath(cwd, path) {
     return rel.slice("plans/".length, -".md".length);
 }
 
-/**
- * @param {string} content
- * @param {string} oldText
- * @param {string} newText
- * @param {string} path
- */
-function applySingleExactEdit(content, oldText, newText, path) {
+function applySingleExactEdit(content: string, oldText: string, newText: string, path: string): string {
     if (!oldText) throw new Error(`oldText must not be empty for ${path}.`);
     const first = content.indexOf(oldText);
     if (first === -1) throw new Error(`oldText was not found in ${path}. It must match exactly.`);
@@ -64,20 +75,20 @@ function applySingleExactEdit(content, oldText, newText, path) {
  * Exact-text edit tools for canonical Plans are applied through Plan CAS so an
  * edit loaded from stale bytes cannot silently overwrite concurrent metadata.
  * Whole-file write must create a new Plan rather than overwrite an existing one.
- *
- * @param {import('@earendil-works/pi-coding-agent').ToolDefinition} tool
- * @param {{ cwd: string, mode: "write"|"edit" }} opts
  */
-export function wrapPlanSafeFileTool(tool, { cwd, mode }) {
-    const originalExecute = /** @type {any} */ (tool.execute);
-    return {
+export function wrapPlanSafeFileTool<T extends { execute: unknown }>(
+    tool: T,
+    { cwd, mode }: { cwd: string; mode: "write" | "edit" },
+): T {
+    const originalExecute = tool.execute as PlanFileToolExecute;
+    const wrapped = {
         ...tool,
         async execute(
-            /** @type {string} */ toolCallId,
-            /** @type {any} */ params,
-            /** @type {AbortSignal|undefined} */ signal,
-            /** @type {unknown} */ onUpdate,
-            /** @type {unknown} */ ctx,
+            toolCallId: string,
+            params: PlanFileToolParams,
+            signal?: AbortSignal,
+            onUpdate?: unknown,
+            ctx?: unknown,
         ) {
             const path = stringValue(params?.path ?? params?.file_path);
             if (path && isCanonicalPlanMarkdownPath(cwd, path)) {
@@ -167,4 +178,8 @@ export function wrapPlanSafeFileTool(tool, { cwd, mode }) {
             return await originalExecute.call(tool, toolCallId, params, signal, onUpdate, ctx);
         },
     };
+    // The wrapper adds guard results (`isError`) that the wrapped tool's own
+    // narrow result type does not describe, so restore the tool's declared shape
+    // for callers that register it alongside unwrapped Pi tools.
+    return wrapped as unknown as T;
 }

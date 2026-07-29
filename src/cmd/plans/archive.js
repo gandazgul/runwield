@@ -15,7 +15,7 @@ import {
     loadPlan as loadPlanFn,
     restoreArchivedPlan as restoreArchivedPlanFn,
 } from "../../plan-store.js";
-import { runArchiveTransition as runArchiveTransitionFn } from "../../shared/workflow/state-transition.js";
+import { runArchiveTransition as runArchiveTransitionFn } from "../../shared/workflow/state-transition.ts";
 
 /**
  * @typedef {Object} ArchiveCommandDependencies

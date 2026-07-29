@@ -20,7 +20,7 @@ import { loadAgentDefFromPath } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
-import { runEpicDecompositionFinalizeTransition } from "./state-transition.js";
+import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";

@@ -52,7 +52,7 @@ Deno.test("high-level lifecycle callers use Plan Lifecycle APIs instead of raw P
 });
 
 Deno.test("transition wrappers expose expected revision preconditions for lifecycle writers", async () => {
-    const text = await Deno.readTextFile(repoPath("src/shared/workflow/state-transition.js"));
+    const text = await Deno.readTextFile(repoPath("src/shared/workflow/state-transition.ts"));
     const wrappers = [
         "runPlanLifecycleEventTransition",
         "runPlanReviewDecisionTransition",
@@ -74,7 +74,7 @@ Deno.test("transition wrappers expose expected revision preconditions for lifecy
 });
 
 Deno.test("Agent Plan creation uses create-if-absent instead of rename-over writes", async () => {
-    const text = await Deno.readTextFile(repoPath("src/tools/plan-safe-file-tools.js"));
+    const text = await Deno.readTextFile(repoPath("src/tools/plan-safe-file-tools.ts"));
     assertEquals(/atomicWriteTextFileIfAbsent\s*\(/.test(text), true);
     assertEquals(/atomicWriteTextFile\s*\(/.test(text), false);
 });

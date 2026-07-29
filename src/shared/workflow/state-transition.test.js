@@ -11,7 +11,7 @@ import {
     runPlanFrontMatterTransition,
     runRecoveryTransition,
     runValidationOutcomeTransition,
-} from "./state-transition.js";
+} from "./state-transition.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 
 async function makeProject() {

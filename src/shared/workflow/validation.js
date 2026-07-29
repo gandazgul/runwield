@@ -45,7 +45,7 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.js";
+import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.ts";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {

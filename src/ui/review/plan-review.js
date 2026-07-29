@@ -19,7 +19,7 @@ import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
-import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.js";
+import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.ts";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 

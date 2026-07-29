@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { wrapPlanSafeFileTool } from "./plan-safe-file-tools.js";
+import { wrapPlanSafeFileTool } from "./plan-safe-file-tools.ts";
 
 Deno.test("Plan-safe write wrapper refuses existing canonical Plan overwrite", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plan-safe-tool-" });
@@ -20,13 +20,13 @@ Deno.test("Plan-safe write wrapper refuses existing canonical Plan overwrite", a
             }),
             { cwd, mode: "write" },
         );
-        const result = await tool.execute(
+        const result = /** @type {{ isError?: boolean }} */ (await tool.execute(
             "call",
-            { path: "plans/demo.md", content: "# New" },
+            /** @type {any} */ ({ path: "plans/demo.md", content: "# New" }),
             undefined,
             undefined,
-            undefined,
-        );
+            /** @type {any} */ (undefined),
+        ));
         assertEquals(result.isError, true);
         assertEquals(await Deno.readTextFile(`${cwd}/plans/demo.md`), "# Demo\n");
     } finally {

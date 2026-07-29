@@ -18,7 +18,7 @@ import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { findPlansByParent, loadPlan, savePlan, withPlanCatalogLock } from "../../plan-store.js";
-import { getTransitionJournalDir } from "./state-transition.js";
+import { getTransitionJournalDir } from "./state-transition.ts";
 
 /**
  * @param {string} [id]

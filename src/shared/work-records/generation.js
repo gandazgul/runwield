@@ -18,7 +18,7 @@ import {
 } from "../../plan-store.js";
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
-import { runRecoveryTransition } from "../workflow/state-transition.js";
+import { runRecoveryTransition } from "../workflow/state-transition.ts";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";

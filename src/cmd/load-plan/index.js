@@ -50,7 +50,7 @@ import {
     runPlanFrontMatterTransition,
     runRecoveryTransition,
     runReviewReopenTransition,
-} from "../../shared/workflow/state-transition.js";
+} from "../../shared/workflow/state-transition.ts";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
 import {
     createExecutionWorktreeGitArtifacts,

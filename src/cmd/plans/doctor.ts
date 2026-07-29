@@ -13,32 +13,228 @@ import {
     loadPlanStrict,
     parsePlanFrontMatter,
 } from "../../plan-store.js";
-import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.js";
+import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
 import { listEntries, pruneEntry } from "../../shared/worktree-registry.js";
 
-/**
- * @typedef {Object} DoctorIssue
- * @property {string} kind
- * @property {string} message
- * @property {string} [planName]
- * @property {string} [worktreeId]
- * @property {boolean} [repairable]
- */
+/** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
+interface DeliveryEvidenceSnapshot {
+    mode?: unknown;
+    executionCommit?: unknown;
+    targetBranch?: unknown;
+    targetHeadBeforeMerge?: unknown;
+}
+
+interface DoctorIssue {
+    kind: string;
+    message: string;
+    planName?: string;
+    worktreeId?: string;
+    repairable?: boolean;
+}
+
+interface IssueGuidance {
+    category: string;
+    severity: "Critical" | "Needs attention" | "Cleanup";
+    diagnosis: string;
+    nextSteps: string[];
+}
 
 function printHelp() {
     console.log(`Usage:
   ${CLI_BIN} plans doctor [--repair]
 
-Reports Plan, lifecycle journal, and worktree registry drift. --repair only applies non-destructive metadata repairs.`);
+Diagnoses Plan, lifecycle journal, and worktree registry drift. --repair only applies non-destructive metadata repairs.`);
 }
 
-/**
- * @param {string} root
- * @param {string[]} prefix
- * @param {DoctorIssue[]} issues
- * @param {Map<string, string>} planIds
- */
-async function collectPlanIssues(root, prefix, issues, planIds) {
+function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
+    switch (issue.kind) {
+        case "malformed_plan":
+        case "malformed_archived_plan":
+        case "non_regular_plan_path":
+            return {
+                category: "Plan files",
+                severity: "Critical",
+                diagnosis: "RunWield cannot reliably read this Plan file.",
+                nextSteps: [
+                    "Open the named file and fix the front matter or replace the unexpected path with a regular .md file.",
+                    "Run plans doctor again before loading or archiving this Plan.",
+                ],
+            };
+        case "duplicate_plan_id":
+            return {
+                category: "Plan identity",
+                severity: "Critical",
+                diagnosis:
+                    "Two Plans claim the same stable identity, so lifecycle state can be attached to the wrong Plan.",
+                nextSteps: [
+                    "Inspect both Plans and decide which one owns the planId.",
+                    "Do not hand-edit lifecycle metadata unless you are intentionally repairing identity state; prefer restoring from the correct Plan source.",
+                ],
+            };
+        case "verified_without_evidence":
+        case "uncertain_publication":
+            return {
+                category: "Delivery evidence",
+                severity: "Needs attention",
+                diagnosis:
+                    "The Plan says it reached a terminal state, but the evidence is incomplete or Git cannot prove publication.",
+                nextSteps: [
+                    "Inspect the Plan, worktree branch, and transition journal before trusting the verified status.",
+                    "If the work was published, capture or restore the missing evidence; otherwise reopen/recover the Plan through RunWield.",
+                ],
+            };
+        case "unresolved_transition":
+            return {
+                category: "Lifecycle transitions",
+                severity: "Critical",
+                diagnosis:
+                    "A lifecycle transaction did not finish cleanly and may need recovery before more Plan work continues.",
+                nextSteps: [
+                    "Review the transition recovery record named above.",
+                    "Use the matching RunWield recovery command or rerun the interrupted operation after confirming the worktree is safe.",
+                ],
+            };
+        case "registry_integrity_error":
+            return {
+                category: "Worktree registry",
+                severity: "Critical",
+                diagnosis: "RunWield could not load its worktree registry, so active attempt state may be hidden.",
+                nextSteps: [
+                    "Inspect .wld/worktrees.json for invalid JSON or schema drift.",
+                    "Restore the registry from backup or repair it before creating, merging, or abandoning worktrees.",
+                ],
+            };
+        case "orphan_git_worktree":
+            return {
+                category: "Git worktrees",
+                severity: "Needs attention",
+                diagnosis: "Git knows about a RunWield-looking worktree that RunWield is not tracking.",
+                nextSteps: [
+                    "Inspect the worktree path and identify whether it contains in-progress Plan work.",
+                    "If it is stale, remove it with git worktree remove; if it is active, recover or recreate the RunWield attempt record.",
+                ],
+            };
+        case "orphan_worktree_branch":
+            return {
+                category: "Git branches",
+                severity: "Cleanup",
+                diagnosis: "A RunWield worktree branch exists without a matching active registry entry.",
+                nextSteps: [
+                    "Inspect the branch for unmerged work before deleting it.",
+                    "Delete the branch only after confirming it is stale or already published.",
+                ],
+            };
+        case "duplicate_worktree_id":
+        case "duplicate_live_attempt":
+        case "registry_plan_id_not_found":
+        case "registry_plan_identity_mismatch":
+        case "registry_missing_plan_id":
+            return {
+                category: "Worktree registry",
+                severity: "Critical",
+                diagnosis: "The registry does not agree with Plan identity or active-attempt invariants.",
+                nextSteps: [
+                    "Do not start another attempt for this Plan until the registry entry is understood.",
+                    "Use load-plan or the relevant recovery flow to re-bind the attempt; recreate only if the worktree is disposable.",
+                ],
+            };
+        case "missing_worktree_path":
+            return {
+                category: "Worktree registry",
+                severity: issue.repairable ? "Cleanup" : "Critical",
+                diagnosis: issue.repairable
+                    ? "A settled registry entry points at a worktree path that no longer exists."
+                    : "An active or recoverable attempt points at a missing worktree path.",
+                nextSteps: issue.repairable
+                    ? [
+                        "Run plans doctor --repair to prune this stale settled registry entry.",
+                        "No source work should be lost because the attempt is already settled.",
+                    ]
+                    : [
+                        "Find whether the worktree was moved, deleted, or never created.",
+                        "Recover the path or explicitly abandon the attempt through RunWield after confirming there is no work to save.",
+                    ],
+            };
+        case "archived_plan_with_recoverable_attempt":
+            return {
+                category: "Archived Plans",
+                severity: "Needs attention",
+                diagnosis: "An archived Plan still claims there is recoverable worktree state.",
+                nextSteps: [
+                    "Restore the Plan from archived status before acting on the attempt.",
+                    "Resolve, merge, or abandon the attempt, then archive the Plan again when it is settled.",
+                ],
+            };
+        default:
+            return {
+                category: "Other drift",
+                severity: "Needs attention",
+                diagnosis: "RunWield found Plan or worktree state that does not match its expected lifecycle model.",
+                nextSteps: [
+                    "Read the raw detail above and inspect the named Plan/worktree before making lifecycle changes.",
+                    "Run plans doctor again after repairing the underlying state.",
+                ],
+            };
+    }
+}
+
+function formatDoctorReport(issues: DoctorIssue[], repaired: number, repair: boolean) {
+    const byCategory = new Map<string, DoctorIssue[]>();
+    for (const issue of issues) {
+        const guidance = getIssueGuidance(issue);
+        const categoryIssues = byCategory.get(guidance.category) || [];
+        categoryIssues.push(issue);
+        byCategory.set(guidance.category, categoryIssues);
+    }
+
+    const severityCounts = issues.reduce((counts, issue) => {
+        const severity = getIssueGuidance(issue).severity;
+        counts.set(severity, (counts.get(severity) || 0) + 1);
+        return counts;
+    }, new Map<IssueGuidance["severity"], number>());
+    const lines = [
+        `[RunWield] Plans doctor diagnosis: ${issues.length} issue${issues.length === 1 ? "" : "s"} found.`,
+        `Summary: ${
+            ["Critical", "Needs attention", "Cleanup"].map((severity) =>
+                `${severity}: ${severityCounts.get(severity as IssueGuidance["severity"]) || 0}`
+            ).join(" · ")
+        }`,
+        "",
+    ];
+
+    for (const [category, categoryIssues] of byCategory) {
+        lines.push(`${category}`);
+        lines.push("-".repeat(category.length));
+        categoryIssues.forEach((issue, index) => {
+            const guidance = getIssueGuidance(issue);
+            const affected = [
+                issue.planName ? `Plan: ${issue.planName}` : undefined,
+                issue.worktreeId ? `Worktree: ${issue.worktreeId}` : undefined,
+            ].filter(Boolean).join(" · ");
+            lines.push(`${index + 1}. [${guidance.severity}] ${issue.kind}`);
+            if (affected) lines.push(`   Affected: ${affected}`);
+            lines.push(`   Diagnosis: ${guidance.diagnosis}`);
+            lines.push(`   Detail: ${issue.message}`);
+            lines.push("   Next steps:");
+            for (const step of guidance.nextSteps) lines.push(`   - ${step}`);
+            if (issue.repairable) lines.push("   Repair: Safe automated repair is available with --repair.");
+            lines.push("");
+        });
+    }
+
+    if (repair) lines.push(`[RunWield] Applied ${repaired} safe repair(s).`);
+    else if (issues.some((issue) => issue.repairable)) {
+        lines.push(`[RunWield] Some cleanup is safe to automate. Re-run: ${CLI_BIN} plans doctor --repair`);
+    }
+    return lines.join("\n").trimEnd();
+}
+
+async function collectPlanIssues(
+    root: string,
+    prefix: string[],
+    issues: DoctorIssue[],
+    planIds: Map<string, string>,
+) {
     try {
         for await (const entry of Deno.readDir(join(root, ...prefix))) {
             const entryPath = join(root, ...prefix, entry.name);
@@ -87,28 +283,28 @@ async function collectPlanIssues(root, prefix, issues, planIds) {
     }
 }
 
-/**
- * @param {{ name: string, attrs: Record<string, any> }} plan
- * @param {DoctorIssue[]} issues
- * @param {Map<string, string>} planIds
- * @param {{ archived?: boolean }} [options]
- */
-function collectPlanAttributeIssues(plan, issues, planIds, options = {}) {
+function collectPlanAttributeIssues(
+    plan: { name: string; attrs: Record<string, unknown> },
+    issues: DoctorIssue[],
+    planIds: Map<string, string>,
+    options: { archived?: boolean } = {},
+) {
     const planName = options.archived ? `archived/${plan.name}` : plan.name;
-    if (plan.attrs.planId) {
-        const existing = planIds.get(plan.attrs.planId);
+    const planId = typeof plan.attrs.planId === "string" ? plan.attrs.planId : "";
+    if (planId) {
+        const existing = planIds.get(planId);
         if (existing) {
             issues.push({
                 kind: "duplicate_plan_id",
                 planName,
-                message: `Plan ${planName} and ${existing} both use planId ${plan.attrs.planId}.`,
+                message: `Plan ${planName} and ${existing} both use planId ${planId}.`,
             });
         } else {
-            planIds.set(plan.attrs.planId, planName);
+            planIds.set(planId, planName);
         }
     }
     if (plan.attrs.status === "verified" && plan.attrs.classification === "FEATURE") {
-        const evidence = plan.attrs.deliveryEvidence;
+        const evidence = plan.attrs.deliveryEvidence as DeliveryEvidenceSnapshot | undefined;
         if (!evidence && plan.attrs.executionMode !== "non_git_in_place") {
             issues.push({
                 kind: "verified_without_evidence",
@@ -129,15 +325,14 @@ function collectPlanAttributeIssues(plan, issues, planIds, options = {}) {
     }
 }
 
-/**
- * @param {string} projectRoot
- * @param {DoctorIssue[]} issues
- * @param {Map<string, string>} planIds
- */
-async function collectArchivedPlanParseIssues(projectRoot, issues, planIds) {
+async function collectArchivedPlanParseIssues(
+    projectRoot: string,
+    issues: DoctorIssue[],
+    planIds: Map<string, string>,
+) {
     const archivedRoot = join(getPlansDir(projectRoot), "archived");
-    /** @param {string[]} prefix */
-    async function visit(prefix) {
+
+    async function visit(prefix: string[]) {
         try {
             for await (const entry of Deno.readDir(join(archivedRoot, ...prefix))) {
                 const entryPath = join(archivedRoot, ...prefix, entry.name);
@@ -170,19 +365,14 @@ async function collectArchivedPlanParseIssues(projectRoot, issues, planIds) {
     await visit([]);
 }
 
-/**
- * @param {string} projectRoot
- * @param {string[]} args
- */
-async function runGitLines(projectRoot, args) {
+async function runGitLines(projectRoot: string, args: string[]) {
     const command = new Deno.Command("git", { args, cwd: projectRoot, stdout: "piped", stderr: "null" });
     const { code, stdout } = await command.output();
     if (code !== 0) return [];
     return new TextDecoder().decode(stdout).split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-/** @param {string} projectRoot @param {string} ancestor @param {string} ref */
-async function isGitAncestor(projectRoot, ancestor, ref) {
+async function isGitAncestor(projectRoot: string, ancestor: string, ref: string) {
     const command = new Deno.Command("git", {
         args: ["merge-base", "--is-ancestor", ancestor, ref],
         cwd: projectRoot,
@@ -193,8 +383,7 @@ async function isGitAncestor(projectRoot, ancestor, ref) {
     return code === 0;
 }
 
-/** @param {string} projectRoot */
-async function listGitWorktreePaths(projectRoot) {
+async function listGitWorktreePaths(projectRoot: string) {
     const lines = await runGitLines(projectRoot, ["worktree", "list", "--porcelain"]);
     return lines
         .filter((line) => line.startsWith("worktree "))
@@ -202,11 +391,9 @@ async function listGitWorktreePaths(projectRoot) {
         .filter(Boolean);
 }
 
-/** @param {string} projectRoot @param {boolean} repair */
-export async function runPlansDoctor(projectRoot, repair = false) {
-    /** @type {DoctorIssue[]} */
-    const issues = [];
-    const discoveredPlanIds = new Map();
+export async function runPlansDoctor(projectRoot: string, repair = false) {
+    const issues: DoctorIssue[] = [];
+    const discoveredPlanIds = new Map<string, string>();
     await collectPlanIssues(getPlansDir(projectRoot), [], issues, discoveredPlanIds);
     await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
 
@@ -223,8 +410,7 @@ export async function runPlansDoctor(projectRoot, repair = false) {
 
     let repaired = 0;
 
-    /** @type {Awaited<ReturnType<typeof listEntries>>} */
-    let entries = [];
+    let entries: Awaited<ReturnType<typeof listEntries>> = [];
     try {
         entries = await listEntries(projectRoot, { migrate: repair });
     } catch (error) {
@@ -369,11 +555,10 @@ export async function runPlansDoctor(projectRoot, repair = false) {
     return { issues, repaired };
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: { parseArgs?: typeof parseArgsFn, runPlansDoctor?: typeof runPlansDoctor } }} [options]
- */
-export async function runPlansDoctorCommand(argv, options = {}) {
+export async function runPlansDoctorCommand(
+    argv: string[],
+    options: { __testDeps?: { parseArgs?: typeof parseArgsFn; runPlansDoctor?: typeof runPlansDoctor } } = {},
+) {
     const deps = options.__testDeps || {};
     const parseArgs = deps.parseArgs || parseArgsFn;
     const parsed = parseArgs(argv, { boolean: ["help", "repair"], alias: { h: "help" } });
@@ -387,9 +572,5 @@ export async function runPlansDoctorCommand(argv, options = {}) {
         console.log("[RunWield] Plans doctor found no lifecycle/worktree drift.");
         return;
     }
-    console.log("[RunWield] Plans doctor found issues:\n");
-    for (const issue of result.issues) {
-        console.log(`  - ${issue.kind}: ${issue.message}`);
-    }
-    if (parsed.repair) console.log(`\n[RunWield] Applied ${result.repaired} safe repair(s).`);
+    console.log(formatDoctorReport(result.issues, result.repaired, Boolean(parsed.repair)));
 }

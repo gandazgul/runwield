@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { injectFrontMatter, savePlan } from "../../plan-store.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
-import { runPlansDoctor } from "./doctor.js";
+import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
 
 Deno.test("plans doctor reports missing worktree paths without abandoning attempts automatically", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-" });
@@ -121,4 +121,39 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
+});
+
+Deno.test("plans doctor command prints grouped diagnosis with actionable next steps", async () => {
+    const originalLog = console.log;
+    /** @type {string[]} */
+    const logs = [];
+    console.log = (message = "") => logs.push(String(message));
+    try {
+        await runPlansDoctorCommand([], {
+            __testDeps: {
+                runPlansDoctor: () =>
+                    Promise.resolve({
+                        repaired: 0,
+                        issues: [{
+                            kind: "missing_worktree_path",
+                            planName: "demo",
+                            worktreeId: "wt1",
+                            repairable: true,
+                            message: "Registry entry wt1 points at missing settled worktree path /tmp/demo.",
+                        }],
+                    }),
+            },
+        });
+    } finally {
+        console.log = originalLog;
+    }
+    const output = logs.join("\n");
+    assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
+    assertEquals(output.includes("Worktree registry"), true);
+    assertEquals(
+        output.includes("Diagnosis: A settled registry entry points at a worktree path that no longer exists."),
+        true,
+    );
+    assertEquals(output.includes("Next steps:"), true);
+    assertEquals(output.includes("Run plans doctor --repair"), true);
 });

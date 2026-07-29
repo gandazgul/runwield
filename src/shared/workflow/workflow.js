@@ -44,7 +44,7 @@ import {
 } from "./plan-review-recovery.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { runExecutionPreparationTransition, runImplementationCheckpointTransition } from "./state-transition.js";
+import { runExecutionPreparationTransition, runImplementationCheckpointTransition } from "./state-transition.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import {
     readLatestPlanOutcome,
