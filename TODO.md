@@ -4,7 +4,8 @@
 
 - [ ] P0 Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s ·
       tokens unavailable · cost unavailable"
-
+- [ ] wld plans doctor is usless it just vomits all plans again, make this actually give actionable feedback about
+      broken plans and what to do.
 - [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
 - [ ] Implement auto update and wld update

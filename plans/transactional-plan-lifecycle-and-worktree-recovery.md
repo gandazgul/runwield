@@ -68,16 +68,13 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T00:56:36-04:00"
-updatedAt: "2026-07-29T04:15:24.756Z"
+updatedAt: "2026-07-29T04:26:05.698Z"
 status: "implemented"
 origin: "internal"
-failureReason: "Execution worktree changed after the validated candidate was sealed. Run Workflow Validation again before publishing these files: plans/golden-tui-scenario-testing/01-establish-golden-tui-scenario-harness.md, plans/golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio.md, plans/mid-run-tool-result-auto-compaction.md, plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md, plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md, plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md, plans/personal-remote-workspace-v1/13-execution-segment-handoff-backend.md, plans/release-candidate-and-promotion-flow.md"
+failureReason: "Worktree merge failed: Execution worktree changed after the validated candidate was sealed. Run Workflow Validation again before publishing these files: plans/golden-tui-scenario-testing/01-establish-golden-tui-scenario-harness.md, plans/golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio.md, plans/mid-run-tool-result-auto-compaction.md, plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md, plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md, plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md, plans/personal-remote-workspace-v1/13-execution-segment-handoff-backend.md, plans/release-candidate-and-promotion-flow.md"
 userVerifiedAt: null
 worktreeId: "a999678c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-transactional-plan-lifecycle-and-worktree-recove-a999678c"
-worktreeBranch: "runwield/worktree/transactional-plan-lifecycle-and-worktree-recove-a999678c"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+worktreeStatus: "validation_failed"
 ---
 
 # Transactional Plan Lifecycle and Worktree Recovery

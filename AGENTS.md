@@ -2,7 +2,11 @@ The main codebase is JS with JSDoc, but we are migrating to TypeScript. Write ne
 existing JS files when you touch them for other reasons.
 
 JSDoc: prefer `@typedef` for object shapes over inline annotations or `@type` casts — define the type once and reference
-it. Type function parameters in the param block, never with `@type` declarations in the function body.
+it. Type function parameters in the param block, never with `@type` declarations in the function body. Same for TS, dont
+define inline complex types.
+
+TypeScript: Don't use `any`, `unknown` or `object` in typescrypt always define or make sure the type can be infered.
+Object should have apropert type defining its properties not just Object.
 
 ## Running Tests
 
