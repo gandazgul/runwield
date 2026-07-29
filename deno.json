@@ -122,7 +122,7 @@
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",
         "language-policy:check": "deno run -A scripts/check-language-policy.js",
-        "test": "deno run -A scripts/write-version.js && snip run -- deno test -A --parallel --no-check",
+        "test": "deno run -A scripts/write-version.js && snip run -- deno run -A scripts/run-tests.js",
         "lint": "snip run -- deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
@@ -132,7 +132,7 @@
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",
-        "workspace:test": "deno test -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.js",
+        "workspace:test": "deno run -A scripts/run-tests.js -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.js",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
@@ -147,7 +147,10 @@
         "release:stable": "deno run -A scripts/release.js stable",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js",
-        "test:golden-tui": "deno run -A scripts/write-version.js && deno test -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
+        "test:golden-tui": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
+    },
+    "lint": {
+        "plugins": ["./scripts/lint-rules/no-module-scope-process-state.js"]
     },
     "fmt": {
         "lineWidth": 120,

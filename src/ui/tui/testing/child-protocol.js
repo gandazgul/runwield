@@ -6,6 +6,7 @@
 import { fromFileUrl, join, toFileUrl } from "@std/path";
 import { createGoldenIsolatedEnvironment } from "./isolated-environment.js";
 import { GOLDEN_CHILD_READY_MARKER, runGoldenChild } from "./subprocess-runner.js";
+import { releaseProcessGlobalTestLockSync } from "../../../testing/process-global-lock.js";
 
 const CHILD_FLAG = "--golden-tui-child";
 
@@ -62,6 +63,21 @@ async function writeChildFailureArtifact(request, result, childPayload) {
 }
 
 /**
+ * Remove the isolated environment a child reported on startup. Safe to call on
+ * every outcome: a child that cleaned up after itself leaves nothing to find.
+ *
+ * @param {unknown} childPayload
+ */
+async function removeChildEnvironmentRoot(childPayload) {
+    if (!childPayload || typeof childPayload !== "object") return;
+    const env = /** @type {{ env?: unknown }} */ (childPayload).env;
+    if (!env || typeof env !== "object") return;
+    const root = /** @type {{ root?: unknown }} */ (env).root;
+    if (typeof root !== "string" || !root) return;
+    await Deno.remove(root, { recursive: true }).catch(() => {});
+}
+
+/**
  * Runs a scenario in a fresh Deno process. The child creates HOME/Project/Git,
  * model/settings, worktree, and registry directories before importing the
  * scenario module or other RunWield code.
@@ -84,6 +100,10 @@ export async function runGoldenScenarioChildProcess(request) {
         payload,
     ], { cwd: REPO_ROOT, timeoutMs: request.timeoutMs || 5000, awaitReadyMarker: true });
     const childPayload = parseLastJsonLine(result.stdout);
+    // Backstop for a child that never got to tear itself down: one wedged past
+    // the grace window, or crashed before its own cleanup. The child announces
+    // its environment root on startup precisely so this path can find it.
+    if (!request.keepArtifacts) await removeChildEnvironmentRoot(childPayload);
     if (
         !result.success ||
         (childPayload && typeof childPayload === "object" && "ok" in childPayload &&
@@ -131,8 +151,28 @@ async function runChild(request) {
         ok: false,
         heartbeat: true,
         artifactDir: timeoutArtifactDir,
+        heartbeatArtifactDir: timeoutArtifactDir,
         env: { root: env.root, projectRoot: env.projectRoot },
     }));
+    // The runner signals a timed-out child rather than killing it outright, so
+    // this handler is the only chance to reclaim the isolated environment. Deno
+    // signal handlers run synchronously, so unlink synchronously instead of
+    // awaiting env.cleanup(). timeoutArtifactDir is deliberately left in place:
+    // retaining it is the entire point of a timeout.
+    const handleTermination = () => {
+        if (!request.keepArtifacts) {
+            try {
+                Deno.removeSync(env.root, { recursive: true });
+            } catch {
+                // Best effort; the parent sweeps the environment as a backstop.
+            }
+        }
+        // Composed scenarios run under the process-global test lock, and exiting
+        // here skips the release in its `finally`.
+        releaseProcessGlobalTestLockSync();
+        Deno.exit(143);
+    };
+    Deno.addSignalListener("SIGTERM", handleTermination);
     try {
         for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
         Deno.chdir(env.projectRoot);
@@ -160,12 +200,19 @@ async function runChild(request) {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
                 artifactDir: /** @type {{ artifactDir?: unknown }} */ (error || {}).artifactDir || null,
+                // Scenario artifacts nest inside this directory, so it is the root a
+                // caller has to remove to reclaim everything the run retained.
+                // `artifactDir` alone names a child of it and leaves the parent behind.
+                heartbeatArtifactDir: timeoutArtifactDir,
                 env: { root: env.root, projectRoot: env.projectRoot },
             }));
             Deno.exitCode = 1;
             return;
         }
     } finally {
+        // A registered signal listener holds the event loop open, so this has to
+        // come off before the child can exit on its own.
+        Deno.removeSignalListener("SIGTERM", handleTermination);
         await env.cleanup();
     }
 }
