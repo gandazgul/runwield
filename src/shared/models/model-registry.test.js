@@ -1,6 +1,13 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { discoverProviderModel, migratePiModelConfigOnce, RunWieldModelRegistry } from "./model-registry.js";
+
+Deno.test("RunWield model runtime registers statically bundled OAuth loaders before creation", async () => {
+    const source = await Deno.readTextFile(new URL("./model-registry.js", import.meta.url));
+
+    assertStringIncludes(source, 'import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth"');
+    assertStringIncludes(source, "registerBundledOAuthFlowsOnce();\n    const agentDir = getRunWieldModelConfigDir();");
+});
 
 Deno.test("migratePiModelConfigOnce copies Pi files into RunWield when missing", async () => {
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-config-" });

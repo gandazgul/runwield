@@ -1,4 +1,5 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
@@ -7,6 +8,8 @@ import { getHomeDir } from "../../constants.js";
 
 const MODEL_CONFIG_FILES = ["models.json", "auth.json"];
 
+/** @type {boolean} */
+let bundledOAuthFlowsRegistered = false;
 /** @type {Promise<import('@earendil-works/pi-coding-agent').ModelRuntime> | null} */
 let modelRuntimePromise = null;
 /** @type {import('@earendil-works/pi-coding-agent').ModelRuntime | null} */
@@ -232,6 +235,12 @@ function readBuiltinModels() {
             return [];
         }
     });
+}
+
+function registerBundledOAuthFlowsOnce() {
+    if (bundledOAuthFlowsRegistered) return;
+    registerBunOAuthFlows();
+    bundledOAuthFlowsRegistered = true;
 }
 
 /**
@@ -673,6 +682,7 @@ export function migratePiModelConfigOnce(options = {}) {
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ModelRuntime>}
  */
 export async function createRunWieldModelRuntime() {
+    registerBundledOAuthFlowsOnce();
     const agentDir = getRunWieldModelConfigDir();
     const piMigration = migratePiModelConfigOnce({ runwieldDir: agentDir });
     for (const failure of piMigration.failed) {
