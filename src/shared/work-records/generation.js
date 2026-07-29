@@ -18,6 +18,7 @@ import {
 } from "../../plan-store.js";
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
+import { runRecoveryTransition } from "../workflow/state-transition.js";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
@@ -318,7 +319,22 @@ export async function previewWorkRecordBackfill(cwd) {
  */
 async function updateSourceFrontMatter(cwd, source, updates) {
     if (source.sourceKind === "archived") return await updateArchivedPlanFrontMatter(cwd, source.name, updates);
-    return await updatePlanFrontMatter(cwd, source.name, updates);
+    const transition = await runRecoveryTransition({
+        projectRoot: cwd,
+        planName: source.name,
+        action: "recover",
+        recover: async ({ beforePlan }) => {
+            if (!beforePlan) throw new Error(`Plan not found: ${source.name}`);
+            return await updatePlanFrontMatter(cwd, source.name, updates, beforePlan.attrs, {
+                expectedRevision: beforePlan.revision,
+            });
+        },
+    });
+    if (transition.status !== "committed") {
+        throw new Error(transition.message || `Could not link Work Record to Plan ${source.name}.`);
+    }
+    const value = /** @type {{ value: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value);
+    return value.value;
 }
 
 /**

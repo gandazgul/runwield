@@ -17,6 +17,22 @@ function makeSessionManager(id = "session-1") {
     return { getSessionId: () => id };
 }
 
+/** @param {string} path */
+async function removeTempDir(path) {
+    let lastError;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
 Deno.test("modelSupportsImageInput checks image modality", () => {
     assertEquals(modelSupportsImageInput({ input: ["text", "image"] }), true);
     assertEquals(modelSupportsImageInput({ input: ["text"] }), false);
@@ -49,8 +65,8 @@ Deno.test("persistImageAttachment stores session-scoped file and resolves attach
         } finally {
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(cwd, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(cwd);
         }
     });
 });
@@ -66,7 +82,7 @@ Deno.test("resolveImageRef resolves safe project-relative paths and rejects esca
         await assertRejects(() => resolveImageRef("../outside.png", { cwd }), Error, "escapes");
         await assertRejects(() => resolveImageRef("attachment:not-a-uuid", { cwd }), Error, "Invalid image attachment");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await removeTempDir(cwd);
     }
 });
 
@@ -130,8 +146,8 @@ async function withVisionSettings(settings, fn) {
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(tempProject, { recursive: true });
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
     }
 }
 

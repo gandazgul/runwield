@@ -20,6 +20,7 @@ import {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
+import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
@@ -1288,8 +1289,8 @@ export async function assembleFinalSystemPromptWithContextProjection(
         createFindToolDefinition(cwd),
         createLsToolDefinition(cwd),
         createReadToolDefinition(cwd),
-        createWriteToolDefinition(cwd),
-        createEditToolDefinition(cwd),
+        wrapPlanSafeFileTool(createWriteToolDefinition(cwd), { cwd, mode: "write" }),
+        wrapPlanSafeFileTool(createEditToolDefinition(cwd), { cwd, mode: "edit" }),
     ];
 
     const extensionTools = [
@@ -1516,6 +1517,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @param {string} [cwd]
  * @param {string} [projectStateContext]
+ * @param {SystemPromptContextProjectionOptions} [options]
  * @returns {Promise<string>}
  */
 export async function assembleFinalSystemPrompt(
@@ -1524,6 +1526,7 @@ export async function assembleFinalSystemPrompt(
     finalCustomTools,
     cwd,
     projectStateContext = "",
+    options = {},
 ) {
     const result = await assembleFinalSystemPromptWithContextProjection(
         agentDef,
@@ -1531,6 +1534,7 @@ export async function assembleFinalSystemPrompt(
         finalCustomTools,
         cwd,
         projectStateContext,
+        options,
     );
     return result.prompt;
 }

@@ -168,6 +168,18 @@ export const WORKTREE_REGISTRY_FILE = "worktrees.json";
 /** Best-effort lock filename for serialized worktree registry updates. */
 export const WORKTREE_REGISTRY_LOCK_FILE = "worktrees.lock";
 
+/** Directory for short-lived Plan mutation locks. */
+export const PLAN_LOCKS_DIR_NAME = "plan-locks";
+
+/** Directory for durable lifecycle transition journals. */
+export const PLAN_TRANSITIONS_DIR_NAME = "plan-transitions";
+
+/** Directory for local transition recovery backups. */
+export const PLAN_BACKUPS_DIR_NAME = "plan-backups";
+
+/** Directory for local transition staging artifacts. */
+export const PLAN_STAGING_DIR_NAME = "plan-staging";
+
 /** Git branch prefix for isolated execution worktrees. */
 export const WORKTREE_BRANCH_PREFIX = "runwield/worktree/";
 

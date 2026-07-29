@@ -24,6 +24,23 @@ import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration
 
 import { git } from "./workspace-test-helpers.js";
 
+/**
+ * @param {(request: Request) => Promise<Response>} app
+ * @param {string} cwd
+ * @param {string} planId
+ * @param {Record<string, unknown>} payload
+ */
+async function postLifecycle(app, cwd, planId, payload) {
+    const detail = await loadWorkspaceDetail(cwd, planId);
+    return await app(
+        new Request(`http://localhost/api/plans/${planId}/lifecycle-action`, {
+            method: "POST",
+            headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+            body: JSON.stringify({ ...payload, expectedRevision: detail.revision }),
+        }),
+    );
+}
+
 Deno.test("workspace lifecycle action metadata blocks protected status movement and exposes DnD seams", () => {
     const summary = serializePlanSummary({
         planId: "p1",
@@ -161,48 +178,24 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
         );
         assertEquals(invalid.status, 409);
 
-        const moved = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "move_status", targetStatus: "approved" }),
-            }),
-        );
+        const moved = await postLifecycle(app, cwd, "feature-id", { action: "move_status", targetStatus: "approved" });
         assertEquals(moved.status, 200);
         assertEquals((await loadWorkspaceDetail(cwd, "feature-id")).status, "approved");
 
-        const held = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "put_on_hold", holdReason: "pause" }),
-            }),
-        );
+        const held = await postLifecycle(app, cwd, "feature-id", { action: "put_on_hold", holdReason: "pause" });
         assertEquals(held.status, 200);
         let loaded = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(loaded.status, "on_hold");
         assertEquals(loaded.heldFromStatus, "approved");
         assertEquals(loaded.holdReason, "pause");
 
-        const reset = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "reset_to_draft" }),
-            }),
-        );
+        const reset = await postLifecycle(app, cwd, "feature-id", { action: "reset_to_draft" });
         assertEquals(reset.status, 200);
         loaded = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(loaded.status, "draft");
         assertEquals(loaded.heldFromStatus, "");
 
-        const resumed = await app(
-            new Request("http://localhost/api/plans/held-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "resume_from_hold" }),
-            }),
-        );
+        const resumed = await postLifecycle(app, cwd, "held-id", { action: "resume_from_hold" });
         assertEquals(resumed.status, 200);
         assertEquals((await loadWorkspaceDetail(cwd, "held-id")).status, "in_progress");
 
@@ -215,16 +208,10 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
         );
         assertEquals(blankClose.status, 409);
 
-        const closed = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({
-                    action: "close_without_verification",
-                    closedWithoutVerificationReason: "Verified manually in staging.",
-                }),
-            }),
-        );
+        const closed = await postLifecycle(app, cwd, "feature-id", {
+            action: "close_without_verification",
+            closedWithoutVerificationReason: "Verified manually in staging.",
+        });
         assertEquals(closed.status, 200);
         loaded = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(loaded.status, "closed_without_verification");
@@ -268,13 +255,10 @@ Deno.test("Workspace persisted User Verification records attestation and trigger
         );
         assertEquals(blank.status, 409);
 
-        const response = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "user_verify", userVerificationNote: "Checked in staging." }),
-            }),
-        );
+        const response = await postLifecycle(app, cwd, "feature-id", {
+            action: "user_verify",
+            userVerificationNote: "Checked in staging.",
+        });
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "RunWield Workflow Validation was not claimed");
@@ -317,16 +301,10 @@ Deno.test("Workspace persisted close without verification triggers Work Record g
             },
         }).handler();
 
-        const response = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({
-                    action: "close_without_verification",
-                    closedWithoutVerificationReason: "Manual acceptance.",
-                }),
-            }),
-        );
+        const response = await postLifecycle(app, cwd, "feature-id", {
+            action: "close_without_verification",
+            closedWithoutVerificationReason: "Manual acceptance.",
+        });
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "Work Record generated");
@@ -353,16 +331,10 @@ Deno.test("Workspace persisted close preserves closure when Work Record generati
             autoGenerateWorkRecordForCompletedPlan: () => Promise.reject(new Error("recorder unavailable")),
         }).handler();
 
-        const response = await app(
-            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({
-                    action: "close_without_verification",
-                    closedWithoutVerificationReason: "Manual acceptance despite CI gap.",
-                }),
-            }),
-        );
+        const response = await postLifecycle(app, cwd, "feature-id", {
+            action: "close_without_verification",
+            closedWithoutVerificationReason: "Manual acceptance despite CI gap.",
+        });
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "Work Record generation failed");
@@ -414,24 +386,15 @@ Deno.test("Workspace lifecycle API requires Resume Check confirmation for stalen
             classification: "FEATURE",
         });
         const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
-        const warned = await app(
-            new Request("http://localhost/api/plans/held-warning-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "resume_from_hold" }),
-            }),
-        );
+        const warned = await postLifecycle(app, cwd, "held-warning-id", { action: "resume_from_hold" });
         assertEquals(warned.status, 409);
         const warningBody = await warned.json();
         assertEquals(warningBody.requiresConfirmation, true);
 
-        const accepted = await app(
-            new Request("http://localhost/api/plans/held-warning-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "resume_from_hold", acceptResumeWarnings: true }),
-            }),
-        );
+        const accepted = await postLifecycle(app, cwd, "held-warning-id", {
+            action: "resume_from_hold",
+            acceptResumeWarnings: true,
+        });
         assertEquals(accepted.status, 200);
         assertEquals((await loadWorkspaceDetail(cwd, "held-warning-id")).status, "ready_for_work");
     } finally {
@@ -452,13 +415,7 @@ Deno.test("Workspace Resume Check does not expose absolute worktree paths in blo
             classification: "FEATURE",
         });
         const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
-        const response = await app(
-            new Request("http://localhost/api/plans/held-leak-id/lifecycle-action", {
-                method: "POST",
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "resume_from_hold" }),
-            }),
-        );
+        const response = await postLifecycle(app, cwd, "held-leak-id", { action: "resume_from_hold" });
         assertEquals(response.status, 409);
         const bodyText = await response.text();
         assertEquals(bodyText.includes(cwd), false);
@@ -516,7 +473,11 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
             new Request("http://localhost/api/plans/locked-api-id/body", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ body: "# Changed\n", expectedBodyHash: loaded.bodyHash }),
+                body: JSON.stringify({
+                    body: "# Changed\n",
+                    expectedBodyHash: loaded.bodyHash,
+                    expectedRevision: loaded.revision,
+                }),
             }),
         );
         assertEquals(bodyEdit.status, 409);
@@ -529,7 +490,11 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
             new Request("http://localhost/api/plans/locked-api-id/lifecycle-action", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "move_status", targetStatus: "approved" }),
+                body: JSON.stringify({
+                    action: "move_status",
+                    targetStatus: "approved",
+                    expectedRevision: loaded.revision,
+                }),
             }),
         );
         assertEquals(lifecycle.status, 409);

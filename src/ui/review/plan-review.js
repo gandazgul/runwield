@@ -6,11 +6,20 @@
  * The browser surface is isolated here so core only requests a review.
  */
 
-import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
+import {
+    getPlanRevisionForText,
+    getStoredPlanPath,
+    injectFrontMatter,
+    loadPlan,
+    parsePlanFrontMatter,
+    StalePlanWriteError,
+    writePlanMarkdownWithRevision,
+} from "../../plan-store.js";
 import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
-import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.js";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 
@@ -26,6 +35,7 @@ import { startPlanReviewSurface } from "./review-launcher.js";
  * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
  * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
  * @property {import('../../plan-store.js').PlanFrontMatter} [planAttrs] - Canonical post-review Plan attributes.
+ * @property {string} [revision] - Revision of the committed reviewed Plan.
  * @property {string} [savedPath] - Optional path where plan was saved (if available)
  * @property {Array<{base64: string, mimeType: string, name: string}>} [images] - Annotated feedback images for the agent
  */
@@ -159,6 +169,7 @@ export async function submitPlanForReview({
 
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
+    const planRevision = await getPlanRevisionForText(planContent);
 
     // 2. Ensure front matter is present and up to date
     const { attrs, body } = parsePlanFrontMatter(planContent);
@@ -250,48 +261,114 @@ export async function submitPlanForReview({
         }
         reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
         const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
-        await Deno.writeTextFile(planPath, reviewedPlan);
-
-        // 6. Update status
-        // If the plan is in a terminal/completed status (e.g. verified, implemented),
-        // reopen it first so the review event can transition cleanly.
-        const STATUS_ALLOWS_REVIEW = attrs.status === "draft" ||
-            attrs.status === "feedback" ||
-            attrs.status === "approved";
-
+        const canonicalPlanPath = getStoredPlanPath(cwd, planName);
         let lifecycleMeta = reviewedAttrs;
-        if (!STATUS_ALLOWS_REVIEW) {
-            const reopenedMeta = await recordPlanEventImpl({
-                cwd,
+        let committedRevision;
+        if (resolve(canonicalPlanPath) === resolve(planPath)) {
+            const reviewTransition = await runPlanReviewDecisionTransition({
+                projectRoot: cwd,
                 planName,
-                event: "review_reopened",
-                currentStatus: attrs.status,
-                details: { triageMeta: lifecycleMeta },
+                approved: decision.approved,
+                expectedRevision: planRevision,
+                decide: async ({ beforePlan }) => {
+                    if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
+                    if (beforePlan.revision !== planRevision) {
+                        throw new Error(
+                            "Plan changed after review opened; reload the review before applying this decision.",
+                        );
+                    }
+                    let nextMarkdown = reviewedPlan;
+                    let nextAttrs = reviewedAttrs;
+                    let status = beforePlan.attrs.status;
+                    if (status !== "draft" && status !== "feedback" && status !== "approved") {
+                        const reopenUpdates = buildPlanEventUpdates("review_reopened", status, {
+                            triageMeta: nextAttrs,
+                        });
+                        nextMarkdown = injectFrontMatter(nextMarkdown, reopenUpdates);
+                        nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
+                        status = "feedback";
+                    }
+                    const event = decision.approved ? "review_approved" : "review_feedback";
+                    const eventUpdates = buildPlanEventUpdates(event, status, {
+                        triageMeta: nextAttrs,
+                        failureReason: decision.feedback,
+                    });
+                    nextMarkdown = injectFrontMatter(nextMarkdown, eventUpdates);
+                    nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
+                    const revision = await writePlanMarkdownWithRevision(
+                        beforePlan.path,
+                        nextMarkdown,
+                        beforePlan.revision,
+                    );
+                    return { attrs: nextAttrs, revision };
+                },
             });
-            if (reopenedMeta) lifecycleMeta = { ...lifecycleMeta, ...reopenedMeta };
-        }
-
-        // Use the reopened status ("feedback") if we reopened, or the original if already reviewable
-        const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
-
-        if (decision.approved) {
-            const approvedMeta = await recordPlanEventImpl({
-                cwd,
-                planName,
-                event: "review_approved",
-                currentStatus: postReopenStatus,
-                details: { triageMeta: lifecycleMeta },
-            });
-            if (approvedMeta) lifecycleMeta = { ...lifecycleMeta, ...approvedMeta };
+            if (reviewTransition.status !== "committed") {
+                return {
+                    approved: false,
+                    feedback: reviewTransition.message ||
+                        "Plan changed while review was open. Reload the Plan and review again.",
+                    cancellationReason: "stale_plan_review",
+                };
+            }
+            const transitionValue =
+                /** @type {{ attrs?: import('../../plan-store.js').PlanFrontMatter, revision?: string }} */ (reviewTransition
+                    .value || {});
+            lifecycleMeta = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.attrs);
+            committedRevision = transitionValue.revision;
         } else {
-            const feedbackMeta = await recordPlanEventImpl({
-                cwd,
-                planName,
-                event: "review_feedback",
-                currentStatus: postReopenStatus,
-                details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
-            });
-            if (feedbackMeta) lifecycleMeta = { ...lifecycleMeta, ...feedbackMeta };
+            try {
+                committedRevision = await writePlanMarkdownWithRevision(planPath, reviewedPlan, planRevision);
+            } catch (error) {
+                if (error instanceof StalePlanWriteError) {
+                    return {
+                        approved: false,
+                        feedback: "Plan changed while review was open. Reload the Plan and review again.",
+                        cancellationReason: "stale_plan_review",
+                    };
+                }
+                throw error;
+            }
+
+            // External/non-canonical review paths keep the legacy two-step behavior.
+            const STATUS_ALLOWS_REVIEW = attrs.status === "draft" ||
+                attrs.status === "feedback" ||
+                attrs.status === "approved";
+            if (!STATUS_ALLOWS_REVIEW) {
+                const reopenedMeta = await recordPlanEventImpl({
+                    cwd,
+                    planName,
+                    event: "review_reopened",
+                    currentStatus: attrs.status,
+                    details: { triageMeta: lifecycleMeta },
+                    expectedRevision: committedRevision,
+                });
+                if (reopenedMeta) lifecycleMeta = { ...lifecycleMeta, ...reopenedMeta };
+            }
+            const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
+            if (decision.approved) {
+                const approvedMeta = await recordPlanEventImpl({
+                    cwd,
+                    planName,
+                    event: "review_approved",
+                    currentStatus: postReopenStatus,
+                    details: { triageMeta: lifecycleMeta },
+                    expectedRevision: committedRevision,
+                });
+                if (approvedMeta) lifecycleMeta = { ...lifecycleMeta, ...approvedMeta };
+            } else {
+                const feedbackMeta = await recordPlanEventImpl({
+                    cwd,
+                    planName,
+                    event: "review_feedback",
+                    currentStatus: postReopenStatus,
+                    details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
+                    expectedRevision: committedRevision,
+                });
+                if (feedbackMeta) lifecycleMeta = { ...lifecycleMeta, ...feedbackMeta };
+            }
+            const latestPlan = await loadPlan(cwd, planName).catch(() => null);
+            if (latestPlan?.revision) committedRevision = latestPlan.revision;
         }
 
         const images = await loadReviewFeedbackImages(decision, cwd);
@@ -300,6 +377,7 @@ export async function submitPlanForReview({
             feedback: decision.feedback,
             ...(decision.approvalAction && { approvalAction: decision.approvalAction }),
             ...(decision.approved && { planAttrs: lifecycleMeta }),
+            ...(committedRevision && { revision: committedRevision }),
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),
         };

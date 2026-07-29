@@ -32,7 +32,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
     await runValidationLoop({
         hostedSession,
         planName: "p",
-        planContent: "plan",
+        planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -120,7 +120,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     await runValidationLoop({
         hostedSession,
         planName: "p",
-        planContent: "plan",
+        planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -196,7 +196,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
     await runValidationLoop({
         hostedSession,
         planName: "p",
-        planContent: "plan",
+        planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -274,7 +274,7 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
     await runValidationLoop({
         hostedSession: reviewHostedSession,
         planName: "p",
-        planContent: "plan",
+        planContent: "# Plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -412,7 +412,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
     await runValidationLoop({
         hostedSession,
         planName: "p",
-        planContent: "plan",
+        planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({

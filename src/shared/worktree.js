@@ -534,11 +534,21 @@ export function resolveWorktreeParent(projectRoot, worktreeRoot) {
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string }} opts
+ * Create only the Git worktree/branch artifacts for an execution attempt. The
+ * caller must settle the returned proof into the registry in the same semantic
+ * transition that records Plan lifecycle metadata.
+ *
+ * @param {{ projectRoot: string, planName: string, planId: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string }} opts
+ * @returns {Promise<import('./worktree-registry.js').WorktreeRegistryEntry>}
  */
-export async function createExecutionWorktree({ projectRoot, planName, baseRef = "HEAD", baseBranch, worktreeRoot }) {
+export async function createExecutionWorktreeGitArtifacts(
+    { projectRoot, planName, planId, baseRef = "HEAD", baseBranch, worktreeRoot, attemptId },
+) {
     await assertGitRepository(projectRoot, "Creating an execution worktree");
-    const id = crypto.randomUUID().slice(0, 8);
+    if (typeof planId !== "string" || !planId) {
+        throw new Error(`Creating an execution worktree for ${planName} requires a stable planId.`);
+    }
+    const id = attemptId || crypto.randomUUID().slice(0, 8);
     const slug = slugify(planName);
     const branch = `${WORKTREE_BRANCH_PREFIX}${slug}-${id}`;
     const repoName = basename(projectRoot);
@@ -555,10 +565,10 @@ export async function createExecutionWorktree({ projectRoot, planName, baseRef =
         await runGit(path, ["submodule", "update", "--init", "--recursive"]);
     }
 
-    /** @type {import('./worktree-registry.js').WorktreeRegistryEntry} */
-    const entry = {
+    return {
         id,
         planName,
+        planId,
         baseBranch: resolvedBaseBranch,
         baseRef,
         baseCommit,
@@ -569,8 +579,43 @@ export async function createExecutionWorktree({ projectRoot, planName, baseRef =
         createdAt: now,
         updatedAt: now,
     };
+}
+
+/**
+ * Settle a previously-created Git execution worktree into the durable registry.
+ * @param {string} projectRoot
+ * @param {import('./worktree-registry.js').WorktreeRegistryEntry} entry
+ */
+export async function settleExecutionWorktreeRegistry(projectRoot, entry) {
     await addEntry(projectRoot, entry);
     return entry;
+}
+
+/**
+ * Backward-compatible convenience wrapper. New lifecycle code should call
+ * createExecutionWorktreeGitArtifacts() and settleExecutionWorktreeRegistry()
+ * from a semantic transition boundary instead.
+ *
+ * @param {{ projectRoot: string, planName: string, planId?: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string, allowRegistryMutation?: "legacy-test-only" }} opts
+ */
+export async function createExecutionWorktree(opts) {
+    if (opts.allowRegistryMutation !== "legacy-test-only") {
+        throw new Error(
+            "createExecutionWorktree is quarantined because it mutates the registry outside the semantic transition boundary; use createExecutionWorktreeGitArtifacts() and settleExecutionWorktreeRegistry() inside a lifecycle transition.",
+        );
+    }
+    const entry = await createExecutionWorktreeGitArtifacts({
+        ...opts,
+        planId: opts.planId || `legacy-test:${opts.planName}`,
+    });
+    try {
+        return await settleExecutionWorktreeRegistry(opts.projectRoot, entry);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+            `Execution worktree was created but registry settlement failed for attempt ${entry.id}; inspect ${entry.path} on branch ${entry.branch} before removing it: ${message}`,
+        );
+    }
 }
 
 /**
@@ -1161,7 +1206,14 @@ export async function removeExecutionWorktree({ projectRoot, path, branch, force
             await runGit(projectRoot, ["worktree", "remove", "--force", path]);
         }
     }
-    if (branch) await runGit(projectRoot, ["branch", "-D", branch]).catch(() => {});
+    if (branch) {
+        const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);
+        const hasMergedProof = merged.code === 0 &&
+            merged.stdout.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === branch);
+        if (hasMergedProof) {
+            await runGit(projectRoot, ["branch", "-d", branch]);
+        }
+    }
 }
 
 /** @param {{ projectRoot: string }} opts */
@@ -1171,12 +1223,16 @@ export async function pruneMissingWorktrees({ projectRoot }) {
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, worktreeId?: string }} opts
+ * @param {{ projectRoot: string, planName: string, planId: string, worktreeId?: string }} opts
  */
-export async function findReusableWorktree({ projectRoot, planName, worktreeId }) {
+export async function findReusableWorktree({ projectRoot, planName, planId, worktreeId }) {
+    if (typeof planId !== "string" || !planId) {
+        throw new Error(`Finding a reusable worktree for ${planName} requires a stable planId.`);
+    }
     await pruneStaleEntries(projectRoot);
     const entries = await listEntries(projectRoot);
     for (const entry of entries) {
+        if (entry.planId !== planId) continue;
         if (entry.planName !== planName) continue;
         if (worktreeId && entry.id !== worktreeId) continue;
         if (["active", "completed", "execution_failed", "validation_failed", "merge_conflict"].includes(entry.status)) {

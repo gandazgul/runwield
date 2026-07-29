@@ -18,6 +18,7 @@ import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } 
  * @property {(commandName: string) => boolean} [printCommandHelp]
  * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansUiCommand]
  * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansArchiveCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansDoctorCommand]
  * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansReadCommand]
  * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansShareCommand]
  * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansPullCommand]
@@ -100,6 +101,7 @@ export async function runPlansCommand(argv, options = {}) {
         printCommandHelp: printCommandHelpDep,
         runPlansUiCommand: runPlansUiCommandDep,
         runPlansArchiveCommand: runPlansArchiveCommandDep,
+        runPlansDoctorCommand: runPlansDoctorCommandDep,
         runPlansReadCommand: runPlansReadCommandDep,
         runPlansShareCommand: runPlansShareCommandDep,
         runPlansPullCommand: runPlansPullCommandDep,
@@ -116,6 +118,12 @@ export async function runPlansCommand(argv, options = {}) {
         const runPlansArchiveCommand = runPlansArchiveCommandDep ||
             (await import("./archive.js")).runPlansArchiveCommand;
         await runPlansArchiveCommand(argv.slice(1), /** @type {any} */ (options));
+        return;
+    }
+    if (argv[0] === "doctor") {
+        const runPlansDoctorCommand = runPlansDoctorCommandDep ||
+            (await import("./doctor.js")).runPlansDoctorCommand;
+        await runPlansDoctorCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "read") {

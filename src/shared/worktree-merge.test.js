@@ -17,7 +17,12 @@ Deno.test("mergeExecutionWorktree targets recorded branch without changing prima
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Target Branch Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Target Branch Merge",
+            worktreeRoot,
+        });
         assertEquals(worktree.baseBranch, "feature-base");
         await git(projectRoot, ["checkout", "main"]);
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
@@ -55,7 +60,12 @@ Deno.test("mergeExecutionWorktree refuses to update target branch checked out in
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Checked Out Target", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Checked Out Target",
+            worktreeRoot,
+        });
         await git(projectRoot, ["checkout", "main"]);
         await git(projectRoot, ["worktree", "add", targetCheckout, "feature-base"]);
         const worktreePath = worktree.path;
@@ -99,6 +109,7 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
         worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Checked Out Target No Side Effects",
             worktreeRoot,
@@ -152,7 +163,12 @@ Deno.test("mergeExecutionWorktree requires targetBranch to be a local branch, no
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Tag Is Not Target", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Tag Is Not Target",
+            worktreeRoot,
+        });
         await git(projectRoot, ["tag", "release-target"]);
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
 
@@ -191,7 +207,12 @@ Deno.test("mergeExecutionWorktree publishes and cleans up a repaired detached me
     let mergeWorktreePath;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Repaired Detached Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Repaired Detached Merge",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${projectRoot}/README.md`, "base\ntarget\n");
         await git(projectRoot, ["add", "README.md"]);
         await git(projectRoot, ["commit", "-m", "target change"]);
@@ -249,7 +270,12 @@ Deno.test("mergeExecutionWorktree abandons repaired worktree when Engineer made 
     let mergeWorktreePath;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Retryable Branch Repair", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Retryable Branch Repair",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${projectRoot}/README.md`, "base\ntarget\n");
         await git(projectRoot, ["add", "README.md"]);
         await git(projectRoot, ["commit", "-m", "target change"]);
@@ -310,7 +336,12 @@ Deno.test("mergeExecutionWorktree abandons stale repaired worktree and retries c
     let mergeWorktreePath;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Stale Repaired Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Stale Repaired Merge",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${projectRoot}/README.md`, "base\ntarget\n");
         await git(projectRoot, ["add", "README.md"]);
         await git(projectRoot, ["commit", "-m", "target change"]);
@@ -381,6 +412,7 @@ Deno.test("mergeExecutionWorktree abandons repaired worktree for current-root ch
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
         worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Checked Out Repair Fallback",
             worktreeRoot,
@@ -448,6 +480,7 @@ Deno.test("mergeExecutionWorktree annotates current-root target fallback conflic
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
         worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Checked Out Target Conflict Metadata",
             worktreeRoot,
@@ -495,6 +528,7 @@ Deno.test("mergeExecutionWorktree annotates legacy current-checkout conflicts fo
     let worktree;
     try {
         worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Legacy Checkout Conflict Metadata",
             worktreeRoot,
@@ -543,8 +577,18 @@ Deno.test("mergeExecutionWorktree handles target branch advancing before a later
     let second;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        first = await createExecutionWorktree({ projectRoot, planName: "First Merge", worktreeRoot });
-        second = await createExecutionWorktree({ projectRoot, planName: "Second Merge", worktreeRoot });
+        first = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "First Merge",
+            worktreeRoot,
+        });
+        second = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Second Merge",
+            worktreeRoot,
+        });
         await git(projectRoot, ["checkout", "main"]);
         await Deno.writeTextFile(`${first.path}/first.txt`, "first\n");
         await Deno.writeTextFile(`${second.path}/second.txt`, "second\n");
@@ -589,7 +633,12 @@ Deno.test("mergeExecutionWorktree marks target branch advancement as non-repaira
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
         const expectedTargetHead = await git(projectRoot, ["rev-parse", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Target Advance", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Target Advance",
+            worktreeRoot,
+        });
         await git(projectRoot, ["checkout", "main"]);
         await git(projectRoot, ["checkout", "feature-base"]);
         await Deno.writeTextFile(`${projectRoot}/target.txt`, "target advanced\n");
@@ -626,7 +675,12 @@ Deno.test("mergeExecutionWorktree reports missing target branch without merging 
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Missing Target", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Missing Target",
+            worktreeRoot,
+        });
         const worktreePath = worktree.path;
         const worktreeBranch = worktree.branch;
         await Deno.writeTextFile(`${worktreePath}/feature.txt`, "feature\n");
@@ -663,7 +717,12 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Uncommitted Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Uncommitted Merge",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nchanged\n");
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
 
@@ -707,7 +766,12 @@ Deno.test("checkpointExecutionWorktree commits tracked and untracked implementat
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Checkpoint", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Checkpoint",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\ncheckpointed\n");
         await Deno.writeTextFile(`${worktree.path}/new-feature.js`, "export const ready = true;\n");
 
@@ -742,7 +806,12 @@ Deno.test("removeExecutionWorktree preserves unexpected dirty work unless force 
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Preserve Dirty", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Preserve Dirty",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/valuable-repair.js`, "export const repaired = true;\n");
 
         await assertRejects(
@@ -778,7 +847,12 @@ Deno.test("mergeExecutionWorktree allows unrelated dirty primary checkout change
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Unrelated Dirty Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Unrelated Dirty Merge",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
         await git(worktree.path, ["add", "."]);
         await git(worktree.path, ["commit", "-m", "feature"]);
@@ -813,7 +887,12 @@ Deno.test("mergeExecutionWorktree refuses dirty primary changes that overlap bra
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Dirty Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Dirty Merge",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nfeature\n");
         await git(worktree.path, ["add", "."]);
         await git(worktree.path, ["commit", "-m", "feature"]);
@@ -845,7 +924,12 @@ Deno.test("mergeExecutionWorktree continues an in-progress resolved merge", asyn
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Continue Merge", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Continue Merge",
+            worktreeRoot,
+        });
         const branch = worktree.branch;
         const worktreePath = worktree.path;
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nfeature\n");

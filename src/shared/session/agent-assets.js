@@ -68,11 +68,6 @@ export function extractBundledAgentDefs() {
         const cacheDir = bundledAgentDefsCacheDir();
         if (!cacheDir || !(await directoryExists(AGENT_DEFS_DIR))) return null;
         try {
-            await Deno.remove(cacheDir, { recursive: true });
-        } catch {
-            // The extraction target does not exist on first use.
-        }
-        try {
             await copyTreeFromBundle(AGENT_DEFS_DIR, cacheDir);
             return cacheDir;
         } catch {
@@ -106,20 +101,35 @@ export function getBundledAgentDefsPath() {
     return pathPromise;
 }
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** @param {string} relativePath @returns {Promise<string>} */
 export async function ensureBundledAgentDefFile(relativePath) {
+    const sourcePath = join(AGENT_DEFS_DIR, relativePath);
+    if (await fileExists(sourcePath)) return sourcePath;
+
     const bundledDir = await getBundledAgentDefsPath();
     const targetPath = join(bundledDir, relativePath);
     if (await fileExists(targetPath)) return targetPath;
 
-    const sourcePath = join(AGENT_DEFS_DIR, relativePath);
-    try {
-        const bytes = await Deno.readFile(sourcePath);
-        await Deno.mkdir(dirname(targetPath), { recursive: true });
-        await Deno.writeFile(targetPath, bytes);
-        return targetPath;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Bundled agent asset is missing: ${relativePath}. ${message}`);
+    /** @type {unknown} */
+    let lastError;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            const bytes = await Deno.readFile(sourcePath);
+            await Deno.mkdir(dirname(targetPath), { recursive: true });
+            await Deno.writeFile(targetPath, bytes);
+            return targetPath;
+        } catch (error) {
+            if (await fileExists(targetPath)) return targetPath;
+            lastError = error;
+            if (!(error instanceof Deno.errors.NotFound || error instanceof Deno.errors.AlreadyExists)) break;
+            await delay(20 * (attempt + 1));
+        }
     }
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Bundled agent asset is missing: ${relativePath}. ${message}`);
 }

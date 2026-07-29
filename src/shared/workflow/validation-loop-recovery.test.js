@@ -55,6 +55,7 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: "plan-p",
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit,
@@ -145,7 +146,10 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
 
         assertEquals(result.kind, "verified");
         assertEquals(ciRan, true);
-        assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalPlan.markdown);
+        const restoredPlan = await loadPlan(worktreePath, "p");
+        if (!restoredPlan) throw new Error("Expected restored worktree Plan");
+        assertEquals(restoredPlan.body, canonicalPlan.body);
+        assertEquals(restoredPlan.attrs.status, canonicalPlan.attrs.status);
         assertEquals(uiAPI.messages.filter(isRestorationMessage).length, 1);
         assertEquals(events.includes("validation_failed"), false);
     } finally {
@@ -460,7 +464,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         }),
     });
 
-    assertEquals(actions, ["registry-failed", "plan-event-failed", "registry-failed", "plan-event-failed"]);
+    assertEquals(actions, ["registry-failed", "plan-event-failed", "registry-failed"]);
     assertEquals(uiAPI.promptSelections, ["prompted"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>

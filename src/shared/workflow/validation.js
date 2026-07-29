@@ -6,7 +6,14 @@
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, isPlannedChangeClassification, normalizePlanClassification } from "../../constants.js";
-import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
+import {
+    findPlansByParent,
+    getPlanRevisionForText,
+    isPlanDependencySatisfiedStatus,
+    loadPlan,
+    resolvePlanExecutionPolicy,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName, loadAgentDefFromPath } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
@@ -38,6 +45,7 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
@@ -136,6 +144,46 @@ async function readBundledPromptFrontMatter(relativePath, readTextFile, ensurePr
     return normalizeBundledPromptFrontMatter(
         extractYaml(await Deno.readTextFile(join(AGENT_DEFS_DIR, relativePath))),
     );
+}
+/** @param {import('../../plan-store.js').PlanFrontMatter} attrs */
+function hasDirectDeliveryEvidence(attrs) {
+    if (attrs.status !== "verified") return true;
+    const evidence = attrs.deliveryEvidence;
+    return Boolean(
+        evidence && typeof evidence === "object" &&
+            (evidence.mode === "worktree_merge" || evidence.mode === "non_git_in_place"),
+    );
+}
+
+/** @param {string} projectRoot @param {string} planName */
+async function loadCurrentPlanRevision(projectRoot, planName) {
+    const plan = await loadPlan(projectRoot, planName).catch(() => null);
+    return plan?.revision;
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} planName
+ */
+async function loadDirectDeliveryHierarchySnapshot(projectRoot, planName) {
+    const plan = await loadPlan(projectRoot, planName);
+    if (!plan) throw new Error(`Plan not found: ${planName}`);
+    const parentValue = /** @type {{ parentPlan?: unknown }} */ (plan.attrs || {}).parentPlan;
+    const parentPlan = typeof parentValue === "string" && parentValue.trim() ? parentValue : undefined;
+    /** @type {Array<{ name: string, revision: string, status: string | undefined, deliveryEvidence: unknown }>} */
+    const siblingPlans = [];
+    if (parentPlan) {
+        for (const sibling of await findPlansByParent(projectRoot, parentPlan).catch(() => [])) {
+            siblingPlans.push({
+                name: sibling.name,
+                revision: await getPlanRevisionForText(await Deno.readTextFile(sibling.path)),
+                status: sibling.attrs.status,
+                deliveryEvidence: sibling.attrs.deliveryEvidence,
+            });
+        }
+        siblingPlans.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return { revision: plan.revision, parentPlan, siblingPlans };
 }
 
 /**
@@ -1530,6 +1578,8 @@ export async function runMechanicalValidation({
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
+ *   runValidationOutcomeTransition?: typeof runValidationOutcomeTransition,
+ *   runDirectDeliveryPublicationTransition?: typeof runDirectDeliveryPublicationTransition,
  *   switchActiveAgent?: typeof switchActiveAgent,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef,
@@ -1593,6 +1643,60 @@ export async function runValidationLoop({
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
+    const runValidationOutcomeTransitionImpl = __deps?.runValidationOutcomeTransition ||
+        (__deps
+            ? async (opts) => {
+                try {
+                    return {
+                        status: /** @type {const} */ ("committed"),
+                        transitionId: "test-validation-transition",
+                        operation: `validation_${opts.outcome}`,
+                        value: {
+                            value: await opts.settle({
+                                transitionId: "test-validation-transition",
+                                beforePlan: null,
+                                markEffect: () => Promise.resolve(),
+                            }),
+                        },
+                    };
+                } catch (error) {
+                    return {
+                        status: /** @type {const} */ ("needs_recovery"),
+                        transitionId: "test-validation-transition",
+                        operation: `validation_${opts.outcome}`,
+                        message: error instanceof Error ? error.message : String(error),
+                    };
+                }
+            }
+            : runValidationOutcomeTransition);
+    const runDirectDeliveryPublicationTransitionImpl = __deps?.runDirectDeliveryPublicationTransition ||
+        (__deps
+            ? async (opts) => {
+                try {
+                    return {
+                        status: /** @type {const} */ ("committed"),
+                        transitionId: "test-direct-delivery-transition",
+                        operation: "direct_delivery_publication",
+                        value: {
+                            value: await opts.publish({
+                                transitionId: "test-direct-delivery-transition",
+                                beforePlan: null,
+                                markEffect: () => Promise.resolve(),
+                                registerRollback: () => {},
+                            }),
+                        },
+                    };
+                } catch (error) {
+                    if (error && typeof error === "object" && "mergeFailureKind" in error) throw error;
+                    return {
+                        status: /** @type {const} */ ("needs_recovery"),
+                        transitionId: "test-direct-delivery-transition",
+                        operation: "direct_delivery_publication",
+                        message: error instanceof Error ? error.message : String(error),
+                    };
+                }
+            }
+            : runDirectDeliveryPublicationTransition);
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const loadReviewerFeedbackEngineerDefImpl = __deps?.loadReviewerFeedbackEngineerDef ||
         loadReviewerFeedbackEngineerDef;
@@ -2870,26 +2974,6 @@ export async function runValidationLoop({
                     }
                     const deliveryEvidenceKey =
                         `${deliveryEvidence.executionCommit}:${deliveryEvidence.targetHeadBeforeMerge}`;
-                    if (planName && planName !== "quick-fix" && stagedDeliveryEvidenceKey !== deliveryEvidenceKey) {
-                        const stagingResult = await stageValidationPassedImpl({
-                            projectRoot,
-                            executionCwd,
-                            planName,
-                            details: {
-                                triageMeta,
-                                executionMode: "worktree",
-                                deliveryEvidence,
-                                worktreeStatus: "merged",
-                                cleanupMergedWorktrees,
-                                ...(humanReviewMetadata || {}),
-                            },
-                        });
-                        preservedPlanPaths = stagingResult.planPaths;
-                        stagedDeliveryEvidenceKey = deliveryEvidenceKey;
-                    }
-                    for (const relativePath of preservedPlanPaths) {
-                        primaryPlanSnapshots.push(await preparePrimaryPlanPathImpl({ projectRoot, relativePath }));
-                    }
                     progress = updateValidationProgress(progress, { stage: "merge", checks: { merge: "running" } });
                     emitRunWieldSystemStatus(
                         hostedSession,
@@ -2899,23 +2983,263 @@ export async function runValidationLoop({
                         "info",
                         progress,
                     );
-                    const mergeResult = await mergeExecutionWorktreeImpl({
-                        projectRoot,
-                        branch: worktreeBranch,
-                        targetBranch: worktreeBaseBranch,
-                        worktreePath: executionCwd,
-                        repairMergeWorktreePath: pendingRepairMergeWorktreePath,
-                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
-                            ? deliveryEvidence.targetHeadBeforeMerge
-                            : undefined,
-                        planName,
-                        planDescription: triageMeta?.summary,
-                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
-                            ? deliveryEvidence.executionCommit
-                            : undefined,
-                        allowedDirtyPaths: preservedPlanPaths.length > 0 ? preservedPlanPaths : [planPath],
-                        preservePlanPaths: preservedPlanPaths,
-                    });
+                    const directDeliveryHierarchy = planName && planName !== "quick-fix"
+                        ? await loadDirectDeliveryHierarchySnapshot(projectRoot, planName).catch(() => ({
+                            revision: undefined,
+                            parentPlan: undefined,
+                            siblingPlans: [],
+                        }))
+                        : { revision: undefined, parentPlan: undefined, siblingPlans: [] };
+                    const directDeliveryParentPlan = directDeliveryHierarchy.parentPlan;
+                    const directDeliverySiblingPlans = directDeliveryHierarchy.siblingPlans;
+                    const directDeliverySiblingPlanNames = directDeliverySiblingPlans.map((plan) => plan.name);
+                    let mergeVerificationAlreadyProved = false;
+                    const mergeResult = await (planName && planName !== "quick-fix"
+                        ? (async () => {
+                            /** @type {Awaited<ReturnType<typeof mergeExecutionWorktreeImpl>> | undefined} */
+                            let result;
+                            return await runDirectDeliveryPublicationTransitionImpl({
+                                projectRoot,
+                                planName,
+                                expectedRevision: directDeliveryHierarchy.revision,
+                                worktreeId,
+                                targetRef: worktreeBaseBranch,
+                                parentPlan: directDeliveryParentPlan,
+                                siblingPlanNames: directDeliverySiblingPlanNames,
+                                publicationProof: {
+                                    deliveryEvidence,
+                                    cleanupMergedWorktrees,
+                                    phase: "stage_merge_settle",
+                                },
+                                publish: async ({ beforePlan, markEffect, registerRollback }) => {
+                                    const lockedParentValue =
+                                        /** @type {{ parentPlan?: unknown }} */ (beforePlan?.attrs || {})
+                                            .parentPlan;
+                                    const lockedParentPlan = typeof lockedParentValue === "string" &&
+                                            lockedParentValue.trim()
+                                        ? lockedParentValue
+                                        : undefined;
+                                    if (lockedParentPlan !== directDeliveryParentPlan) {
+                                        throw new Error(
+                                            `Direct Delivery parent changed while publishing ${planName}; retry validation with the current Plan hierarchy.`,
+                                        );
+                                    }
+                                    /** @type {Array<{ name: string, revision: string, status: string | undefined, deliveryEvidence: unknown }>} */
+                                    const lockedSiblingPlans = [];
+                                    if (directDeliveryParentPlan) {
+                                        for (
+                                            const plan of await findPlansByParent(
+                                                projectRoot,
+                                                directDeliveryParentPlan,
+                                            ).catch(() => [])
+                                        ) {
+                                            lockedSiblingPlans.push({
+                                                name: plan.name,
+                                                revision: await getPlanRevisionForText(
+                                                    await Deno.readTextFile(plan.path),
+                                                ),
+                                                status: plan.attrs.status,
+                                                deliveryEvidence: plan.attrs.deliveryEvidence,
+                                            });
+                                        }
+                                        lockedSiblingPlans.sort((a, b) => a.name.localeCompare(b.name));
+                                    }
+                                    const lockedSiblingPlanNames = lockedSiblingPlans.map((plan) => plan.name);
+                                    if (
+                                        lockedSiblingPlanNames.join("\n") !== directDeliverySiblingPlanNames.join("\n")
+                                    ) {
+                                        throw new Error(
+                                            `Direct Delivery sibling set changed while publishing ${planName}; retry validation with the current parent Epic child set.`,
+                                        );
+                                    }
+                                    for (const expected of directDeliverySiblingPlans) {
+                                        const locked = lockedSiblingPlans.find((plan) => plan.name === expected.name);
+                                        if (
+                                            !locked || locked.revision !== expected.revision ||
+                                            locked.status !== expected.status ||
+                                            JSON.stringify(locked.deliveryEvidence ?? null) !==
+                                                JSON.stringify(expected.deliveryEvidence ?? null)
+                                        ) {
+                                            throw new Error(
+                                                `Direct Delivery sibling ${expected.name} changed while publishing ${planName}; retry validation with current child evidence.`,
+                                            );
+                                        }
+                                        const projectedAttrs =
+                                            /** @type {import('../../plan-store.js').PlanFrontMatter} */ ({
+                                                status: locked.name === planName ? "verified" : locked.status,
+                                                deliveryEvidence: locked.name === planName
+                                                    ? deliveryEvidence
+                                                    : locked.deliveryEvidence,
+                                            });
+                                        if (
+                                            !isPlanDependencySatisfiedStatus(projectedAttrs.status) ||
+                                            !hasDirectDeliveryEvidence(projectedAttrs)
+                                        ) {
+                                            throw new Error(
+                                                `Direct Delivery sibling ${expected.name} is not eligible for Epic publication; retry after every child has mode-appropriate Delivery Evidence.`,
+                                            );
+                                        }
+                                    }
+                                    if (stagedDeliveryEvidenceKey !== deliveryEvidenceKey) {
+                                        const stagingResult = await stageValidationPassedImpl({
+                                            projectRoot,
+                                            executionCwd,
+                                            planName,
+                                            details: {
+                                                triageMeta,
+                                                executionMode: "worktree",
+                                                deliveryEvidence,
+                                                worktreeStatus: "merged",
+                                                cleanupMergedWorktrees,
+                                                ...(humanReviewMetadata || {}),
+                                            },
+                                        });
+                                        preservedPlanPaths = stagingResult.planPaths;
+                                        stagedDeliveryEvidenceKey = deliveryEvidenceKey;
+                                    }
+                                    for (const relativePath of preservedPlanPaths) {
+                                        primaryPlanSnapshots.push(
+                                            await preparePrimaryPlanPathImpl({ projectRoot, relativePath }),
+                                        );
+                                    }
+                                    if (primaryPlanSnapshots.length > 0) {
+                                        registerRollback("restore_primary_plan_snapshots", async () => {
+                                            if (mergeCompleted) return;
+                                            for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                                                await restorePrimaryPlanPathImpl(snapshot);
+                                            }
+                                            primaryPlanSnapshots.splice(0, primaryPlanSnapshots.length);
+                                        });
+                                    }
+                                    await markEffect("direct_delivery_publication_started", {
+                                        planName,
+                                        worktreeId,
+                                        worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        preservedPlanPaths,
+                                    });
+                                    result = await mergeExecutionWorktreeImpl({
+                                        projectRoot,
+                                        branch: worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        worktreePath: executionCwd,
+                                        repairMergeWorktreePath: pendingRepairMergeWorktreePath,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                        planName,
+                                        planDescription: triageMeta?.summary,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        allowedDirtyPaths: preservedPlanPaths.length > 0
+                                            ? preservedPlanPaths
+                                            : [planPath],
+                                        preservePlanPaths: preservedPlanPaths,
+                                    });
+                                    mergeCompleted = true;
+                                    mergeBackCompleted = true;
+                                    sealedExecutionMetadataCommit = result?.executionMetadataCommit;
+                                    await markEffect("direct_delivery_target_ref_moved", {
+                                        planName,
+                                        worktreeId,
+                                        worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        updatedPrimaryCheckout: result?.updatedPrimaryCheckout,
+                                        executionMetadataCommit: result?.executionMetadataCommit,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                    });
+                                    let mergeVerificationFailure = "";
+                                    if (deliveryEvidence?.mode === "worktree_merge") {
+                                        const candidateMerged = await isCommitAncestorOfBranchImpl(
+                                            projectRoot,
+                                            deliveryEvidence.executionCommit,
+                                            deliveryEvidence.targetBranch,
+                                        );
+                                        if (!candidateMerged) {
+                                            mergeVerificationFailure =
+                                                `Validated candidate ${deliveryEvidence.executionCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
+                                        }
+                                    }
+                                    if (
+                                        !mergeVerificationFailure && result?.executionMetadataCommit &&
+                                        deliveryEvidence?.mode === "worktree_merge"
+                                    ) {
+                                        const metadataMerged = await isCommitAncestorOfBranchImpl(
+                                            projectRoot,
+                                            result.executionMetadataCommit,
+                                            deliveryEvidence.targetBranch,
+                                        );
+                                        if (!metadataMerged) {
+                                            mergeVerificationFailure =
+                                                `Validation metadata commit ${result.executionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
+                                        }
+                                    }
+                                    const mergeVerification = mergeVerificationFailure
+                                        ? { merged: false, message: mergeVerificationFailure }
+                                        : await verifyExecutionWorktreeMergedImpl({
+                                            projectRoot,
+                                            worktreeBranch,
+                                            worktreeBaseBranch,
+                                        });
+                                    if (!mergeVerification.merged) {
+                                        throw new Error(
+                                            `Direct Delivery publication requires reconciliation: ${mergeVerification.message}`,
+                                        );
+                                    }
+                                    mergeVerificationAlreadyProved = true;
+                                    if (result?.updatedPrimaryCheckout === false) {
+                                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                                            await restorePrimaryPlanPathImpl(snapshot);
+                                        }
+                                        primaryPlanSnapshots.splice(0, primaryPlanSnapshots.length);
+                                    }
+                                    if (worktreeId) {
+                                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                            status: "merged",
+                                        });
+                                        await markEffect("worktree_registry_updated", { worktreeId, status: "merged" });
+                                    }
+                                    return { mergeResult: result, siblingPlanNames: lockedSiblingPlanNames };
+                                },
+                            }).then((transition) => {
+                                if (transition.status !== "committed") {
+                                    throw new Error(
+                                        transition.message ||
+                                            `Direct Delivery publication transaction did not commit for ${planName}.`,
+                                    );
+                                }
+                                return result;
+                            });
+                        })()
+                        : await mergeExecutionWorktreeImpl({
+                            projectRoot,
+                            branch: worktreeBranch,
+                            targetBranch: worktreeBaseBranch,
+                            worktreePath: executionCwd,
+                            repairMergeWorktreePath: pendingRepairMergeWorktreePath,
+                            expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                ? deliveryEvidence.targetHeadBeforeMerge
+                                : undefined,
+                            planName,
+                            planDescription: triageMeta?.summary,
+                            sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                ? deliveryEvidence.executionCommit
+                                : undefined,
+                            allowedDirtyPaths: preservedPlanPaths.length > 0 ? preservedPlanPaths : [planPath],
+                            preservePlanPaths: preservedPlanPaths,
+                        }));
                     mergeCompleted = true;
                     mergeBackCompleted = true;
                     sealedExecutionMetadataCommit = mergeResult?.executionMetadataCommit;
@@ -2962,8 +3286,8 @@ export async function runValidationLoop({
                                     `Validation metadata commit ${sealedExecutionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
                             }
                         }
-                        const mergeVerification = mergeVerificationFailure
-                            ? { merged: false, message: mergeVerificationFailure }
+                        const mergeVerification = mergeVerificationFailure || mergeVerificationAlreadyProved
+                            ? { merged: mergeVerificationAlreadyProved, message: mergeVerificationFailure }
                             : await verifyExecutionWorktreeMergedImpl({
                                 projectRoot,
                                 worktreeBranch,
@@ -2990,6 +3314,19 @@ export async function runValidationLoop({
                                 verificationFailure: mergeVerificationFailure,
                             },
                         });
+                        if (planName && planName !== "quick-fix") {
+                            emitRunWieldSystemStatus(
+                                hostedSession,
+                                `Direct Delivery publication needs reconciliation after target-ref verification failed: ${reason}`,
+                                true,
+                                progress,
+                            );
+                            postMergeVerificationHalted = true;
+                            executionComplete = false;
+                            haltReason =
+                                `Direct Delivery publication needs reconciliation: ${mergeVerificationFailure}`;
+                            break;
+                        }
                         if (mergeRepairAttempts < maxMergeRepairAttempts) {
                             mergeRepairAttempts++;
                             const repairCwd = pendingRepairMergeWorktreePath || executionCwd || projectRoot;
@@ -3053,47 +3390,77 @@ export async function runValidationLoop({
                             true,
                             progress,
                         );
-                        if (worktreeId) {
-                            try {
-                                await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
-                                    status: "merge_conflict",
-                                });
-                            } catch (registryError) {
-                                const registryReason = registryError instanceof Error
-                                    ? registryError.message
-                                    : String(registryError);
-                                emitRunWieldSystemStatus(
-                                    hostedSession,
-                                    `Could not update worktree registry after merge verification failure: ${registryReason}`,
-                                    true,
-                                );
-                            }
-                        }
                         if (planName && planName !== "quick-fix") {
-                            try {
-                                await recordPlanEventImpl({
-                                    cwd: projectRoot,
-                                    planName,
-                                    event: "worktree_merge_failed",
-                                    currentStatus: "implemented",
-                                    details: {
-                                        triageMeta,
-                                        failureReason: reason,
-                                        worktreePath: executionCwd,
-                                        worktreeBranch,
-                                        worktreeBaseBranch,
-                                    },
-                                });
-                            } catch (metadataError) {
-                                const metadataReason = metadataError instanceof Error
-                                    ? metadataError.message
-                                    : String(metadataError);
+                            const transition = await runValidationOutcomeTransitionImpl({
+                                projectRoot,
+                                planName,
+                                expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                                worktreeId,
+                                targetRef: worktreeBaseBranch,
+                                outcome: "merge_failed",
+                                proof: { reason, worktreePath: executionCwd, worktreeBranch, worktreeBaseBranch },
+                                settle: async ({ markEffect }) => {
+                                    /** @type {Error | undefined} */
+                                    let registryFailure;
+                                    if (worktreeId) {
+                                        try {
+                                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                                status: "merge_conflict",
+                                            });
+                                            await markEffect("worktree_registry_updated", {
+                                                worktreeId,
+                                                status: "merge_conflict",
+                                            });
+                                        } catch (error) {
+                                            registryFailure = error instanceof Error ? error : new Error(String(error));
+                                            emitRunWieldSystemStatus(
+                                                hostedSession,
+                                                `Could not update worktree registry after merge verification failure: ${registryFailure.message}`,
+                                                true,
+                                            );
+                                        }
+                                    }
+                                    let attrs;
+                                    try {
+                                        attrs = await recordPlanEventImpl({
+                                            cwd: projectRoot,
+                                            planName,
+                                            event: "worktree_merge_failed",
+                                            currentStatus: "implemented",
+                                            details: {
+                                                triageMeta,
+                                                failureReason: reason,
+                                                worktreePath: executionCwd,
+                                                worktreeBranch,
+                                                worktreeBaseBranch,
+                                            },
+                                        });
+                                    } catch (metadataError) {
+                                        const metadataReason = metadataError instanceof Error
+                                            ? metadataError.message
+                                            : String(metadataError);
+                                        emitRunWieldSystemStatus(
+                                            hostedSession,
+                                            `Could not update plan metadata after merge verification failure: ${metadataReason}`,
+                                            true,
+                                        );
+                                        throw metadataError;
+                                    }
+                                    if (registryFailure) throw registryFailure;
+                                    return attrs;
+                                },
+                            });
+                            if (transition.status !== "committed") {
                                 emitRunWieldSystemStatus(
                                     hostedSession,
-                                    `Could not update plan metadata after merge verification failure: ${metadataReason}`,
+                                    `Could not settle merge verification failure transaction: ${transition.message}`,
                                     true,
                                 );
                             }
+                        } else if (worktreeId) {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "merge_conflict",
+                            });
                         }
                         postMergeVerificationHalted = true;
                         executionComplete = false;
@@ -3120,21 +3487,7 @@ export async function runValidationLoop({
                             true,
                         );
                     }
-                    if (worktreeId) {
-                        try {
-                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
-                        } catch (registryError) {
-                            const registryReason = registryError instanceof Error
-                                ? registryError.message
-                                : String(registryError);
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Worktree merged, but updating its registry status failed: ${registryReason}`,
-                                true,
-                            );
-                        }
-                    }
-                    if (cleanupMergedWorktrees && executionCwd) {
+                    if (planName && planName !== "quick-fix" && cleanupMergedWorktrees && executionCwd) {
                         try {
                             await removeExecutionWorktreeImpl({
                                 projectRoot,
@@ -3151,7 +3504,7 @@ export async function runValidationLoop({
                                 : String(cleanupError);
                             emitRunWieldSystemStatus(
                                 hostedSession,
-                                `Worktree merged, but cleanup failed: ${cleanupReason}`,
+                                `Worktree published and registry settlement completed, but cleanup needs manual follow-up: ${cleanupReason}`,
                                 true,
                             );
                         }
@@ -3192,18 +3545,42 @@ export async function runValidationLoop({
                         });
                         if (planName && planName !== "quick-fix" && executionCwd) {
                             try {
-                                await updatePlanFrontMatterImpl(executionCwd, planName, {
-                                    status: "implemented",
-                                    verifiedAt: null,
-                                    deliveryEvidence: null,
-                                    executionMode: "worktree",
-                                    executionBaselineTree: baselineTree,
-                                    worktreeId,
-                                    worktreePath: executionCwd,
-                                    worktreeBranch,
-                                    worktreeBaseBranch,
-                                    worktreeStatus: "completed",
+                                const rollbackTransition = await runValidationOutcomeTransitionImpl({
+                                    projectRoot: executionCwd,
+                                    planName,
+                                    expectedRevision: await loadCurrentPlanRevision(executionCwd, planName),
+                                    outcome: "retry",
+                                    proof: { reason: "target_branch_advanced_metadata_rollback" },
+                                    settle: async ({ beforePlan }) => {
+                                        // Keep the attempt's worktree metadata: the retry below
+                                        // republishes from this same attempt, so clearing it would
+                                        // strand the worktree.
+                                        await updatePlanFrontMatterImpl(
+                                            executionCwd,
+                                            planName,
+                                            {
+                                                status: "implemented",
+                                                verifiedAt: null,
+                                                deliveryEvidence: null,
+                                                executionMode: "worktree",
+                                                executionBaselineTree: baselineTree,
+                                                worktreeId,
+                                                worktreePath: executionCwd,
+                                                worktreeBranch,
+                                                worktreeBaseBranch,
+                                                worktreeStatus: "completed",
+                                            },
+                                            beforePlan?.attrs || {},
+                                            { expectedRevision: beforePlan?.revision },
+                                        );
+                                    },
                                 });
+                                if (rollbackTransition.status !== "committed") {
+                                    throw new Error(
+                                        rollbackTransition.message ||
+                                            `Validation metadata rollback transaction did not commit for ${planName}.`,
+                                    );
+                                }
                             } catch (metadataError) {
                                 const metadataReason = metadataError instanceof Error
                                     ? metadataError.message
@@ -3237,48 +3614,76 @@ export async function runValidationLoop({
                         break;
                     }
 
-                    if (worktreeId) {
-                        try {
-                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
-                                status: "merge_conflict",
-                            });
-                        } catch (metadataError) {
-                            const metadataReason = metadataError instanceof Error
-                                ? metadataError.message
-                                : String(metadataError);
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
-                                true,
-                            );
-                        }
-                    }
                     if (planName && planName !== "quick-fix") {
-                        try {
-                            await recordPlanEventImpl({
-                                cwd: projectRoot,
-                                planName,
-                                event: "worktree_merge_failed",
-                                currentStatus: "implemented",
-                                details: {
-                                    triageMeta,
-                                    failureReason: reason,
-                                    worktreeId,
-                                    worktreePath: executionCwd,
-                                    worktreeBranch,
-                                    worktreeBaseBranch,
-                                },
-                            });
-                        } catch (metadataError) {
-                            const metadataReason = metadataError instanceof Error
-                                ? metadataError.message
-                                : String(metadataError);
+                        const transition = await runValidationOutcomeTransitionImpl({
+                            projectRoot,
+                            planName,
+                            expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                            worktreeId,
+                            targetRef: worktreeBaseBranch,
+                            outcome: "merge_failed",
+                            proof: { reason, worktreePath: executionCwd, worktreeBranch, worktreeBaseBranch },
+                            settle: async ({ markEffect }) => {
+                                /** @type {Error | undefined} */
+                                let registryFailure;
+                                if (worktreeId) {
+                                    try {
+                                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                            status: "merge_conflict",
+                                        });
+                                        await markEffect("worktree_registry_updated", {
+                                            worktreeId,
+                                            status: "merge_conflict",
+                                        });
+                                    } catch (error) {
+                                        registryFailure = error instanceof Error ? error : new Error(String(error));
+                                        emitRunWieldSystemStatus(
+                                            hostedSession,
+                                            `Could not update worktree registry while merge conflict is active: ${registryFailure.message}`,
+                                            true,
+                                        );
+                                    }
+                                }
+                                let attrs;
+                                try {
+                                    attrs = await recordPlanEventImpl({
+                                        cwd: projectRoot,
+                                        planName,
+                                        event: "worktree_merge_failed",
+                                        currentStatus: "implemented",
+                                        details: {
+                                            triageMeta,
+                                            failureReason: reason,
+                                            worktreeId,
+                                            worktreePath: executionCwd,
+                                            worktreeBranch,
+                                            worktreeBaseBranch,
+                                        },
+                                    });
+                                } catch (metadataError) {
+                                    const metadataReason = metadataError instanceof Error
+                                        ? metadataError.message
+                                        : String(metadataError);
+                                    emitRunWieldSystemStatus(
+                                        hostedSession,
+                                        `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                                        true,
+                                    );
+                                    throw metadataError;
+                                }
+                                if (registryFailure) throw registryFailure;
+                                return attrs;
+                            },
+                        });
+                        if (transition.status !== "committed") {
                             emitRunWieldSystemStatus(
                                 hostedSession,
-                                `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                                `Could not settle merge failure transaction: ${transition.message}`,
                                 true,
                             );
                         }
+                    } else if (worktreeId) {
+                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
                     }
 
                     pendingRepairMergeWorktreePath = getMergeWorktreePath(error) || pendingRepairMergeWorktreePath;
@@ -3459,39 +3864,40 @@ export async function runValidationLoop({
                 planName,
                 details: { passed: false, semanticRounds: semanticRound, reason: "halted_after_merge" },
             });
-            if (!postMergeVerificationHalted && worktreeId) {
-                try {
-                    await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
-                } catch (metadataError) {
-                    const metadataReason = metadataError instanceof Error
-                        ? metadataError.message
-                        : String(metadataError);
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        `Could not update worktree registry after merge halt: ${metadataReason}`,
-                        true,
-                    );
-                }
-            }
             if (!postMergeVerificationHalted && planName && planName !== "quick-fix") {
-                try {
-                    await recordPlanEventImpl({
-                        cwd: projectRoot,
-                        planName,
-                        event: "validation_failed",
-                        currentStatus: "implemented",
-                        details: { triageMeta, failureReason: haltReason, nonGitInPlace },
-                    });
-                } catch (metadataError) {
-                    const metadataReason = metadataError instanceof Error
-                        ? metadataError.message
-                        : String(metadataError);
+                const transition = await runValidationOutcomeTransitionImpl({
+                    projectRoot,
+                    planName,
+                    expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                    worktreeId,
+                    targetRef: worktreeBaseBranch,
+                    outcome: "failed",
+                    proof: { failureReason: haltReason || "Validation halted.", nonGitInPlace },
+                    settle: async ({ markEffect }) => {
+                        if (worktreeId) {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "validation_failed",
+                            });
+                            await markEffect("worktree_registry_updated", { worktreeId, status: "validation_failed" });
+                        }
+                        return await recordPlanEventImpl({
+                            cwd: projectRoot,
+                            planName,
+                            event: "validation_failed",
+                            currentStatus: "implemented",
+                            details: { triageMeta, failureReason: haltReason || "Validation halted.", nonGitInPlace },
+                        });
+                    },
+                });
+                if (transition.status !== "committed") {
                     emitRunWieldSystemStatus(
                         hostedSession,
-                        `Could not update plan metadata after merge halt: ${metadataReason}`,
+                        `Could not settle validation halt transaction: ${transition.message}`,
                         true,
                     );
                 }
+            } else if (!postMergeVerificationHalted && worktreeId) {
+                await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
             }
         }
     } else {
@@ -3504,17 +3910,38 @@ export async function runValidationLoop({
         });
         progress = completeValidationProgress(progress, false, `Workflow halted: ${reason}`);
         emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true, progress);
-        if (worktreeId) {
-            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
-        }
         if (planName && planName !== "quick-fix") {
-            await recordPlanEventImpl({
-                cwd: projectRoot,
+            const transition = await runValidationOutcomeTransitionImpl({
+                projectRoot,
                 planName,
-                event: "validation_failed",
-                currentStatus: "implemented",
-                details: { triageMeta, failureReason: reason, nonGitInPlace },
+                expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                worktreeId,
+                targetRef: worktreeBaseBranch,
+                outcome: "failed",
+                proof: { failureReason: reason, nonGitInPlace },
+                settle: async ({ markEffect }) => {
+                    if (worktreeId) {
+                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
+                        await markEffect("worktree_registry_updated", { worktreeId, status: "validation_failed" });
+                    }
+                    return await recordPlanEventImpl({
+                        cwd: projectRoot,
+                        planName,
+                        event: "validation_failed",
+                        currentStatus: "implemented",
+                        details: { triageMeta, failureReason: reason, nonGitInPlace },
+                    });
+                },
             });
+            if (transition.status !== "committed") {
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Could not settle validation failure transaction: ${transition.message}`,
+                    true,
+                );
+            }
+        } else if (worktreeId) {
+            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }
     }
 

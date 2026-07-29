@@ -293,6 +293,7 @@ Deno.test("plan_written feature approval uses post-review execution metadata for
             _meta: {
                 approved: true,
                 approvalAction: "run",
+                revision: "reviewed-revision-1",
                 planAttrs: {
                     classification: "FEATURE",
                     complexity: "MEDIUM",
@@ -311,6 +312,7 @@ Deno.test("plan_written feature approval uses post-review execution metadata for
     assertEquals(result.details.triageMeta.collaborationRecommendation, "pair");
     assertEquals(lifecycle[0].details.triageMeta.executionAgent, "frontend-engineer");
     assertEquals(lifecycle[0].details.triageMeta.collaborationRecommendation, "pair");
+    assertEquals(lifecycle[0].expectedRevision, "reviewed-revision-1");
 });
 
 Deno.test("plan_written saved feature approval keeps post-review execution metadata", async () => {

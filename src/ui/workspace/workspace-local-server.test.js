@@ -91,7 +91,7 @@ Deno.test("PlanBoard SSR renders status column board cards", async () => {
         assertStringIncludes(html, 'draggable="true"');
         assertStringIncludes(
             html,
-            'data-allowed-target-statuses="feedback approved ready_for_work in_progress implemented"',
+            'data-allowed-target-statuses="feedback approved ready_for_work"',
         );
         assertStringIncludes(html, 'data-action-target-status="draft"');
         assertStringIncludes(html, "Drag this Plan Card to an allowed status column");
@@ -329,7 +329,11 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
             new Request("http://localhost/api/plans/api-id/body", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ body: "# Saved\n", expectedBodyHash: loaded.bodyHash }),
+                body: JSON.stringify({
+                    body: "# Saved\n",
+                    expectedBodyHash: loaded.bodyHash,
+                    expectedRevision: loaded.revision,
+                }),
             }),
         );
         assertEquals(saved.status, 200);
@@ -341,7 +345,11 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
             new Request("http://localhost/api/plans/api-id/body", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ body: "# Stale\n", expectedBodyHash: loaded.bodyHash }),
+                body: JSON.stringify({
+                    body: "# Stale\n",
+                    expectedBodyHash: loaded.bodyHash,
+                    expectedRevision: loaded.revision,
+                }),
             }),
         );
         assertEquals(stale.status, 409);
@@ -352,11 +360,16 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
             classification: "PROJECT",
             status: "draft",
         });
+        const epic = await loadWorkspaceDetail(cwd, "epic-id");
         const epicRejected = await app(
             new Request("http://localhost/api/plans/epic-id/body", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ body: "# Edited Epic\n", expectedBodyHash: "hash" }),
+                body: JSON.stringify({
+                    body: "# Edited Epic\n",
+                    expectedBodyHash: "hash",
+                    expectedRevision: epic.revision,
+                }),
             }),
         );
         assertEquals(epicRejected.status, 409);

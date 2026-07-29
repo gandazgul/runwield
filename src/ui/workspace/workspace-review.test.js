@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
+import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 import { workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.js";
 
 import {
@@ -14,11 +15,11 @@ import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agen
 
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { fromFileUrl } from "@std/path";
 
-// Anchored to this file, not Deno.cwd(): test realms share one process, so a
-// concurrent file's chdir would otherwise pin this to its temp directory.
-const TEST_PROJECT_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
+// Anchored to the shared runtime root, not Deno.cwd(): test realms share one
+// process, so a concurrent file's chdir would otherwise pin this to its temp
+// directory.
+const TEST_PROJECT_ROOT = RUNWIELD_ROOT;
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);

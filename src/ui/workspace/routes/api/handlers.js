@@ -88,8 +88,13 @@ export async function planBodyApi(ctx) {
         return json({ error: "Request body must be valid JSON." }, 400);
     }
 
-    if (!payload || typeof payload.body !== "string" || typeof payload.expectedBodyHash !== "string") {
-        return json({ error: "Expected JSON payload { body: string, expectedBodyHash: string }." }, 400);
+    if (
+        !payload || typeof payload.body !== "string" || typeof payload.expectedBodyHash !== "string" ||
+        typeof payload.expectedRevision !== "string"
+    ) {
+        return json({
+            error: "Expected JSON payload { body: string, expectedBodyHash: string, expectedRevision: string }.",
+        }, 400);
     }
 
     try {
@@ -98,6 +103,7 @@ export async function planBodyApi(ctx) {
             ctx.params.planId,
             payload.body,
             payload.expectedBodyHash,
+            payload.expectedRevision,
         );
         return json({ plan, bodyHash: plan.bodyHash });
     } catch (error) {

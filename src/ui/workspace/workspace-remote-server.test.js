@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 
+import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 import { workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.js";
 
 import {
@@ -27,8 +29,8 @@ Deno.test("remote Shared Space development gate requires both development and re
 });
 
 Deno.test("remote development API and page share the central gate", async () => {
-    const apiSource = await Deno.readTextFile(new URL("./server/remote-dev-api.js", import.meta.url));
-    const pageSource = await Deno.readTextFile(new URL("./pages/p/[spaceId].astro", import.meta.url));
+    const apiSource = await Deno.readTextFile(join(RUNWIELD_ROOT, "src/ui/workspace/server/remote-dev-api.js"));
+    const pageSource = await Deno.readTextFile(join(RUNWIELD_ROOT, "src/ui/workspace/pages/p/[spaceId].astro"));
     assertStringIncludes(apiSource, "isRemoteDevelopmentModeEnabled");
     assertStringIncludes(pageSource, "isRemoteDevelopmentModeEnabled");
 });

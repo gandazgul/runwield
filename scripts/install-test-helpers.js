@@ -1,11 +1,13 @@
-import { fromFileUrl, join } from "@std/path";
+import { join } from "@std/path";
+
+import { RUNWIELD_ROOT } from "../runtime-root.js";
 
 /**
  * Deno runs test modules concurrently inside one process, so `Deno.cwd()` is
  * shared mutable state that any other test file may chdir out from under us.
- * Anchor every repository path to this module instead.
+ * Anchor every repository path to the shared runtime root instead.
  */
-export const REPO_ROOT = fromFileUrl(new URL("..", import.meta.url));
+export const REPO_ROOT = RUNWIELD_ROOT;
 
 /** @param {string[]} segments */
 export function repoPath(...segments) {

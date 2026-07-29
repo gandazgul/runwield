@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 
 import { AGENTS } from "../../constants.js";
@@ -448,8 +448,18 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                         summary: "s",
                         affectedPaths: [],
                         status: "ready_for_work",
+                        worktreeId: "old-worktree",
                         worktreeStatus: "completed",
                     },
+                }),
+            findWorktreeById: () =>
+                Promise.resolve({
+                    id: "old-worktree",
+                    planName: "plan-reapproval",
+                    path: "/tmp/old-worktree",
+                    branch: "runwield/worktree/plan-reapproval-old",
+                    baseBranch: "main",
+                    status: "completed",
                 }),
             findWorktreeByPlanName: () =>
                 Promise.resolve({
@@ -491,8 +501,56 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
         id: "old-worktree",
         updates: { status: "abandoned" },
     }]);
-    assertEquals(reviewMeta.worktreeStatus, "abandoned");
-    assertEquals(reviewMeta.worktreeBaseBranch, null);
+    assertEquals(reviewMeta.worktreeStatus, "completed");
+    assertEquals(reviewMeta.worktreeBaseBranch, undefined);
+});
+
+Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree metadata", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let recorded = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
+    });
+
+    await assertRejects(
+        () =>
+            runLoadPlanCommand(["plan-unmanaged-worktree"], {
+                ...fixture.context,
+                uiAPI,
+                editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+                __testDeps: /** @type {any} */ ({
+                    parseArgs: () => ({ help: false, _: ["plan-unmanaged-worktree"] }),
+                    resolvePlan: () =>
+                        Promise.resolve({
+                            planName: "plan-unmanaged-worktree",
+                            path: "plans/plan-unmanaged-worktree.md",
+                            body: "body",
+                            attrs: {
+                                classification: "FEATURE",
+                                complexity: "LOW",
+                                summary: "s",
+                                affectedPaths: [],
+                                status: "ready_for_work",
+                                worktreePath: "/tmp/unmanaged-worktree",
+                                worktreeBranch: "runwield/worktree/unmanaged",
+                                worktreeStatus: "completed",
+                            },
+                        }),
+                    findWorktreeById: () => Promise.resolve(null),
+                    findWorktreeByPlanName: () => Promise.resolve(null),
+                    recordPlanEvent: () => {
+                        recorded = true;
+                        return Promise.resolve({});
+                    },
+                    resetTuiState: () => {},
+                }),
+            }),
+        Error,
+        "lacks a registry id",
+    );
+
+    assertEquals(recorded, false);
 });
 
 Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executing", async () => {
@@ -1008,7 +1066,7 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
     });
 
     assertEquals(lifecycleCalled, false);
-    assertEquals(registryStatuses, ["abandoned", "active"]);
+    assertEquals(registryStatuses, []);
     assertEquals(fixture.state.workflow, preReviewWorkflow);
 });
 

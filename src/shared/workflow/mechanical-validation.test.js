@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { runLocalCI, runMechanicalValidation } from "./validation.js";
 import { HostedSession } from "../session/hosted-session.js";
+import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -15,7 +16,6 @@ function makeValidationUi() {
 
 Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () =>
     await withProcessGlobalTestLock(async () => {
-        const originalCwd = Deno.cwd();
         const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
         const { uiAPI, hostedSession } = makeValidationUi();
 
@@ -39,7 +39,7 @@ Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () =>
             );
             assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
         } finally {
-            Deno.chdir(originalCwd);
+            Deno.chdir(RUNWIELD_ROOT);
             __resetSettingsForTests();
             await Deno.remove(tempDir, { recursive: true });
         }
@@ -47,7 +47,6 @@ Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () =>
 
 Deno.test("runLocalCI streams large validation output without failing the process buffer", async () =>
     await withProcessGlobalTestLock(async () => {
-        const originalCwd = Deno.cwd();
         const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-large-output-test-" });
         const { uiAPI, hostedSession } = makeValidationUi();
 
@@ -64,7 +63,7 @@ Deno.test("runLocalCI streams large validation output without failing the proces
             assertStringIncludes(result.output, "stdout truncated; showing last");
             assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
         } finally {
-            Deno.chdir(originalCwd);
+            Deno.chdir(RUNWIELD_ROOT);
             __resetSettingsForTests();
             await Deno.remove(tempDir, { recursive: true });
         }

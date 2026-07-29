@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 
+import { getCwd } from "../../constants.js";
 import { runValidationLoop } from "./validation.js";
 
 import { __resetSettingsForTests } from "../settings.js";
@@ -34,7 +35,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
                 repairCalls++;
                 repairAgentName = opts.agentName;
                 assertEquals(opts.allowReturnToRouter, false);
-                assertEquals(opts.cwd, Deno.cwd());
+                assertEquals(opts.cwd, getCwd());
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => false,
@@ -48,7 +49,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
-        executionCwd: Deno.cwd(),
+        executionCwd: getCwd(),
         validationContinuation: true,
         // Round state rides on the workflow record so a nudge resumes this attempt.
         semanticRound: 1,
@@ -159,7 +160,7 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         executionAttemptStartedAtMs: 777,
         collaborationStyle: "pair",
         pairCheckpointCount: 2,
-        executionCwd: Deno.cwd(),
+        executionCwd: getCwd(),
     });
     let repairAgentName = "";
     /** @type {any[]} */
@@ -179,8 +180,8 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
                     context: {
                         executionMode: "worktree",
                         planName: "visual-plan",
-                        projectRoot: Deno.cwd(),
-                        executionCwd: Deno.cwd(),
+                        projectRoot: getCwd(),
+                        executionCwd: getCwd(),
                         source: "active_session",
                     },
                 }),
@@ -242,7 +243,7 @@ Deno.test("runValidationLoop clears transient Frontend Engineer repair context a
         executionStarted: true,
         executionAttemptStartedAtMs: 321,
         collaborationStyle: "autonomous",
-        executionCwd: Deno.cwd(),
+        executionCwd: getCwd(),
         nonGitInPlace: true,
     });
     /** @type {Array<import('../session/hosted-session.js').ActiveExecutionWorkflow | null>} */
@@ -289,7 +290,7 @@ Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Fee
         planName: "visual-plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         executionAgent: "frontend-engineer",
-        executionCwd: Deno.cwd(),
+        executionCwd: getCwd(),
     });
     let repairAgentName = "";
 
@@ -307,8 +308,8 @@ Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Fee
                     context: {
                         executionMode: "worktree",
                         planName: "visual-plan",
-                        projectRoot: Deno.cwd(),
-                        executionCwd: Deno.cwd(),
+                        projectRoot: getCwd(),
+                        executionCwd: getCwd(),
                         source: "active_session",
                     },
                 }),

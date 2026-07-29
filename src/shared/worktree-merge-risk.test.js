@@ -11,7 +11,12 @@ Deno.test("inspectExecutionWorktreeMergeRisk reports clean target branch as safe
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Clean Risk", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Clean Risk",
+            worktreeRoot,
+        });
         await git(projectRoot, ["checkout", "main"]);
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
         await git(worktree.path, ["add", "."]);
@@ -51,7 +56,12 @@ Deno.test("inspectExecutionWorktreeMergeRisk fails when target branch is checked
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Checked Out Target Risk", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Checked Out Target Risk",
+            worktreeRoot,
+        });
         await git(projectRoot, ["checkout", "main"]);
         await git(projectRoot, ["worktree", "add", targetCheckout, "feature-base"]);
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
@@ -93,7 +103,12 @@ Deno.test("inspectExecutionWorktreeMergeRisk requires targetBranch to be a local
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Tag Risk", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Tag Risk",
+            worktreeRoot,
+        });
         await git(projectRoot, ["tag", "release-target"]);
 
         const result = await inspectExecutionWorktreeMergeRisk({
@@ -130,7 +145,12 @@ Deno.test("inspectExecutionWorktreeMergeRisk warns on overlapping dirty primary 
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Dirty Risk", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Dirty Risk",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nfeature\n");
         await git(worktree.path, ["add", "."]);
         await git(worktree.path, ["commit", "-m", "feature"]);

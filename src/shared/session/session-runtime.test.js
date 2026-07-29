@@ -14,10 +14,16 @@ import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Retries temp-dir cleanup because SessionRuntime managed-session tests can
- * finish filesystem checkpointing just before teardown on macOS, causing a
- * transient ENOTEMPTY during recursive removal.
+ * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
+ * filesystem metadata settles after a test's last writes. Retry boundedly so
+ * cleanup flakiness does not fail an otherwise successful test.
+ *
  * @param {string} path
  */
 async function removeTempDir(path) {
@@ -30,7 +36,7 @@ async function removeTempDir(path) {
             const isRetryable = error instanceof Error &&
                 /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
             if (!isRetryable || attempt === 4) throw error;
-            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+            await delay(25 * (attempt + 1));
         }
     }
 }
@@ -272,7 +278,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true }).catch(() => {});
+            await removeTempDir(home);
         }
     });
 });
@@ -1235,7 +1241,7 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true }).catch(() => {});
+            await removeTempDir(home);
         }
     });
 });

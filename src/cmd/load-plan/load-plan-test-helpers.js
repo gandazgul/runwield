@@ -1,4 +1,4 @@
-import { AGENTS } from "../../constants.js";
+import { AGENTS, getCwd } from "../../constants.js";
 
 /**
  * @typedef {Object} SlicerTriageMeta
@@ -81,7 +81,7 @@ export function makeRuntimeFixture(options = {}) {
                 id === sessionId
                     ? {
                         id,
-                        cwd: Deno.cwd(),
+                        cwd: getCwd(),
                         activeAgent: state.activeAgent,
                         activeExecutionWorkflow: state.workflow,
                     }

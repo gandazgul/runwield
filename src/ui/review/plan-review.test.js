@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { parsePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan, parsePlanFrontMatter } from "../../plan-store.js";
 import { submitPlanForReview } from "./plan-review.js";
 
 /** @returns {Promise<{ dir: string, planPath: string }>} */
@@ -68,6 +68,36 @@ Deno.test("submitPlanForReview updates metadata and records approval", async () 
         assertEquals(result.planAttrs?.complexity, "MEDIUM");
         assertEquals(harness.events.map((event) => event.event), ["review_approved"]);
         assertEquals(harness.stops(), 1);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview returns the committed canonical review revision", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-plan-review-canonical-" });
+    const planPath = join(dir, "plans", "plan.md");
+    const harness = makeDeps({ approved: true, feedback: "ship it", approvalAction: "run" });
+    try {
+        await Deno.mkdir(join(dir, "plans"), { recursive: true });
+        await Deno.writeTextFile(planPath, "# Plan\n\nDo the thing.\n");
+
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            triageMeta: {
+                classification: "FEATURE",
+                complexity: "MEDIUM",
+                summary: "Add the thing",
+                affectedPaths: ["src/a.js"],
+            },
+            __deps: harness.deps,
+        });
+
+        const savedPlan = await loadPlan(dir, "plan");
+        assertEquals(result.approved, true);
+        assertEquals(result.revision, savedPlan?.revision);
+        assertEquals(savedPlan?.attrs.status, "approved");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -296,11 +326,10 @@ Deno.test("submitPlanForReview records feedback and returns loaded images", asyn
             __deps: harness.deps,
         });
 
-        assertEquals(result, {
-            approved: false,
-            feedback: "change this",
-            images: [{ base64: "iVBORw==", mimeType: "image/png", name: "reference" }],
-        });
+        assertEquals(result.approved, false);
+        assertEquals(result.feedback, "change this");
+        assertEquals(result.images, [{ base64: "iVBORw==", mimeType: "image/png", name: "reference" }]);
+        assertEquals(typeof result.revision, "string");
         assertEquals(harness.events.map((event) => event.event), ["review_feedback"]);
         assertEquals(harness.stops(), 1);
     } finally {

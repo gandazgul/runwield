@@ -355,6 +355,7 @@ export function createPlanWrittenTool(
                 planAttrs: reviewMeta.planAttrs && typeof reviewMeta.planAttrs === "object"
                     ? reviewMeta.planAttrs
                     : undefined,
+                revision: typeof reviewMeta.revision === "string" ? reviewMeta.revision : undefined,
             };
 
             if (reviewMeta.remoteReview === true) {
@@ -451,6 +452,7 @@ export function createPlanWrittenTool(
                     event: "epic_readiness_passed",
                     currentStatus: "approved",
                     details: { triageMeta: projectMeta },
+                    expectedRevision: reviewResult.revision,
                 });
                 await recordWorkflowMetricFn({
                     category: "planning",
@@ -533,6 +535,7 @@ export function createPlanWrittenTool(
                 event: "readiness_passed",
                 currentStatus: "approved",
                 details: { triageMeta: approvedMeta },
+                expectedRevision: reviewResult.revision,
             });
             await recordWorkflowMetricFn({
                 category: "planning",

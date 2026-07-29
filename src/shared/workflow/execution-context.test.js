@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
 import { addEntry } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 
@@ -72,6 +72,7 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: "plan-p",
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
@@ -116,9 +117,12 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
             status: "implemented",
             failureReason: "CI validation failed.",
         });
+        const [plan] = await listPlanResources(projectRoot);
+        if (!plan?.planId) throw new Error("Expected Plan ID");
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: plan.planId,
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
@@ -280,9 +284,12 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
             worktreeBaseBranch: "main",
             worktreeStatus: "completed",
         });
+        const [plan] = await listPlanResources(projectRoot);
+        if (!plan?.planId) throw new Error("Expected Plan ID");
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: plan.planId,
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
@@ -363,6 +370,7 @@ Deno.test("resolveValidationExecutionContext blocks worktree Plan ID mismatch", 
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: "plan-p",
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
@@ -413,6 +421,7 @@ Deno.test("resolveValidationExecutionContext blocks selected path differing from
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: "plan-p",
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),

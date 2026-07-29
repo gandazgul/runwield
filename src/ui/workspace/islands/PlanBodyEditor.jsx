@@ -81,6 +81,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     const [savedBody, setSavedBody] = useState(plan.body || "");
     const [bodyHash, setBodyHash] = useState(plan.bodyHash || "");
     const [expectedBodyHash, setExpectedBodyHash] = useState(plan.bodyHash || "");
+    const [expectedRevision, setExpectedRevision] = useState(plan.revision || "");
     const [message, setMessage] = useState("");
     const [draft, setDraft] = useState(/** @type {PlanBodyDraft | null} */ (null));
     const [saving, setSaving] = useState(false);
@@ -163,7 +164,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                     "content-type": "application/json",
                     ...(token ? { [PLAN_UI_TOKEN_HEADER]: token } : {}),
                 },
-                body: JSON.stringify({ body, expectedBodyHash }),
+                body: JSON.stringify({ body, expectedBodyHash, expectedRevision }),
             });
             const payload = await response.json();
             if (response.status === 409) {
@@ -175,6 +176,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                 return;
             }
             const nextHash = payload.bodyHash || payload.plan?.bodyHash || "";
+            setExpectedRevision(payload.plan?.revision || expectedRevision);
             setBodyHash(nextHash);
             setExpectedBodyHash(nextHash);
             setSavedBody(body);

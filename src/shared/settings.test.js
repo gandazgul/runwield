@@ -29,6 +29,33 @@ const TEMP_DIR = await Deno.makeTempDir({ prefix: "runwield-settings-test-" });
 const TEMP_GLOBAL_SETTINGS = join(TEMP_DIR, "global-settings.json");
 const TEMP_PROJECT_SETTINGS = join(TEMP_DIR, "project-settings.json");
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
+ * filesystem metadata settles after a test's last writes. Retry boundedly so
+ * cleanup flakiness does not fail an otherwise successful test.
+ *
+ * @param {string} path
+ */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            const isRetryable = error instanceof Error &&
+                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
+            if (!isRetryable || attempt === 4) throw error;
+            await delay(25 * (attempt + 1));
+        }
+    }
+}
+
 /**
  * @param {string | Record<string, any>} testDefinition
  * @param {(() => void | Promise<void>) | undefined} [fn]
@@ -45,27 +72,6 @@ function settingsTest(testDefinition, fn) {
             fn: () => withProcessGlobalTestLock(async () => await testDefinition.fn()),
         }),
     );
-}
-
-/**
- * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
- * filesystem metadata settles after settings writes. Retry boundedly so cleanup
- * flakiness does not fail otherwise successful settings tests.
- *
- * @param {string} path
- */
-async function removeTempDir(path) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-        try {
-            await Deno.remove(path, { recursive: true });
-            return;
-        } catch (error) {
-            const isRetryable = error instanceof Error &&
-                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
-            if (!isRetryable || attempt === 4) throw error;
-            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-        }
-    }
 }
 
 settingsTest({
@@ -318,7 +324,7 @@ settingsTest("migratePiSettingsOnce copies legacy Pi settings when RunWield sett
         assertEquals(result, { copied: true, skipped: false });
         assertEquals(await Deno.readTextFile(runwieldPath), '{"theme":"legacy-pi"}');
     } finally {
-        await Deno.remove(tempDir, { recursive: true });
+        await removeTempDir(tempDir);
     }
 });
 
@@ -337,7 +343,7 @@ settingsTest("migratePiSettingsOnce leaves existing RunWield settings untouched"
         assertEquals(result, { copied: false, skipped: true });
         assertEquals(await Deno.readTextFile(runwieldPath), '{"theme":"runwield"}');
     } finally {
-        await Deno.remove(tempDir, { recursive: true });
+        await removeTempDir(tempDir);
     }
 });
 

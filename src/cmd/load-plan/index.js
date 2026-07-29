@@ -23,6 +23,7 @@ import {
 } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
 import {
+    buildPlanEventUpdates,
     isEpicPlan,
     isExecutablePlanStatus,
     recordPlanEvent as recordPlanEventFn,
@@ -45,9 +46,14 @@ import {
     probeGitRepository as probeGitRepositoryFn,
 } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
+import {
+    runPlanFrontMatterTransition,
+    runRecoveryTransition,
+    runReviewReopenTransition,
+} from "../../shared/workflow/state-transition.js";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
 import {
-    createExecutionWorktree as createExecutionWorktreeFn,
+    createExecutionWorktreeGitArtifacts,
     getBranchHead,
     getWorktreeStatus as getWorktreeStatusFn,
     inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
@@ -57,6 +63,7 @@ import {
     removeExecutionWorktree as removeExecutionWorktreeFn,
     restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
     sealExecutionWorktreeCandidate,
+    settleExecutionWorktreeRegistry,
 } from "../../shared/worktree.js";
 import {
     findById as findWorktreeByIdFn,
@@ -109,7 +116,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof findWorktreeByPlanNameFn} [findWorktreeByPlanName]
  * @property {typeof updateWorktreeRegistryEntryFn} [updateWorktreeRegistryEntry]
  * @property {typeof getWorktreeStatusFn} [getWorktreeStatus]
- * @property {typeof createExecutionWorktreeFn} [createExecutionWorktree]
+ * @property {typeof createExecutionWorktreeGitArtifacts} [createExecutionWorktreeGitArtifacts]
+ * @property {typeof settleExecutionWorktreeRegistry} [settleExecutionWorktreeRegistry]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
  * @property {typeof sealExecutionWorktreeCandidate} [sealExecutionWorktreeCandidate]
@@ -764,7 +772,24 @@ async function resetHeldPlanToDraft({
                 "Delete worktree and reset status to draft",
             );
             if (!confirmed) return false;
-            if (worktreeContext?.path) {
+        }
+    } else {
+        const confirmed = await uiAPI.promptSelect("Reset status to draft?", [
+            { value: "confirm", label: "Reset status to draft" },
+            { value: "cancel", label: "Cancel" },
+        ]);
+        if (confirmed !== "confirm") return false;
+    }
+
+    const transition = await runRecoveryTransition({
+        projectRoot,
+        planName: plan.planName,
+        planId: plan.attrs.planId,
+        worktreeId: worktreeContext?.id,
+        expectedRevision: /** @type {{ revision?: string }} */ (plan).revision,
+        action: action === "reset_delete" ? "abandon" : "reset",
+        recover: async () => {
+            if (action === "reset_delete" && worktreeContext?.path) {
                 await removeExecutionWorktree({
                     projectRoot: projectRoot,
                     path: worktreeContext.path,
@@ -775,22 +800,21 @@ async function resetHeldPlanToDraft({
             if (worktreeContext?.id) {
                 await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
             }
-        }
-    } else {
-        const confirmed = await uiAPI.promptSelect("Reset status to draft?", [
-            { value: "confirm", label: "Reset status to draft" },
-            { value: "cancel", label: "Cancel" },
-        ]);
-        if (confirmed !== "confirm") return false;
-    }
-
-    const updatedAttrs = await recordPlanEvent({
-        cwd: projectRoot,
-        planName: plan.planName,
-        event: "hold_reset_to_draft",
-        currentStatus: "on_hold",
-        details: { triageMeta: plan.attrs },
+            return await recordPlanEvent({
+                cwd: projectRoot,
+                planName: plan.planName,
+                event: "hold_reset_to_draft",
+                currentStatus: "on_hold",
+                details: { triageMeta: plan.attrs },
+            });
+        },
     });
+    if (transition.status !== "committed") {
+        throw new Error(transition.message || "Hold reset recovery transaction failed.");
+    }
+    const transitionValue =
+        /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});
+    const updatedAttrs = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.value);
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
     uiAPI.appendSystemMessage(
         action === "reset_delete"
@@ -1396,10 +1420,13 @@ async function executeReadyPlanWithRepair({
  * @param {{ findWorktreeById: typeof findWorktreeByIdFn, findWorktreeByPlanName: typeof findWorktreeByPlanNameFn }} deps
  * @returns {Promise<RecoveryWorktreeContext | null>}
  */
-async function resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName }) {
+async function resolveRecoveryWorktree(
+    projectRoot,
+    plan,
+    { findWorktreeById, findWorktreeByPlanName: _findWorktreeByPlanName },
+) {
     let entry = null;
     if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
-    if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName);
     const path = plan.attrs.worktreePath || entry?.path;
     const branch = plan.attrs.worktreeBranch || entry?.branch;
     const id = plan.attrs.worktreeId || entry?.id;
@@ -1421,7 +1448,7 @@ async function resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, fi
 
 /**
  * @param {string} projectRoot
- * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, revision?: string }} plan
  * @param {RecoveryWorktreeContext | null} context
  * @param {typeof updatePlanFrontMatterFn} updatePlanFrontMatter
  * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
@@ -1432,7 +1459,24 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
     const updates = {};
     if (context.id && !plan.attrs.worktreeId) updates.worktreeId = context.id;
     if (!Object.keys(updates).length) return plan.attrs;
-    return await updatePlanFrontMatter(projectRoot, plan.planName, updates, plan.attrs);
+    if (updatePlanFrontMatter !== updatePlanFrontMatterFn) {
+        const injectedFrontMatterWriter = updatePlanFrontMatter;
+        return await injectedFrontMatterWriter(projectRoot, plan.planName, updates, {}, {
+            expectedRevision: plan.revision,
+        });
+    }
+    const transition = await runPlanFrontMatterTransition({
+        projectRoot,
+        planName: plan.planName,
+        operation: "recovery_metadata_refresh",
+        updates,
+        recoveryAttrs: {},
+        expectedRevision: plan.revision,
+    });
+    if (transition.status !== "committed") {
+        throw new Error(transition.message || `Recovery metadata transition failed for ${plan.planName}.`);
+    }
+    return /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value);
 }
 
 /**
@@ -1442,13 +1486,14 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
  *
  * @param {Object} opts
  * @param {string} opts.projectRoot
- * @param {{ planName: string, path: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
+ * @param {{ planName: string, path: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter, revision?: string }} opts.plan
  * @param {import('../../shared/workflow/plan-lifecycle.js').PlanStatus} opts.currentStatus
  * @param {RecoveryWorktreeContext | null | undefined} [opts.worktreeContext]
  * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
  * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
  * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {Function} opts.updatePlanFrontMatter
+ * @param {Function} opts.recordPlanEvent
  * @param {PlanSessionSurface} opts.session
  */
 async function reopenPlanForReview({
@@ -1459,24 +1504,68 @@ async function reopenPlanForReview({
     findWorktreeById,
     findWorktreeByPlanName,
     updateWorktreeRegistryEntry,
+    updatePlanFrontMatter,
     recordPlanEvent,
     session,
 }) {
     const priorWorktree = worktreeContext === undefined
         ? await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName })
         : worktreeContext;
-    if (priorWorktree?.id) {
-        await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status: "abandoned" });
+    if (!priorWorktree?.id) {
+        if (priorWorktree?.path || priorWorktree?.branch) {
+            throw new Error(
+                `Cannot reopen ${plan.planName} for review while recovery worktree metadata lacks a registry id. Resolve or abandon the recorded worktree (${
+                    priorWorktree.path || "unknown path"
+                }, ${priorWorktree.branch || "unknown branch"}) before reopening review.`,
+            );
+        }
+        session.clearActiveExecutionWorkflow();
+        const updatedAttrs = await recordPlanEvent({
+            cwd: projectRoot,
+            planName: plan.planName,
+            event: "review_reopened",
+            currentStatus,
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs = { ...plan.attrs, ...updatedAttrs };
+        return;
+    }
+    const priorWorktreeId = priorWorktree.id;
+    if (recordPlanEvent !== recordPlanEventFn || updatePlanFrontMatter !== updatePlanFrontMatterFn) {
+        await updateWorktreeRegistryEntry(projectRoot, priorWorktreeId, { status: "abandoned" });
+        session.clearActiveExecutionWorkflow();
+        const updatedAttrs = await recordPlanEvent({
+            cwd: projectRoot,
+            planName: plan.planName,
+            event: "review_reopened",
+            currentStatus,
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs = { ...plan.attrs, ...updatedAttrs };
+        return;
+    }
+    const transition = await runReviewReopenTransition({
+        projectRoot,
+        planName: plan.planName,
+        worktreeId: priorWorktreeId,
+        expectedRevision: plan.revision,
+        reopen: async ({ beforePlan, markEffect }) => {
+            if (!beforePlan) throw new Error(`Plan not found: ${plan.planName}`);
+            const updates = buildPlanEventUpdates("review_reopened", currentStatus, { triageMeta: beforePlan.attrs });
+            await updateWorktreeRegistryEntry(projectRoot, priorWorktreeId, { status: "abandoned" });
+            await markEffect("worktree_registry_abandoned", { worktreeId: priorWorktreeId });
+            const updatedAttrs = await updatePlanFrontMatter(projectRoot, plan.planName, updates, beforePlan.attrs, {
+                expectedRevision: beforePlan.revision,
+            });
+            await markEffect("plan_event_recorded", { planName: plan.planName, event: "review_reopened" });
+            return updatedAttrs;
+        },
+    });
+    if (transition.status !== "committed") {
+        throw new Error(transition.message || `Review reopen transition failed for ${plan.planName}.`);
     }
     session.clearActiveExecutionWorkflow();
-    const updatedAttrs = await recordPlanEvent({
-        cwd: projectRoot,
-        planName: plan.planName,
-        event: "review_reopened",
-        currentStatus,
-        details: { triageMeta: plan.attrs },
-    });
-    plan.attrs = { ...plan.attrs, ...updatedAttrs };
+    plan.attrs = { ...plan.attrs, .../** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value) };
 }
 
 /**
@@ -1865,7 +1954,8 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
  * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
  * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
- * @param {typeof createExecutionWorktreeFn} opts.createExecutionWorktree
+ * @param {typeof createExecutionWorktreeGitArtifacts} opts.createExecutionWorktreeGitArtifacts
+ * @param {typeof settleExecutionWorktreeRegistry} opts.settleExecutionWorktreeRegistry
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
  * @param {typeof sealExecutionWorktreeCandidate} opts.sealExecutionWorktreeCandidate
  * @param {typeof getBranchHead} opts.getBranchHead
@@ -1905,7 +1995,8 @@ async function handlePlanRecovery({
     findWorktreeByPlanName,
     updateWorktreeRegistryEntry,
     getWorktreeStatus,
-    createExecutionWorktree,
+    createExecutionWorktreeGitArtifacts,
+    settleExecutionWorktreeRegistry,
     mergeExecutionWorktree,
     sealExecutionWorktreeCandidate,
     getBranchHead,
@@ -2144,24 +2235,44 @@ async function handlePlanRecovery({
             }
             if (gitRecoveryBlocked) {
                 if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) continue;
-                await recordPlanEvent({
-                    cwd: projectRoot,
+                const transition = await runRecoveryTransition({
+                    projectRoot,
                     planName: plan.planName,
-                    event: "recovery_reset",
-                    currentStatus: plan.attrs.status,
-                    details: { triageMeta: plan.attrs },
+                    planId: plan.attrs.planId,
+                    worktreeId: worktreeContext?.id,
+                    expectedRevision: /** @type {{ revision?: string }} */ (plan).revision,
+                    action: "reset",
+                    recover: async ({ beforePlan }) => {
+                        if (worktreeContext?.id) {
+                            await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
+                        }
+                        const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
+                            triageMeta: plan.attrs,
+                        });
+                        return await updatePlanFrontMatter(
+                            projectRoot,
+                            plan.planName,
+                            {
+                                ...resetUpdates,
+                                status: "ready_for_work",
+                                executionBaselineTree: null,
+                                worktreeId: null,
+                                worktreePath: null,
+                                worktreeBranch: null,
+                                worktreeBaseBranch: null,
+                                worktreeStatus: null,
+                            },
+                            plan.attrs,
+                            { expectedRevision: beforePlan?.revision },
+                        );
+                    },
                 });
-                if (worktreeContext?.id) {
-                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
+                if (transition.status !== "committed") {
+                    throw new Error(transition.message || `Recovery reset transaction failed for ${plan.planName}.`);
                 }
-                plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
-                    executionBaselineTree: null,
-                    worktreeId: null,
-                    worktreePath: null,
-                    worktreeBranch: null,
-                    worktreeBaseBranch: null,
-                    worktreeStatus: null,
-                }, { ...plan.attrs, status: "ready_for_work" });
+                const transitionValue =
+                    /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});
+                plan.attrs = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.value);
                 worktreeContext = null;
                 uiAPI.appendSystemMessage(
                     "Cleared stale Git recovery metadata. No project files or recorded paths were modified; the plan is ready for work.",
@@ -2186,40 +2297,99 @@ async function handlePlanRecovery({
                     ? await confirmWorktreeAction(plan.planName, uiAPI, "Delete/recreate")
                     : await confirmMissingWorktreeRecreate(plan.planName, worktreeContext, uiAPI);
                 if (!confirmed) continue;
-                if (worktreeContext?.path) {
-                    try {
-                        await removeExecutionWorktree({
-                            projectRoot: projectRoot,
-                            path: worktreeContext.path,
-                            branch: worktreeContext.branch,
-                            force: true,
-                        });
-                    } catch (error) {
-                        const message = isGitRepositoryRequiredError(error)
-                            ? formatGitRequiredMessage(error)
-                            : error instanceof Error
-                            ? error.message
-                            : String(error);
-                        uiAPI.appendSystemMessage(
-                            `Cannot delete/recreate the recorded worktree: ${message}`,
-                            true,
-                            "RunWield",
-                        );
-                        continue;
-                    }
-                }
-                if (worktreeContext?.id) {
-                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
-                }
                 const recreateBaseBranch = worktreeContext?.baseBranch;
                 let recreated;
                 try {
-                    recreated = await createExecutionWorktree({
-                        projectRoot: projectRoot,
+                    const transition = await runRecoveryTransition({
+                        projectRoot,
                         planName: plan.planName,
-                        baseRef: recreateBaseRef,
-                        baseBranch: recreateBaseBranch,
+                        planId: plan.attrs.planId,
+                        worktreeId: worktreeContext?.id,
+                        expectedRevision: /** @type {{ revision?: string }} */ (plan).revision,
+                        action: "recreate",
+                        recover: async ({ beforePlan, markEffect, registerRollback }) => {
+                            if (worktreeContext?.path) {
+                                await removeExecutionWorktree({
+                                    projectRoot: projectRoot,
+                                    path: worktreeContext.path,
+                                    branch: worktreeContext.branch,
+                                    force: true,
+                                });
+                            }
+                            if (worktreeContext?.id) {
+                                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
+                                    status: "abandoned",
+                                });
+                            }
+                            const nextWorktree = await createExecutionWorktreeGitArtifacts({
+                                projectRoot: projectRoot,
+                                planName: plan.planName,
+                                planId: /** @type {string} */ (plan.attrs.planId),
+                                baseRef: recreateBaseRef,
+                                baseBranch: recreateBaseBranch,
+                            });
+                            await markEffect("recovery_recreate_git_worktree_created", {
+                                worktreeId: nextWorktree.id,
+                                path: nextWorktree.path,
+                                branch: nextWorktree.branch,
+                                baseCommit: nextWorktree.baseCommit,
+                            });
+                            registerRollback("remove recreated recovery worktree", async () => {
+                                await removeExecutionWorktree({
+                                    projectRoot: projectRoot,
+                                    path: nextWorktree.path,
+                                    branch: nextWorktree.branch,
+                                    force: true,
+                                });
+                            });
+                            await settleExecutionWorktreeRegistry(projectRoot, nextWorktree);
+                            registerRollback("abandon recreated recovery registry entry", async () => {
+                                await updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
+                                    status: "abandoned",
+                                });
+                            });
+                            await markEffect("recovery_recreate_registry_settled", {
+                                worktreeId: nextWorktree.id,
+                                path: nextWorktree.path,
+                                branch: nextWorktree.branch,
+                            });
+                            const writeRecoveredWorktreeMetadata = updatePlanFrontMatter;
+                            const attrs = await writeRecoveredWorktreeMetadata(
+                                projectRoot,
+                                plan.planName,
+                                {
+                                    worktreeId: nextWorktree.id,
+                                    worktreePath: nextWorktree.path,
+                                    worktreeBranch: nextWorktree.branch,
+                                    worktreeBaseBranch: nextWorktree.baseBranch,
+                                    worktreeStatus: "active",
+                                    executionBaselineTree: nextWorktree.baseTree,
+                                },
+                                plan.attrs,
+                                { expectedRevision: beforePlan?.revision },
+                            );
+                            return { attrs, worktree: nextWorktree };
+                        },
                     });
+                    if (transition.status !== "committed") {
+                        throw new Error(
+                            transition.message || `Recovery recreate transaction failed for ${plan.planName}.`,
+                        );
+                    }
+                    const transitionValue =
+                        /** @type {{ value?: { attrs: import('../../plan-store.js').PlanFrontMatter, worktree: RecoveryWorktreeContext } }} */ (transition
+                            .value || {});
+                    plan.attrs =
+                        /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.value?.attrs);
+                    recreated = transitionValue.value?.worktree;
+                    if (!recreated) {
+                        throw new Error(`Recovery recreate transaction returned no worktree for ${plan.planName}.`);
+                    }
+                    const refreshedPlan = await loadPlan(projectRoot, plan.planName);
+                    if (refreshedPlan?.revision) {
+                        plan.attrs = refreshedPlan.attrs;
+                        /** @type {{ revision?: string }} */ (plan).revision = refreshedPlan.revision;
+                    }
                 } catch (error) {
                     const message = isGitRepositoryRequiredError(error)
                         ? formatGitRequiredMessage(error)
@@ -2233,14 +2403,6 @@ async function handlePlanRecovery({
                     );
                     continue;
                 }
-                plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
-                    worktreeId: recreated.id,
-                    worktreePath: recreated.path,
-                    worktreeBranch: recreated.branch,
-                    worktreeBaseBranch: recreated.baseBranch,
-                    worktreeStatus: "active",
-                    executionBaselineTree: recreated.baseTree,
-                }, plan.attrs);
                 worktreeContext = {
                     id: recreated.id,
                     path: recreated.path,
@@ -2265,14 +2427,28 @@ async function handlePlanRecovery({
                     continue;
                 }
             }
-            await recordPlanEvent({
-                cwd: projectRoot,
+            const resetTransition = await runRecoveryTransition({
+                projectRoot,
                 planName: plan.planName,
-                event: "recovery_reset",
-                currentStatus: plan.attrs.status,
-                details: { triageMeta: plan.attrs },
+                planId: plan.attrs.planId,
+                worktreeId: worktreeContext?.id,
+                expectedRevision: /** @type {{ revision?: string }} */ (plan).revision,
+                action: "reset",
+                recover: async () =>
+                    await recordPlanEvent({
+                        cwd: projectRoot,
+                        planName: plan.planName,
+                        event: "recovery_reset",
+                        currentStatus: plan.attrs.status,
+                        details: { triageMeta: plan.attrs },
+                    }),
             });
-            plan.attrs.status = "ready_for_work";
+            if (resetTransition.status !== "committed") {
+                throw new Error(resetTransition.message || `Recovery reset transaction failed for ${plan.planName}.`);
+            }
+            const resetTransitionValue =
+                /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (resetTransition.value || {});
+            plan.attrs = { ...plan.attrs, ...resetTransitionValue.value, status: "ready_for_work" };
             await executeReadyPlanWithRepair({
                 projectRoot,
                 plan,
@@ -2635,35 +2811,57 @@ async function handlePlanRecovery({
         if (answer === "abandon") {
             if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/abandon"))) continue;
             let removedWorktree = true;
-            if (worktreeContext?.path) {
-                try {
-                    await removeExecutionWorktree({
-                        projectRoot: projectRoot,
-                        path: worktreeContext.path,
-                        branch: worktreeContext.branch,
-                        force: true,
-                    });
-                } catch (error) {
-                    if (!isGitRepositoryRequiredError(error)) throw error;
-                    removedWorktree = false;
-                    uiAPI.appendSystemMessage(
-                        `Git is required to delete the recorded worktree. Proceeding with metadata-only abandon: ${
-                            formatGitRequiredMessage(error)
-                        }`,
-                        true,
-                        "RunWield",
+            const transition = await runRecoveryTransition({
+                projectRoot,
+                planName: plan.planName,
+                planId: plan.attrs.planId,
+                worktreeId: worktreeContext?.id,
+                expectedRevision: /** @type {{ revision?: string }} */ (plan).revision,
+                action: "abandon",
+                recover: async ({ beforePlan }) => {
+                    if (worktreeContext?.path) {
+                        try {
+                            await removeExecutionWorktree({
+                                projectRoot: projectRoot,
+                                path: worktreeContext.path,
+                                branch: worktreeContext.branch,
+                                force: true,
+                            });
+                        } catch (error) {
+                            if (!isGitRepositoryRequiredError(error)) throw error;
+                            removedWorktree = false;
+                            uiAPI.appendSystemMessage(
+                                `Git is required to delete the recorded worktree. Proceeding with metadata-only abandon: ${
+                                    formatGitRequiredMessage(error)
+                                }`,
+                                true,
+                                "RunWield",
+                            );
+                        }
+                    }
+                    if (worktreeContext?.id) {
+                        await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
+                    }
+                    return await updatePlanFrontMatter(
+                        projectRoot,
+                        plan.planName,
+                        {
+                            worktreeStatus: "abandoned",
+                            worktreeId: null,
+                            worktreePath: null,
+                            worktreeBranch: null,
+                        },
+                        plan.attrs,
+                        { expectedRevision: beforePlan?.revision },
                     );
-                }
+                },
+            });
+            if (transition.status !== "committed") {
+                throw new Error(transition.message || `Recovery abandon transaction failed for ${plan.planName}.`);
             }
-            if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
-            }
-            plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
-                worktreeStatus: "abandoned",
-                worktreeId: null,
-                worktreePath: null,
-                worktreeBranch: null,
-            }, plan.attrs);
+            const transitionValue =
+                /** @type {{ value?: import('../../plan-store.js').PlanFrontMatter }} */ (transition.value || {});
+            plan.attrs = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.value);
             worktreeContext = null;
             uiAPI.appendSystemMessage(
                 removedWorktree
@@ -2685,6 +2883,7 @@ async function handlePlanRecovery({
                 findWorktreeById,
                 findWorktreeByPlanName,
                 updateWorktreeRegistryEntry,
+                updatePlanFrontMatter,
                 recordPlanEvent,
                 session,
             });
@@ -3201,7 +3400,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         findWorktreeByPlanName: findWorktreeByPlanNameDep,
         updateWorktreeRegistryEntry: updateWorktreeRegistryEntryDep,
         getWorktreeStatus: getWorktreeStatusDep,
-        createExecutionWorktree: createExecutionWorktreeDep,
+        createExecutionWorktreeGitArtifacts: createExecutionWorktreeGitArtifactsDep,
+        settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
         sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateDep,
@@ -3243,7 +3443,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
     const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryDep || updateWorktreeRegistryEntryFn;
     const getWorktreeStatus = getWorktreeStatusDep || getWorktreeStatusFn;
-    const createExecutionWorktree = createExecutionWorktreeDep || createExecutionWorktreeFn;
+    const createExecutionWorktreeGitArtifactsImpl = createExecutionWorktreeGitArtifactsDep ||
+        createExecutionWorktreeGitArtifacts;
+    const settleExecutionWorktreeRegistryImpl = settleExecutionWorktreeRegistryDep || settleExecutionWorktreeRegistry;
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
@@ -3476,7 +3678,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 findWorktreeByPlanName,
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
-                createExecutionWorktree,
+                createExecutionWorktreeGitArtifacts: createExecutionWorktreeGitArtifactsImpl,
+                settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryImpl,
                 mergeExecutionWorktree,
                 sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateImpl,
                 getBranchHead: getBranchHeadImpl,
@@ -3543,6 +3746,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     findWorktreeById,
                     findWorktreeByPlanName,
                     updateWorktreeRegistryEntry,
+                    updatePlanFrontMatter,
                     recordPlanEvent,
                     session,
                 });
@@ -3621,31 +3825,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
-                    const preReviewAttrs = { ...plan.attrs };
-                    const preReviewWorkflow = session.getActiveExecutionWorkflow();
-                    /** @type {RecoveryWorktreeContext | null} */
-                    let priorWorktree = null;
-                    let reopenedForReview = false;
-                    if (isExecutablePlanStatus(plan.attrs.status)) {
-                        priorWorktree = await resolveRecoveryWorktree(projectRoot, plan, {
-                            findWorktreeById,
-                            findWorktreeByPlanName,
-                        });
-                        if (priorWorktree?.id) {
-                            await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status: "abandoned" });
-                        }
-                        session.clearActiveExecutionWorkflow();
-                        plan.attrs = {
-                            ...plan.attrs,
-                            status: "feedback",
-                            worktreeId: /** @type {any} */ (null),
-                            worktreePath: /** @type {any} */ (null),
-                            worktreeBranch: /** @type {any} */ (null),
-                            worktreeBaseBranch: /** @type {any} */ (null),
-                            worktreeStatus: "abandoned",
-                        };
-                        reopenedForReview = true;
-                    }
+                    const shouldReopenForReview = isExecutablePlanStatus(plan.attrs.status) ||
+                        Boolean(plan.attrs.worktreeId || plan.attrs.worktreePath || plan.attrs.worktreeBranch);
+                    const preReviewStatus = plan.attrs.status;
 
                     await switchPlanAgent(agentName);
 
@@ -3675,22 +3857,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     });
 
                     if (recoverableReview.kind === "complete") {
-                        if (reopenedForReview) {
-                            plan.attrs = preReviewAttrs;
-                            if (
-                                priorWorktree?.id && typeof priorWorktree.status === "string" &&
-                                priorWorktree.status !== "none"
-                            ) {
-                                const status =
-                                    /** @type {import('../../shared/worktree-registry.js').WorktreeRegistryEntry['status']} */ (
-                                        priorWorktree.status
-                                    );
-                                await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status });
-                            }
-                            if (preReviewWorkflow) {
-                                session.setActiveExecutionWorkflow(preReviewWorkflow);
-                            }
-                        }
                         uiAPI.appendSystemMessage(SESSION_COMPLETE_GUIDANCE, false, "RunWield");
                         skipRouterRestore = true;
                         return;
@@ -3706,6 +3872,20 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         );
                         skipRouterRestore = true;
                         return;
+                    }
+
+                    if (shouldReopenForReview) {
+                        await reopenPlanForReview({
+                            projectRoot,
+                            plan,
+                            currentStatus: preReviewStatus,
+                            findWorktreeById,
+                            findWorktreeByPlanName,
+                            updateWorktreeRegistryEntry,
+                            updatePlanFrontMatter,
+                            recordPlanEvent,
+                            session,
+                        });
                     }
 
                     if (reviewResult.approved) {

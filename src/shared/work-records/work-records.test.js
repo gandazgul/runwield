@@ -400,6 +400,7 @@ Deno.test("targeted Work Record auto-generation writes standalone FEATURE record
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd,
             planName: "standalone",
+            __deps: { shouldAutoGenerate: () => true },
             generationOptions: {
                 idGenerator: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 now: () => new Date("2026-07-16T00:00:00.000Z"),
@@ -524,6 +525,7 @@ Deno.test("targeted Work Record auto-generation reports generation failures with
             cwd,
             planName: "standalone",
             __deps: {
+                shouldAutoGenerate: () => true,
                 generateWorkRecordForSource: (_cwd, source) =>
                     Promise.resolve({ source, status: "failed", error: "Recorder unavailable" }),
             },

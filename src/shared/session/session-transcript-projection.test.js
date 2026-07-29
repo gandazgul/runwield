@@ -10,6 +10,22 @@ import {
     summarizeProjectedEntries,
 } from "./session-transcript-projection.js";
 
+/** @param {string} path */
+async function removeTempDir(path) {
+    let lastError;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
 /** @param {(home: string) => Promise<void>} callback */
 async function withHome(callback) {
     return await withProcessGlobalTestLock(async () => {
@@ -21,7 +37,7 @@ async function withHome(callback) {
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDir(home);
         }
     });
 }
