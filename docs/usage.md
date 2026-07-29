@@ -324,3 +324,23 @@ RunWield uses RunWield-owned paths instead of Pi-owned paths:
 | Project plans                | `plans/`                                   |
 
 On first use, RunWield imports some Pi config files into `~/.wld/` when the RunWield copy does not exist.
+
+## Plan recovery and doctor
+
+Use `wld plans doctor` to inspect Plan/worktree lifecycle drift:
+
+```bash
+wld plans doctor
+wld plans doctor --repair
+```
+
+The default command reports issues without changing the project. `--repair` applies only safe metadata repairs, such as
+marking a registry entry abandoned when its recorded worktree path is missing. Destructive actions like deleting a
+branch, deleting a directory, or abandoning ambiguous work require an explicit recovery choice or a manual command.
+
+If a lifecycle action is interrupted, RunWield may leave a recovery record in `.wld/plan-transitions/`. The next
+`wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already completed,
+can be rolled back, or needs user confirmation.
+
+RunWield also supports Projects without Git. In that mode FEATURE execution can run in the current checkout after the
+non-Git prompt/consent path. Doctor skips Git worktree checks that do not apply and reports only Plan metadata issues.
