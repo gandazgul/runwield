@@ -7,7 +7,6 @@ import {
     planReviewTransactionContractScenario,
     routerToGuideInquiryScenario,
     runtimeInteractionContractScenario,
-    sessionReplacementContractScenario,
     startupNoProvidersOpensLoginScenario,
     startupProviderWithoutModelsOpensModelScenario,
 } from "./initial-scenarios.js";
@@ -39,7 +38,6 @@ const scenarioExportNames = new Map([
     [planReviewTransactionContractScenario, "planReviewTransactionContractScenario"],
     [fauxProviderProtocolScenario, "fauxProviderProtocolScenario"],
     [runtimeInteractionContractScenario, "runtimeInteractionContractScenario"],
-    [sessionReplacementContractScenario, "sessionReplacementContractScenario"],
     [startupNoProvidersOpensLoginScenario, "startupNoProvidersOpensLoginScenario"],
     [startupProviderWithoutModelsOpensModelScenario, "startupProviderWithoutModelsOpensModelScenario"],
 ]);

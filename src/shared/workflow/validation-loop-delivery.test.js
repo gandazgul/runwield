@@ -558,3 +558,163 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
     assertStringIncludes(messages, "the Plan may still show");
     assertStringIncludes(messages, "plans doctor --repair");
 });
+
+/**
+ * Drive one Epic child through Direct Delivery publication with a chosen sibling
+ * state, and report whether the child's own merge was allowed to run.
+ *
+ * @param {{ siblingStatus: string, siblingDeliveryEvidence?: unknown }} sibling
+ */
+async function runEpicChildDelivery(sibling) {
+    const primaryRoot = await makeValidationProjectRoot("epic", {
+        classification: "PROJECT",
+        status: "ready_for_work",
+        summary: "Golden Epic",
+    });
+    await savePlanForTest(primaryRoot, "epic/01-a", "# a\n\nchild a\n", {
+        classification: "PLANNED_CHANGE",
+        status: "in_progress",
+        summary: "Child A",
+        affectedPaths: [],
+        parentPlan: "epic",
+        order: 1,
+    });
+    // deliveryEvidence is lifecycle-owned: savePlan and updatePlanFrontMatter both
+    // drop it, so a sibling that has genuinely delivered can only be built by
+    // recording the event that grants it.
+    await savePlanForTest(primaryRoot, "epic/02-b", "# b\n\nchild b\n", {
+        classification: "PLANNED_CHANGE",
+        status: /** @type {any} */ (sibling.siblingDeliveryEvidence ? "implemented" : sibling.siblingStatus),
+        summary: "Child B",
+        affectedPaths: [],
+        parentPlan: "epic",
+        order: 2,
+    });
+    if (sibling.siblingDeliveryEvidence) {
+        const { recordPlanEvent } = await import("./plan-lifecycle.js");
+        await recordPlanEvent({
+            cwd: primaryRoot,
+            planName: "epic/02-b",
+            event: "validation_passed",
+            currentStatus: "implemented",
+            details: {
+                triageMeta: /** @type {any} */ ({
+                    classification: "PLANNED_CHANGE",
+                    summary: "Child B",
+                    parentPlan: "epic",
+                }),
+                executionMode: "worktree",
+                deliveryEvidence: /** @type {any} */ (sibling.siblingDeliveryEvidence),
+            },
+        });
+    }
+
+    const { uiAPI, hostedSession } = makeValidationUi();
+    /** @type {string[]} */
+    const actions = [];
+    const triageMeta = { classification: "PLANNED_CHANGE", summary: "Child A", parentPlan: "epic" };
+
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "epic/01-a",
+        triageMeta,
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        baselineTree: "baseline-tree",
+        projectRoot: primaryRoot,
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/epic-01-a-wt1",
+        worktreeBaseBranch: "main",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "epic/01-a",
+        planContent: "plan",
+        triageMeta,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            stageValidationPassedInExecutionWorktree: () =>
+                Promise.resolve({
+                    attrs: /** @type {any} */ ({ status: "verified" }),
+                    planPaths: ["plans/epic/01-a.md"],
+                }),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve({ updatedPrimaryCheckout: false });
+            },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            // A refused publication dispatches merge repair; stub it so the test
+            // observes the refusal itself rather than driving a real repair agent.
+            runCompletionGatedRepair: () => Promise.resolve(false),
+            restorePrimaryPlanPathAfterMergeFailure: () => Promise.resolve(),
+            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeRegistryEntry: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(`event:${event.event}`);
+                return Promise.resolve({});
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    return {
+        merged: actions.includes("merge"),
+        refused: uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("not eligible for Epic publication")
+        ),
+    };
+}
+
+// Regression: the "have all children finished?" predicate belongs to Epic
+// advancement (advanceParentEpicWhenAllChildrenVerified), which returns quietly
+// while a child is unfinished. Enforcing it here as well made it fatal in the
+// wrong place — the first child of a multi-child Epic could never publish,
+// and neither could the second, since the first never reached verified.
+Deno.test("Direct Delivery publishes an Epic child while a sibling is still being planned", async () => {
+    const result = await runEpicChildDelivery({ siblingStatus: "draft" });
+    assertEquals(result.refused, false);
+    assertEquals(result.merged, true);
+});
+
+Deno.test("Direct Delivery refuses an Epic child when a sibling claims verified without evidence", async () => {
+    const result = await runEpicChildDelivery({ siblingStatus: "verified" });
+    assertEquals(result.refused, true);
+    assertEquals(result.merged, false);
+});
+
+Deno.test("Direct Delivery publishes an Epic child when a verified sibling carries delivery evidence", async () => {
+    const result = await runEpicChildDelivery({
+        siblingStatus: "verified",
+        siblingStatus: "verified",
+        siblingDeliveryEvidence: {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: "0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6",
+            targetBranch: "main",
+            targetHeadBeforeMerge: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+        },
+    });
+    assertEquals(result.refused, false);
+    assertEquals(result.merged, true);
+});

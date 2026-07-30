@@ -8,14 +8,7 @@ import { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import {
-    loadPlan,
-    parsePlanFrontMatter,
-    saveChildFeaturePlans,
-    savePlan as savePlanForGolden,
-    updatePlanFrontMatter,
-} from "../../../plan-store.js";
-import { recordPlanEvent } from "../../../shared/workflow/plan-lifecycle.js";
+import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { submitPlanForReview } from "../../review/plan-review.js";
 import { createFauxMessageForTurn, GoldenScenarioActor } from "./scenario-actor.js";
@@ -157,27 +150,6 @@ async function runGoldenGit(args, cwd) {
     return stdout;
 }
 
-/**
- * Update one Golden fixture Plan's Front Matter under the revision-aware
- * compare-and-swap the Plan store requires. The read that supplies the merged
- * attrs must also supply the revision the write is checked against, or the Plan
- * store refuses the write as stale — the two cannot come from separate reads.
- *
- * @param {string} planName
- * @param {Partial<import('../../../plan-store.js').PlanFrontMatter>} updates
- */
-async function updateGoldenPlanFrontMatter(planName, updates) {
-    const plan = await loadPlan(Deno.cwd(), planName);
-    if (!plan) throw new Error(`Golden fixture Plan not found: ${planName}`);
-    await updatePlanFrontMatter(
-        Deno.cwd(),
-        planName,
-        { ...plan.attrs, ...updates },
-        undefined,
-        { expectedRevision: plan.revision },
-    );
-}
-
 /** @param {string} agentName */
 function inferGoldenPhase(agentName) {
     if (agentName === "router") return "triage";
@@ -189,9 +161,16 @@ function inferGoldenPhase(agentName) {
 /**
  * @param {string | undefined} snapshotAgentName
  * @param {string[]} availableTools
+ * @param {string} [systemPrompt]
  * @returns {{ agent: string, phase: string }}
  */
-function inferGoldenTurnIdentity(snapshotAgentName, availableTools) {
+function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt = "") {
+    // The Recorder runs in its own non-interactive session, so the composed
+    // Session's snapshot still names whichever Agent was last active there. Its
+    // system prompt is the only thing that distinguishes it — which is the same
+    // signal a real model has, and it decides who to answer as, not what the
+    // scenario asserts about the workflow.
+    if (systemPrompt.includes("You are the Recorder")) return { agent: "recorder", phase: "work_record" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };
     // Workflow Validation runs the Semantic Reviewer in an isolated session while
@@ -504,6 +483,8 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {Record<string, unknown>} */
         /** @type {string[]} */
         const turnSequence = [];
+        /** @type {string} */
+        let lastWorkflowPlanName = "";
         const state = {
             canceled: false,
             editorUsable: true,
@@ -562,27 +543,80 @@ async function runComposedTuiScenario(scenario, options) {
                     return Promise.resolve();
                 };
             }
-            const scriptedProviderTurns = (scenario.script || []).filter((turn) =>
-                turn.id !== "slicer-materializes-two-children"
-            );
-            const scriptedResponseFactories = scriptedProviderTurns.map(() => (/** @type {unknown} */ context) => {
+            // Every scripted turn is served through the faux provider, including the
+            // Slicer's. Excluding it meant the harness consumed that turn itself and
+            // called saveChildFeaturePlans directly, so the real
+            // slicer_finalize_decomposition tool and the Epic decomposition
+            // transaction never ran in any Golden scenario.
+            const scriptedResponseFactories = (scenario.script || []).map(() => (/** @type {unknown} */ context) => {
                 const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                 const availableTools = getContextToolNames(context);
-                const { agent, phase } = inferGoldenTurnIdentity(snapshot?.activeAgent || undefined, availableTools);
-                const ordinalKey = `${agent}:${phase}`;
+                const systemPrompt = String(
+                    /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
+                        .systemPrompt || "",
+                );
+                const { agent, phase } = inferGoldenTurnIdentity(
+                    snapshot?.activeAgent || undefined,
+                    availableTools,
+                    systemPrompt,
+                );
+                // The Runtime's own view of which Plan is executing. An Epic drives
+                // several child Plans through the same Agent and phase, so execution
+                // and review turns count ordinals per Plan: one child's turn count
+                // then cannot shift the next child's script. Planning turns are not
+                // scoped this way — a Planner turn runs before its Plan exists, and
+                // the Runtime still reports whichever Plan came before.
+                const reportedPlanName = String(
+                    /** @type {{ workflowContext?: { planName?: unknown } }} */ (snapshot || {}).workflowContext
+                        ?.planName || "",
+                );
+                // The Runtime clears workflowContext between phases, and an empty
+                // reading must not open a second ordinal series for the same Plan —
+                // that is what silently shifted a scenario's later turns. Carry the
+                // last Plan the Runtime named until it names another.
+                if (reportedPlanName) lastWorkflowPlanName = reportedPlanName;
+                const planName = reportedPlanName || lastWorkflowPlanName;
+                const planScoped = agent === "engineer" || agent === "reviewer";
+                const ordinalKey = planScoped ? `${agent}:${phase}:${planName}` : `${agent}:${phase}`;
                 const ordinal = (turnOrdinals.get(ordinalKey) || 0) + 1;
                 turnOrdinals.set(ordinalKey, ordinal);
                 // Recorded before dispatch so a failing turn still appears: the
                 // identity/ordinal a turn was offered under is the one fact needed to
                 // script agent loops that run to a text-only answer, and it is
                 // invisible from events alone.
-                turnSequence.push(`${agent}:${phase}:${ordinal}`);
-                const response = actor.next({ agent, phase, ordinal, availableTools });
+                turnSequence.push(`${agent}:${phase}:${planScoped ? planName || "-" : "*"}:${ordinal}`);
+                const response = actor.next({
+                    agent,
+                    phase,
+                    ordinal,
+                    planName: planScoped ? planName : undefined,
+                    availableTools,
+                });
                 events.push(`model:faux-provider:${agent}:${phase}`);
                 return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
             });
             const fallbackResponseFactories = Array.from({ length: 4 }, () => (/** @type {unknown} */ context) => {
                 const availableTools = getContextToolNames(context);
+                const fallbackSystemPrompt = String(
+                    /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
+                        .systemPrompt || "",
+                );
+                // The Recorder's Output Contract is JSON body sections. Answering it
+                // in prose would fail generation on format alone and say nothing about
+                // Work Records; the record itself is still written, indexed and linked
+                // by the real generator from the real Plan and Git history.
+                if (fallbackSystemPrompt.includes("You are the Recorder")) {
+                    return createFauxMessageForTurn({
+                        id: "golden-fallback-work-record",
+                        agent: "recorder",
+                        phase: "work_record",
+                        text: JSON.stringify({
+                            title: "Golden Work Record",
+                            summary: "Recorded the completed Golden Planned Change for planning memory.",
+                            deviationsFromPlan: "None.",
+                        }),
+                    });
+                }
                 if (availableTools.includes("review_complete")) {
                     return createFauxMessageForTurn({
                         id: "golden-fallback-review-approval",
@@ -895,175 +929,108 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push("workflow:durability:terminal-ready");
                     events.push("workflow:durability:delivery-checked");
                     events.push("workflow:durability:registry-clean");
-                } else if (
-                    typed.type === "runProjectChildLifecycles" || typed.type === "runEpicContinuationReplacement"
-                ) {
-                    const previousSessionId = composition.sessionId;
-                    const useRealSlicer = (scenario.script || []).some((turn) =>
-                        turn.id === "slicer-materializes-two-children"
-                    );
-                    if (!useRealSlicer) {
-                        await savePlanForGolden(Deno.cwd(), "epic", "# Epic", {
-                            classification: "PROJECT",
-                            status: "ready_for_work",
-                            summary: "Golden Epic",
-                            affectedPaths: [],
-                        });
-                        await savePlanForGolden(Deno.cwd(), "epic/01-done", "# Done", {
-                            classification: "PLANNED_CHANGE",
-                            status: "implemented",
-                            summary: "Done child",
-                            affectedPaths: [],
-                            parentPlan: "epic",
-                            order: 1,
-                        });
-                        await savePlanForGolden(Deno.cwd(), "epic/02-next", "# Next", {
-                            classification: "PLANNED_CHANGE",
-                            status: "ready_for_work",
-                            summary: "Next child",
-                            affectedPaths: [],
-                            parentPlan: "epic",
-                            order: 2,
-                        });
-                        const replacementSessionId = await composition.runtime.createPromptReadySession({
-                            cwd: Deno.cwd(),
-                            agentName: "planner",
-                        });
-                        if ((scenario.script || []).length) {
-                            actor.next({ agent: "planner", phase: "plan_review", ordinal: 1, availableTools: [] });
-                        }
-                        state.replacedSession = { previousSessionId, currentSessionId: replacementSessionId };
-                        events.push("runtime:session-replaced:golden");
-                        continue;
-                    }
-                    const parentPlanText = await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")).catch(() =>
-                        ""
-                    );
-                    const parentAttrs = parentPlanText ? parsePlanFrontMatter(parentPlanText).attrs : null;
-                    if (
-                        useRealSlicer &&
-                        (parentAttrs?.classification !== "PROJECT" ||
-                            !["approved", "ready_for_decomposition"].includes(String(parentAttrs.status || "")))
-                    ) {
+                } else if (typed.type === "runSlicerDecomposition") {
+                    // Real decomposition. The Slicer agent turn, the
+                    // slicer_finalize_decomposition tool, the Plan catalog lock and the
+                    // composite Epic decomposition transaction all run for real; only
+                    // the model's tool call comes from the script. Nothing here writes
+                    // Plan files itself — a harness that materialized children would be
+                    // testing its own mirror of decomposition instead of the product's.
+                    const epicPlanName = String(typed.planName || "epic");
+                    const epic = await loadPlan(Deno.cwd(), epicPlanName);
+                    if (!epic) throw new Error(`Expected PROJECT Epic Plan ${epicPlanName} to exist.`);
+                    if (epic.attrs.classification !== "PROJECT") {
                         throw new Error(
-                            "Expected PROJECT Epic to be approved by the Architect Plan Review before Slicer runs.",
+                            `Expected ${epicPlanName} to be a PROJECT Epic; got ${epic.attrs.classification}`,
                         );
                     }
-                    if (!parentAttrs) throw new Error("Expected PROJECT Epic metadata after Architect Plan Review.");
-                    events.push("project:architect:approved");
+                    events.push(`project:epic:status:${epic.attrs.status}`);
                     await writeHeartbeat();
-                    // Re-read instead of trusting the snapshot above: `approved` is a
-                    // transient state the Epic passes through on its way to
-                    // `ready_for_decomposition`, so a status remembered from even a
-                    // moment earlier can already be stale — and recordPlanEvent
-                    // rejects a stale precondition outright.
-                    const settledParentText = await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")).catch(() =>
-                        ""
-                    );
-                    const settledParentAttrs = settledParentText ? parsePlanFrontMatter(settledParentText).attrs : null;
-                    if (settledParentAttrs?.status === "approved") {
-                        await recordPlanEvent({
-                            cwd: Deno.cwd(),
-                            planName: "epic",
-                            event: "epic_readiness_passed",
-                            currentStatus: "approved",
-                            details: { triageMeta: settledParentAttrs },
-                        });
+                    const slicerResult = await composition.runtime.runSlicerAgent(composition.sessionId, {
+                        planName: epicPlanName,
+                        triageMeta: epic.attrs,
+                    });
+                    if (!slicerResult?.ok) {
+                        throw new Error(`Slicer decomposition failed: ${slicerResult?.error || "unknown error"}`);
                     }
-                    let childFiles = ["01-done", "02-next"];
-                    if (useRealSlicer) {
-                        actor.next({
-                            agent: "slicer",
-                            phase: "slicer",
-                            ordinal: 1,
-                            availableTools: ["slicer_finalize_decomposition"],
-                        });
-                        events.push("model:faux-provider:slicer:slicer");
-                        events.push("runtime:tool:start:slicer_finalize_decomposition");
-                        await writeHeartbeat();
-                        const slicerTurn = actor.consumed.at(-1);
-                        const finalizeCall = (slicerTurn?.toolCalls || []).find((toolCall) =>
-                            toolCall.name === "slicer_finalize_decomposition"
+                    const materialized = (await findPlansByParent(Deno.cwd(), epicPlanName))
+                        .filter((child) => child.attrs.classification === "PLANNED_CHANGE")
+                        .sort((left, right) => Number(left.attrs.order || 0) - Number(right.attrs.order || 0));
+                    if (materialized.length < 2) {
+                        throw new Error(
+                            `Expected the Slicer to materialize two child Plans; got ${
+                                materialized.map((child) => child.name).join(", ") || "none"
+                            }`,
                         );
-                        const finalizeArgs = /** @type {{ children?: unknown }} */ (finalizeCall?.arguments || {});
-                        await saveChildFeaturePlans(
-                            Deno.cwd(),
-                            "epic",
-                            /** @type {import('../../../plan-store.js').ChildFeaturePlanDescriptor[]} */ (finalizeArgs
-                                .children || []),
-                        );
-                        events.push("project:slicer:children-written");
-                        await writeHeartbeat();
-                        events.push("runtime:tool:end:slicer_finalize_decomposition");
-                        await writeHeartbeat();
-                        const childDir = join(Deno.cwd(), "plans", "epic");
-                        childFiles = [];
-                        for await (const entry of Deno.readDir(childDir)) {
-                            if (entry.isFile && entry.name.endsWith(".md")) {
-                                childFiles.push(entry.name.replace(/\.md$/, ""));
-                            }
-                        }
-                        childFiles.sort();
-                        if (childFiles.length < 2) {
-                            throw new Error(
-                                `Expected Slicer to materialize two child plans; got ${childFiles.join(", ")}`,
-                            );
-                        }
-                        events.push("project:slicer:materialized");
-                        await writeHeartbeat();
                     }
-                    const firstPlanName = `epic/${childFiles[0]}`;
-                    const secondPlanName = `epic/${childFiles[1]}`;
-                    events.push(`project:child:launch:${firstPlanName}`);
+                    state.projectChildren = materialized.map((child) => ({
+                        name: child.name,
+                        status: child.attrs.status,
+                        classification: child.attrs.classification,
+                        order: child.attrs.order,
+                        parentPlan: child.attrs.parentPlan,
+                    }));
+                    events.push("project:slicer:materialized");
                     await writeHeartbeat();
-                    await updateGoldenPlanFrontMatter(firstPlanName, {
-                        status: "implemented",
-                        executionMode: "non_git_in_place",
-                        worktreeBaseBranch: "",
-                        worktreeBranch: "",
-                        worktreePath: "",
-                        worktreeId: "",
-                    });
-                    await updateGoldenPlanFrontMatter(secondPlanName, {
-                        status: "ready_for_work",
-                        executionMode: "non_git_in_place",
-                        worktreeBaseBranch: "",
-                        worktreeBranch: "",
-                        worktreePath: "",
-                        worktreeId: "",
-                    });
-                    events.push("project:child:metadata-staged");
-                    await writeHeartbeat();
-                    events.push("project:child:first-lifecycle");
-                    await updateGoldenPlanFrontMatter(firstPlanName, { status: "verified" });
-                    const replacementSessionId = await composition.runtime.createPromptReadySession({
-                        cwd: Deno.cwd(),
-                        agentName: "engineer",
-                    });
-                    state.replacedSession = {
-                        previousSessionId,
-                        currentSessionId: replacementSessionId,
-                        reason: "epic_continuation",
-                        childPlanName: secondPlanName,
-                        action: "execute",
-                    };
-                    events.push("runtime:session-replaced:epic_continuation");
-                    await updateGoldenPlanFrontMatter(secondPlanName, { status: "verified" });
-                    const secondLatestAttrs = parsePlanFrontMatter(
-                        await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
-                    ).attrs;
-                    events.push("project:child:second-lifecycle");
+                } else if (typed.type === "captureProjectDurability") {
+                    // Observation only: every status read here was produced by the real
+                    // lifecycle, so the assertions describe what the product did rather
+                    // than what the harness arranged.
+                    const epicPlanName = String(typed.planName || "epic");
+                    const parent = await loadPlan(Deno.cwd(), epicPlanName);
+                    const children = (await findPlansByParent(Deno.cwd(), epicPlanName))
+                        .filter((child) => child.attrs.classification === "PLANNED_CHANGE")
+                        .sort((left, right) => Number(left.attrs.order || 0) - Number(right.attrs.order || 0));
                     state.projectPlans = {
-                        parent:
-                            parsePlanFrontMatter(await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md"))).attrs,
-                        firstChild: parsePlanFrontMatter(
-                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
-                        ).attrs,
-                        secondChild: secondLatestAttrs,
+                        parent: parent?.attrs,
+                        firstChild: children[0]?.attrs,
+                        secondChild: children[1]?.attrs,
                     };
-                    events.push("project:child:PLANNED_CHANGE");
+                    const registryPath = join(Deno.cwd(), ".wld", "worktrees.json");
+                    const registryText = await Deno.readTextFile(registryPath).catch(() => "");
+                    const registryEntries = registryText ? (JSON.parse(registryText).entries || []) : [];
+                    state.projectDurability = {
+                        branch: await runGoldenGit(["rev-parse", "--abbrev-ref", "HEAD"], Deno.cwd()),
+                        deliveryLog: await runGoldenGit(["log", "--oneline", "-12"], Deno.cwd()),
+                        trackedFiles: await runGoldenGit(["ls-files"], Deno.cwd()),
+                        status: await runGoldenGit(["status", "--porcelain"], Deno.cwd()),
+                        // Attempts still mid-flight after the Epic finished. `completed`
+                        // is excluded deliberately: the registry counts it as
+                        // non-terminal, and the last child of an Epic is still sitting
+                        // in it once continuation ends — worth a look, but not a leak
+                        // this scenario can call.
+                        liveRegistryEntries: registryEntries.filter((entry) =>
+                            ["active", "execution_failed", "validation_failed"].includes(String(entry.status || ""))
+                        ).map((entry) => `${entry.planName || "?"}:${entry.status || "?"}`),
+                        registryStatuses: registryEntries.map((entry) =>
+                            `${entry.planName || "?"}:${entry.status || "?"}`
+                        ),
+                        registryEntryCount: registryEntries.length,
+                    };
                     events.push("project:epic:evidence");
-                    events.push("project:epic:work-record");
+                    await writeHeartbeat();
+                } else if (typed.type === "generateWorkRecord") {
+                    // The production generator, on a Plan the real lifecycle actually
+                    // verified — the same call `/load-plan` makes when a user marks a
+                    // Plan verified. The Work Record content is generated from the real
+                    // Plan and Git history, not composed here.
+                    const { autoGenerateWorkRecordForCompletedPlan } = await import(
+                        "../../../shared/work-records/auto-generation.js"
+                    );
+                    const { listWorkRecords } = await import("../../../shared/work-records/store.js");
+                    const generated = await autoGenerateWorkRecordForCompletedPlan({
+                        cwd: Deno.cwd(),
+                        planName: String(typed.planName || ""),
+                    });
+                    const records = await listWorkRecords(Deno.cwd(), { createDir: false });
+                    state.workRecord = {
+                        status: generated.status,
+                        path: generated.path,
+                        error: generated.error,
+                        recordNames: records.map((record) => record.relativePath),
+                    };
+                    events.push(`project:epic:work-record:${generated.status}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "uiPresentationState") {
                     composition.uiAPI.setBusy?.(true);
                     events.push("ui:spinner:busy");

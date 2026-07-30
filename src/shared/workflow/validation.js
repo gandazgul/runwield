@@ -9,7 +9,6 @@ import { AGENT_DEFS_DIR, AGENTS, isPlannedChangeClassification, normalizePlanCla
 import {
     findPlansByParent,
     getPlanRevisionForText,
-    isPlanDependencySatisfiedStatus,
     loadPlan,
     resolvePlanExecutionPolicy,
     updatePlanFrontMatter,
@@ -3069,10 +3068,20 @@ export async function runValidationLoop({
                                                     ? deliveryEvidence
                                                     : locked.deliveryEvidence,
                                             });
-                                        if (
-                                            !isPlanDependencySatisfiedStatus(projectedAttrs.status) ||
-                                            !hasDirectDeliveryEvidence(projectedAttrs)
-                                        ) {
+                                        // Whether the parent Epic may advance is decided later and
+                                        // separately, by advanceParentEpicWhenAllChildrenVerified(),
+                                        // which returns quietly while any child is unfinished.
+                                        // Requiring that here too made the predicate fatal in the
+                                        // wrong place: it aborted this child's own merge whenever a
+                                        // sibling was still being planned, so the first child of a
+                                        // multi-child Epic could never publish — and neither could
+                                        // the second, since the first never reached verified.
+                                        //
+                                        // What this publication genuinely depends on is that a
+                                        // sibling *claiming* verified carries mode-appropriate
+                                        // evidence, because the advancement decision is computed
+                                        // from these same files and would otherwise trust the claim.
+                                        if (!hasDirectDeliveryEvidence(projectedAttrs)) {
                                             throw new Error(
                                                 `Direct Delivery sibling ${expected.name} is not eligible for Epic publication; retry after every child has mode-appropriate Delivery Evidence.`,
                                             );

@@ -11,6 +11,7 @@ import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@ear
  * @property {string} agent
  * @property {string} [phase]
  * @property {number} [ordinal]
+ * @property {string} [planName]
  * @property {string[]} [availableTools]
  * @property {string[]} [requiredTools]
  * @property {string[]} [forbiddenTools]
@@ -26,6 +27,7 @@ import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@ear
  * @property {string} agent
  * @property {string} [phase]
  * @property {number} [ordinal]
+ * @property {string} [planName] Workflow Plan the Runtime reports as executing.
  * @property {string[]} [availableTools]
  */
 
@@ -41,6 +43,10 @@ function normalizeSet(value = []) {
 function turnMatches(turn, request) {
     if (turn.agent !== request.agent) return false;
     if (turn.phase && turn.phase !== request.phase) return false;
+    // An Epic runs several child Plans through the same Agent and phase, so a turn
+    // may pin the Plan it belongs to. Ordinals are counted per Plan, which keeps one
+    // child's turn count from shifting the next child's script.
+    if (turn.planName && turn.planName !== request.planName) return false;
     if (turn.ordinal !== undefined && turn.ordinal !== request.ordinal) return false;
     return true;
 }

@@ -317,18 +317,6 @@ function assertScriptedRuntimeInteractions(result) {
     assert(interactions.length === 3, `Expected three scripted Runtime interactions; got ${interactions.length}`);
 }
 
-/** @param {GoldenScenarioResult} result */
-function assertSessionReplacementObserved(result) {
-    assertEventIncludes(result, "runtime:session-replaced:golden");
-    const replacement = /** @type {{ previousSessionId?: string, nextSessionId?: string, currentSessionId?: string } | undefined} */
-        (result.state.replacedSession);
-    assert(replacement?.currentSessionId, "Expected composition to expose the replacement session id.");
-    assert(
-        replacement.previousSessionId !== replacement.currentSessionId,
-        "Expected replacement to change the active session id.",
-    );
-}
-
 export const runtimeInteractionContractScenario = {
     name: "runtime-interaction-contract",
     composedTui: true,
@@ -366,26 +354,6 @@ export const runtimeInteractionContractScenario = {
     assertions: [assertScriptedRuntimeInteractions],
 };
 
-export const sessionReplacementContractScenario = {
-    name: "session-replacement-contract",
-    composedTui: true,
-    terminal: { columns: 100, rows: 30 },
-    script: [
-        {
-            id: "planner-epic-continuation-replacement",
-            agent: "planner",
-            phase: "plan_review",
-            ordinal: 1,
-            text: "Planner replacement session reached through Runtime epic continuation.",
-        },
-    ],
-    actions: [
-        { type: "runEpicContinuationReplacement" },
-        { type: "waitForIdle" },
-    ],
-    assertions: [assertSessionReplacementObserved],
-};
-
 // Deliberately hangs so the parent's scenario timeout fires mid-sleep. The sleep
 // is far longer than that timeout so the kill window cannot be outrun.
 export const timeoutDiagnosticScenario = {
@@ -411,7 +379,6 @@ export const initialGoldenScenarios = [
     planReviewTransactionContractScenario,
     fauxProviderProtocolScenario,
     runtimeInteractionContractScenario,
-    sessionReplacementContractScenario,
     startupNoProvidersOpensLoginScenario,
     startupProviderWithoutModelsOpensModelScenario,
 ];
