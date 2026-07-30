@@ -51,6 +51,32 @@ Deno.test("high-level lifecycle callers use Plan Lifecycle APIs instead of raw P
     assertEquals(offenders, []);
 });
 
+Deno.test("Git publication only happens inside a lifecycle transaction", async () => {
+    // Moving the target ref is the irreversible effect in the whole system. Doing it as
+    // bare choreography — which /load-plan's manual merge did — means a crash mid-merge
+    // leaves no journal, no lock is held, and an Epic-completing child can publish
+    // against sibling evidence nobody rechecked.
+    const publishingFiles = ["src/cmd/load-plan/index.js"];
+    const offenders = [];
+    for (const file of publishingFiles) {
+        const text = await Deno.readTextFile(repoPath(file));
+        for (const match of text.matchAll(/\bmergeExecutionWorktree\s*\(/g)) {
+            // A publication callback is long — sealing, staging, snapshotting and proving
+            // all precede the merge — so this looks back far enough to contain one rather
+            // than loosening the tighter window the Plan-write assertions rely on.
+            const window = text.slice(Math.max(0, (match.index || 0) - 8000), match.index || 0);
+            const insidePublication = /runDirectDeliveryPublicationTransition\s*\([\s\S]*publish\s*:\s*async/.test(
+                window,
+            );
+            if (!insidePublication) {
+                const line = text.slice(0, match.index || 0).split("\n").length;
+                offenders.push(`${file}:${line}: mergeExecutionWorktree outside a publication transaction`);
+            }
+        }
+    }
+    assertEquals(offenders, []);
+});
+
 Deno.test("transition wrappers expose expected revision preconditions for lifecycle writers", async () => {
     const text = await Deno.readTextFile(repoPath("src/shared/workflow/state-transition.ts"));
     const wrappers = [

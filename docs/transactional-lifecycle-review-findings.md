@@ -145,6 +145,37 @@ wrapper had called its own function. It now lists only effects the _caller_ prov
 ref did not publish), review reopen requires `worktree_registry_abandoned`. The vacuous entries are gone rather than
 left looking like proof.
 
+### 13. `/load-plan`'s manual merge published with no transaction
+
+The "Merge validated worktree changes" recovery action performed the entire Direct Delivery publication — seal, stage,
+snapshot, merge (moving the target ref), verify ancestry, update the registry — as bare choreography. No lock, no
+journal, no sibling fencing. A crash mid-merge left nothing for `wld plans doctor` to find, and an Epic-completing child
+could publish against sibling evidence nobody rechecked.
+
+Now wrapped in `runDirectDeliveryPublicationTransition`, with the snapshot restore registered as a compensation and
+`direct_delivery_target_ref_moved` marked at the merge. Post-publication cleanup stays outside, so a cleanup failure
+cannot revoke a verified Plan. The original typed Git error is rethrown via `cause` so merge-failure classification
+still works.
+
+An earlier attempt was reverted because the merge appeared to leave the Plan `verified` after a conflict. That turned
+out to be finding 14, not a transaction problem.
+
+`architecture-boundary.test.js` now fails if `mergeExecutionWorktree` is called outside a publication transaction,
+verified by moving it out on purpose.
+
+### 14. A real-Git test was passing by reading the developer's own repository
+
+`load-plan-recovery.test.js` built a real Git project in a temp directory but left `session.cwd` pointing at the
+checkout, and did not inject `getBranchHead`, `sealExecutionWorktreeCandidate`, or `isCommitAncestorOfBranch`. Those ran
+against **the RunWield repo**. `getBranchHead` returned that repository's `main`, which mismatched the test project's
+head, so the merge refused with "Target branch advanced before publication" — and the test asserted exactly that
+message.
+
+The assertion was therefore satisfied by a fixture leak. Correct behaviour after resolving a conflict and re-merging is
+a successful publication, so the test now asserts `verified` plus Delivery Evidence. The target-advanced case got its
+own test that genuinely advances the target between sealing and merging, and both now assert no unresolved journal is
+left behind.
+
 ## Open — recommended next
 
 ### A. CAS at several call sites protects a zero-width window

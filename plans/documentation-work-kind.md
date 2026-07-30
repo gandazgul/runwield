@@ -1,4 +1,5 @@
 ---
+planId: "a6abad0e-eeb6-412c-9b2a-e412e65b3a4b"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -8,22 +9,36 @@ affectedPaths:
     - "src/constants.js"
     - "src/tools/triage-report.js"
     - "src/plan-store.js"
+    - "src/tools/plan-written.js"
+    - "src/shared/workflow/orchestrator.js"
     - "src/shared/workflow/workflow-slicer.js"
     - "src/shared/work-records/schema.js"
     - "src/agent-definitions/router.md"
+    - "src/agent-definitions/workflow-prompts/slicer-prompt.md"
     - "src/agent-definitions/document-formats/planner-plan-format.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/work-records-prd.md"
+    - "docs/product-rules.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-29T09:33:58-04:00"
-updatedAt: "2026-07-29T13:39:23.308Z"
-status: "ready_for_work"
+updatedAt: "2026-07-29T21:11:14.217Z"
+status: "implemented"
 origin: "internal"
+implementedAt: "2026-07-29T21:11:14.217Z"
 userVerifiedAt: null
+executionReport: "- Added `DOCUMENTATION` Work Kind across constants, labels, normalization docs/JSDoc, triage and Slicer schemas, Router/Planner/Slicer prompts, PRDs, product rules, and glossary language without changing Routing Intent semantics.\n- Added regression coverage for `DOCUMENTATION` normalization/labeling, triage preservation/omission, plan review/approval handoff, Plan front matter and child materialization, Slicer/Engineer handoff text, and Work Record read/search/list display.\n- Verification passed: `deno run -A scripts/run-tests.js -A src/constants.test.js`; focused triage/plan-review/plan-store/workflow/work-record test groups with forwarded `-A`; manual `deno eval` sample parsed `workKind: DOCUMENTATION` and returned label `Planned documentation`; `deno task ci` passed.\n- Note: the plan’s focused command form without forwarded `-A` was attempted once and failed because child `deno test` lacked env permission for the sandbox guard; reran the same focused files with forwarded `-A` successfully."
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "45f4f0c122214b4665510632f9f512dae5d454ce"
+worktreeId: "75dc4d09"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-documentation-work-kind-75dc4d09"
+worktreeBranch: "runwield/worktree/documentation-work-kind-75dc4d09"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "documentation work kind"
-planId: "a6abad0e-eeb6-412c-9b2a-e412e65b3a4b"
 ---
 
 # Add Documentation Work Kind
@@ -63,8 +78,8 @@ Extend the existing Work Kind taxonomy in place with a compatibility-first chang
   displays update automatically where they already call the formatter.
 - Update Router, Planner-format, and Slicer prompts so future agents can emit `workKind: DOCUMENTATION` intentionally
   for documentation-primary planned work.
-- Update Plan and Work Record schema documentation plus `CONTEXT.md` so the glossary and product docs match implemented
-  behavior.
+- Update Plan, Work Record, and external-Plan onboarding documentation plus `CONTEXT.md` so the glossary and product
+  docs match implemented behavior.
 - Add focused regression tests that prove the new value survives triage normalization, Plan Front Matter
   parsing/formatting, Slicer child materialization, and Work Record read/search/list display.
 
@@ -94,12 +109,20 @@ Kind values should remain normalized away exactly as they do today.
   Matter template.
 - `docs/prd/runwield-core-prd.md` — update the Work Kind list in Routing Intent documentation.
 - `docs/prd/work-records-prd.md` — update the Work Record `workKind` schema example.
+- `docs/product-rules.md` — update external Plan onboarding guidance that enumerates known Work Kind values.
+- `src/constants.test.js` — add direct coverage for `normalizeWorkKind("DOCUMENTATION")` and the `Planned documentation`
+  label.
 - `src/tools/__tests__/triage-report.test.js` — add coverage that `workKind: DOCUMENTATION` is accepted only for
   `PLANNED_CHANGE` and appears in result details/status/metrics.
+- `src/tools/__tests__/plan-written.test.js` — add or update coverage that approval/lifecycle handoff preserves
+  `DOCUMENTATION` when it comes from triage metadata or approved Plan Front Matter.
+- `src/ui/review/plan-review.test.js` — add or update Plan review coverage showing triage metadata with `DOCUMENTATION`
+  is injected and re-parsed as trusted Plan Front Matter.
 - `src/plan-store.test.js` — add or update coverage that Plan Front Matter and child Plan materialization round-trip
   `DOCUMENTATION`.
 - `src/shared/workflow/workflow.test.js` and/or `src/shared/workflow/workflow-prompts.test.js` — add coverage that
-  Slicer prompts/materialization carry `DOCUMENTATION` without forcing parent Work Kind behavior.
+  Slicer prompts/materialization and Engineer handoff text carry `DOCUMENTATION` without forcing parent Work Kind
+  behavior.
 - `src/shared/work-records/work-records.test.js`, `src/tools/work-record-read.test.js`, and/or
   `src/tools/work-record-search.test.js` — add focused coverage that Work Records with `workKind: DOCUMENTATION`
   normalize, index/search, and display as `Planned documentation`.
@@ -123,7 +146,9 @@ Kind values should remain normalized away exactly as they do today.
 
 - [ ] Step 1: Update `CONTEXT.md` to make the new domain language true: change the Work Kind definition to list
       `DOCUMENTATION`; add a `DOCUMENTATION` Work Kind entry describing documentation-primary planned executable work;
-      distinguish it from `INQUIRY`, `OPERATION`, and small `QUICK_FIX` documentation edits.
+      distinguish it from `INQUIRY`, `OPERATION`, and small `QUICK_FIX` documentation edits. Update
+      `docs/product-rules.md` in the same language pass so external Plan onboarding no longer claims the old four-value
+      set is complete.
 - [ ] Step 2: Update `src/constants.js` by adding `DOCUMENTATION` to `WORK_KINDS`, expanding JSDoc unions for
       `normalizeWorkKind`, and adding a `case "DOCUMENTATION": return "Planned documentation";` branch in
       `formatPlannedWorkLabel`.
@@ -139,12 +164,17 @@ Kind values should remain normalized away exactly as they do today.
 - [ ] Step 6: Update product/schema docs in `docs/prd/runwield-core-prd.md` and `docs/prd/work-records-prd.md` to
       include `DOCUMENTATION` in Work Kind lists.
 - [ ] Step 7: Add targeted tests:
+  - `src/constants.test.js`: `normalizeWorkKind("DOCUMENTATION")` returns `DOCUMENTATION`; unknown/non-string values
+    still return `undefined`; `formatPlannedWorkLabel("DOCUMENTATION")` returns `Planned documentation`.
   - `src/tools/__tests__/triage-report.test.js`: `DOCUMENTATION` is accepted for `PLANNED_CHANGE`, preserved in
     details/metrics, and omitted for non-`PLANNED_CHANGE` routing just like other Work Kinds.
+  - `src/tools/__tests__/plan-written.test.js` and/or `src/ui/review/plan-review.test.js`: Plan review and
+    approval/lifecycle handoff preserve `DOCUMENTATION` from triage metadata or approved Plan Front Matter.
   - `src/plan-store.test.js`: parsing/saving Plan Front Matter with `workKind: DOCUMENTATION` preserves it; unknown
     values still normalize away; child Plan save/materialization can write `DOCUMENTATION`.
   - `src/shared/workflow/workflow.test.js` or `src/shared/workflow/workflow-prompts.test.js`: Slicer prompt/context
-    includes `Work Kind: DOCUMENTATION` and child descriptors with this Work Kind pass schema/materialization.
+    includes `Work Kind: DOCUMENTATION`, child descriptors with this Work Kind pass schema/materialization, and Engineer
+    handoff text describes the work as a planned documentation change.
   - Work Record tests: `workKind: DOCUMENTATION` normalizes and displays/searches as `Planned documentation` with the
     raw `workKind: DOCUMENTATION` metadata preserved.
 - [ ] Step 8: Run formatter/lint-friendly cleanup without broad JS-to-TS migration. These are existing JavaScript/JSDoc
@@ -153,7 +183,8 @@ Kind values should remain normalized away exactly as they do today.
 ## Verification Plan
 
 - Automated: run focused tests first:
-  - `deno run -A scripts/run-tests.js src/tools/__tests__/triage-report.test.js`
+  - `deno run -A scripts/run-tests.js src/constants.test.js`
+  - `deno run -A scripts/run-tests.js src/tools/__tests__/triage-report.test.js src/tools/__tests__/plan-written.test.js src/ui/review/plan-review.test.js`
   - `deno run -A scripts/run-tests.js src/plan-store.test.js`
   - `deno run -A scripts/run-tests.js src/shared/workflow/workflow.test.js src/shared/workflow/workflow-prompts.test.js`
   - `deno run -A scripts/run-tests.js src/shared/work-records/work-records.test.js src/tools/work-record-read.test.js src/tools/work-record-search.test.js`
@@ -168,8 +199,8 @@ Kind values should remain normalized away exactly as they do today.
   normalization.
 - Expected result: Work Records with `scope: planned_change` and `workKind: DOCUMENTATION` display/search/read as
   `Planned documentation` and retain `workKind: DOCUMENTATION` in metadata output.
-- Glossary check: confirm `CONTEXT.md`, code/docs behavior, and prompts all use the same `DOCUMENTATION` Work Kind
-  language and do not promote unimplemented Routing Intent behavior.
+- Glossary/docs check: confirm `CONTEXT.md`, `docs/product-rules.md`, PRDs, code behavior, and prompts all use the same
+  `DOCUMENTATION` Work Kind language and do not promote unimplemented Routing Intent behavior.
 - Execution policy matrix:
   - Planned Change Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
   - Planned Change Plans may set `executionAgent: "engineer"` with `collaborationRecommendation: "autonomous"` or
