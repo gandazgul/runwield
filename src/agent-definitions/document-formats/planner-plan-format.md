@@ -1,6 +1,6 @@
 ---
 classification: "PLANNED_CHANGE"
-workKind: "BUG_FIX|FEATURE|REFACTOR|MAINTENANCE"
+workKind: "BUG_FIX|FEATURE|REFACTOR|MAINTENANCE|DOCUMENTATION"
 complexity: "LOW|MEDIUM|HIGH"
 summary: "<Brief summary of the planned change>"
 affectedPaths:

@@ -9,7 +9,7 @@
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS } from "../constants.js";
+import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS, WORK_KINDS } from "../constants.js";
 import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
@@ -37,9 +37,9 @@ const TOOL_PARAMS = Type.Object({
         description:
             "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION/OPERATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 implementation/test paths, PLANNED_CHANGE/PROJECT: 3-8 paths.",
     }),
-    workKind: Type.Optional(StringEnum(["BUG_FIX", "FEATURE", "REFACTOR", "MAINTENANCE"], {
+    workKind: Type.Optional(StringEnum(WORK_KINDS, {
         description:
-            "Optional Work Kind for PLANNED_CHANGE. BUG_FIX for planned bug fixes, FEATURE for new/enhanced functionality, REFACTOR for structural changes, MAINTENANCE for upkeep.",
+            "Optional Work Kind for PLANNED_CHANGE. BUG_FIX for planned bug fixes, FEATURE for new/enhanced functionality, REFACTOR for structural changes, MAINTENANCE for upkeep, DOCUMENTATION for documentation creation or substantial documentation updates.",
     })),
 });
 

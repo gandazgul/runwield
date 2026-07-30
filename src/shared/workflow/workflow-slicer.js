@@ -126,9 +126,10 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
         Type.Literal("FEATURE"),
         Type.Literal("REFACTOR"),
         Type.Literal("MAINTENANCE"),
+        Type.Literal("DOCUMENTATION"),
     ], {
         description:
-            "Child Work Kind. Set for new child planned changes based on the work's nature; omit only to preserve an existing child draft's Work Kind.",
+            "Child Work Kind. Set for new child planned changes based on the work's nature, including DOCUMENTATION for documentation creation or substantial documentation updates; omit only to preserve an existing child draft's Work Kind.",
     })),
     content: Type.String({
         description: "Complete child planned change plan markdown body without YAML front matter.",

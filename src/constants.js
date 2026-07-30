@@ -74,7 +74,7 @@ export const ROUTING_INTENT_PLANNED_CHANGE = "PLANNED_CHANGE";
 export const LEGACY_ROUTING_INTENT_FEATURE = "FEATURE";
 
 /** Work Kind values describe the nature of planned executable work. */
-export const WORK_KINDS = ["BUG_FIX", "FEATURE", "REFACTOR", "MAINTENANCE"];
+export const WORK_KINDS = ["BUG_FIX", "FEATURE", "REFACTOR", "MAINTENANCE", "DOCUMENTATION"];
 
 /**
  * @param {unknown} value
@@ -106,11 +106,13 @@ export function isPlannedChangeClassification(value) {
 
 /**
  * @param {unknown} value
- * @returns {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|undefined}
+ * @returns {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"|undefined}
  */
 export function normalizeWorkKind(value) {
     if (typeof value !== "string") return undefined;
-    return WORK_KINDS.includes(value) ? /** @type {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} */ (value) : undefined;
+    return WORK_KINDS.includes(value)
+        ? /** @type {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} */ (value)
+        : undefined;
 }
 
 /**
@@ -127,6 +129,8 @@ export function formatPlannedWorkLabel(workKind) {
             return "Planned refactor";
         case "MAINTENANCE":
             return "Planned maintenance";
+        case "DOCUMENTATION":
+            return "Planned documentation";
         default:
             return "Planned change";
     }

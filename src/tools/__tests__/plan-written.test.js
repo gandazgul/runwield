@@ -7,7 +7,7 @@ import { createPlanWrittenTool } from "../plan-written.js";
 /**
  * @param {Object} options
  * @param {"FEATURE" | "PROJECT" | "PLANNED_CHANGE"} [options.classification]
- * @param {"BUG_FIX" | "FEATURE" | "REFACTOR" | "MAINTENANCE"} [options.workKind]
+ * @param {"BUG_FIX" | "FEATURE" | "REFACTOR" | "MAINTENANCE" | "DOCUMENTATION"} [options.workKind]
  * @param {any} [options.reviewResponse]
  * @param {any[]} [options.reviewResponses]
  * @param {any} [options.retryResponse]
@@ -217,7 +217,7 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
 });
 
-Deno.test("plan_written preserves triage workKind when Plan front matter omits it", async () => {
+Deno.test("plan_written preserves documentation triage workKind when Plan front matter omits it", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await Deno.mkdir(`${cwd}/plans`, { recursive: true });
@@ -234,7 +234,7 @@ classification: PLANNED_CHANGE
         const tool = createPlanWrittenTool({
             hostedSession,
             agentName: "planner",
-            triageMeta: { classification: "PLANNED_CHANGE", workKind: "BUG_FIX", complexity: "MEDIUM" },
+            triageMeta: { classification: "PLANNED_CHANGE", workKind: "DOCUMENTATION", complexity: "MEDIUM" },
             __deps: {
                 cwd,
                 stat: () => Promise.resolve({ isFile: true }),
@@ -251,8 +251,8 @@ classification: PLANNED_CHANGE
         const result = await execute(tool);
 
         assertEquals(result.details.triageMeta.classification, "PLANNED_CHANGE");
-        assertEquals(result.details.triageMeta.workKind, "BUG_FIX");
-        assertEquals(lifecycle[0].details.triageMeta.workKind, "BUG_FIX");
+        assertEquals(result.details.triageMeta.workKind, "DOCUMENTATION");
+        assertEquals(lifecycle[0].details.triageMeta.workKind, "DOCUMENTATION");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

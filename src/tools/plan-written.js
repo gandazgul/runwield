@@ -40,7 +40,7 @@ import {
 /**
  * @typedef {{
  *   classification?: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT",
- *   workKind?: "BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE",
+ *   workKind?: "BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION",
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
  *   affectedPaths?: string[],

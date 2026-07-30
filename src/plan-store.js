@@ -141,7 +141,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @typedef {Object} PlanFrontMatter
  * @property {string} [planId] - Durable project-scoped resource identity for URL/addressable Plan lookup
  * @property {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"|"PROJECT"} classification
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
@@ -224,7 +224,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
  * @property {string} content - Planner-format markdown body for the child planned change.
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional child Work Kind.
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind] - Optional child Work Kind.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
  * @property {number} [sequence] - Deprecated alias for order.
  */

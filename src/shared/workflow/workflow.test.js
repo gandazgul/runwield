@@ -13,6 +13,7 @@ import {
     runSlicerAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
+import { buildEngineerRequest } from "./workflow-prompts.js";
 import { SESSION_COMPLETE_GUIDANCE } from "./plan-review-recovery.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
@@ -66,6 +67,12 @@ Deno.test("runPlanningAgent forwards triage metadata into the planning root", as
     });
 
     assertEquals(/** @type {any} */ (capturedOptions).triageMeta, triageMeta);
+});
+
+Deno.test("buildEngineerRequest describes documentation Work Kind as planned documentation", () => {
+    const text = buildEngineerRequest("docs-plan", "# Docs Plan", undefined, { workKind: "DOCUMENTATION" });
+
+    assertStringIncludes(text, "This is a planned documentation");
 });
 
 Deno.test("HostedSession scopes active execution workflow independently", () => {
@@ -1892,14 +1899,14 @@ Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
 Deno.test("buildSlicerRequest includes triage report fields when present", () => {
     const text = buildSlicerRequest("my-plan", {
         classification: "PROJECT",
-        workKind: "REFACTOR",
+        workKind: "DOCUMENTATION",
         complexity: "HIGH",
         summary: "Initialize RunWield",
         affectedPaths: ["src/foo.js", "src/bar.js"],
     });
     assertStringIncludes(text, "Triage Report");
     assertStringIncludes(text, "Classification: PROJECT");
-    assertStringIncludes(text, "Work Kind: REFACTOR");
+    assertStringIncludes(text, "Work Kind: DOCUMENTATION");
     assertStringIncludes(text, "Complexity: HIGH");
     assertStringIncludes(text, "Summary: Initialize RunWield");
     assertStringIncludes(text, "src/foo.js, src/bar.js");
@@ -2370,7 +2377,7 @@ Deno.test("materializeSlicerDraft delegates child Planned Change draft writes wi
         summary: "Explicit summary",
         affectedPaths: ["src/constants.js"],
         dependencies: ["01-draft-child"],
-        workKind: "MAINTENANCE",
+        workKind: "DOCUMENTATION",
         content: "# Explicit child",
     }]);
     const result = await materializeSlicerDraft({

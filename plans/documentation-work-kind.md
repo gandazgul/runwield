@@ -22,21 +22,22 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-29T09:33:58-04:00"
-updatedAt: "2026-07-29T21:11:14.217Z"
-status: "implemented"
+updatedAt: "2026-07-30T11:52:56.038Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-29T21:11:14.217Z"
+verifiedAt: "2026-07-30T11:52:56.038Z"
 userVerifiedAt: null
 executionReport: "- Added `DOCUMENTATION` Work Kind across constants, labels, normalization docs/JSDoc, triage and Slicer schemas, Router/Planner/Slicer prompts, PRDs, product rules, and glossary language without changing Routing Intent semantics.\n- Added regression coverage for `DOCUMENTATION` normalization/labeling, triage preservation/omission, plan review/approval handoff, Plan front matter and child materialization, Slicer/Engineer handoff text, and Work Record read/search/list display.\n- Verification passed: `deno run -A scripts/run-tests.js -A src/constants.test.js`; focused triage/plan-review/plan-store/workflow/work-record test groups with forwarded `-A`; manual `deno eval` sample parsed `workKind: DOCUMENTATION` and returned label `Planned documentation`; `deno task ci` passed.\n- Note: the plan’s focused command form without forwarded `-A` was attempted once and failed because child `deno test` lacked env permission for the sandbox guard; reran the same focused files with forwarded `-A` successfully."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "45f4f0c122214b4665510632f9f512dae5d454ce"
-worktreeId: "75dc4d09"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-documentation-work-kind-75dc4d09"
-worktreeBranch: "runwield/worktree/documentation-work-kind-75dc4d09"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "528192213d0eb086eec530743899acbf42141b24"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "d2bd4b581e78cc09e1466fd4c8a052c5d49c3ed5"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "documentation work kind"
 ---

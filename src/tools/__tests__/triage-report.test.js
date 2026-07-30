@@ -108,6 +108,46 @@ Deno.test("triage_report remains fail-open when workflow context recording throw
     assertEquals(result.details.routingIntent, "PLANNED_CHANGE");
 });
 
+Deno.test("triage_report accepts documentation Work Kind only for planned changes", async () => {
+    /** @type {any[]} */
+    const events = [];
+    /** @type {any[]} */
+    const metrics = [];
+    const tool = createTriageReportTool({
+        hostedSession: /** @type {any} */ ({
+            getEventSink: () => ({ emit: (/** @type {any} */ event) => events.push(event) }),
+        }),
+        recordWorkflowMetric: (metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
+
+    const planned = await /** @type {any} */ (tool.execute)("call-1", {
+        routingIntent: "PLANNED_CHANGE",
+        workKind: "DOCUMENTATION",
+        complexity: "MEDIUM",
+        summary: "refresh public docs",
+        sessionName: "refresh docs",
+        affectedPaths: ["docs/guide.md"],
+    });
+    const operation = await /** @type {any} */ (tool.execute)("call-2", {
+        routingIntent: "OPERATION",
+        workKind: "DOCUMENTATION",
+        complexity: "LOW",
+        summary: "read docs",
+        sessionName: "read docs",
+        affectedPaths: ["docs/guide.md"],
+    });
+
+    assertEquals(planned.details.workKind, "DOCUMENTATION");
+    assertMatch(events[0].message, /Work Kind: DOCUMENTATION/);
+    assertEquals(metrics[0].details.workKind, "DOCUMENTATION");
+    assertEquals(operation.details.routingIntent, "OPERATION");
+    assertEquals(operation.details.workKind, undefined);
+    assertEquals(metrics[1].details.workKind, undefined);
+});
+
 Deno.test("triage_report execute preserves plan classification only for PLANNED_CHANGE and PROJECT", async () => {
     const tool = createTriageReportTool();
 
