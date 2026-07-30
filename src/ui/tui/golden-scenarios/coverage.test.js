@@ -7,7 +7,9 @@ import {
 import { goldenTuiPortfolioScenarios } from "./catalog.js";
 
 Deno.test("golden TUI portfolio declares asserted coverage for every required capability", () => {
-    assertGoldenScenarioCoverage(goldenTuiPortfolioScenarios);
-    const owners = collectGoldenScenarioCoverage(goldenTuiPortfolioScenarios);
+    const scenarios =
+        /** @type {import('../testing/scenario-runner.js').GoldenScenario[]} */ (/** @type {unknown} */ (goldenTuiPortfolioScenarios));
+    assertGoldenScenarioCoverage(scenarios);
+    const owners = collectGoldenScenarioCoverage(scenarios);
     assertEquals(GOLDEN_TUI_REQUIRED_CAPABILITY_IDS.every((capability) => owners.has(capability)), true);
 });

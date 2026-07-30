@@ -157,6 +157,10 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
         return { ...baseResult, reason: "unknown_event" };
     }
 
+    if (isNotificationSuppressedByEnvironment(deps.env)) {
+        return { ...baseResult, reason: "env_disabled" };
+    }
+
     if (!settings.enabled) {
         return { ...baseResult, reason: "disabled" };
     }
@@ -501,6 +505,15 @@ function emitTerminalBell(deps) {
     } catch {
         return false;
     }
+}
+
+/**
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean}
+ */
+function isNotificationSuppressedByEnvironment(env) {
+    const value = String(env.RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS || "").toLowerCase();
+    return value === "1" || value === "true" || value === "yes";
 }
 
 /**

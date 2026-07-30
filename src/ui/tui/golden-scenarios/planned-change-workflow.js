@@ -1,33 +1,82 @@
 /**
  * @module ui/tui/golden-scenarios/planned-change-workflow
- * Golden PLANNED_CHANGE workflow portfolio scenarios.
+ * Composed Golden PLANNED_CHANGE workflow scenarios.
  */
 
-import { assertCoverageWith, assertEventIncludes, assertScreenIncludes } from "../testing/mod.js";
+import { assert } from "@std/assert";
+import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
+import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
 
 /** @param {GoldenScenarioResult} result */
-function assertPlannedChangeDurableOutcome(result) {
+function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "interaction:PLAN_REVIEW:feedback");
     assertEventIncludes(result, "interaction:PLAN_REVIEW:approved");
-    assertEventIncludes(result, "runtime:agent:engineer");
-    assertEventIncludes(result, "runtime:agent:reviewer");
-    assertEventIncludes(result, "runtime:validation:passed");
-    const lifecycle = /** @type {string[]} */ (result.state.lifecycle || []);
-    const expected = ["feedback", "approved", "in_progress", "implemented", "verified"];
-    for (const status of expected) {
-        if (!lifecycle.includes(status)) throw new Error(`PLANNED_CHANGE lifecycle missing ${status}.`);
-    }
-    if (result.state.deliveryEvidence !== "recorded") throw new Error("Delivery evidence was not recorded.");
-    if (result.state.worktreePublication !== "published") throw new Error("Worktree publication was not asserted.");
-    if (result.state.registryCleanup !== "clean") throw new Error("Worktree registry cleanup was not asserted.");
-    assertScreenIncludes(result, "Reviewer rejected the first implementation.");
-    assertScreenIncludes(result, "Workflow Validation passed and delivery evidence was recorded.");
+    assertEventIncludes(result, "review_feedback");
+    assertEventIncludes(result, "review_approved");
+    const planReview =
+        /** @type {{ lifecycleEvents?: Array<{ event: string, status?: unknown }>, plan?: string } | undefined} */ (result
+            .state.planReview);
+    assert(planReview, "Expected production Plan Review transaction state.");
+    assert(
+        planReview.lifecycleEvents?.map((event) => `${event.event}:${event.status}`).join(",") ===
+            "review_feedback:feedback,review_approved:approved",
+        `Expected persisted feedback then approval; got ${JSON.stringify(planReview.lifecycleEvents)}`,
+    );
+    assert(
+        String(planReview.plan || "").includes("Golden PLANNED_CHANGE revised content."),
+        "Expected reviewed revised Plan content to persist.",
+    );
+    assertScreenIncludes(result, 'Plan "plan" approved');
+    assertEventIncludes(result, "runtime:tool:start:bash");
+    assertEventIncludes(result, "runtime:tool:start:task_completed");
+    assertEventIncludes(result, "runtime:tool:start:review_complete");
+    assertEventIncludes(result, "runtime:tool:start:review_complete");
+    assertScreenIncludes(result, "Starting Validation Cycle");
+    assertEventIncludes(result, "runtime:tool:start:review_complete");
+    assertScreenIncludes(result, "Semantic Code Review Approved");
+    assertScreenIncludes(result, "Merging validated worktree branch");
+    assertEventIncludes(result, "workflow:durability:delivery-checked");
+    assertEventIncludes(result, "workflow:durability:registry-clean");
+    assertEventIncludes(result, "workflow:durability:ancestry-checked");
+    assertEventIncludes(result, "workflow:durability:evidence-recorded");
+    assertEventIncludes(result, "workflow:durability:terminal-ready");
+    const durability =
+        /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, deliveryLog?: string, deliveryEvidence?: string, status?: string, worktreeBranch?: string, validatedWorktreeHead?: string, worktreeBranchPublished?: boolean, editorUsable?: boolean } | undefined} */ (result
+            .state.workflowDurability);
+    assert(durability?.goldenFileExists === true, "Expected delivered Golden file to exist after Workflow Validation.");
+    assert(
+        String(durability?.trackedFiles || "").includes("golden-planned-change.txt"),
+        "Expected delivered file tracked in Git.",
+    );
+    assert(String(durability?.deliveryLog || "").length > 0, "Expected Git ancestry evidence for delivery commit.");
+    assert(String(durability?.worktreeBranch || "").length > 0, "Expected validated worktree branch metadata.");
+    assert(
+        String(durability?.validatedWorktreeHead || "").length > 0,
+        "Expected validated worktree branch head evidence.",
+    );
+    assert(
+        durability?.worktreeBranchPublished === true,
+        "Expected validated worktree branch head published to delivered HEAD.",
+    );
+    assert(
+        String(durability?.deliveryEvidence || "").includes("golden"),
+        "Expected recorded delivery evidence content.",
+    );
+    const statusLines = String(durability?.status || "").split("\n").filter(Boolean);
+    assert(
+        statusLines.every((line) => line.endsWith("plans/plan.md") || line.endsWith(".wld/worktrees.json")),
+        `Expected only lifecycle/registry status after Direct Delivery publication; got ${statusLines.join("; ")}`,
+    );
+    assert(durability?.editorUsable === true, "Expected terminal/editor ready after verification.");
 }
 
 export const plannedChangeReviewRepairValidationScenario = {
     name: "planned-change-review-repair-validation-delivery",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
     coverage: [
         "workflow:PLANNED_CHANGE",
         "recovery:reviewer-rejection",
@@ -38,53 +87,148 @@ export const plannedChangeReviewRepairValidationScenario = {
         "block:review-result",
         "block:validation-handoff",
     ],
-    assertedCoverage: [
-        "workflow:PLANNED_CHANGE",
-        "recovery:reviewer-rejection",
-        "recovery:workflow-validation",
-        "durable:plan-lifecycle",
-        "durable:worktree-publication",
-        "durable:registry-cleanup",
-        "block:review-result",
-        "block:validation-handoff",
+    reviewDecisions: [
+        { approved: false, feedback: "Reviewer-style feedback: narrow the implementation and resubmit." },
+        { approved: true, feedback: "Approved to run.", approvalAction: "run" },
     ],
-    actions: [
-        { type: "event", event: "runtime:agent:planner" },
-        { type: "event", event: "interaction:PLAN_REVIEW:feedback" },
-        { type: "event", event: "review_feedback" },
-        { type: "appendStateArray", path: "lifecycle", value: "feedback" },
-        { type: "event", event: "interaction:PLAN_REVIEW:approved" },
-        { type: "event", event: "review_approved" },
-        { type: "appendStateArray", path: "lifecycle", value: "approved" },
-        { type: "appendStateArray", path: "lifecycle", value: "in_progress" },
-        { type: "event", event: "runtime:agent:engineer" },
-        { type: "appendStateArray", path: "lifecycle", value: "implemented" },
-        { type: "event", event: "runtime:agent:reviewer" },
-        { type: "event", event: "runtime:review:rejected" },
-        { type: "event", event: "runtime:agent:engineer" },
-        { type: "event", event: "runtime:review:approved" },
-        { type: "event", event: "runtime:validation:passed" },
-        { type: "appendStateArray", path: "lifecycle", value: "verified" },
-        { type: "setState", path: "deliveryEvidence", value: "recorded" },
-        { type: "setState", path: "worktreePublication", value: "published" },
-        { type: "setState", path: "registryCleanup", value: "clean" },
+    reviewedPlan: "# Golden PLANNED_CHANGE\n\nGolden PLANNED_CHANGE revised content.\n",
+    scriptedInteractions: [
+        { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
+    ],
+    script: [
         {
-            type: "screen",
-            text:
-                "Review result: Reviewer rejected the first implementation.\nValidation handoff: Workflow Validation passed and delivery evidence was recorded.",
+            id: "planner-submit-feedback-round",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            thinking: "Submit draft for Plan Review feedback.",
+            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+        },
+        {
+            id: "planner-submit-approval-round",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 2,
+            requiredTools: ["plan_written"],
+            thinking: "Resubmit revised Plan for approval and execution.",
+            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+        },
+        {
+            id: "engineer-implements-plan",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            thinking: "Implement the approved PLANNED_CHANGE in the execution worktree.",
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf golden > golden-planned-change.txt" } },
+                {
+                    name: "task_completed",
+                    arguments: { message: "- Implemented Golden PLANNED_CHANGE and verified with true." },
+                },
+            ],
+        },
+        {
+            id: "engineer-post-completion-turn-before-validation",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 2,
+            text: "Engineer awaits Workflow Validation.",
+        },
+        {
+            id: "semantic-reviewer-rejects-implementation",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 3,
+            requiredTools: ["review_complete"],
+            thinking: "Reject the first implementation during semantic review.",
+            toolCalls: [{
+                name: "review_complete",
+                arguments: { approved: false, feedback: "Repair required: add durable evidence." },
+            }],
+        },
+        {
+            id: "engineer-repairs-after-reviewer-rejection",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 4,
+            requiredTools: ["bash", "task_completed"],
+            thinking: "Repair in the same active PLANNED_CHANGE workflow after reviewer rejection.",
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf repaired >> golden-planned-change.txt" } },
+                {
+                    name: "task_completed",
+                    arguments: { message: "- Repaired Golden PLANNED_CHANGE after Reviewer rejection." },
+                },
+            ],
+        },
+        {
+            id: "semantic-reviewer-approves-repair",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 5,
+            optional: true,
+            requiredTools: ["review_complete"],
+            thinking: "Approve the repaired implementation during semantic review.",
+            toolCalls: [{ name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } }],
+        },
+        {
+            id: "engineer-repairs-merge-overlap-after-approval",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 6,
+            optional: true,
+            requiredTools: ["bash", "task_completed"],
+            thinking: "Clean isolated fixture settings overlap before merge retry.",
+            toolCalls: [
+                { name: "bash", arguments: { command: "rm -rf .wld" } },
+                {
+                    name: "task_completed",
+                    arguments: { message: "- Removed isolated settings overlap for merge retry." },
+                },
+            ],
         },
     ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/plan.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Golden PLANNED_CHANGE\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit the planned change for review" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 12000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 12000 },
+        { type: "waitForIdle", timeoutMs: 20000 },
+        { type: "assertWorkflowDurability" },
+    ],
     assertions: [
-        assertCoverageWith([
-            "workflow:PLANNED_CHANGE",
-            "recovery:reviewer-rejection",
-            "recovery:workflow-validation",
-            "durable:plan-lifecycle",
-            "durable:worktree-publication",
-            "durable:registry-cleanup",
-            "block:review-result",
-            "block:validation-handoff",
-        ], assertPlannedChangeDurableOutcome),
+        assertsGoldenCoverage("workflow:PLANNED_CHANGE", assertRealPlanReviewRevisionAndApproval),
+        assertsGoldenCoverage("recovery:reviewer-rejection", (result) => {
+            assertEventIncludes(result, "runtime:tool:start:review_complete");
+            assertScreenIncludes(result, "Semantic Code Review Approved");
+        }),
+        assertsGoldenCoverage("recovery:workflow-validation", (result) => {
+            assertScreenIncludes(result, "Starting Validation Cycle");
+            assertEventIncludes(result, "workflow:durability:terminal-ready");
+        }),
+        assertsGoldenCoverage("durable:plan-lifecycle", (result) => {
+            const planReview =
+                /** @type {{ lifecycleEvents?: Array<{ event: string, status?: unknown }> } | undefined} */ (result
+                    .state.planReview);
+            assert(planReview?.lifecycleEvents?.some((event) => event.event === "review_feedback"));
+            assert(planReview?.lifecycleEvents?.some((event) => event.event === "review_approved"));
+        }),
+        assertsGoldenCoverage("durable:worktree-publication", (result) => {
+            const durability =
+                /** @type {{ worktreeBranchPublished?: boolean } | undefined} */ (result.state.workflowDurability);
+            assert(durability?.worktreeBranchPublished === true, "Expected validated branch publication.");
+        }),
+        assertRuntimeEvent("durable:registry-cleanup", "workflow:durability:registry-clean"),
+        assertRuntimeEvent("block:review-result", "runtime:tool:start:review_complete"),
+        assertRuntimeEvent("block:validation-handoff", "workflow:durability:terminal-ready"),
     ],
 };
 

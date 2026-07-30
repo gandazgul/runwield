@@ -78,13 +78,41 @@ export function assertGoldenScenarioCoverage(scenarios) {
     const unasserted = [];
     const unknown = [];
     for (const scenario of scenarios) {
+        for (const assertion of scenario.assertions || []) {
+            const assertedCapabilities = assertion.goldenCoverage || [];
+            assert(
+                assertedCapabilities.length <= 1,
+                `Golden TUI coverage assertions must prove one capability each: ${scenario.name}`,
+            );
+        }
         const declared = scenario.coverage || [];
-        const asserted = new Set(scenario.assertedCoverage || []);
+        const asserted = new Set((scenario.assertions || []).flatMap((assertion) => assertion.goldenCoverage || []));
+        const assertionSources = new Map();
+        for (const assertion of scenario.assertions || []) {
+            const source = /** @type {{ goldenAssertionSource?: unknown }} */ (assertion).goldenAssertionSource;
+            if (typeof source !== "string") continue;
+            const capabilities = assertionSources.get(source) || new Set();
+            for (const capability of assertion.goldenCoverage || []) capabilities.add(capability);
+            assertionSources.set(source, capabilities);
+        }
+        const decorative = [];
+        for (const capabilities of assertionSources.values()) {
+            if (capabilities.size > 1) decorative.push(`${scenario.name}:${[...capabilities].join("+")}`);
+        }
+        assert(
+            decorative.length === 0,
+            `Golden TUI coverage assertions must not reuse one broad assertion body for multiple capabilities: ${
+                decorative.join(", ")
+            }`,
+        );
         for (const capability of declared) {
             if (!known.has(capability)) unknown.push(`${scenario.name}:${capability}`);
             if (!asserted.has(capability)) unasserted.push(`${scenario.name}:${capability}`);
         }
+        for (const capability of asserted) {
+            if (!known.has(capability)) unknown.push(`${scenario.name}:${capability}`);
+        }
     }
     assert(unknown.length === 0, `Unknown Golden TUI coverage capabilities: ${unknown.join(", ")}`);
-    assert(unasserted.length === 0, `Golden TUI coverage lacks concrete assertions: ${unasserted.join(", ")}`);
+    assert(unasserted.length === 0, `Golden TUI coverage lacks concrete assertion wrappers: ${unasserted.join(", ")}`);
 }

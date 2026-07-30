@@ -9,6 +9,8 @@ import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
+const STABLE_TEST_CWD = decodeURIComponent(new URL("../../..", import.meta.url).pathname);
+
 /**
  * Retries temp-dir cleanup because SessionRuntime managed-session tests can
  * finish filesystem checkpointing just before teardown on macOS, causing a
@@ -1264,7 +1266,7 @@ Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", as
 
 Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1287,7 +1289,7 @@ Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async (
 
 Deno.test("SessionRuntime cancellation terminates an active local shell command", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
     let resolveStarted = () => {};
     const started = new Promise((resolve) => {
         resolveStarted = () => resolve(undefined);

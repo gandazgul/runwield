@@ -1,40 +1,39 @@
 /**
  * @module ui/tui/golden-scenarios/role-journeys
- * Golden role journey scenarios for the TUI workflow portfolio.
+ * Composed Golden role journey scenarios.
  */
 
-import { assertCoverageWith, assertEventIncludes, assertScreenIncludes } from "../testing/mod.js";
+import { assert } from "@std/assert";
+import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
+import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
 
-const roleJourneyAssertions = {
-    guide: assertCoverageWith(["role:guide", "intent:INQUIRY", "durable:mutation-policy"], (result) => {
-        assertEventIncludes(result, "runtime:agent:guide");
-        assertScreenIncludes(result, "Guide answered from read-only project context.");
-        if (result.state.projectMutation !== "clean") throw new Error("Guide INQUIRY mutated the fixture project.");
-    }),
-    ideator: assertCoverageWith(["role:ideator", "intent:IDEATION", "durable:mutation-policy"], (result) => {
-        assertEventIncludes(result, "runtime:agent:ideator");
-        assertEventIncludes(result, "runtime:tool:start:user_interview");
-        assertScreenIncludes(result, "PRD synthesized after the interview.");
-        if (result.state.materializedArtifact !== "docs/prd/golden-idea.md") {
-            throw new Error("Ideator did not materialize the requested PRD artifact.");
-        }
-    }),
-    operator: assertCoverageWith(["role:operator", "intent:OPERATION", "durable:mutation-policy"], (result) => {
-        assertEventIncludes(result, "runtime:agent:operator");
-        assertScreenIncludes(result, "Operator completed the requested repository operation.");
-        if (result.state.operation !== "self-verified") throw new Error("Operator operation was not self-verified.");
-    }),
-    engineer: assertCoverageWith(["role:engineer", "intent:QUICK_FIX", "recovery:workflow-validation"], (result) => {
-        assertEventIncludes(result, "runtime:agent:engineer");
-        assertScreenIncludes(result, "Mechanical Validation passed after QUICK_FIX.");
-        if (result.state.validation !== "passed") throw new Error("QUICK_FIX Mechanical Validation did not pass.");
-    }),
-};
+/** @param {string} routingIntent */
+function triageTurn(routingIntent) {
+    return {
+        id: `router-${routingIntent.toLowerCase()}`,
+        agent: "router",
+        phase: "triage",
+        requiredTools: ["triage_report"],
+        thinking: `Route to ${routingIntent}.`,
+        toolCalls: [{
+            name: "triage_report",
+            arguments: {
+                routingIntent,
+                complexity: "LOW",
+                summary: `Golden ${routingIntent} role journey.`,
+                sessionName: `golden ${routingIntent.toLowerCase()}`,
+                affectedPaths: ["README.md"],
+            },
+        }],
+    };
+}
 
 export const guideInquiryRoleJourneyScenario = {
     name: "role-guide-inquiry-readonly",
+    composedTui: true,
+    terminal: { columns: 100, rows: 30 },
     coverage: [
         "role:guide",
         "intent:INQUIRY",
@@ -44,100 +43,211 @@ export const guideInquiryRoleJourneyScenario = {
         "block:assistant",
         "block:tool",
     ],
-    assertedCoverage: [
-        "role:guide",
-        "intent:INQUIRY",
-        "durable:mutation-policy",
-        "block:user",
-        "block:thinking",
-        "block:assistant",
-        "block:tool",
-    ],
-    actions: [
-        { type: "event", event: "terminal:type:explain the routing flow" },
-        { type: "event", event: "runtime:agent:guide" },
-        { type: "event", event: "runtime:tool:start:read" },
-        { type: "event", event: "runtime:assistant:thinking" },
-        { type: "event", event: "runtime:assistant:text" },
-        { type: "setState", path: "projectMutation", value: "clean" },
+    script: [
+        triageTurn("INQUIRY"),
         {
-            type: "screen",
-            text:
-                "User: explain the routing flow\nThinking: inspect project context\nTool: read README.md\nGuide answered from read-only project context.",
+            id: "guide-read",
+            agent: "guide",
+            phase: "inquiry",
+            ordinal: 1,
+            requiredTools: ["read"],
+            thinking: "Read project context before answering.",
+            toolCalls: [{ name: "read", arguments: { path: "README.md" } }],
+        },
+        {
+            id: "guide-answer",
+            agent: "guide",
+            phase: "inquiry",
+            ordinal: 2,
+            text: "Guide answered from read-only project context.",
         },
     ],
+    actions: [
+        { type: "type", text: "explain the routing flow" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 8000 },
+        { type: "assertProjectUnchanged" },
+    ],
     assertions: [
-        roleJourneyAssertions.guide,
-        assertCoverageWith(["block:user", "block:thinking", "block:assistant", "block:tool"], (result) => {
-            assertScreenIncludes(result, "User: explain the routing flow");
-            assertScreenIncludes(result, "Thinking: inspect project context");
-            assertScreenIncludes(result, "Tool: read README.md");
+        assertRuntimeEvent("role:guide", "runtime:agent:guide"),
+        assertsGoldenCoverage("intent:INQUIRY", (result) => {
+            assertEventIncludes(result, "runtime:agent:guide");
+            assertScreenIncludes(result, "Guide answered from read-only project context.");
         }),
+        assertsGoldenCoverage("durable:mutation-policy", (result) => {
+            assert(result.state.projectMutation === "clean", "Guide scenario must leave project unchanged.");
+        }),
+        assertRuntimeEvent("block:user", "terminal:type:explain the routing flow"),
+        assertRuntimeEvent("block:thinking", "runtime:assistant:thinking"),
+        assertRuntimeEvent("block:assistant", "runtime:assistant:text"),
+        assertRuntimeEvent("block:tool", "runtime:tool:start:read"),
     ],
 };
 
 export const ideationInterviewPrdScenario = {
     name: "role-ideator-interview-prd-synthesis",
+    composedTui: true,
+    terminal: { columns: 100, rows: 30 },
     coverage: ["role:ideator", "intent:IDEATION", "durable:mutation-policy", "block:text", "block:select"],
-    assertedCoverage: ["role:ideator", "intent:IDEATION", "durable:mutation-policy", "block:text", "block:select"],
-    actions: [
-        { type: "event", event: "runtime:agent:ideator" },
-        { type: "event", event: "runtime:tool:start:user_interview" },
-        { type: "event", event: "interaction:text:text" },
-        { type: "event", event: "interaction:select:selected" },
-        { type: "setState", path: "materializedArtifact", value: "docs/prd/golden-idea.md" },
+    scriptedInteractions: [
+        { type: "text", promptIncludes: "What outcome", value: "A concise PRD" },
+        { type: "select", promptIncludes: "Choose priority", value: "small" },
+    ],
+    script: [
+        triageTurn("IDEATION"),
         {
-            type: "screen",
-            text:
-                "Text prompt: What outcome matters?\nSelect prompt: Choose priority\nPRD synthesized after the interview.",
+            id: "ideator-interview",
+            agent: "ideator",
+            phase: "ideator",
+            ordinal: 1,
+            requiredTools: ["user_interview"],
+            thinking: "Interview before synthesis.",
+            toolCalls: [{
+                name: "user_interview",
+                arguments: {
+                    questions: [
+                        { type: "text", prompt: "What outcome matters?", id: "outcome" },
+                        {
+                            type: "multiple_choice",
+                            prompt: "Choose priority",
+                            id: "priority",
+                            choices: [{ value: "small", label: "Small" }, { value: "broad", label: "Broad" }],
+                        },
+                    ],
+                },
+            }],
+        },
+        {
+            id: "ideator-prd",
+            agent: "ideator",
+            phase: "ideator",
+            ordinal: 2,
+            requiredTools: ["write"],
+            thinking: "Materialize only the requested concise PRD artifact.",
+            text: "PRD synthesized after the interview.",
+            toolCalls: [{
+                name: "write",
+                arguments: {
+                    path: "docs/prd/golden-ideation-prd.md",
+                    content: "# Golden Ideation PRD\n\nOutcome: A concise PRD.\nPriority: Small.\n",
+                },
+            }],
         },
     ],
+    actions: [{ type: "type", text: "help me shape a PRD" }, { type: "enter" }, {
+        type: "waitForIdle",
+        timeoutMs: 10000,
+    }, {
+        type: "assertProjectFile",
+        path: "docs/prd/golden-ideation-prd.md",
+        exists: true,
+    }, {
+        type: "assertOnlyProjectChanges",
+        paths: ["docs", "docs/prd", "docs/prd/golden-ideation-prd.md"],
+    }],
     assertions: [
-        roleJourneyAssertions.ideator,
-        assertCoverageWith(["block:text", "block:select"], (result) => {
-            assertScreenIncludes(result, "Text prompt: What outcome matters?");
-            assertScreenIncludes(result, "Select prompt: Choose priority");
+        assertRuntimeEvent("role:ideator", "runtime:agent:ideator"),
+        assertsGoldenCoverage("intent:IDEATION", (result) => {
+            assertEventIncludes(result, "runtime:tool:start:user_interview");
+            assertScreenIncludes(result, "PRD synthesized after the interview.");
+        }),
+        assertsGoldenCoverage("durable:mutation-policy", (result) => {
+            assert(
+                result.state.projectMutation === "mutated" &&
+                    Array.isArray(result.state.projectMutationChanges) &&
+                    result.state.projectMutationChanges.includes("added:docs/prd/golden-ideation-prd.md"),
+                "Ideator must materialize only the requested PRD artifact.",
+            );
+        }),
+        assertsGoldenCoverage("block:text", (result) => {
+            const interactions = /** @type {Array<{ interaction?: { type?: string } }> | undefined} */ (result.state
+                .scriptedInteractions);
+            assert(
+                interactions?.some((entry) => entry.interaction?.type === "text"),
+                "Expected text interview prompt.",
+            );
+        }),
+        assertsGoldenCoverage("block:select", (result) => {
+            const interactions = /** @type {Array<{ interaction?: { type?: string } }> | undefined} */ (result.state
+                .scriptedInteractions);
+            assert(
+                interactions?.some((entry) => entry.interaction?.type === "select"),
+                "Expected select interview prompt.",
+            );
         }),
     ],
 };
 
 export const operatorOperationScenario = {
     name: "role-operator-operation-self-verified",
-    coverage: ["role:operator", "intent:OPERATION", "durable:mutation-policy", "block:system-error"],
-    assertedCoverage: ["role:operator", "intent:OPERATION", "durable:mutation-policy", "block:system-error"],
-    actions: [
-        { type: "event", event: "runtime:agent:operator" },
-        { type: "setState", path: "operation", value: "self-verified" },
+    composedTui: true,
+    terminal: { columns: 100, rows: 30 },
+    coverage: ["role:operator", "intent:OPERATION", "durable:mutation-policy"],
+    script: [
+        triageTurn("OPERATION"),
         {
-            type: "screen",
-            text: "System: bounded operation started\nOperator completed the requested repository operation.",
+            id: "operator-complete",
+            agent: "operator",
+            phase: "operator",
+            ordinal: 1,
+            requiredTools: ["task_completed"],
+            text: "Operator completed the requested repository operation.",
+            toolCalls: [{ name: "task_completed", arguments: { message: "- Self-verified operation complete." } }],
         },
     ],
+    actions: [{ type: "type", text: "list current status only" }, { type: "enter" }, {
+        type: "waitForIdle",
+        timeoutMs: 10000,
+    }, { type: "assertProjectUnchanged" }],
     assertions: [
-        roleJourneyAssertions.operator,
-        assertCoverageWith(
-            ["block:system-error"],
-            (result) => assertScreenIncludes(result, "System: bounded operation started"),
-        ),
+        assertRuntimeEvent("role:operator", "runtime:agent:operator"),
+        assertsGoldenCoverage("intent:OPERATION", (result) => {
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assertScreenIncludes(result, "Operator completed the requested repository operation.");
+        }),
+        assertsGoldenCoverage("durable:mutation-policy", (result) => {
+            assert(
+                result.state.projectMutation === "clean",
+                "Operator read-only operation must leave project unchanged.",
+            );
+        }),
     ],
 };
 
 export const engineerQuickFixMechanicalValidationScenario = {
     name: "role-engineer-quick-fix-mechanical-validation",
+    composedTui: true,
+    terminal: { columns: 100, rows: 30 },
     coverage: ["role:engineer", "intent:QUICK_FIX", "recovery:workflow-validation", "block:validation-handoff"],
-    assertedCoverage: ["role:engineer", "intent:QUICK_FIX", "recovery:workflow-validation", "block:validation-handoff"],
-    actions: [
-        { type: "event", event: "runtime:agent:engineer" },
-        { type: "event", event: "runtime:validation:start" },
-        { type: "setState", path: "validation", value: "passed" },
-        { type: "screen", text: "Validation handoff: Mechanical Validation passed after QUICK_FIX." },
+    scriptedInteractions: [
+        { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
     ],
+    script: [
+        triageTurn("QUICK_FIX"),
+        {
+            id: "engineer-complete",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 1,
+            requiredTools: ["task_completed"],
+            text: "Mechanical Validation passed after QUICK_FIX.",
+            toolCalls: [{ name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } }],
+        },
+    ],
+    actions: [{ type: "type", text: "make a tiny quick fix" }, { type: "enter" }, {
+        type: "waitForIdle",
+        timeoutMs: 10000,
+    }],
     assertions: [
-        roleJourneyAssertions.engineer,
-        assertCoverageWith(
-            ["block:validation-handoff"],
-            (result) => assertScreenIncludes(result, "Validation handoff:"),
-        ),
+        assertRuntimeEvent("role:engineer", "runtime:agent:engineer"),
+        assertsGoldenCoverage("intent:QUICK_FIX", (result) => {
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assertScreenIncludes(result, "Mechanical Validation passed after QUICK_FIX.");
+        }),
+        assertsGoldenCoverage("recovery:workflow-validation", (result) => {
+            assertScreenIncludes(result, "Saved validation command: 'true'");
+        }),
+        assertRuntimeEvent("block:validation-handoff", "runtime:tool:start:task_completed"),
     ],
 };
 

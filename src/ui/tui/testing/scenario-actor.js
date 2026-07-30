@@ -18,6 +18,7 @@ import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@ear
  * @property {string} [text]
  * @property {string} [thinking]
  * @property {Array<{ name: string, arguments: unknown, id?: string }>} [toolCalls]
+ * @property {boolean} [optional]
  */
 
 /**
@@ -70,7 +71,22 @@ export class GoldenScenarioActor {
 
     /** @param {GoldenTurnRequest} request */
     next(request) {
-        const matches = this.remaining.filter((turn) => turnMatches(turn, request));
+        const availableTools = normalizeSet(request.availableTools);
+        let matches = this.remaining.filter((turn) => turnMatches(turn, request));
+        if (matches.length > 1 && request.ordinal !== undefined) {
+            const exactOrdinalMatches = matches.filter((turn) => turn.ordinal === request.ordinal);
+            if (exactOrdinalMatches.length === 1) matches = exactOrdinalMatches;
+        }
+        if (matches.length > 1) {
+            const toolFiltered = matches.filter((turn) => {
+                const requiredTools = new Set([
+                    ...(turn.requiredTools || []),
+                    ...(turn.toolCalls || []).map((toolCall) => toolCall.name),
+                ]);
+                return [...requiredTools].every((tool) => availableTools.has(tool));
+            });
+            if (toolFiltered.length === 1) matches = toolFiltered;
+        }
         if (matches.length === 0) {
             throw new Error(
                 `Unexpected scripted turn for agent=${request.agent} phase=${request.phase || ""}; remaining=${
@@ -86,7 +102,6 @@ export class GoldenScenarioActor {
             );
         }
         const turn = matches[0];
-        const availableTools = normalizeSet(request.availableTools);
         if (turn.availableTools) {
             const expectedTools = normalizeSet(turn.availableTools);
             const missing = [...expectedTools].filter((tool) => !availableTools.has(tool));
@@ -131,15 +146,16 @@ export class GoldenScenarioActor {
     }
 
     assertComplete() {
-        if (this.remaining.length) {
-            throw new Error(`Unused scripted turns: ${this.remaining.map((turn) => turn.id).join(",")}`);
+        const remainingRequired = this.remaining.filter((turn) => !turn.optional);
+        if (remainingRequired.length) {
+            throw new Error(`Unused scripted turns: ${remainingRequired.map((turn) => turn.id).join(",")}`);
         }
     }
 
     diagnostics() {
         return {
             consumed: this.consumed.map((turn) => turn.id),
-            remaining: this.remaining.map((turn) => turn.id),
+            remaining: this.remaining.filter((turn) => !turn.optional).map((turn) => turn.id),
         };
     }
 }

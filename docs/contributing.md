@@ -104,7 +104,8 @@ Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers
 - drive user behavior through terminal actions or the public Golden runner, not by reaching into private TUI blocks;
 - keep expected answers, scripts, images, and fixtures outside the temporary Project root when an Agent's tools could
   discover them;
-- declare coverage capabilities on scenarios and back each declaration with an assertion listed in `assertedCoverage`;
+- declare coverage capabilities on scenarios and back each declaration with an assertion wrapped by
+  `assertCoverageWith`;
 - prefer semantic assertions: normalized screen text, Runtime events, Plan metadata, workflow outcomes, worktree/Git
   facts, Session replacement identity, validation evidence, Work Records, and cleanup state;
 - normalize unstable UUIDs, paths, ports, durations, commit hashes, and animation frames only at comparison/reporting

@@ -34,7 +34,11 @@ export async function runGoldenChild(args, options = {}) {
     const command = new Deno.Command(Deno.execPath(), {
         args,
         cwd: options.cwd,
-        env: { ...sanitizeGoldenChildEnv(), ...(options.env || {}) },
+        env: {
+            ...sanitizeGoldenChildEnv(),
+            RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS: "1",
+            ...(options.env || {}),
+        },
         stdout: "piped",
         stderr: "piped",
     });

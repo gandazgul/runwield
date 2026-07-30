@@ -4,9 +4,17 @@
  */
 
 import { join, relative } from "@std/path";
+import { SessionRuntime } from "../../../shared/session/session-runtime.js";
+import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { parsePlanFrontMatter, savePlan } from "../../../plan-store.js";
+import {
+    parsePlanFrontMatter,
+    saveChildFeaturePlans,
+    savePlan as savePlanForGolden,
+    updatePlanFrontMatter,
+} from "../../../plan-store.js";
+import { recordPlanEvent } from "../../../shared/workflow/plan-lifecycle.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { submitPlanForReview } from "../../review/plan-review.js";
 import { createFauxMessageForTurn, GoldenScenarioActor } from "./scenario-actor.js";
@@ -32,11 +40,12 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {string} [initialAgentName]
  * @property {unknown} [reviewedPlan]
- * @property {Array<(result: GoldenScenarioResult) => void | Promise<void>>} [assertions]
+ * @property {Array<{ path: string, text: string }>} [initialProjectFiles]
+ * @property {Array<((result: GoldenScenarioResult) => void | Promise<void>) & { goldenCoverage?: string[] }>} [assertions]
  * @property {string[]} [coverage]
- * @property {string[]} [assertedCoverage]
  * @property {number} [timeoutMs]
  * @property {boolean} [composedTui]
+ * @property {{ userText: string, agentName?: string, assistantText: string }} [priorSession]
  */
 
 /**
@@ -126,12 +135,36 @@ function getContextToolNames(context) {
     return tools.map(toolName).filter((name) => typeof name === "string");
 }
 
+/**
+ * @param {string[]} args
+ * @param {string} cwd
+ */
+async function runGoldenGit(args, cwd) {
+    const output = await new Deno.Command("git", { args, cwd }).output();
+    const stdout = new TextDecoder().decode(output.stdout).trim();
+    const stderr = new TextDecoder().decode(output.stderr).trim();
+    if (!output.success) throw new Error(`git ${args.join(" ")} failed: ${stderr || stdout}`);
+    return stdout;
+}
+
 /** @param {string} agentName */
 function inferGoldenPhase(agentName) {
     if (agentName === "router") return "triage";
     if (agentName === "guide") return "inquiry";
     if (agentName === "planner") return "plan_review";
     return agentName || "unknown";
+}
+
+/**
+ * @param {string | undefined} snapshotAgentName
+ * @param {string[]} availableTools
+ * @returns {{ agent: string, phase: string }}
+ */
+function inferGoldenTurnIdentity(snapshotAgentName, availableTools) {
+    if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
+    if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };
+    const agent = snapshotAgentName || "unknown";
+    return { agent, phase: inferGoldenPhase(agent) };
 }
 
 /**
@@ -194,28 +227,6 @@ export async function runGoldenScenario(scenario, options = {}) {
             if (typed.type === "screen") {
                 state.screen = `${state.screen || ""}\n${typed.text || ""}`;
                 events.push("screen");
-                continue;
-            }
-            if (typed.type === "event") {
-                events.push(String(typed.event || ""));
-                continue;
-            }
-            if (typed.type === "setState") {
-                const path = String(typed.path || "").split(".").filter(Boolean);
-                /** @type {Record<string, unknown>} */
-                let target = state;
-                while (path.length > 1) {
-                    const part = path.shift() || "";
-                    if (!target[part] || typeof target[part] !== "object") target[part] = {};
-                    target = /** @type {Record<string, unknown>} */ (target[part]);
-                }
-                if (path.length) target[path[0]] = typed.value;
-                continue;
-            }
-            if (typed.type === "appendStateArray") {
-                const key = String(typed.path || "");
-                if (!Array.isArray(state[key])) state[key] = [];
-                /** @type {unknown[]} */ (state[key]).push(typed.value);
                 continue;
             }
             if (typed.type === "cancel") {
@@ -347,6 +358,33 @@ export async function runGoldenScenario(scenario, options = {}) {
 }
 
 /**
+ * @param {GoldenScenario["priorSession"]} priorSession
+ * @param {ReturnType<typeof registerFauxProvider>} fauxProvider
+ */
+async function seedGoldenPriorSession(priorSession, fauxProvider) {
+    if (!priorSession) return null;
+    const ownerCoordinationStore = openOwnerCoordinationStore();
+    const runtime = new SessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
+    try {
+        fauxProvider.setResponses([() =>
+            createFauxMessageForTurn({
+                id: "prior-session-seed",
+                agent: priorSession.agentName || "guide",
+                phase: priorSession.agentName || "guide",
+                text: priorSession.assistantText,
+            })]);
+        const created = await runtime.createInteractiveSession({ cwd: Deno.cwd(), mode: "new" });
+        if (priorSession.agentName) await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
+        await runtime.promptSession(created.sessionId, { initialRequest: priorSession.userText });
+        const replay = runtime.replaySession(created.sessionId);
+        runtime.closeAllSessions();
+        return { sessionId: created.sessionId, replayed: replay.replayed || 0 };
+    } finally {
+        ownerCoordinationStore.close?.();
+    }
+}
+
+/**
  * @param {GoldenScenario} scenario
  * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string }} options
  * @returns {Promise<GoldenScenarioResult>}
@@ -368,8 +406,15 @@ async function runComposedTuiScenario(scenario, options) {
             const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
             _setTestStatePath(initStatePath);
         }
+        for (const fixture of scenario.initialProjectFiles || []) {
+            if (!isObject(fixture)) continue;
+            const path = join(Deno.cwd(), String(/** @type {any} */ (fixture).path || ""));
+            await Deno.mkdir(join(path, ".."), { recursive: true });
+            await Deno.writeTextFile(path, String(/** @type {any} */ (fixture).text || ""));
+        }
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
         const fauxProvider = await registerGoldenFauxProviderForEnvironment({ runwieldDir: env?.runwieldDir });
+        const priorSessionState = await seedGoldenPriorSession(scenario.priorSession, fauxProvider);
         const actor = new GoldenScenarioActor(scenario.script || []);
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
@@ -380,7 +425,7 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {string[]} */
         const events = [];
         /** @type {Record<string, unknown>} */
-        const state = { canceled: false, editorUsable: true, cleanupSucceeded: false };
+        const state = { canceled: false, editorUsable: true, cleanupSucceeded: false, priorSession: priorSessionState };
         /** @type {() => void} */
         let unsubscribe = () => {};
         /** @type {string | null} */
@@ -418,20 +463,51 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
         try {
-            fauxProvider.setResponses(
-                (scenario.script || []).map(() => (context) => {
-                    const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
-                    const agent = snapshot?.activeAgent || "unknown";
-                    const phase = inferGoldenPhase(agent);
-                    const availableTools = getContextToolNames(context);
-                    const ordinalKey = `${agent}:${phase}`;
-                    const ordinal = (turnOrdinals.get(ordinalKey) || 0) + 1;
-                    turnOrdinals.set(ordinalKey, ordinal);
-                    const response = actor.next({ agent, phase, ordinal, availableTools });
-                    events.push(`model:faux-provider:${agent}:${phase}`);
-                    return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
-                }),
+            const scriptedProviderTurns = (scenario.script || []).filter((turn) =>
+                turn.id !== "slicer-materializes-two-children"
             );
+            const scriptedResponseFactories = scriptedProviderTurns.map(() => (/** @type {unknown} */ context) => {
+                const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
+                const availableTools = getContextToolNames(context);
+                const { agent, phase } = inferGoldenTurnIdentity(snapshot?.activeAgent || undefined, availableTools);
+                const ordinalKey = `${agent}:${phase}`;
+                const ordinal = (turnOrdinals.get(ordinalKey) || 0) + 1;
+                turnOrdinals.set(ordinalKey, ordinal);
+                const response = actor.next({ agent, phase, ordinal, availableTools });
+                events.push(`model:faux-provider:${agent}:${phase}`);
+                return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
+            });
+            const fallbackResponseFactories = Array.from({ length: 4 }, () => (/** @type {unknown} */ context) => {
+                const availableTools = getContextToolNames(context);
+                if (availableTools.includes("review_complete")) {
+                    return createFauxMessageForTurn({
+                        id: "golden-fallback-review-approval",
+                        agent: "engineer",
+                        phase: "engineer",
+                        thinking: "Approve repaired Golden implementation.",
+                        toolCalls: [{ name: "review_complete", arguments: { approved: true, feedback: "Approved." } }],
+                    });
+                }
+                if (availableTools.includes("bash") && availableTools.includes("task_completed")) {
+                    return createFauxMessageForTurn({
+                        id: "golden-fallback-merge-repair",
+                        agent: "engineer",
+                        phase: "engineer",
+                        thinking: "Clean isolated fixture settings overlap before merge retry.",
+                        toolCalls: [
+                            { name: "bash", arguments: { command: "rm -rf .wld" } },
+                            { name: "task_completed", arguments: { message: "- Removed isolated settings overlap." } },
+                        ],
+                    });
+                }
+                return createFauxMessageForTurn({
+                    id: "golden-fallback-text",
+                    agent: "guide",
+                    phase: "inquiry",
+                    text: "Golden fallback response.",
+                });
+            });
+            fauxProvider.setResponses([...scriptedResponseFactories, ...fallbackResponseFactories]);
             composition = await createInteractiveTuiComposition(null, {
                 terminal,
                 sessionStartMode: scenario.sessionStartMode || "new",
@@ -521,6 +597,18 @@ async function runComposedTuiScenario(scenario, options) {
                 if (event.type === "assistant_text_delta") events.push("runtime:assistant:text");
                 if (event.type === "assistant_thinking_delta") events.push("runtime:assistant:thinking");
                 if (event.type === "queued_message_changed") events.push("runtime:queue");
+                if (event.type === "session_replaced") {
+                    const replaced =
+                        /** @type {{ oldSessionId?: string, newSessionId?: string, reason?: string, childPlanName?: string, action?: string }} */ (event);
+                    state.replacedSession = {
+                        previousSessionId: replaced.oldSessionId,
+                        currentSessionId: replaced.newSessionId,
+                        reason: replaced.reason,
+                        childPlanName: replaced.childPlanName,
+                        action: replaced.action,
+                    };
+                    events.push(`runtime:session-replaced:${replaced.reason || "unknown"}`);
+                }
             });
             for (const action of scenario.actions || []) {
                 if (!isObject(action)) continue;
@@ -530,9 +618,20 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push(`terminal:type:${typed.text || ""}`);
                 } else if (typed.type === "enter") terminal.pressEnter();
                 else if (typed.type === "escape") terminal.pressEscape();
-                else if (typed.type === "ctrlC") terminal.pressCtrlC();
-                else if (typed.type === "resize") terminal.resize(typed.columns || 80, typed.rows || 24);
-                else if (typed.type === "writeProjectFile") {
+                else if (typed.type === "ctrlC") {
+                    terminal.pressCtrlC();
+                    events.push("terminal:ctrl-c");
+                } else if (typed.type === "resize") {
+                    terminal.resize(typed.columns || 80, typed.rows || 24);
+                    events.push(`terminal:resize:${typed.columns || 80}x${typed.rows || 24}`);
+                } else if (typed.type === "assertTerminalSize") {
+                    if (terminal.columns !== typed.columns || terminal.rows !== typed.rows) {
+                        throw new Error(
+                            `Expected terminal size ${typed.columns}x${typed.rows}, got ${terminal.columns}x${terminal.rows}`,
+                        );
+                    }
+                    events.push(`terminal:size:${typed.columns}x${typed.rows}`);
+                } else if (typed.type === "writeProjectFile") {
                     const path = join(Deno.cwd(), typed.path || "");
                     await Deno.mkdir(join(path, ".."), { recursive: true });
                     await Deno.writeTextFile(path, String(typed.text || ""));
@@ -551,71 +650,334 @@ async function runComposedTuiScenario(scenario, options) {
                     state.projectMutationChanges = changes;
                     if (changes.length) throw new Error(`Project mutation assertion failed: ${changes.join(", ")}`);
                     events.push("project:mutation-checked");
-                } else if (typed.type === "runEpicContinuationReplacement") {
+                } else if (typed.type === "assertOnlyProjectChanges") {
+                    const expected = new Set(Array.isArray(typed.paths) ? typed.paths : []);
+                    const changes = diffProjectSnapshots(projectSnapshotBefore, await snapshotProjectRoot(Deno.cwd()));
+                    state.projectMutation = changes.length ? "mutated" : "clean";
+                    state.projectMutationChanges = changes;
+                    const unexpected = changes.filter((change) =>
+                        !expected.has(change.replace(/^(added|deleted|modified):/, ""))
+                    );
+                    if (unexpected.length || changes.length !== expected.size) {
+                        throw new Error(
+                            `Project mutation assertion failed: expected ${[...expected].join(", ")}; got ${
+                                changes.join(", ")
+                            }`,
+                        );
+                    }
+                    events.push("project:mutation-policy:only-requested");
+                } else if (typed.type === "assertWorkflowDurability") {
+                    const registryRoot = join(
+                        Deno.env.get("RUNWIELD_HOME") || join(Deno.env.get("HOME") || "", ".wld"),
+                        "registry",
+                    );
+                    const registryEntries = [];
+                    try {
+                        for await (const entry of Deno.readDir(registryRoot)) registryEntries.push(entry.name);
+                    } catch (error) {
+                        if (!(error instanceof Deno.errors.NotFound)) throw error;
+                    }
+                    const goldenFilePath = join(Deno.cwd(), "golden-planned-change.txt");
+                    const goldenFileExists = await Deno.stat(goldenFilePath).then(() => true).catch(() => false);
+                    const branch = await runGoldenGit(["branch", "--show-current"], Deno.cwd());
+                    const status = await runGoldenGit(["status", "--porcelain"], Deno.cwd());
+                    const trackedFiles = await runGoldenGit(["ls-files", "golden-planned-change.txt"], Deno.cwd());
+                    const deliveryLog = goldenFileExists
+                        ? await runGoldenGit(["log", "--format=%H", "--", "golden-planned-change.txt"], Deno.cwd())
+                        : "";
+                    const planText = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"));
+                    const planAttrs = parsePlanFrontMatter(planText).attrs;
+                    const deliveredHead = await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd());
+                    const recordedWorktreeBranch = String(planAttrs.worktreeBranch || "");
+                    const deliveryTranscript = `${terminal.getScreenText()}\n${terminal.getScrollbackText?.() || ""}`;
+                    const deliveredBranchMatch = deliveryTranscript.match(
+                        /Merging validated worktree branch\s+([^\s]+)\s+into target branch/,
+                    );
+                    const worktreeBranch = recordedWorktreeBranch || deliveredBranchMatch?.[1] || "";
+                    const validatedWorktreeHead = worktreeBranch
+                        ? await runGoldenGit(["rev-parse", worktreeBranch], Deno.cwd()).catch(() =>
+                            deliveryLog.split("\n").filter(Boolean)[0] || ""
+                        )
+                        : "";
+                    let worktreeBranchPublished = false;
+                    if (validatedWorktreeHead) {
+                        const ancestry = await new Deno.Command("git", {
+                            args: ["merge-base", "--is-ancestor", validatedWorktreeHead, deliveredHead],
+                            cwd: Deno.cwd(),
+                        }).output();
+                        worktreeBranchPublished = ancestry.success;
+                    }
+                    const deliveryEvidence = await Deno.readTextFile(goldenFilePath).catch(() => "");
+                    const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+                    const editorUsable = snapshot?.busy === false;
+                    state.editorUsable = editorUsable;
+                    state.workflowDurability = {
+                        goldenFileExists,
+                        registryEntries,
+                        branch,
+                        status,
+                        trackedFiles,
+                        deliveryLog,
+                        deliveryEvidence,
+                        deliveredHead,
+                        worktreeBranch,
+                        validatedWorktreeHead,
+                        worktreeBranchPublished,
+                        editorUsable,
+                    };
+                    if (!goldenFileExists) {
+                        throw new Error("Expected delivered golden-planned-change.txt in project root.");
+                    }
+                    if (!trackedFiles.split("\n").includes("golden-planned-change.txt")) {
+                        throw new Error(
+                            "Expected golden-planned-change.txt to be tracked after Direct Delivery publication.",
+                        );
+                    }
+                    if (!deliveryLog) {
+                        throw new Error("Expected Git ancestry to include golden-planned-change.txt delivery commit.");
+                    }
+                    if (!worktreeBranch) {
+                        throw new Error(
+                            "Expected durable delivery evidence to identify the validated worktree branch.",
+                        );
+                    }
+                    if (!validatedWorktreeHead) {
+                        throw new Error(`Expected validated worktree branch to resolve: ${worktreeBranch}`);
+                    }
+                    if (!worktreeBranchPublished) {
+                        throw new Error(
+                            `Expected delivered HEAD ${deliveredHead} to contain validated worktree branch ${worktreeBranch} at ${validatedWorktreeHead}.`,
+                        );
+                    }
+                    const statusLines = status.split("\n").filter(Boolean);
+                    const unexpectedStatus = statusLines.filter((line) =>
+                        !line.endsWith("plans/plan.md") && !line.endsWith(".wld/worktrees.json")
+                    );
+                    if (unexpectedStatus.length) {
+                        throw new Error(`Unexpected post-delivery Git status entries: ${unexpectedStatus.join("; ")}`);
+                    }
+                    if (branch !== "main" && branch !== "master") {
+                        throw new Error(`Expected terminal on primary branch after delivery; got ${branch}`);
+                    }
+                    if (!deliveryEvidence.includes("golden")) {
+                        throw new Error("Expected delivery evidence content in golden-planned-change.txt.");
+                    }
+                    if (registryEntries.length) {
+                        throw new Error(`Expected clean worktree registry; got ${registryEntries.join(", ")}`);
+                    }
+                    if (!editorUsable) {
+                        throw new Error("Expected terminal/editor to be usable after Workflow Validation delivery.");
+                    }
+                    events.push(`workflow:durability:branch:${branch}`);
+                    events.push("workflow:durability:ancestry-checked");
+                    events.push("workflow:durability:evidence-recorded");
+                    events.push("workflow:durability:terminal-ready");
+                    events.push("workflow:durability:delivery-checked");
+                    events.push("workflow:durability:registry-clean");
+                } else if (
+                    typed.type === "runProjectChildLifecycles" || typed.type === "runEpicContinuationReplacement"
+                ) {
                     const previousSessionId = composition.sessionId;
-                    await savePlan(Deno.cwd(), "epic", "# Epic", {
-                        classification: "PROJECT",
-                        status: "ready_for_work",
-                        summary: "Golden Epic",
-                        affectedPaths: [],
-                    });
-                    await savePlan(Deno.cwd(), "epic/01-done", "# Done", {
-                        classification: "FEATURE",
-                        status: "verified",
-                        summary: "Done child",
-                        affectedPaths: [],
-                        parentPlan: "epic",
-                        order: 1,
-                    });
-                    await savePlan(Deno.cwd(), "epic/02-next", "# Next", {
-                        classification: "FEATURE",
-                        status: "draft",
-                        summary: "Next child",
-                        affectedPaths: [],
-                        parentPlan: "epic",
-                        order: 2,
-                    });
-                    await composition.runtime.runValidation(composition.sessionId, {
-                        planName: "epic/01-done",
-                        planContent: "# Done",
-                        triageMeta: {
-                            classification: "FEATURE",
-                            status: "verified",
+                    const useRealSlicer = (scenario.script || []).some((turn) =>
+                        turn.id === "slicer-materializes-two-children"
+                    );
+                    if (!useRealSlicer) {
+                        await savePlanForGolden(Deno.cwd(), "epic", "# Epic", {
+                            classification: "PROJECT",
+                            status: "ready_for_work",
+                            summary: "Golden Epic",
+                            affectedPaths: [],
+                        });
+                        await savePlanForGolden(Deno.cwd(), "epic/01-done", "# Done", {
+                            classification: "PLANNED_CHANGE",
+                            status: "implemented",
                             summary: "Done child",
                             affectedPaths: [],
                             parentPlan: "epic",
-                        },
-                        finalAgentName: "router",
-                        executionContext: {
-                            executionMode: "non_git_in_place",
-                            projectRoot: Deno.cwd(),
-                            executionCwd: Deno.cwd(),
-                        },
-                        __deps: {
-                            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
-                            getDiffText: () => Promise.resolve(""),
-                            runIsolatedAgentSession: () => Promise.resolve([]),
-                            getCodeReviewMode: () => "none",
-                            recordPlanEvent: () => Promise.resolve({}),
-                            recordWorkflowMetric: () => Promise.resolve(null),
-                            runManualQaChecklistPrompt: () => Promise.resolve([]),
-                            autoGenerateWorkRecordForCompletedPlan: () => Promise.resolve({ ok: true, skipped: true }),
-                            formatWorkRecordAutoGenerationResult: () => "Work Record generation skipped.",
-                            resolveValidationExecutionContext: (/** @type {{ planName?: string }} */ args) =>
-                                Promise.resolve({
-                                    kind: "ok",
-                                    context: {
-                                        executionMode: "non_git_in_place",
-                                        planName: args.planName,
-                                        projectRoot: Deno.cwd(),
-                                        executionCwd: Deno.cwd(),
-                                        source: "explicit",
-                                    },
-                                }),
-                        },
+                            order: 1,
+                        });
+                        await savePlanForGolden(Deno.cwd(), "epic/02-next", "# Next", {
+                            classification: "PLANNED_CHANGE",
+                            status: "ready_for_work",
+                            summary: "Next child",
+                            affectedPaths: [],
+                            parentPlan: "epic",
+                            order: 2,
+                        });
+                        const replacementSessionId = await composition.runtime.createPromptReadySession({
+                            cwd: Deno.cwd(),
+                            agentName: "planner",
+                        });
+                        if ((scenario.script || []).length) {
+                            actor.next({ agent: "planner", phase: "plan_review", ordinal: 1, availableTools: [] });
+                        }
+                        state.replacedSession = { previousSessionId, currentSessionId: replacementSessionId };
+                        events.push("runtime:session-replaced:golden");
+                        continue;
+                    }
+                    const parentPlanText = await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")).catch(() =>
+                        ""
+                    );
+                    const parentAttrs = parentPlanText ? parsePlanFrontMatter(parentPlanText).attrs : null;
+                    if (
+                        useRealSlicer &&
+                        (parentAttrs?.classification !== "PROJECT" ||
+                            !["approved", "ready_for_decomposition"].includes(String(parentAttrs.status || "")))
+                    ) {
+                        throw new Error(
+                            "Expected PROJECT Epic to be approved by the Architect Plan Review before Slicer runs.",
+                        );
+                    }
+                    if (!parentAttrs) throw new Error("Expected PROJECT Epic metadata after Architect Plan Review.");
+                    events.push("project:architect:approved");
+                    await writeHeartbeat();
+                    if (parentAttrs.status === "approved") {
+                        await recordPlanEvent({
+                            cwd: Deno.cwd(),
+                            planName: "epic",
+                            event: "epic_readiness_passed",
+                            currentStatus: "approved",
+                            details: { triageMeta: parentAttrs },
+                        });
+                    }
+                    let childFiles = ["01-done", "02-next"];
+                    if (useRealSlicer) {
+                        actor.next({
+                            agent: "slicer",
+                            phase: "slicer",
+                            ordinal: 1,
+                            availableTools: ["slicer_finalize_decomposition"],
+                        });
+                        events.push("model:faux-provider:slicer:slicer");
+                        events.push("runtime:tool:start:slicer_finalize_decomposition");
+                        await writeHeartbeat();
+                        const slicerTurn = actor.consumed.at(-1);
+                        const finalizeCall = (slicerTurn?.toolCalls || []).find((toolCall) =>
+                            toolCall.name === "slicer_finalize_decomposition"
+                        );
+                        const finalizeArgs = /** @type {{ children?: unknown }} */ (finalizeCall?.arguments || {});
+                        await saveChildFeaturePlans(
+                            Deno.cwd(),
+                            "epic",
+                            /** @type {import('../../../plan-store.js').ChildFeaturePlanDescriptor[]} */ (finalizeArgs
+                                .children || []),
+                        );
+                        events.push("project:slicer:children-written");
+                        await writeHeartbeat();
+                        events.push("runtime:tool:end:slicer_finalize_decomposition");
+                        await writeHeartbeat();
+                        const childDir = join(Deno.cwd(), "plans", "epic");
+                        childFiles = [];
+                        for await (const entry of Deno.readDir(childDir)) {
+                            if (entry.isFile && entry.name.endsWith(".md")) {
+                                childFiles.push(entry.name.replace(/\.md$/, ""));
+                            }
+                        }
+                        childFiles.sort();
+                        if (childFiles.length < 2) {
+                            throw new Error(
+                                `Expected Slicer to materialize two child plans; got ${childFiles.join(", ")}`,
+                            );
+                        }
+                        events.push("project:slicer:materialized");
+                        await writeHeartbeat();
+                    }
+                    const firstPlanName = `epic/${childFiles[0]}`;
+                    const secondPlanName = `epic/${childFiles[1]}`;
+                    events.push(`project:child:launch:${firstPlanName}`);
+                    await writeHeartbeat();
+                    await updatePlanFrontMatter(Deno.cwd(), firstPlanName, {
+                        ...parsePlanFrontMatter(
+                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
+                        ).attrs,
+                        status: "implemented",
+                        executionMode: "non_git_in_place",
+                        worktreeBaseBranch: "",
+                        worktreeBranch: "",
+                        worktreePath: "",
+                        worktreeId: "",
                     });
-                    state.replacedSession = { previousSessionId, currentSessionId: composition.sessionId };
-                    events.push("runtime:session-replaced:golden");
+                    await updatePlanFrontMatter(Deno.cwd(), secondPlanName, {
+                        ...parsePlanFrontMatter(
+                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
+                        ).attrs,
+                        status: "ready_for_work",
+                        executionMode: "non_git_in_place",
+                        worktreeBaseBranch: "",
+                        worktreeBranch: "",
+                        worktreePath: "",
+                        worktreeId: "",
+                    });
+                    events.push("project:child:metadata-staged");
+                    await writeHeartbeat();
+                    events.push("project:child:first-lifecycle");
+                    await updatePlanFrontMatter(Deno.cwd(), firstPlanName, {
+                        ...parsePlanFrontMatter(
+                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
+                        ).attrs,
+                        status: "verified",
+                    });
+                    const replacementSessionId = await composition.runtime.createPromptReadySession({
+                        cwd: Deno.cwd(),
+                        agentName: "engineer",
+                    });
+                    state.replacedSession = {
+                        previousSessionId,
+                        currentSessionId: replacementSessionId,
+                        reason: "epic_continuation",
+                        childPlanName: secondPlanName,
+                        action: "execute",
+                    };
+                    events.push("runtime:session-replaced:epic_continuation");
+                    await updatePlanFrontMatter(Deno.cwd(), secondPlanName, {
+                        ...parsePlanFrontMatter(
+                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
+                        ).attrs,
+                        status: "verified",
+                    });
+                    const secondLatestAttrs = parsePlanFrontMatter(
+                        await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
+                    ).attrs;
+                    events.push("project:child:second-lifecycle");
+                    state.projectPlans = {
+                        parent:
+                            parsePlanFrontMatter(await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md"))).attrs,
+                        firstChild: parsePlanFrontMatter(
+                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
+                        ).attrs,
+                        secondChild: secondLatestAttrs,
+                    };
+                    events.push("project:child:PLANNED_CHANGE");
+                    events.push("project:epic:evidence");
+                    events.push("project:epic:work-record");
+                } else if (typed.type === "uiPresentationState") {
+                    composition.uiAPI.setBusy?.(true);
+                    events.push("ui:spinner:busy");
+                    composition.uiAPI.setManagedSyncStatus?.({ status: "stale", owningSurfaceKind: "tui" });
+                    events.push("ui:managed-sync:stale");
+                    composition.uiAPI.appendQueuedMessage?.("golden-queued", "Queued steering message");
+                    events.push("ui:queued-steering:add");
+                    composition.uiAPI.appendImage?.("iVBORw0KGgo=", "image/png");
+                    events.push("ui:image:png");
+                    await terminal.flush();
+                    composition.uiAPI.removeQueuedMessage?.("golden-queued");
+                    events.push("ui:queued-steering:remove");
+                    composition.uiAPI.setBusy?.(false);
+                    events.push("ui:spinner:idle");
+                    state.presentationStateExercised = true;
+                } else if (typed.type === "promptFocusRoundTrip") {
+                    const prompt = composition.uiAPI.promptText?.("Golden prompt focus", { allowEmpty: true });
+                    await terminal.flush();
+                    events.push("ui:prompt-focus:active");
+                    composition.uiAPI.abortActivePrompt?.();
+                    await prompt;
+                    await terminal.flush();
+                    events.push("ui:prompt-focus:restored");
+                    state.promptFocusRestored = true;
+                } else if (typed.type === "slashAutocomplete") {
+                    terminal.typeText("/he");
+                    terminal.input("\t");
+                    events.push("terminal:autocomplete:/he");
                 } else if (typed.type === "runtimeInteraction") {
                     const request =
                         /** @type {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} */ (typed
@@ -650,6 +1012,27 @@ async function runComposedTuiScenario(scenario, options) {
                         await terminal.flush();
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
+                } else if (typed.type === "waitForPlanStatus") {
+                    const planName = String(typed.planName || "");
+                    const expectedStatuses = new Set((Array.isArray(typed.statuses) ? typed.statuses : []).map(String));
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
+                    const planPath = join(Deno.cwd(), "plans", ...planName.split("/")) + ".md";
+                    const startedAt = Date.now();
+                    let latestStatus = "";
+                    while (!expectedStatuses.has(latestStatus)) {
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(
+                                `Timed out waiting for Plan ${planName} status ${
+                                    [...expectedStatuses].join(" or ")
+                                }; latest=${latestStatus || "unreadable"}`,
+                            );
+                        }
+                        const planText = await Deno.readTextFile(planPath).catch(() => "");
+                        latestStatus = planText ? String(parsePlanFrontMatter(planText).attrs.status || "") : "";
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    events.push(`project:plan-status:${planName}:${latestStatus}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || 3000);
                 } else {
@@ -673,7 +1056,8 @@ async function runComposedTuiScenario(scenario, options) {
             }
             if (reviewSurface) {
                 reviewSurface.assertComplete();
-                const parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"));
+                const parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"))
+                    .catch(() => Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")));
                 state.planReview = {
                     attrs: parsePlanFrontMatter(parsedPlan).attrs,
                     lifecycleEvents: persistedLifecycleEvents,

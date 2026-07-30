@@ -378,6 +378,27 @@ Deno.test("notifyRunWieldEvent disables compaction finished independently", asyn
     assertEquals(commands.calls, []);
 });
 
+Deno.test("notifyRunWieldEvent skips bell, tty lookup, and desktop attempts for environment-disabled runs", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
+    const bell = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "test run",
+        __deps: {
+            os: "darwin",
+            env: { RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS: "1" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.reason, "env_disabled");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(bell.writes, []);
+    assertEquals(commands.calls, []);
+});
+
 Deno.test("notifyRunWieldEvent skips bell, tty lookup, and desktop attempts for disabled or unknown events", async () => {
     const disabledCommands = makeCommandRecorder({ osascript: true });
     const disabledBell = makeTerminalWriter();

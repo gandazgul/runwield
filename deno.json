@@ -122,7 +122,7 @@
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",
         "language-policy:check": "deno run -A scripts/check-language-policy.js",
-        "test": "deno run -A scripts/write-version.js && snip run -- deno test -A --parallel --no-check",
+        "test": "deno run -A scripts/write-version.js && RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS=1 snip run -- deno test -A --parallel --no-check --ignore=third_party --ignore=src/ui/tui/golden-scenarios && deno task test:golden-tui",
         "lint": "snip run -- deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
@@ -148,7 +148,7 @@
         "release:stable": "deno run -A scripts/release.js stable",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js",
-        "test:golden-tui": "deno run -A scripts/write-version.js && deno test -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
+        "test:golden-tui": "deno run -A scripts/write-version.js && RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS=1 deno test -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
     },
     "fmt": {
         "lineWidth": 120,
