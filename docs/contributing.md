@@ -93,9 +93,11 @@ deno task test:golden-tui
 deno task test:golden-tui:extensive
 ```
 
-The measured portfolio runtime is about 26 seconds on a warmed local cache, so the full suite remains in the ordinary
-`deno task ci` gate via `deno task test`. If the portfolio grows too expensive, keep the critical deterministic subset
-in CI and move the extensive alias into `deno task release:check` and the release workflow in the same change.
+The measured portfolio runtime is about 70 seconds on a warmed local cache, repeatable across three consecutive runs, so
+the full suite remains in the ordinary `deno task ci` gate via `deno task test`. Each test file runs in its own
+sandboxed process, which is most of that wall time and is what keeps the scenarios isolated. If the portfolio grows too
+expensive, keep the critical deterministic subset in CI and move the extensive alias into `deno task release:check` and
+the release workflow in the same change.
 
 Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers under `src/ui/tui/testing/`:
 
