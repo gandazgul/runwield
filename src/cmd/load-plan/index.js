@@ -55,6 +55,7 @@ import {
 } from "../../shared/workflow/state-transition.ts";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
 import {
+    checkpointExecutionWorktree,
     createExecutionWorktreeGitArtifacts,
     getBranchHead,
     getWorktreeStatus as getWorktreeStatusFn,
@@ -64,7 +65,6 @@ import {
     preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
     removeExecutionWorktree as removeExecutionWorktreeFn,
     restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
-    sealExecutionWorktreeCandidate,
     settleExecutionWorktreeRegistry,
 } from "../../shared/worktree.js";
 import {
@@ -149,7 +149,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof settleExecutionWorktreeRegistry} [settleExecutionWorktreeRegistry]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
- * @property {typeof sealExecutionWorktreeCandidate} [sealExecutionWorktreeCandidate]
+ * @property {typeof checkpointExecutionWorktree} [checkpointExecutionWorktree]
  * @property {typeof getBranchHead} [getBranchHead]
  * @property {typeof isCommitAncestorOfBranch} [isCommitAncestorOfBranch]
  * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
@@ -2003,7 +2003,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof createExecutionWorktreeGitArtifacts} opts.createExecutionWorktreeGitArtifacts
  * @param {typeof settleExecutionWorktreeRegistry} opts.settleExecutionWorktreeRegistry
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
- * @param {typeof sealExecutionWorktreeCandidate} opts.sealExecutionWorktreeCandidate
+ * @param {typeof checkpointExecutionWorktree} opts.checkpointExecutionWorktree
  * @param {typeof getBranchHead} opts.getBranchHead
  * @param {typeof isCommitAncestorOfBranch} opts.isCommitAncestorOfBranch
  * @param {typeof preparePrimaryPlanPathForMergeFn} opts.preparePrimaryPlanPathForMerge
@@ -2044,7 +2044,7 @@ async function handlePlanRecovery({
     createExecutionWorktreeGitArtifacts,
     settleExecutionWorktreeRegistry,
     mergeExecutionWorktree,
-    sealExecutionWorktreeCandidate,
+    checkpointExecutionWorktree,
     getBranchHead,
     isCommitAncestorOfBranch,
     preparePrimaryPlanPathForMerge,
@@ -2668,7 +2668,7 @@ async function handlePlanRecovery({
                             if (executionPlan?.attrs.deliveryEvidence?.mode === "worktree_merge") {
                                 deliveryEvidence = executionPlan.attrs.deliveryEvidence;
                             } else {
-                                const sealedCandidate = await sealExecutionWorktreeCandidate({
+                                const sealedCandidate = await checkpointExecutionWorktree({
                                     worktreePath: manualWorktreePath,
                                     branch: manualWorktreeBranch,
                                     planName: plan.planName,
@@ -3513,7 +3513,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
-        sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateDep,
+        checkpointExecutionWorktree: checkpointExecutionWorktreeDep,
         getBranchHead: getBranchHeadDep,
         isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
         preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
@@ -3558,7 +3558,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
-    const sealExecutionWorktreeCandidateImpl = sealExecutionWorktreeCandidateDep || sealExecutionWorktreeCandidate;
+    const checkpointExecutionWorktreeImpl = checkpointExecutionWorktreeDep || checkpointExecutionWorktree;
     const getBranchHeadImpl = getBranchHeadDep || getBranchHead;
     const isCommitAncestorOfBranchImpl = isCommitAncestorOfBranchDep || isCommitAncestorOfBranch;
     const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
@@ -3809,7 +3809,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 createExecutionWorktreeGitArtifacts: createExecutionWorktreeGitArtifactsImpl,
                 settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryImpl,
                 mergeExecutionWorktree,
-                sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateImpl,
+                checkpointExecutionWorktree: checkpointExecutionWorktreeImpl,
                 getBranchHead: getBranchHeadImpl,
                 isCommitAncestorOfBranch: isCommitAncestorOfBranchImpl,
                 preparePrimaryPlanPathForMerge,

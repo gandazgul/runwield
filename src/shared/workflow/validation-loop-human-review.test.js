@@ -6,8 +6,10 @@ import { __resetSettingsForTests } from "../settings.js";
 
 import {
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
     makeValidationProjectRoot,
+    noOpPublicationProofDeps,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
 
@@ -41,7 +43,9 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -80,7 +84,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry");
                 return Promise.resolve({});
@@ -130,7 +134,9 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -164,7 +170,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -207,7 +213,9 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -249,7 +257,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -285,7 +293,9 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             resolveValidationExecutionContext: () =>
                 Promise.resolve({
@@ -300,7 +310,6 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
                 }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -424,7 +433,9 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -505,12 +516,15 @@ Deno.test("runValidationLoop keeps reopening code review for as many feedback ro
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -605,12 +619,15 @@ Deno.test("runValidationLoop ends the human review loop only when the human quit
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -697,7 +714,9 @@ Deno.test("runValidationLoop resuming mid-human-review does not restart automati
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),

@@ -6,6 +6,17 @@
 import { formatPlannedWorkLabel } from "../../constants.js";
 
 /**
+ * @typedef {Object} TriageReportContext
+ * @property {string} [routingIntent]
+ * @property {string} [classification]
+ * @property {string} [workKind]
+ * @property {string} [sessionName]
+ * @property {string} [complexity]
+ * @property {string} [summary]
+ * @property {string[]} [affectedPaths]
+ */
+
+/**
  * @typedef {Object} SlicerChildSummary
  * @property {string} name
  * @property {number} [order]
@@ -16,6 +27,36 @@ import { formatPlannedWorkLabel } from "../../constants.js";
  * @property {string[]} [affectedPaths]
  * @property {import('../ticket-references.js').TicketReference[]} [tickets]
  */
+
+/**
+ * Build the structured Router-style triage context shared by specialist
+ * handoffs. Planned execution can reconstruct the context from canonical Plan
+ * front matter when the original Router Session is not available.
+ *
+ * @param {TriageReportContext} triage
+ * @param {{ plannedExecution?: boolean }} [options]
+ * @returns {string}
+ */
+export function buildTriageReport(triage, options = {}) {
+    const inferredPlannedClassification = triage.classification === "PROJECT" ? "PROJECT" : "PLANNED_CHANGE";
+    const routingIntent = triage.routingIntent ||
+        (options.plannedExecution ? inferredPlannedClassification : undefined);
+    const classification = triage.classification ||
+        (options.plannedExecution ? inferredPlannedClassification : undefined);
+    const lines = ["## Triage Report"];
+
+    if (routingIntent) lines.push(`- Routing Intent: ${routingIntent}`);
+    if (classification) lines.push(`- Plan Classification: ${classification}`);
+    if (triage.workKind) lines.push(`- Work Kind: ${triage.workKind}`);
+    if (triage.sessionName) lines.push(`- Session Name: ${triage.sessionName}`);
+    if (triage.complexity) lines.push(`- Complexity: ${triage.complexity}`);
+    if (triage.summary) lines.push(`- Summary: ${triage.summary}`);
+    if (Array.isArray(triage.affectedPaths)) {
+        lines.push(`- Affected paths: ${triage.affectedPaths.join(", ")}`);
+    }
+
+    return lines.join("\n");
+}
 
 /**
  * Build the user-request text handed to the interactive Epic Slicer.
@@ -132,18 +173,32 @@ export function buildCollaborationStylePrompt(recommendation) {
  * @param {string} planName
  * @param {string} planBody
  * @param {string} [reviewFeedback]
- * @param {{ collaborationStyle?: "autonomous"|"pair", workKind?: string }} [options]
+ * @param {{
+ *   collaborationStyle?: "autonomous"|"pair",
+ *   triageMeta?: TriageReportContext,
+ *   routerMessage?: string,
+ * }} [options]
  * @returns {string}
  */
 export function buildEngineerRequest(planName, planBody, reviewFeedback, options = {}) {
+    const triageMeta = options.triageMeta || {};
     const lines = [
         `## Approved Plan: ${planName}`,
         "",
         `Execute the following plan step by step. This is a ${
-            formatPlannedWorkLabel(options.workKind).toLowerCase()
+            formatPlannedWorkLabel(triageMeta.workKind).toLowerCase()
         }. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.`,
         "",
+        buildTriageReport(triageMeta, { plannedExecution: true }),
+        "",
     ];
+    if (options.routerMessage) {
+        lines.push(
+            "## Router Handoff Message",
+            options.routerMessage,
+            "",
+        );
+    }
     if (options.collaborationStyle === "pair") {
         lines.push(
             "## Runtime Collaboration Style",

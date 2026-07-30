@@ -6,7 +6,9 @@ import { __resetSettingsForTests } from "../settings.js";
 
 import {
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
+    noOpPublicationProofDeps,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -53,7 +55,9 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
             getDiffText: () => {

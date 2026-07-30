@@ -1029,7 +1029,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                         statusText: "",
                         diff: "",
                     }),
-                sealExecutionWorktreeCandidate: () =>
+                checkpointExecutionWorktree: () =>
                     Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
                 getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
                 isCommitAncestorOfBranch: () => Promise.resolve(true),
@@ -1505,7 +1505,7 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                         statusText: "",
                         diff: "",
                     }),
-                sealExecutionWorktreeCandidate: () =>
+                checkpointExecutionWorktree: () =>
                     Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
                 getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
                 resolveValidationExecutionContext: () =>

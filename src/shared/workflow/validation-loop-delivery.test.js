@@ -21,8 +21,10 @@ import { __resetSettingsForTests } from "../settings.js";
 import {
     git,
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
     makeValidationProjectRoot,
+    noOpPublicationProofDeps,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
 
@@ -58,7 +60,9 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         planContent: "plan",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
                 actions.push(`stage:${args.projectRoot}:${args.executionCwd}:${args.planName}`);
@@ -108,7 +112,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                 actions.push(`registry-remove:${projectRoot}:${id}`);
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
 
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -354,7 +358,9 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
         planContent: "fix",
         triageMeta: { classification: "QUICK_FIX" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runIsolatedAgentSession: () =>
@@ -376,7 +382,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
                 preservedPaths.push(args.preservePlanPaths);
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             removeExecutionWorktree: () => Promise.resolve(),
             getCodeReviewMode: () => "none",
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -410,7 +416,9 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -434,7 +442,7 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                 actions.push("merge");
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () =>
+            verifyPostMergeCandidatePublished: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
             runCompletionGatedRepair: (/** @type {any} */ opts) => {
                 actions.push(`repair:${opts.agentName}:merge_verification`);
@@ -521,7 +529,9 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -542,7 +552,7 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
                 ),
             getCodeReviewMode: () => "none",
             mergeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () =>
+            verifyPostMergeCandidatePublished: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
             runCompletionGatedRepair: () => Promise.resolve(false),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),

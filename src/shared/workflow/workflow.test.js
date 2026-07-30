@@ -70,7 +70,9 @@ Deno.test("runPlanningAgent forwards triage metadata into the planning root", as
 });
 
 Deno.test("buildEngineerRequest describes documentation Work Kind as planned documentation", () => {
-    const text = buildEngineerRequest("docs-plan", "# Docs Plan", undefined, { workKind: "DOCUMENTATION" });
+    const text = buildEngineerRequest("docs-plan", "# Docs Plan", undefined, {
+        triageMeta: { workKind: "DOCUMENTATION" },
+    });
 
     assertStringIncludes(text, "This is a planned documentation");
 });
@@ -1394,6 +1396,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
 
 Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan metadata", async () => {
     let dispatchedAgent = "";
+    let engineerRequest = "";
     const result = await executePlan({
         planName: "visual-feature",
         triageMeta: { classification: "FEATURE", executionAgent: "engineer" },
@@ -1404,7 +1407,12 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
                     /** @type {any} */ ({
                         attrs: {
                             status: "ready_for_work",
-                            classification: "FEATURE",
+                            routingIntent: "PLANNED_CHANGE",
+                            classification: "PLANNED_CHANGE",
+                            workKind: "FEATURE",
+                            complexity: "MEDIUM",
+                            summary: "Implement the visual feature.",
+                            affectedPaths: ["src/ui/feature.tsx"],
                             executionAgent: "frontend-engineer",
                             collaborationRecommendation: "pair",
                         },
@@ -1414,6 +1422,7 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
                 ),
             runActiveAgentTurn: (/** @type {any} */ opts) => {
                 dispatchedAgent = opts.agentName;
+                engineerRequest = opts.userRequest;
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "toolResult",
@@ -1432,6 +1441,11 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
 
     assertEquals(result.executionComplete, true);
     assertEquals(dispatchedAgent, "frontend-engineer");
+    assertStringIncludes(engineerRequest, "- Routing Intent: PLANNED_CHANGE");
+    assertStringIncludes(engineerRequest, "- Plan Classification: PLANNED_CHANGE");
+    assertStringIncludes(engineerRequest, "- Work Kind: FEATURE");
+    assertStringIncludes(engineerRequest, "- Summary: Implement the visual feature.");
+    assertStringIncludes(engineerRequest, "- Affected paths: src/ui/feature.tsx");
 });
 
 Deno.test("executePlan uses the Plan Pair recommendation and injects one workflow checkpoint tool", async () => {

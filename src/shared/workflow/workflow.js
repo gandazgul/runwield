@@ -406,6 +406,7 @@ export async function runPlanningAgent(
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
  *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *   hostedSession: import('../session/hosted-session.js').HostedSession,
+ *   routerMessage?: string,
  *   reviewFeedback?: string,
  *   reviewImages?: Array<{base64: string, mimeType: string}>,
  *   __deps?: {
@@ -430,6 +431,7 @@ export async function executePlan({
     triageMeta: _triageMeta,
     sessionManager,
     hostedSession,
+    routerMessage,
     reviewFeedback,
     reviewImages,
     __deps = {},
@@ -555,6 +557,7 @@ export async function executePlan({
                         triageMeta: revisionOutcome.triageMeta || _triageMeta,
                         sessionManager,
                         hostedSession,
+                        routerMessage,
                         reviewFeedback: revisionOutcome.feedback,
                         reviewImages: revisionOutcome.images,
                         __deps,
@@ -732,6 +735,7 @@ export async function executePlan({
         sessionManager,
         currentStatus: plan.attrs.status,
         hostedSession,
+        routerMessage,
         reviewFeedback: effectiveReviewFeedback,
         reviewImages: effectiveReviewImages,
         collaborationStyle: collaboration.style,
@@ -831,6 +835,7 @@ export async function executePlan({
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *     routerMessage?: string,
  *     reviewFeedback?: string,
  *     reviewImages?: Array<{base64: string, mimeType: string}>,
  *     collaborationStyle?: "autonomous"|"pair",
@@ -850,6 +855,7 @@ async function executeSingleEngineerPlan(
         sessionManager,
         currentStatus,
         hostedSession,
+        routerMessage,
         reviewFeedback,
         reviewImages,
         collaborationStyle = CollaborationStyles.AUTONOMOUS,
@@ -890,6 +896,7 @@ async function executeSingleEngineerPlan(
         executionContext.executionCwd,
         hostedSession,
         executionContext.projectRoot,
+        routerMessage,
         reviewFeedback,
         reviewImages,
         executionContext.executionAgent,
@@ -921,6 +928,7 @@ async function executeSingleEngineerPlan(
  * @param {string} [executionCwd]
  * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @param {string} [projectRoot]
+ * @param {string} [routerMessage]
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @param {string} [executionAgent]
@@ -937,6 +945,7 @@ async function runEngineerWithPlan(
     executionCwd,
     hostedSession,
     projectRoot,
+    routerMessage,
     reviewFeedback,
     reviewImages,
     executionAgent = AGENTS.ENGINEER,
@@ -961,7 +970,8 @@ async function runEngineerWithPlan(
             userRequest: `${
                 buildEngineerRequest(planName, planBody, reviewFeedback, {
                     collaborationStyle,
-                    workKind: workflow?.triageMeta?.workKind,
+                    triageMeta: workflow?.triageMeta,
+                    routerMessage,
                 })
             }\n\nExecution owner: ${executionAgent}.`,
             images: reviewImages,

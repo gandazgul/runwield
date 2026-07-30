@@ -93,17 +93,14 @@
         },
         "src/shared/workflow/validation.js": {
             "seams": [
-                "assertNoUnvalidatedPostSealChanges",
+                "assertPreMergeCandidateUnchanged",
                 "autoGenerateWorkRecordForCompletedPlan",
-                "captureWorktreeTree",
-                "diffTrees",
+                "checkpointExecutionWorktree",
                 "findWorktreeRegistryEntryById",
                 "formatWorkRecordAutoGenerationResult",
-                "getBranchHead",
                 "getCodeReviewMode",
                 "getDiffText",
                 "getGuidedReviewMode",
-                "isCommitAncestorOfBranch",
                 "loadManualQaPrompt",
                 "loadReviewerFeedbackEngineerDef",
                 "loadReviewerPrompt",
@@ -124,17 +121,22 @@
                 "runLocalCI",
                 "runManualQaChecklistPrompt",
                 "runValidationOutcomeTransition",
-                "sealExecutionWorktreeCandidate",
                 "shouldCleanupMergedWorktrees",
                 "stageValidationPassedInExecutionWorktree",
                 "switchActiveAgent",
                 "updatePlanFrontMatter",
                 "updateWorktreeRegistryEntry",
-                "verifyExecutionWorktreeMerged"
+                "verifyPostMergeCandidatePublished"
             ],
             "machinery": [
+                "checkpointExecutionWorktree",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
+                "removeExecutionWorktree",
                 "removeWorktreeRegistryEntry",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "stageValidationPassedInExecutionWorktree",
                 "updatePlanFrontMatter",
                 "updateWorktreeRegistryEntry"
             ]
@@ -188,6 +190,8 @@
                 "updateWorktreeRegistryEntry"
             ],
             "machinery": [
+                "checkpointExecutionWorktree",
+                "createExecutionWorktree",
                 "recordPlanEvent",
                 "updateWorktreeRegistryEntry"
             ]

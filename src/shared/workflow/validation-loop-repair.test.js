@@ -7,7 +7,9 @@ import { __resetSettingsForTests } from "../settings.js";
 
 import {
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
+    noOpPublicationProofDeps,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -90,11 +92,12 @@ Deno.test("runValidationLoop pauses when the Reviewer-Feedback Engineer stalls",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -300,7 +303,9 @@ Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Fee
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             resolveValidationExecutionContext: () =>
                 Promise.resolve({
@@ -315,7 +320,6 @@ Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Fee
                 }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -380,12 +384,15 @@ Deno.test("runValidationLoop offers another round or code review after three rou
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -463,12 +470,15 @@ Deno.test("runValidationLoop continues to round four when the user asks for one"
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerPrompt: (/** @type {string} */ mode) => {
                 promptModes.push(mode);
                 return Promise.resolve({
@@ -566,11 +576,12 @@ Deno.test("runValidationLoop halts without prompting when the repair baseline ca
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({ captureTree: () => Promise.reject(new Error("worktree vanished")) }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.reject(new Error("worktree vanished")),
             runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
@@ -620,12 +631,15 @@ Deno.test("runValidationLoop halts cleanly when the repair diff cannot be comput
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.reject(new Error("bad object tree-before-repair")),
+        }),
         __deps: /** @type {any} */ ({
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.reject(new Error("bad object tree-before-repair")),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",

@@ -15,11 +15,11 @@ async function savePlanForTest(cwd, planName, content, attrs) {
 import { GitRepositoryRequiredError } from "./git.js";
 
 import {
+    checkpointExecutionWorktree,
     createExecutionWorktree,
     mergeExecutionWorktree,
     prepareTargetBranchRef,
     removeExecutionWorktree,
-    sealExecutionWorktreeCandidate,
 } from "./worktree.js";
 
 import { git, makeRepo } from "./worktree-test-helpers.js";
@@ -79,7 +79,7 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
         });
         const activeWorktree = worktree;
         await Deno.writeTextFile(`${activeWorktree.path}/feature.txt`, "validated\n");
-        const sealed = await sealExecutionWorktreeCandidate({
+        const sealed = await checkpointExecutionWorktree({
             worktreePath: activeWorktree.path,
             branch: activeWorktree.branch,
             planName: "feature",

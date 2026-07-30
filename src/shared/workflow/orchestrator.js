@@ -38,6 +38,7 @@ import {
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { buildTriageReport } from "./workflow-prompts.js";
 import {
     executePlan,
     extractAssistantOutput,
@@ -197,23 +198,6 @@ export function readLatestTriageOutcome(messages, fromIndex) {
 /**
  * @param {TriageOutcome} triage
  */
-function buildTriageBlock(triage) {
-    const lines = [
-        "## Triage Report",
-        `- Routing Intent: ${triage.routingIntent}`,
-    ];
-    if (triage.classification) lines.push(`- Plan Classification: ${triage.classification}`);
-    if (triage.workKind) lines.push(`- Work Kind: ${triage.workKind}`);
-    if (triage.sessionName) lines.push(`- Session Name: ${triage.sessionName}`);
-    lines.push(
-        `- Complexity: ${triage.complexity}`,
-        `- Summary: ${triage.summary}`,
-        `- Affected paths: ${(triage.affectedPaths || []).join(", ")}`,
-        "",
-    );
-    return lines.join("\n");
-}
-
 /**
  * Apply a Router-provided Session Name only when the session is currently unnamed.
  * Always mirror the effective Session Name to the Terminal Title when available.
@@ -281,7 +265,7 @@ export async function dispatchPostTriage(
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
 
-    const triageBlock = buildTriageBlock(normalizedTriage);
+    const triageBlock = buildTriageReport(normalizedTriage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
@@ -562,6 +546,7 @@ export async function dispatchPostTriage(
             executionResult = await executePlanImpl({
                 planName,
                 triageMeta: decisionTriageMeta,
+                routerMessage: userRequest,
                 sessionManager,
                 hostedSession,
                 __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },

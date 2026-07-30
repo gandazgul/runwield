@@ -26,6 +26,14 @@ routingIntent: "FEATURE"
 sessionName: "deep semantic source modules"
 ---
 
+New rule to observe:
+
+module boundaries follow reasons-to-change; ports follow what leaves the process. Ports are a small subset. If the
+decomposition creates an interface per collaborator "for testability", that's the deps bag with nicer syntax.
+
+Use orthogonal architecture but with a strict, ports only for what trully leaves runwield and not anything inside the
+machinery. Ports: git, llm api, PI session management (as in the low level one that writes jsonl files), etc
+
 # Reorganize the Source Tree into Deep Semantic Modules
 
 ## Context

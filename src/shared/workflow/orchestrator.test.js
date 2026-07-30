@@ -664,6 +664,7 @@ orchestratorTest("dispatchPostTriage executes approved FEATURE plans and runs va
     assertEquals(/** @type {any[]} */ (executed[0]).length, 1);
     const executionArgs = /** @type {any} */ (/** @type {any[]} */ (executed[0])[0]);
     assertEquals(executionArgs.planName, "feature-plan");
+    assertEquals(executionArgs.routerMessage, "Make feature");
     assertEquals(executionArgs.hostedSession instanceof HostedSession, true);
     assertEquals(validations.length, 1);
     assertEquals(/** @type {any} */ (validations[0]).planContent, "plan markdown");
