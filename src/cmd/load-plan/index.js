@@ -56,16 +56,17 @@ import {
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
 import {
     checkpointExecutionWorktree,
-    createExecutionWorktreeGitArtifacts,
+    createWorktreeGitArtifacts,
+    deleteMergedWorktreeBranch,
     getBranchHead,
     getWorktreeStatus as getWorktreeStatusFn,
     inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
     isCommitAncestorOfBranch,
     mergeExecutionWorktree as mergeExecutionWorktreeFn,
     preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
-    removeExecutionWorktree as removeExecutionWorktreeFn,
+    removeWorktreeGitArtifacts as removeWorktreeGitArtifactsFn,
     restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
-    settleExecutionWorktreeRegistry,
+    settleWorktreeAttempt,
 } from "../../shared/worktree.js";
 import {
     findById as findWorktreeByIdFn,
@@ -145,8 +146,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof findWorktreeByPlanNameFn} [findWorktreeByPlanName]
  * @property {typeof updateWorktreeRegistryEntryFn} [updateWorktreeRegistryEntry]
  * @property {typeof getWorktreeStatusFn} [getWorktreeStatus]
- * @property {typeof createExecutionWorktreeGitArtifacts} [createExecutionWorktreeGitArtifacts]
- * @property {typeof settleExecutionWorktreeRegistry} [settleExecutionWorktreeRegistry]
+ * @property {typeof createWorktreeGitArtifacts} [createWorktreeGitArtifacts]
+ * @property {typeof settleWorktreeAttempt} [settleWorktreeAttempt]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
  * @property {typeof checkpointExecutionWorktree} [checkpointExecutionWorktree]
@@ -154,7 +155,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof isCommitAncestorOfBranch} [isCommitAncestorOfBranch]
  * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
  * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
- * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
+ * @property {typeof removeWorktreeGitArtifactsFn} [removeWorktreeGitArtifacts]
  * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
@@ -246,9 +247,18 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
                 prompt: `Review plan "${meta.planName}"`,
                 _meta: { cwd: snapshot.cwd, ...meta },
             });
-            const review = /** @type {any} */ (/** @type {any} */ (response)._meta || {});
+            const responseAny = /** @type {any} */ (response);
+            const review = /** @type {any} */ (responseAny._meta || {});
+            const hasReviewPayload = responseAny._meta && typeof responseAny._meta === "object" &&
+                Object.keys(responseAny._meta).length > 0;
+            const runtimeCanceled = response.outcome === RuntimeInteractionOutcomes.CANCELED && !hasReviewPayload;
             return {
                 canceled: response.outcome === RuntimeInteractionOutcomes.CANCELED,
+                cancellationReason: typeof review.cancellationReason === "string"
+                    ? review.cancellationReason
+                    : runtimeCanceled
+                    ? "runtime_cancel"
+                    : undefined,
                 approved: review.approved === true,
                 feedback: typeof review.feedback === "string" ? review.feedback : undefined,
                 approvalAction: review.approvalAction,
@@ -784,7 +794,7 @@ async function runResumeCheck({
  * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
  * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
  * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
- * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
+ * @param {typeof removeWorktreeGitArtifactsFn} opts.removeWorktreeGitArtifacts
  * @returns {Promise<boolean>}
  */
 async function resetHeldPlanToDraft({
@@ -795,7 +805,7 @@ async function resetHeldPlanToDraft({
     findWorktreeById,
     findWorktreeByPlanName,
     updateWorktreeRegistryEntry,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
 }) {
     const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan, {
         findWorktreeById,
@@ -836,12 +846,15 @@ async function resetHeldPlanToDraft({
         action: action === "reset_delete" ? "abandon" : "reset",
         recover: async () => {
             if (action === "reset_delete" && worktreeContext?.path) {
-                await removeExecutionWorktree({
+                await removeWorktreeGitArtifacts({
                     projectRoot: projectRoot,
                     path: worktreeContext.path,
-                    branch: worktreeContext.branch,
                     force: true,
                 });
+                // Deleting the branch is irreversible, so it is its own proven step.
+                if (worktreeContext.branch) {
+                    await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+                }
             }
             if (worktreeContext?.id) {
                 await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
@@ -885,7 +898,7 @@ async function resetHeldPlanToDraft({
  * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
  * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
  * @param {typeof inspectExecutionWorktreeMergeRiskFn} opts.inspectExecutionWorktreeMergeRisk
- * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
+ * @param {typeof removeWorktreeGitArtifactsFn} opts.removeWorktreeGitArtifacts
  * @returns {Promise<"resume" | "handled">}
  */
 async function handleOnHoldPlan({
@@ -900,7 +913,7 @@ async function handleOnHoldPlan({
     updateWorktreeRegistryEntry,
     getWorktreeStatus,
     inspectExecutionWorktreeMergeRisk,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
 }) {
     while (plan.attrs.status === "on_hold") {
         const answer = await uiAPI.promptSelect("This plan is on hold. What would you like to do?", [
@@ -925,7 +938,7 @@ async function handleOnHoldPlan({
                 findWorktreeById,
                 findWorktreeByPlanName,
                 updateWorktreeRegistryEntry,
-                removeExecutionWorktree,
+                removeWorktreeGitArtifacts,
             });
             if (reset) return "resume";
             continue;
@@ -2000,15 +2013,15 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
  * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
  * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
- * @param {typeof createExecutionWorktreeGitArtifacts} opts.createExecutionWorktreeGitArtifacts
- * @param {typeof settleExecutionWorktreeRegistry} opts.settleExecutionWorktreeRegistry
+ * @param {typeof createWorktreeGitArtifacts} opts.createWorktreeGitArtifacts
+ * @param {typeof settleWorktreeAttempt} opts.settleWorktreeAttempt
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
  * @param {typeof checkpointExecutionWorktree} opts.checkpointExecutionWorktree
  * @param {typeof getBranchHead} opts.getBranchHead
  * @param {typeof isCommitAncestorOfBranch} opts.isCommitAncestorOfBranch
  * @param {typeof preparePrimaryPlanPathForMergeFn} opts.preparePrimaryPlanPathForMerge
  * @param {typeof restorePrimaryPlanPathAfterMergeFailureFn} opts.restorePrimaryPlanPathAfterMergeFailure
- * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
+ * @param {typeof removeWorktreeGitArtifactsFn} opts.removeWorktreeGitArtifacts
  * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
  * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
  * @param {typeof recordWorkflowMetric} [opts.recordWorkflowMetric]
@@ -2041,15 +2054,15 @@ async function handlePlanRecovery({
     findWorktreeByPlanName,
     updateWorktreeRegistryEntry,
     getWorktreeStatus,
-    createExecutionWorktreeGitArtifacts,
-    settleExecutionWorktreeRegistry,
+    createWorktreeGitArtifacts,
+    settleWorktreeAttempt,
     mergeExecutionWorktree,
     checkpointExecutionWorktree,
     getBranchHead,
     isCommitAncestorOfBranch,
     preparePrimaryPlanPathForMerge,
     restorePrimaryPlanPathAfterMergeFailure,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
     removeWorktreeRegistryEntry,
     shouldCleanupMergedWorktrees,
     recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
@@ -2355,19 +2368,22 @@ async function handlePlanRecovery({
                         action: "recreate",
                         recover: async ({ beforePlan, markEffect, registerRollback }) => {
                             if (worktreeContext?.path) {
-                                await removeExecutionWorktree({
+                                await removeWorktreeGitArtifacts({
                                     projectRoot: projectRoot,
                                     path: worktreeContext.path,
-                                    branch: worktreeContext.branch,
                                     force: true,
                                 });
+                                // Deleting the branch is irreversible, so it is its own proven step.
+                                if (worktreeContext.branch) {
+                                    await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+                                }
                             }
                             if (worktreeContext?.id) {
                                 await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
                                     status: "abandoned",
                                 });
                             }
-                            const nextWorktree = await createExecutionWorktreeGitArtifacts({
+                            const nextWorktree = await createWorktreeGitArtifacts({
                                 projectRoot: projectRoot,
                                 planName: plan.planName,
                                 planId: /** @type {string} */ (plan.attrs.planId),
@@ -2381,14 +2397,17 @@ async function handlePlanRecovery({
                                 baseCommit: nextWorktree.baseCommit,
                             });
                             registerRollback("remove recreated recovery worktree", async () => {
-                                await removeExecutionWorktree({
+                                await removeWorktreeGitArtifacts({
                                     projectRoot: projectRoot,
                                     path: nextWorktree.path,
-                                    branch: nextWorktree.branch,
                                     force: true,
                                 });
+                                // Deleting the branch is irreversible, so it is its own proven step.
+                                if (nextWorktree.branch) {
+                                    await deleteMergedWorktreeBranch({ projectRoot, branch: nextWorktree.branch });
+                                }
                             });
-                            await settleExecutionWorktreeRegistry(projectRoot, nextWorktree);
+                            await settleWorktreeAttempt(projectRoot, nextWorktree);
                             registerRollback("abandon recreated recovery registry entry", async () => {
                                 await updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
                                     status: "abandoned",
@@ -2811,12 +2830,15 @@ async function handlePlanRecovery({
                 }
                 if (cleanupMergedWorktrees && worktreeContext.path) {
                     try {
-                        await removeExecutionWorktree({
+                        await removeWorktreeGitArtifacts({
                             projectRoot: projectRoot,
                             path: worktreeContext.path,
-                            branch: worktreeContext.branch,
                             force: false,
                         });
+                        // Deleting the branch is irreversible, so it is its own proven step.
+                        if (worktreeContext.branch) {
+                            await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+                        }
                         if (worktreeContext.id) {
                             await removeWorktreeRegistryEntry(projectRoot, worktreeContext.id);
                         }
@@ -2930,12 +2952,15 @@ async function handlePlanRecovery({
                 recover: async ({ beforePlan }) => {
                     if (worktreeContext?.path) {
                         try {
-                            await removeExecutionWorktree({
+                            await removeWorktreeGitArtifacts({
                                 projectRoot: projectRoot,
                                 path: worktreeContext.path,
-                                branch: worktreeContext.branch,
                                 force: true,
                             });
+                            // Deleting the branch is irreversible, so it is its own proven step.
+                            if (worktreeContext.branch) {
+                                await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+                            }
                         } catch (error) {
                             if (!isGitRepositoryRequiredError(error)) throw error;
                             removedWorktree = false;
@@ -3509,8 +3534,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         findWorktreeByPlanName: findWorktreeByPlanNameDep,
         updateWorktreeRegistryEntry: updateWorktreeRegistryEntryDep,
         getWorktreeStatus: getWorktreeStatusDep,
-        createExecutionWorktreeGitArtifacts: createExecutionWorktreeGitArtifactsDep,
-        settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryDep,
+        createWorktreeGitArtifacts: createWorktreeGitArtifactsDep,
+        settleWorktreeAttempt: settleWorktreeAttemptDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
         checkpointExecutionWorktree: checkpointExecutionWorktreeDep,
@@ -3518,7 +3543,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
         preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
         restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
-        removeExecutionWorktree: removeExecutionWorktreeDep,
+        removeWorktreeGitArtifacts: removeWorktreeGitArtifactsDep,
         removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
@@ -3552,9 +3577,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
     const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryDep || updateWorktreeRegistryEntryFn;
     const getWorktreeStatus = getWorktreeStatusDep || getWorktreeStatusFn;
-    const createExecutionWorktreeGitArtifactsImpl = createExecutionWorktreeGitArtifactsDep ||
-        createExecutionWorktreeGitArtifacts;
-    const settleExecutionWorktreeRegistryImpl = settleExecutionWorktreeRegistryDep || settleExecutionWorktreeRegistry;
+    const createWorktreeGitArtifactsImpl = createWorktreeGitArtifactsDep ||
+        createWorktreeGitArtifacts;
+    const settleWorktreeAttemptImpl = settleWorktreeAttemptDep || settleWorktreeAttempt;
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
@@ -3564,7 +3589,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
     const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
         restorePrimaryPlanPathAfterMergeFailureFn;
-    const removeExecutionWorktree = removeExecutionWorktreeDep || removeExecutionWorktreeFn;
+    const removeWorktreeGitArtifacts = removeWorktreeGitArtifactsDep || removeWorktreeGitArtifactsFn;
     const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
@@ -3761,7 +3786,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
                 inspectExecutionWorktreeMergeRisk,
-                removeExecutionWorktree,
+                removeWorktreeGitArtifacts,
             });
             if (result === "handled") return;
         }
@@ -3806,15 +3831,15 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 findWorktreeByPlanName,
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
-                createExecutionWorktreeGitArtifacts: createExecutionWorktreeGitArtifactsImpl,
-                settleExecutionWorktreeRegistry: settleExecutionWorktreeRegistryImpl,
+                createWorktreeGitArtifacts: createWorktreeGitArtifactsImpl,
+                settleWorktreeAttempt: settleWorktreeAttemptImpl,
                 mergeExecutionWorktree,
                 checkpointExecutionWorktree: checkpointExecutionWorktreeImpl,
                 getBranchHead: getBranchHeadImpl,
                 isCommitAncestorOfBranch: isCommitAncestorOfBranchImpl,
                 preparePrimaryPlanPathForMerge,
                 restorePrimaryPlanPathAfterMergeFailure,
-                removeExecutionWorktree,
+                removeWorktreeGitArtifacts,
                 removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
                 recordWorkflowMetric: recordWorkflowMetricForLoadPlan,
@@ -4017,7 +4042,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 planPath: plan.path,
                                 triageMeta: plan.attrs,
                             }),
-                        requestRetry: async () => {
+                        requestRetry: async ({ response }) => {
+                            if (response?.cancellationReason === "runtime_cancel") {
+                                return { outcome: RuntimeInteractionOutcomes.CANCELED, value: false };
+                            }
                             const value = await uiAPI.promptSelect("Review the Plan again?", [
                                 { value: "yes", label: "Yes" },
                                 { value: "no", label: "No" },

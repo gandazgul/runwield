@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { createExecutionWorktree, inspectExecutionWorktreeMergeRisk, removeExecutionWorktree } from "./worktree.js";
+import { createExecutionWorktree, inspectExecutionWorktreeMergeRisk, removeWorktreeGitArtifacts } from "./worktree.js";
 
 import { git, makeRepo } from "./worktree-test-helpers.js";
 
@@ -36,10 +36,9 @@ Deno.test("inspectExecutionWorktreeMergeRisk reports clean target branch as safe
         assertEquals(await git(projectRoot, ["branch", "--show-current"]), "main");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -84,10 +83,9 @@ Deno.test("inspectExecutionWorktreeMergeRisk fails when target branch is checked
     } finally {
         await git(projectRoot, ["worktree", "remove", "--force", targetCheckout]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -127,10 +125,9 @@ Deno.test("inspectExecutionWorktreeMergeRisk requires targetBranch to be a local
         );
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -168,10 +165,9 @@ Deno.test("inspectExecutionWorktreeMergeRisk warns on overlapping dirty primary 
         assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), "base\nprimary scratch\n");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }

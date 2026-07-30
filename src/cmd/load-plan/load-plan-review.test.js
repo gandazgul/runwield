@@ -1125,6 +1125,42 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
     assertEquals(fixture.state.workflow, preReviewWorkflow);
 });
 
+Deno.test("runLoadPlanCommand Esc-canceled review completes without retry prompt", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("review");
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "canceled" }),
+    });
+
+    await runLoadPlanCommand(["review-runtime-cancel"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["review-runtime-cancel"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "review-runtime-cancel",
+                    path: "plans/review-runtime-cancel.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(prompts.map((prompt) => prompt.prompt), ["What would you like to do?"]);
+    assertEquals(messages.some((message) => message.includes("Plan review ended without an answer")), true);
+    assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), true);
+});
+
 Deno.test("runLoadPlanCommand approved review preserves remote review outcome", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");

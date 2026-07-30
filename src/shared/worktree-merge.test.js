@@ -5,7 +5,7 @@ import {
     checkpointExecutionWorktree,
     createExecutionWorktree,
     mergeExecutionWorktree,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
 } from "./worktree.js";
 
 import { git, makeRepo } from "./worktree-test-helpers.js";
@@ -40,10 +40,9 @@ Deno.test("mergeExecutionWorktree targets recorded branch without changing prima
         await assertRejects(() => git(projectRoot, ["show", "main:feature.txt"]), Error);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -87,10 +86,9 @@ Deno.test("mergeExecutionWorktree refuses to update target branch checked out in
     } finally {
         await git(projectRoot, ["worktree", "remove", "--force", targetCheckout]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -144,10 +142,9 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
     } finally {
         await git(projectRoot, ["worktree", "remove", "--force", targetCheckout]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -186,10 +183,9 @@ Deno.test("mergeExecutionWorktree requires targetBranch to be a local branch, no
         await assertRejects(() => git(projectRoot, ["show", "HEAD:feature.txt"]), Error);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -249,10 +245,9 @@ Deno.test("mergeExecutionWorktree publishes and cleans up a repaired detached me
             await git(projectRoot, ["worktree", "remove", "--force", mergeWorktreePath]).catch(() => {});
         }
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -315,10 +310,9 @@ Deno.test("mergeExecutionWorktree abandons repaired worktree when Engineer made 
             await git(projectRoot, ["worktree", "remove", "--force", mergeWorktreePath]).catch(() => {});
         }
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -390,10 +384,9 @@ Deno.test("mergeExecutionWorktree abandons stale repaired worktree and retries c
             await git(projectRoot, ["worktree", "remove", "--force", mergeWorktreePath]).catch(() => {});
         }
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -460,10 +453,9 @@ Deno.test("mergeExecutionWorktree abandons repaired worktree for current-root ch
             await git(projectRoot, ["worktree", "remove", "--force", mergeWorktreePath]).catch(() => {});
         }
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -509,10 +501,9 @@ Deno.test("mergeExecutionWorktree annotates current-root target fallback conflic
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -556,10 +547,9 @@ Deno.test("mergeExecutionWorktree annotates legacy current-checkout conflicts fo
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -612,10 +602,9 @@ Deno.test("mergeExecutionWorktree handles target branch advancing before a later
     } finally {
         for (const worktree of [first, second]) {
             if (worktree) {
-                await removeExecutionWorktree({
+                await removeWorktreeGitArtifacts({
                     projectRoot,
                     path: worktree.path,
-                    branch: worktree.branch,
                     force: true,
                 });
             }
@@ -662,7 +651,7 @@ Deno.test("mergeExecutionWorktree marks target branch advancement as non-repaira
         assertEquals(/** @type {any} */ (error).mergeFailureKind, "target_branch_advanced");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({ projectRoot, path: worktree.path, branch: worktree.branch, force: true });
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true });
         }
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
@@ -699,10 +688,9 @@ Deno.test("mergeExecutionWorktree reports missing target branch without merging 
         await assertRejects(() => git(projectRoot, ["show", "HEAD:feature.txt"]), Error);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -748,10 +736,9 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
         assertEquals(commitMessage.includes("Apply execution worktree changes"), false);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -788,10 +775,9 @@ Deno.test("checkpointExecutionWorktree commits tracked and untracked implementat
         assertStringIncludes(await git(worktree.path, ["log", "-1", "--format=%B"]), "Complete checkpoint-plan");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             }).catch(() => {});
         }
@@ -800,7 +786,7 @@ Deno.test("checkpointExecutionWorktree commits tracked and untracked implementat
     }
 });
 
-Deno.test("removeExecutionWorktree preserves unexpected dirty work unless force is explicit", async () => {
+Deno.test("removeWorktreeGitArtifacts preserves unexpected dirty work unless force is explicit", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
@@ -816,10 +802,9 @@ Deno.test("removeExecutionWorktree preserves unexpected dirty work unless force 
 
         await assertRejects(
             () =>
-                removeExecutionWorktree({
+                removeWorktreeGitArtifacts({
                     projectRoot,
                     path: worktree?.path || "",
-                    branch: worktree?.branch,
                     force: false,
                 }),
             Error,
@@ -829,10 +814,9 @@ Deno.test("removeExecutionWorktree preserves unexpected dirty work unless force 
         assertEquals(await git(projectRoot, ["show-ref", "--verify", `refs/heads/${worktree.branch}`]) !== "", true);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             }).catch(() => {});
         }
@@ -869,10 +853,9 @@ Deno.test("mergeExecutionWorktree allows unrelated dirty primary checkout change
         assertMatch(await git(projectRoot, ["status", "--porcelain"]), /\?\? ODO\.md/);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -906,10 +889,9 @@ Deno.test("mergeExecutionWorktree refuses dirty primary changes that overlap bra
         );
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -965,10 +947,9 @@ Deno.test("mergeExecutionWorktree continues an in-progress resolved merge", asyn
         assertEquals(await git(projectRoot, ["log", "-1", "--pretty=%s"]), `Merge branch '${branch}'`);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }

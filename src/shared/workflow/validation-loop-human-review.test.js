@@ -82,7 +82,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                 actions.push("merge");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
@@ -168,7 +168,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
                 actions.push("merge");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
@@ -255,7 +255,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                 actions.push("merge");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),

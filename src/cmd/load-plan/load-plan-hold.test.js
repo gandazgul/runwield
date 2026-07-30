@@ -431,7 +431,7 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                     status: "in_progress",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeExecutionWorktree: (/** @type {any} */ args) => {
+            removeWorktreeGitArtifacts: (/** @type {any} */ args) => {
                 removed = args;
                 return Promise.resolve();
             },

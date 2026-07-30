@@ -109,7 +109,7 @@
                 "readLatestTaskCompletedOutcome",
                 "recordPlanEvent",
                 "recordWorkflowMetric",
-                "removeExecutionWorktree",
+                "removeWorktreeGitArtifacts",
                 "removeWorktreeRegistryEntry",
                 "requestInteraction",
                 "resolveValidationExecutionContext",
@@ -129,16 +129,18 @@
                 "verifyPostMergeCandidatePublished"
             ],
             "machinery": [
+                "assertPreMergeCandidateUnchanged",
                 "checkpointExecutionWorktree",
                 "mergeExecutionWorktree",
                 "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
-                "removeExecutionWorktree",
+                "removeWorktreeGitArtifacts",
                 "removeWorktreeRegistryEntry",
                 "restorePrimaryPlanPathAfterMergeFailure",
                 "stageValidationPassedInExecutionWorktree",
                 "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
+                "updateWorktreeRegistryEntry",
+                "verifyPostMergeCandidatePublished"
             ]
         },
         "src/shared/workflow/workflow-slicer.js": {
@@ -167,7 +169,7 @@
                 "checkpointExecutionWorktree",
                 "confirmNonGitFeaturePlanExecution",
                 "createExecutionWorktree",
-                "createExecutionWorktreeGitArtifacts",
+                "createWorktreeGitArtifacts",
                 "ensureExecutionPlanFile",
                 "executeSingleEngineerPlan",
                 "findReusableWorktree",
@@ -186,13 +188,15 @@
                 "resolveTargetBranchName",
                 "runActiveAgentTurn",
                 "runImplementationCheckpointTransition",
-                "settleExecutionWorktreeRegistry",
+                "settleWorktreeAttempt",
                 "updateWorktreeRegistryEntry"
             ],
             "machinery": [
                 "checkpointExecutionWorktree",
                 "createExecutionWorktree",
+                "createWorktreeGitArtifacts",
                 "recordPlanEvent",
+                "settleWorktreeAttempt",
                 "updateWorktreeRegistryEntry"
             ]
         },
