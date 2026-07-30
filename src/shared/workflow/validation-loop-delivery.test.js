@@ -718,7 +718,6 @@ Deno.test("Direct Delivery refuses an Epic child when a sibling claims verified 
 Deno.test("Direct Delivery publishes an Epic child when a verified sibling carries delivery evidence", async () => {
     const result = await runEpicChildDelivery({
         siblingStatus: "verified",
-        siblingStatus: "verified",
         siblingDeliveryEvidence: {
             version: 1,
             mode: "worktree_merge",

@@ -1,4 +1,5 @@
 ---
+planId: "81dd4419-cdc6-4c70-9476-73830dd60834"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Create deterministic, Playwright-like Golden TUI Scenario machinery and use it to verify RunWield's complete role and workflow journeys."
@@ -19,12 +20,14 @@ affectedPaths:
     - ".github/workflows/release.yml"
     - "docs/contributing.md"
 createdAt: "2026-07-26T19:06:06-04:00"
-updatedAt: "2026-07-27T00:04:06.059Z"
-status: "ready_for_work"
+updatedAt: "2026-07-30T15:34:54.611Z"
+status: "verified"
 origin: "internal"
+verifiedAt: "2026-07-30T15:34:54.611Z"
 userVerifiedAt: null
-userVerificationNote: null
-planId: "81dd4419-cdc6-4c70-9476-73830dd60834"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-07-30T15:34:54.611Z"
+epicDoneEnoughSummary: "All 2 child plans are completed after golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio."
 ---
 
 # Golden TUI Scenario Testing
