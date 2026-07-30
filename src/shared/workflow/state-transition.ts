@@ -588,9 +588,14 @@ async function runSemanticTransition<T>(
                         .filter((resource) => resource.kind === "attempt")
                         .map(async (resource) => {
                             if (!resource.id) return { id: "", entry: null };
-                            const entry = await findWorktreeRegistryEntryById(projectRoot, resource.id).catch(() =>
-                                null
-                            );
+                            // Non-migrating: this read only records before-facts, and
+                            // the migrating variant backfills missing planIds into
+                            // Plan Front Matter — including the Plan snapshotted in
+                            // `beforePlan` moments ago, whose Front Matter revision
+                            // later preconditions compare against.
+                            const entry = await findWorktreeRegistryEntryById(projectRoot, resource.id, {
+                                migrate: false,
+                            }).catch(() => null);
                             return {
                                 id: resource.id,
                                 entry: entry

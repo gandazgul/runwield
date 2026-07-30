@@ -1133,9 +1133,18 @@ export async function startActiveExecutionWorkflow(
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
     const now = __deps?.now || (() => Date.now());
+    // `__deps` is an injected-seam bag, and `executePlan` defaults it to `{}` for
+    // production callers. An empty object is truthy, so testing `__deps` itself
+    // routed every real run through the synthetic test identity and left
+    // ensurePlanIdentity() unreachable: Plans without a planId were handed
+    // `test-plan:<name>` as their durable id, and the backfill they still needed
+    // happened later inside the execution transaction — where it rewrote Front
+    // Matter the transaction had already snapshotted and aborted the run. Only an
+    // actually-injected seam may stand in for real Plan identity.
+    const hasInjectedDeps = Boolean(__deps && Object.keys(__deps).length > 0);
     const planIdentity = typeof triageMeta.planId === "string" && triageMeta.planId
         ? { id: triageMeta.planId }
-        : __deps
+        : hasInjectedDeps
         ? { id: `test-plan:${planName}` }
         : await ensurePlanIdentity(projectRoot, planName);
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;

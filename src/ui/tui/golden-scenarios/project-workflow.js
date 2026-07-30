@@ -172,9 +172,12 @@ export const twoChildProjectContinuationScenario = {
         { type: "type", text: "submit the epic project plan for architect review" },
         { type: "enter" },
         {
+            // `approvalAction: "later"` settles the Epic at ready_for_decomposition.
+            // Accepting the transient `approved` here let the scenario race ahead of
+            // the lifecycle and act on a status the Plan had already left.
             type: "waitForPlanStatus",
             planName: "epic",
-            statuses: ["approved", "ready_for_decomposition"],
+            statuses: ["ready_for_decomposition"],
             timeoutMs: 12000,
         },
         { type: "runProjectChildLifecycles", timeoutMs: 120000 },

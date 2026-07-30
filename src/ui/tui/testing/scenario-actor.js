@@ -119,7 +119,13 @@ export class GoldenScenarioActor {
             ...(turn.toolCalls || []).map((toolCall) => toolCall.name),
         ]);
         for (const tool of requiredTools) {
-            if (!availableTools.has(tool)) throw new Error(`Required tool unavailable for ${turn.id}: ${tool}`);
+            if (!availableTools.has(tool)) {
+                throw new Error(
+                    `Required tool unavailable for ${turn.id}: ${tool}; available: ${
+                        [...availableTools].sort().join(",") || "none"
+                    }`,
+                );
+            }
         }
         for (const tool of turn.forbiddenTools || []) {
             if (availableTools.has(tool)) throw new Error(`Forbidden tool available for ${turn.id}: ${tool}`);

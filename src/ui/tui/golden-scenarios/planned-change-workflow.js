@@ -33,7 +33,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "runtime:tool:start:task_completed");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "Starting Validation Cycle");
+    assertScreenIncludes(result, "Running CI Validation");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "Semantic Code Review Approved");
     assertScreenIncludes(result, "Merging validated worktree branch");
@@ -92,8 +92,13 @@ export const plannedChangeReviewRepairValidationScenario = {
         { approved: true, feedback: "Approved to run.", approvalAction: "run" },
     ],
     reviewedPlan: "# Golden PLANNED_CHANGE\n\nGolden PLANNED_CHANGE revised content.\n",
-    scriptedInteractions: [
-        { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
+    // A real Project commits its validation command. Committing it here keeps
+    // Workflow Validation from writing project `.wld/settings.json` mid-run in both
+    // the primary checkout and the execution worktree, which is what made Direct
+    // Delivery refuse the merge for overlapping uncommitted changes. The
+    // validation-command prompt itself stays covered by the QUICK_FIX role journey.
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
     ],
     script: [
         {
@@ -138,21 +143,27 @@ export const plannedChangeReviewRepairValidationScenario = {
         },
         {
             id: "semantic-reviewer-rejects-implementation",
-            agent: "engineer",
-            phase: "engineer",
-            ordinal: 3,
-            requiredTools: ["review_complete"],
-            thinking: "Reject the first implementation during semantic review.",
-            toolCalls: [{
-                name: "review_complete",
-                arguments: { approved: false, feedback: "Repair required: add durable evidence." },
-            }],
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 1,
+            // Workflow Validation rejects a verdict reached without opening the
+            // diff, so the scripted Reviewer must read it exactly as a real one
+            // does before calling review_complete.
+            requiredTools: ["review_diff", "review_complete"],
+            thinking: "Inspect the diff, then reject the first implementation during semantic review.",
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                {
+                    name: "review_complete",
+                    arguments: { approved: false, feedback: "Repair required: add durable evidence." },
+                },
+            ],
         },
         {
             id: "engineer-repairs-after-reviewer-rejection",
             agent: "engineer",
             phase: "engineer",
-            ordinal: 4,
+            ordinal: 3,
             requiredTools: ["bash", "task_completed"],
             thinking: "Repair in the same active PLANNED_CHANGE workflow after reviewer rejection.",
             toolCalls: [
@@ -164,30 +175,53 @@ export const plannedChangeReviewRepairValidationScenario = {
             ],
         },
         {
+            // Closes the repair session the same way
+            // engineer-post-completion-turn-before-validation closes the first
+            // implementation: the agent loop runs until a turn answers without
+            // tool calls, and only then does Validation resume with round 2.
+            id: "engineer-post-repair-turn-before-re-review",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 4,
+            text: "Engineer awaits re-review of the repair.",
+        },
+        {
+            // The Reviewer's isolated session runs until the model answers without
+            // tool calls, so each review round is two turns: the inspect/decide
+            // turn above, then this text-only turn that closes the round. Without
+            // it the loop would consume the next round's scripted decision early.
+            id: "semantic-reviewer-closes-rejection-round",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 2,
+            text: "Reported the round 1 findings for repair.",
+        },
+        {
             id: "semantic-reviewer-approves-repair",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 3,
+            requiredTools: ["review_diff", "review_complete"],
+            thinking: "Inspect the repair diff, then approve the repaired implementation.",
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } },
+            ],
+        },
+        {
+            id: "semantic-reviewer-closes-approval-round",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 4,
+            text: "Reported the approved repair outcome.",
+        },
+        {
+            id: "engineer-closes-after-delivery",
             agent: "engineer",
             phase: "engineer",
             ordinal: 5,
             optional: true,
-            requiredTools: ["review_complete"],
-            thinking: "Approve the repaired implementation during semantic review.",
-            toolCalls: [{ name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } }],
-        },
-        {
-            id: "engineer-repairs-merge-overlap-after-approval",
-            agent: "engineer",
-            phase: "engineer",
-            ordinal: 6,
-            optional: true,
-            requiredTools: ["bash", "task_completed"],
-            thinking: "Clean isolated fixture settings overlap before merge retry.",
-            toolCalls: [
-                { name: "bash", arguments: { command: "rm -rf .wld" } },
-                {
-                    name: "task_completed",
-                    arguments: { message: "- Removed isolated settings overlap for merge retry." },
-                },
-            ],
+            text: "Engineer idle after delivery.",
         },
     ],
     actions: [
@@ -211,7 +245,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assertScreenIncludes(result, "Semantic Code Review Approved");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "Starting Validation Cycle");
+            assertScreenIncludes(result, "Running CI Validation");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
         }),
         assertsGoldenCoverage("durable:plan-lifecycle", (result) => {

@@ -537,11 +537,19 @@ export async function findByPlanId(projectRoot, planId) {
 }
 
 /**
+ * Look up one registry entry by attempt id.
+ *
+ * Pass `{ migrate: false }` from any caller that must not disturb Plan files —
+ * the migrating read backfills missing planIds, which is a Front Matter write.
+ * A caller holding a Plan snapshot it later compares against (a transaction
+ * gathering before-facts) would otherwise invalidate its own precondition.
+ *
  * @param {string} projectRoot
  * @param {string} id
+ * @param {{ migrate?: boolean }} [options]
  */
-export async function findById(projectRoot, id) {
-    const entries = await listEntries(projectRoot);
+export async function findById(projectRoot, id, options = {}) {
+    const entries = await listEntries(projectRoot, options);
     return entries.find((entry) => entry.id === id) || null;
 }
 

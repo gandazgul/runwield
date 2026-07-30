@@ -9,6 +9,7 @@ import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/i
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import {
+    loadPlan,
     parsePlanFrontMatter,
     saveChildFeaturePlans,
     savePlan as savePlanForGolden,
@@ -48,6 +49,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * @property {string} [initialAgentName]
  * @property {unknown} [reviewedPlan]
  * @property {Array<{ path: string, text: string }>} [initialProjectFiles]
+ * @property {Array<{ path: string, text: string }>} [committedProjectFiles]
  * @property {Array<((result: GoldenScenarioResult) => void | Promise<void>) & { goldenCoverage?: string[] }>} [assertions]
  * @property {string[]} [coverage]
  * @property {number} [timeoutMs]
@@ -155,6 +157,27 @@ async function runGoldenGit(args, cwd) {
     return stdout;
 }
 
+/**
+ * Update one Golden fixture Plan's Front Matter under the revision-aware
+ * compare-and-swap the Plan store requires. The read that supplies the merged
+ * attrs must also supply the revision the write is checked against, or the Plan
+ * store refuses the write as stale — the two cannot come from separate reads.
+ *
+ * @param {string} planName
+ * @param {Partial<import('../../../plan-store.js').PlanFrontMatter>} updates
+ */
+async function updateGoldenPlanFrontMatter(planName, updates) {
+    const plan = await loadPlan(Deno.cwd(), planName);
+    if (!plan) throw new Error(`Golden fixture Plan not found: ${planName}`);
+    await updatePlanFrontMatter(
+        Deno.cwd(),
+        planName,
+        { ...plan.attrs, ...updates },
+        undefined,
+        { expectedRevision: plan.revision },
+    );
+}
+
 /** @param {string} agentName */
 function inferGoldenPhase(agentName) {
     if (agentName === "router") return "triage";
@@ -171,6 +194,13 @@ function inferGoldenPhase(agentName) {
 function inferGoldenTurnIdentity(snapshotAgentName, availableTools) {
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };
+    // Workflow Validation runs the Semantic Reviewer in an isolated session while
+    // the composed Runtime still reports Engineer as the active Agent, so only the
+    // tool set tells them apart. Giving the Reviewer its own identity keeps its
+    // turns out of the Engineer's ordinal space — sharing it made a Reviewer turn
+    // and an Engineer repair turn compete for the same ordinal, and the matcher
+    // resolved that collision by tool set only after ordinal had already decided.
+    if (availableTools.includes("review_complete")) return { agent: "reviewer", phase: "semantic_review" };
     const agent = snapshotAgentName || "unknown";
     return { agent, phase: inferGoldenPhase(agent) };
 }
@@ -422,6 +452,23 @@ async function runComposedTuiScenario(scenario, options) {
             await Deno.mkdir(join(path, ".."), { recursive: true });
             await Deno.writeTextFile(path, String(/** @type {any} */ (fixture).text || ""));
         }
+        // Committed baseline state, as opposed to `initialProjectFiles`, which stay
+        // dirty in the working tree. Direct Delivery refuses to merge a validated
+        // worktree branch when the primary checkout has uncommitted changes that
+        // overlap it, so any file both the fixture and execution touch — project
+        // `.wld/settings.json` above all — has to start committed the way it would
+        // be in a real Project.
+        const committedProjectFiles = scenario.committedProjectFiles || [];
+        if (committedProjectFiles.length > 0) {
+            for (const fixture of committedProjectFiles) {
+                if (!isObject(fixture)) continue;
+                const path = join(Deno.cwd(), String(/** @type {any} */ (fixture).path || ""));
+                await Deno.mkdir(join(path, ".."), { recursive: true });
+                await Deno.writeTextFile(path, String(/** @type {any} */ (fixture).text || ""));
+            }
+            await runGoldenGit(["add", "-A"], Deno.cwd());
+            await runGoldenGit(["commit", "-m", "Golden fixture baseline"], Deno.cwd());
+        }
         if (runwieldDir && scenario.modelSetup === "none") {
             await Deno.remove(join(runwieldDir, "models.json")).catch(() => {});
             await Deno.writeTextFile(
@@ -455,7 +502,15 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {string[]} */
         const events = [];
         /** @type {Record<string, unknown>} */
-        const state = { canceled: false, editorUsable: true, cleanupSucceeded: false, priorSession: priorSessionState };
+        /** @type {string[]} */
+        const turnSequence = [];
+        const state = {
+            canceled: false,
+            editorUsable: true,
+            cleanupSucceeded: false,
+            priorSession: priorSessionState,
+            turnSequence,
+        };
         /** @type {() => void} */
         let unsubscribe = () => {};
         /** @type {string | null} */
@@ -517,6 +572,11 @@ async function runComposedTuiScenario(scenario, options) {
                 const ordinalKey = `${agent}:${phase}`;
                 const ordinal = (turnOrdinals.get(ordinalKey) || 0) + 1;
                 turnOrdinals.set(ordinalKey, ordinal);
+                // Recorded before dispatch so a failing turn still appears: the
+                // identity/ordinal a turn was offered under is the one fact needed to
+                // script agent loops that run to a text-only answer, and it is
+                // invisible from events alone.
+                turnSequence.push(`${agent}:${phase}:${ordinal}`);
                 const response = actor.next({ agent, phase, ordinal, availableTools });
                 events.push(`model:faux-provider:${agent}:${phase}`);
                 return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
@@ -892,13 +952,22 @@ async function runComposedTuiScenario(scenario, options) {
                     if (!parentAttrs) throw new Error("Expected PROJECT Epic metadata after Architect Plan Review.");
                     events.push("project:architect:approved");
                     await writeHeartbeat();
-                    if (parentAttrs.status === "approved") {
+                    // Re-read instead of trusting the snapshot above: `approved` is a
+                    // transient state the Epic passes through on its way to
+                    // `ready_for_decomposition`, so a status remembered from even a
+                    // moment earlier can already be stale — and recordPlanEvent
+                    // rejects a stale precondition outright.
+                    const settledParentText = await Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")).catch(() =>
+                        ""
+                    );
+                    const settledParentAttrs = settledParentText ? parsePlanFrontMatter(settledParentText).attrs : null;
+                    if (settledParentAttrs?.status === "approved") {
                         await recordPlanEvent({
                             cwd: Deno.cwd(),
                             planName: "epic",
                             event: "epic_readiness_passed",
                             currentStatus: "approved",
-                            details: { triageMeta: parentAttrs },
+                            details: { triageMeta: settledParentAttrs },
                         });
                     }
                     let childFiles = ["01-done", "02-next"];
@@ -947,10 +1016,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const secondPlanName = `epic/${childFiles[1]}`;
                     events.push(`project:child:launch:${firstPlanName}`);
                     await writeHeartbeat();
-                    await updatePlanFrontMatter(Deno.cwd(), firstPlanName, {
-                        ...parsePlanFrontMatter(
-                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
-                        ).attrs,
+                    await updateGoldenPlanFrontMatter(firstPlanName, {
                         status: "implemented",
                         executionMode: "non_git_in_place",
                         worktreeBaseBranch: "",
@@ -958,10 +1024,7 @@ async function runComposedTuiScenario(scenario, options) {
                         worktreePath: "",
                         worktreeId: "",
                     });
-                    await updatePlanFrontMatter(Deno.cwd(), secondPlanName, {
-                        ...parsePlanFrontMatter(
-                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
-                        ).attrs,
+                    await updateGoldenPlanFrontMatter(secondPlanName, {
                         status: "ready_for_work",
                         executionMode: "non_git_in_place",
                         worktreeBaseBranch: "",
@@ -972,12 +1035,7 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push("project:child:metadata-staged");
                     await writeHeartbeat();
                     events.push("project:child:first-lifecycle");
-                    await updatePlanFrontMatter(Deno.cwd(), firstPlanName, {
-                        ...parsePlanFrontMatter(
-                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[0]}.md`)),
-                        ).attrs,
-                        status: "verified",
-                    });
+                    await updateGoldenPlanFrontMatter(firstPlanName, { status: "verified" });
                     const replacementSessionId = await composition.runtime.createPromptReadySession({
                         cwd: Deno.cwd(),
                         agentName: "engineer",
@@ -990,12 +1048,7 @@ async function runComposedTuiScenario(scenario, options) {
                         action: "execute",
                     };
                     events.push("runtime:session-replaced:epic_continuation");
-                    await updatePlanFrontMatter(Deno.cwd(), secondPlanName, {
-                        ...parsePlanFrontMatter(
-                            await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
-                        ).attrs,
-                        status: "verified",
-                    });
+                    await updateGoldenPlanFrontMatter(secondPlanName, { status: "verified" });
                     const secondLatestAttrs = parsePlanFrontMatter(
                         await Deno.readTextFile(join(Deno.cwd(), "plans", "epic", `${childFiles[1]}.md`)),
                     ).attrs;

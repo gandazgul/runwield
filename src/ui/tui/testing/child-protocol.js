@@ -113,9 +113,15 @@ export async function runGoldenScenarioChildProcess(request) {
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`
             : "";
+        // The child's own `error` is the unmet expectation; stderr is whatever the
+        // composed TUI happened to warn about on the way (a theme notice, say).
+        // Reporting stderr first buried every real failure behind unrelated noise.
+        const childError = childPayload && typeof childPayload === "object" && "error" in childPayload
+            ? String(/** @type {{ error?: unknown }} */ (childPayload).error || "")
+            : "";
         const error = new Error(
             `Golden child failed${result.timedOut ? " (timeout)" : ""}; artifactDir=${artifactDir}${childArtifact}: ${
-                result.stderr || result.stdout
+                childError || result.stderr || result.stdout
             }`,
         );
         /** @type {Error & { artifactDir?: string, childPayload?: unknown }} */ (error).artifactDir = artifactDir;
