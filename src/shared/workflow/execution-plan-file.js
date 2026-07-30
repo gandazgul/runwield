@@ -3,11 +3,18 @@
  */
 
 import { dirname, join, relative, SEPARATOR } from "@std/path";
-import { atomicWriteTextFileIfAbsent, getStoredPlanPath, parsePlanFrontMatter } from "../../plan-store.js";
+import {
+    atomicWriteTextFileIfAbsent,
+    getPlanRevisionForText,
+    getStoredPlanPath,
+    mergeFrontMatterText,
+    parsePlanFrontMatter,
+    writePlanMarkdownWithRevision,
+} from "../../plan-store.js";
 
 /**
  * @typedef {Object} ExecutionPlanFileResult
- * @property {"present"|"restored"|"absent"|"unreadable"|"malformed"|"symlink"|"non_regular"|"identity_conflict"|"restore_failed"} kind
+ * @property {"present"|"restored"|"reconciled"|"absent"|"unreadable"|"malformed"|"symlink"|"non_regular"|"identity_conflict"|"restore_failed"} kind
  * @property {string} relativePath
  * @property {string} [path]
  * @property {string} [reason]
@@ -24,6 +31,27 @@ function isPlanId(value) {
  */
 function hasPlanIdConflict(canonicalPlanId, executionPlanId) {
     return isPlanId(canonicalPlanId) && isPlanId(executionPlanId) && canonicalPlanId !== executionPlanId;
+}
+
+/**
+ * Metadata required to start execution comes from the locked canonical Plan.
+ * The worktree can contain an older committed copy when readiness was recorded
+ * only in the primary checkout. Reconcile only those RunWield-owned fields; the
+ * execution copy's user-owned body and unrelated Front Matter remain untouched.
+ *
+ * @param {import('../../plan-store.js').PlanFrontMatter} canonicalAttrs
+ * @param {import('../../plan-store.js').PlanFrontMatter} executionAttrs
+ */
+function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
+    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+    const overrides = {};
+    if (executionAttrs.classification !== canonicalAttrs.classification) {
+        overrides.classification = canonicalAttrs.classification;
+    }
+    if (executionAttrs.status !== canonicalAttrs.status) {
+        overrides.status = canonicalAttrs.status;
+    }
+    return overrides;
 }
 
 /**
@@ -309,6 +337,55 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
                     reason:
                         `Execution Plan path ${relativePath} has a conflicting Plan ID. Existing evidence was preserved.`,
                 };
+            }
+            const overrides = executionMetadataOverrides(canonicalSource.attrs, attrs);
+            if (Object.keys(overrides).length > 0) {
+                const reconciledMarkdown = mergeFrontMatterText(markdown, overrides);
+                const expectedRevision = await getPlanRevisionForText(markdown);
+                try {
+                    await writePlanMarkdownWithRevision(targetPath, reconciledMarkdown, expectedRevision);
+                } catch {
+                    // Another real writer may have won the revision race. Accept
+                    // that outcome only when it independently produced the locked
+                    // canonical metadata; otherwise preserve its evidence and stop.
+                    const concurrentMarkdown = await Deno.readTextFile(targetPath).catch(() => null);
+                    if (concurrentMarkdown !== null) {
+                        try {
+                            const concurrent = parsePlanFrontMatter(concurrentMarkdown);
+                            if (
+                                !hasPlanIdConflict(canonicalSource.attrs.planId, concurrent.attrs.planId) &&
+                                Object.keys(executionMetadataOverrides(canonicalSource.attrs, concurrent.attrs))
+                                        .length === 0
+                            ) {
+                                return { kind: "present", path: targetPath, relativePath };
+                            }
+                        } catch {
+                            // The classified failure below preserves the new bytes.
+                        }
+                    }
+                    return {
+                        kind: "restore_failed",
+                        path: targetPath,
+                        relativePath,
+                        reason:
+                            `Could not synchronize execution Plan metadata at ${relativePath}. Existing evidence was preserved.`,
+                    };
+                }
+                const verifiedMarkdown = await Deno.readTextFile(targetPath);
+                const verified = parsePlanFrontMatter(verifiedMarkdown);
+                if (
+                    hasPlanIdConflict(canonicalSource.attrs.planId, verified.attrs.planId) ||
+                    Object.keys(executionMetadataOverrides(canonicalSource.attrs, verified.attrs)).length > 0
+                ) {
+                    return {
+                        kind: "restore_failed",
+                        path: targetPath,
+                        relativePath,
+                        reason:
+                            `Could not verify synchronized execution Plan metadata at ${relativePath}. Existing evidence was preserved.`,
+                    };
+                }
+                return { kind: "reconciled", path: targetPath, relativePath };
             }
             return { kind: "present", path: targetPath, relativePath };
         } catch (error) {

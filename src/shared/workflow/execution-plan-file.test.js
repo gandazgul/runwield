@@ -5,7 +5,7 @@ import {
     loadCanonicalExecutionPlanSource,
     prepareExecutionPlanFile,
 } from "./execution-plan-file.js";
-import { injectFrontMatter } from "../../plan-store.js";
+import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 
 async function makeTempProject() {
     const root = await Deno.makeTempDir();
@@ -44,6 +44,35 @@ Deno.test("prepareExecutionPlanFile preserves valid legacy execution Plan withou
 
     assertEquals(result.kind, "present");
     assertEquals(await Deno.readTextFile(join(executionRoot, "plans", "demo.md")), legacy);
+});
+
+Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without replacing its Plan body", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    await Deno.writeTextFile(
+        join(projectRoot, "plans", "demo.md"),
+        injectFrontMatter("# Canonical body\n\nPrimary checkout prose.", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+        }),
+    );
+    const executionMarkdown = injectFrontMatter("# Worktree body\n\nPreserve this exact prose.", {
+        planId: "plan-1",
+        classification: "QUICK_FIX",
+        status: "approved",
+        summary: "keep-me",
+    });
+    await Deno.writeTextFile(join(executionRoot, "plans", "demo.md"), executionMarkdown);
+
+    const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+
+    assertEquals(result.kind, "reconciled");
+    const reconciled = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "plans", "demo.md")));
+    assertEquals(reconciled.attrs.classification, "PLANNED_CHANGE");
+    assertEquals(reconciled.attrs.status, "ready_for_work");
+    assertEquals(reconciled.attrs.summary, "keep-me");
+    assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.");
 });
 
 Deno.test("prepareExecutionPlanFile blocks conflicting Plan IDs and symlinked parents without overwriting", async () => {

@@ -457,7 +457,11 @@ export async function resolveValidationExecutionContext({
     baselineTree = actualBaselineTree;
 
     const planFile = await prepareExecutionPlanFileFn({ projectRoot, executionCwd: canonicalWorktreePath, planName });
-    if (planFile.kind !== "present" && planFile.kind !== "restored") {
+    // "reconciled" is as usable as "present": ensureExecutionPlanFile has already
+    // synchronized the RunWield-owned metadata with the locked canonical Plan and
+    // verified the bytes on disk. Rejecting it here strands validation at
+    // "implemented" even though the execution copy is exactly what was approved.
+    if (planFile.kind !== "present" && planFile.kind !== "restored" && planFile.kind !== "reconciled") {
         const reason = planFile.kind === "identity_conflict"
             ? "execution_plan_id_mismatch"
             : `execution_plan_${planFile.kind}`;

@@ -1,7 +1,43 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
+import { join } from "@std/path";
 import { runLoadPlanCommand } from "./index.js";
 
 import { makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
+import { injectFrontMatter, loadPlan } from "../../plan-store.js";
+import { createGitPort } from "../../shared/git-port.ts";
+import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
+import { SessionHost } from "../../shared/session/session-host.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { findById as findWorktreeById } from "../../shared/worktree-registry.js";
+import { removeWorktreeGitArtifacts } from "../../shared/worktree.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+
+const STALE_EXECUTION_PLAN_NAME = "stale-execution-metadata";
+const STALE_EXECUTION_PLAN_ID = "load-plan-stale-metadata-fixture";
+const STALE_EXECUTION_PLAN_BODY = "# Preserve footer context\n\nImplement the approved validation-loop fix.";
+const STALE_EXECUTION_PLAN_MARKDOWN = injectFrontMatter(STALE_EXECUTION_PLAN_BODY, {
+    planId: STALE_EXECUTION_PLAN_ID,
+    classification: "PLANNED_CHANGE",
+    workKind: "BUG_FIX",
+    complexity: "MEDIUM",
+    summary: "Preserve footer context during validation",
+    affectedPaths: [],
+    status: "approved",
+    executionAgent: "engineer",
+    collaborationRecommendation: "autonomous",
+});
+
+const staleExecutionMetadataFixture = defineGitFixture(async (repoPath) => {
+    await Deno.mkdir(join(repoPath, "plans"), { recursive: true });
+    await Deno.writeTextFile(join(repoPath, ".gitignore"), ".wld/\n");
+    await Deno.writeTextFile(
+        join(repoPath, "plans", `${STALE_EXECUTION_PLAN_NAME}.md`),
+        STALE_EXECUTION_PLAN_MARKDOWN,
+    );
+    await git(repoPath, ["add", "."]);
+    await git(repoPath, ["commit", "-m", "fixture: approved plan"]);
+});
 
 Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     const { uiAPI, selections } = makeUi();
@@ -482,4 +518,125 @@ Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", 
         ),
         true,
     );
+});
+
+Deno.test("runLoadPlanCommand self-heals stale committed execution metadata before starting Engineer", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const projectRoot = await staleExecutionMetadataFixture.checkout({
+            prefix: "runwield-load-plan-metadata-",
+        });
+        const isolatedHome = await Deno.makeTempDir({ prefix: "runwield-load-plan-home-" });
+        const previousHome = Deno.env.get("HOME");
+        /** @type {string | undefined} */
+        let executionCwd;
+        try {
+            // Worktree placement and every global RunWield path resolve beneath
+            // this throwaway HOME. Nothing in this test can reach the developer's
+            // checkout or ~/.wld.
+            Deno.env.set("HOME", isolatedHome);
+
+            const committedPlan = await loadPlan(projectRoot, STALE_EXECUTION_PLAN_NAME);
+            assert(committedPlan);
+            assertEquals(committedPlan.attrs.status, "approved");
+            await recordPlanEvent({
+                cwd: projectRoot,
+                planName: STALE_EXECUTION_PLAN_NAME,
+                event: "readiness_passed",
+                currentStatus: "approved",
+                details: { triageMeta: committedPlan.attrs },
+            });
+            const readyPlan = await loadPlan(projectRoot, STALE_EXECUTION_PLAN_NAME);
+            assert(readyPlan);
+            assertEquals(readyPlan.attrs.status, "ready_for_work");
+
+            const realGit = createGitPort();
+            const committedHead = await realGit.branchHead(projectRoot, "main");
+            const runtimeEvents = /** @type {Array<{ message?: string }>} */ ([]);
+            const sessionId = "real-load-plan-stale-metadata";
+            const sessionHost = new SessionHost();
+            const hostedSession = sessionHost.createSession({
+                id: sessionId,
+                cwd: projectRoot,
+                eventSink: (/** @type {{ message?: string }} */ event) => runtimeEvents.push(event),
+            });
+            hostedSession.setRootAgentName("router");
+            const runtime = new SessionRuntime({
+                sessionHost,
+                // Agent activation is an external session/LLM boundary. The
+                // runtime, lifecycle, Plan store, Git worktree, and registry all
+                // remain the production implementations exercised below.
+                switchActiveAgent: (session, options) => {
+                    session.setRootAgentName(options.agentName);
+                    return Promise.resolve({ ok: true, changed: true, agentName: options.agentName });
+                },
+            });
+            const { uiAPI, selections, messages } = makeUi();
+            selections.push("proceed");
+            /** @type {Array<{ cwd?: string }>} */
+            const engineerTurns = [];
+
+            await runLoadPlanCommand([STALE_EXECUTION_PLAN_NAME], {
+                sessionId,
+                sessionRuntime: runtime,
+                uiAPI,
+                editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+                __testDeps: /** @type {any} */ ({
+                    // This adapter still calls the real runtime executePlan. Only
+                    // the true external Engineer turn is replaced.
+                    executePlan: (/** @type {Record<string, unknown>} */ options) =>
+                        runtime.executePlan(sessionId, {
+                            ...options,
+                            __deps: {
+                                runActiveAgentTurn: (/** @type {{ cwd?: string }} */ turn) => {
+                                    engineerTurns.push(turn);
+                                    return Promise.resolve([]);
+                                },
+                            },
+                        }),
+                    setTerminalTitleForName: () => {},
+                    resetTuiState: () => {},
+                }),
+            });
+
+            assertEquals(engineerTurns.length, 1);
+            const workflow = hostedSession.getActiveExecutionWorkflow();
+            assert(workflow);
+            assert(typeof workflow.executionCwd === "string");
+            assert(typeof workflow.worktreeBranch === "string");
+            assert(typeof workflow.worktreeId === "string");
+            executionCwd = workflow.executionCwd;
+            assert(executionCwd.startsWith(join(isolatedHome, ".wld", "worktrees")));
+            assertEquals(engineerTurns[0].cwd, executionCwd);
+            assertEquals(await realGit.branchHead(projectRoot, workflow.worktreeBranch), committedHead);
+
+            const executionPlan = await loadPlan(executionCwd, STALE_EXECUTION_PLAN_NAME);
+            assert(executionPlan);
+            assertEquals(executionPlan.attrs.status, "ready_for_work");
+            assertEquals(executionPlan.attrs.classification, "PLANNED_CHANGE");
+            assertEquals(executionPlan.body, STALE_EXECUTION_PLAN_BODY);
+
+            const canonicalPlan = await loadPlan(projectRoot, STALE_EXECUTION_PLAN_NAME);
+            assert(canonicalPlan);
+            assertEquals(canonicalPlan.attrs.status, "in_progress");
+            const registryEntry = await findWorktreeById(projectRoot, workflow.worktreeId);
+            assert(registryEntry);
+            assertEquals(registryEntry.path, executionCwd);
+            assertEquals(registryEntry.status, "active");
+
+            const visibleText = [
+                ...messages,
+                ...runtimeEvents.map((event) => typeof event.message === "string" ? event.message : ""),
+            ].join("\n");
+            assertEquals(visibleText.includes("Plan metadata is incompatible"), false);
+            assertEquals(visibleText.includes("Execution did not start"), false);
+        } finally {
+            if (executionCwd) {
+                await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => {});
+            }
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+            await Deno.remove(isolatedHome, { recursive: true }).catch(() => {});
+        }
+    });
 });
