@@ -643,7 +643,9 @@ async function runEpicChildDelivery(sibling) {
         planContent: "plan",
         triageMeta,
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             stageValidationPassedInExecutionWorktree: () =>
                 Promise.resolve({
@@ -672,7 +674,7 @@ async function runEpicChildDelivery(sibling) {
                 actions.push("merge");
                 return Promise.resolve({ updatedPrimaryCheckout: false });
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             // A refused publication dispatches merge repair; stub it so the test
             // observes the refusal itself rather than driving a real repair agent.
             runCompletionGatedRepair: () => Promise.resolve(false),
