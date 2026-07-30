@@ -9,6 +9,8 @@
 
 - [ ] P0 break up this file! src/shared/workflow/validation.js and convert it to TS
 
+- [ ] Planner should surface seams and callstacks ![alt text](image-1.png)
+
 - [ ] golden TUI claude's suggestions:
 
   planned-change-review-repair-validation-delivery no longer reaches composition idle. It passes at the prior commit and
