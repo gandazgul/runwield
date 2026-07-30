@@ -8,7 +8,7 @@ import {
     findReusableWorktree,
     getWorktreeStatus,
     prepareTargetBranchRef,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
     resolveCurrentCheckoutBranch,
     resolveWorktreeParent,
 } from "./worktree.js";
@@ -66,10 +66,9 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
         assertEquals(status.clean, true);
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -160,10 +159,9 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
                 await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`),
                 "body { color: red; }\n",
             );
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: false,
             });
             await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
@@ -175,10 +173,9 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
                 Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
             }
             if (worktree) {
-                await removeExecutionWorktree({
+                await removeWorktreeGitArtifacts({
                     projectRoot,
                     path: worktree.path,
-                    branch: worktree.branch,
                     force: true,
                 }).catch(() => {});
             }
@@ -227,10 +224,9 @@ Deno.test("createExecutionWorktree rejects duplicate live legacy plan-name attem
         assertEquals(reusable?.id, worktrees[0].id);
     } finally {
         for (const worktree of worktrees.toReversed()) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             }).catch(() => {});
         }
@@ -363,10 +359,9 @@ Deno.test("createExecutionWorktree records supplied target branch independent of
         assertEquals(await Deno.readTextFile(`${worktree.path}/feature.txt`), "feature-base\n");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }

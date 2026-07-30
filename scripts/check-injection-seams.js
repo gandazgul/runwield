@@ -88,14 +88,16 @@ const MACHINERY_SEAMS = [
     // a test replaces the behaviour under test. The genuine Git boundary is GitPort
     // (src/shared/git-port.ts); everything here is ours.
     "mergeExecutionWorktree",
-    "sealExecutionWorktreeCandidate",
     "checkpointExecutionWorktree",
     "createExecutionWorktree",
-    "removeExecutionWorktree",
+    "createWorktreeGitArtifacts",
+    "settleWorktreeAttempt",
+    "removeWorktreeGitArtifacts",
+    "deleteMergedWorktreeBranch",
     "preparePrimaryPlanPathForMerge",
     "restorePrimaryPlanPathAfterMergeFailure",
-    "verifyExecutionWorktreeMerged",
-    "assertNoUnvalidatedPostSealChanges",
+    "verifyPostMergeCandidatePublished",
+    "assertPreMergeCandidateUnchanged",
     "stageValidationPassedInExecutionWorktree",
 ];
 

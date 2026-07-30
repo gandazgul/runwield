@@ -300,7 +300,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                 actions.push("merge");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 actions.push("remove");
                 return Promise.resolve();
             },
@@ -550,7 +550,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
                 Promise.resolve({ id, projectRoot, baseBranch: "main" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
@@ -621,7 +621,7 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
             findWorktreeRegistryEntryById: () => Promise.resolve(null),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
@@ -716,7 +716,7 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
                 );
                 return Promise.resolve({});
             },
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 actions.push("remove");
                 return Promise.resolve();
             },
@@ -815,7 +815,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
                 events.push(event.event);
                 return Promise.resolve({});
             },
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
@@ -902,7 +902,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                 );
                 return Promise.resolve({});
             },
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 actions.push("remove");
                 return Promise.resolve();
             },

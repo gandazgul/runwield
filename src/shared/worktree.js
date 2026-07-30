@@ -569,7 +569,7 @@ export function resolveWorktreeParent(projectRoot, worktreeRoot) {
  * @param {{ projectRoot: string, planName: string, planId: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string }} opts
  * @returns {Promise<import('./worktree-registry.js').WorktreeRegistryEntry>}
  */
-export async function createExecutionWorktreeGitArtifacts(
+export async function createWorktreeGitArtifacts(
     { projectRoot, planName, planId, baseRef = "HEAD", baseBranch, worktreeRoot, attemptId },
 ) {
     await assertGitRepository(projectRoot, "Creating an execution worktree");
@@ -614,14 +614,14 @@ export async function createExecutionWorktreeGitArtifacts(
  * @param {string} projectRoot
  * @param {import('./worktree-registry.js').WorktreeRegistryEntry} entry
  */
-export async function settleExecutionWorktreeRegistry(projectRoot, entry) {
+export async function settleWorktreeAttempt(projectRoot, entry) {
     await addEntry(projectRoot, entry);
     return entry;
 }
 
 /**
  * Backward-compatible convenience wrapper. New lifecycle code should call
- * createExecutionWorktreeGitArtifacts() and settleExecutionWorktreeRegistry()
+ * createWorktreeGitArtifacts() and settleWorktreeAttempt()
  * from a semantic transition boundary instead.
  *
  * @param {{ projectRoot: string, planName: string, planId?: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string, allowRegistryMutation?: "legacy-test-only" }} opts
@@ -629,15 +629,15 @@ export async function settleExecutionWorktreeRegistry(projectRoot, entry) {
 export async function createExecutionWorktree(opts) {
     if (opts.allowRegistryMutation !== "legacy-test-only") {
         throw new Error(
-            "createExecutionWorktree is quarantined because it mutates the registry outside the semantic transition boundary; use createExecutionWorktreeGitArtifacts() and settleExecutionWorktreeRegistry() inside a lifecycle transition.",
+            "createExecutionWorktree is quarantined because it mutates the registry outside the semantic transition boundary; use createWorktreeGitArtifacts() and settleWorktreeAttempt() inside a lifecycle transition.",
         );
     }
-    const entry = await createExecutionWorktreeGitArtifacts({
+    const entry = await createWorktreeGitArtifacts({
         ...opts,
         planId: opts.planId || `legacy-test:${opts.planName}`,
     });
     try {
-        return await settleExecutionWorktreeRegistry(opts.projectRoot, entry);
+        return await settleWorktreeAttempt(opts.projectRoot, entry);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
@@ -1196,9 +1196,12 @@ export async function mergeExecutionWorktree(
 }
 
 /**
- * @param {{ projectRoot: string, path: string, branch?: string, force?: boolean }} opts
+ * Remove a worktree's Git artifacts. Never touches branches — deleting one is
+ * irreversible, so it is `deleteMergedWorktreeBranch` and has to be asked for by name.
+ *
+ * @param {{ projectRoot: string, path: string, force?: boolean }} opts
  */
-export async function removeExecutionWorktree({ projectRoot, path, branch, force = false }) {
+export async function removeWorktreeGitArtifacts({ projectRoot, path, force = false }) {
     await assertGitRepository(projectRoot, "Removing an execution worktree");
     if (force) {
         await runGit(projectRoot, ["worktree", "remove", "--force", path]).catch(async (error) => {
@@ -1217,14 +1220,34 @@ export async function removeExecutionWorktree({ projectRoot, path, branch, force
             await runGit(projectRoot, ["worktree", "remove", "--force", path]);
         }
     }
-    if (branch) {
-        const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);
-        const hasMergedProof = merged.code === 0 &&
-            merged.stdout.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === branch);
-        if (hasMergedProof) {
-            await runGit(projectRoot, ["branch", "-d", branch]);
-        }
+}
+
+/**
+ * Delete an execution branch, but only once Git proves it is merged.
+ *
+ * Split out of worktree removal because it is the single most destructive operation in
+ * the system: a worktree directory can be recreated from its branch, but a deleted
+ * unmerged branch is gone. Removing a directory and destroying history are different
+ * decisions and now read as different steps at every call site.
+ *
+ * Proof is `git branch --merged HEAD` naming this exact branch. Without it the branch is
+ * left alone and the caller is told nothing was deleted, per PR-4.
+ *
+ * @param {{ projectRoot: string, branch: string }} opts
+ * @returns {Promise<{ deleted: boolean, reason: string }>}
+ */
+export async function deleteMergedWorktreeBranch({ projectRoot, branch }) {
+    const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);
+    const hasMergedProof = merged.code === 0 &&
+        merged.stdout.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === branch);
+    if (!hasMergedProof) {
+        return {
+            deleted: false,
+            reason: `${branch} is not proven merged into HEAD, so it was kept.`,
+        };
     }
+    await runGit(projectRoot, ["branch", "-d", branch]);
+    return { deleted: true, reason: `${branch} was merged into HEAD and deleted.` };
 }
 
 /** @param {{ projectRoot: string }} opts */

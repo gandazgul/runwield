@@ -24,13 +24,14 @@ import {
 import {
     checkpointExecutionWorktree,
     createExecutionWorktree as _createExecutionWorktree,
-    createExecutionWorktreeGitArtifacts,
+    createWorktreeGitArtifacts,
+    deleteMergedWorktreeBranch,
     findReusableWorktree,
     prepareTargetBranchRef,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
     resolveCurrentCheckoutBranch,
     resolveTargetBranchName,
-    settleExecutionWorktreeRegistry,
+    settleWorktreeAttempt,
 } from "../worktree.js";
 import {
     findById as findWorktreeRegistryEntryById,
@@ -1091,8 +1092,8 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   collaborationRecommendation?: "autonomous"|"pair",
  *   __deps?: {
  *     createExecutionWorktree?: typeof _createExecutionWorktree,
- *     createExecutionWorktreeGitArtifacts?: typeof createExecutionWorktreeGitArtifacts,
- *     settleExecutionWorktreeRegistry?: typeof settleExecutionWorktreeRegistry,
+ *     createWorktreeGitArtifacts?: typeof createWorktreeGitArtifacts,
+ *     settleWorktreeAttempt?: typeof settleWorktreeAttempt,
  *     findReusableWorktree?: typeof findReusableWorktree,
  *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
  *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
@@ -1126,8 +1127,8 @@ export async function startActiveExecutionWorkflow(
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
     const createWorktree = __deps?.createExecutionWorktree;
-    const createGitArtifacts = __deps?.createExecutionWorktreeGitArtifacts || createExecutionWorktreeGitArtifacts;
-    const settleRegistry = __deps?.settleExecutionWorktreeRegistry || settleExecutionWorktreeRegistry;
+    const createGitArtifacts = __deps?.createWorktreeGitArtifacts || createWorktreeGitArtifacts;
+    const settleRegistry = __deps?.settleWorktreeAttempt || settleWorktreeAttempt;
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
     const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
     const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
@@ -1346,12 +1347,13 @@ export async function startActiveExecutionWorkflow(
                     registrySettlement: "legacy_combined_test_helper",
                 });
                 registerRollback("remove_clean_created_worktree", async () => {
-                    await removeExecutionWorktree({
+                    await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: worktree.path,
-                        branch: worktree.branch,
                         force: false,
                     });
+                    // Deleting the branch is irreversible, so it is its own proven step.
+                    if (worktree.branch) await deleteMergedWorktreeBranch({ projectRoot, branch: worktree.branch });
                 });
             } else {
                 const worktreeOptions = {
@@ -1370,12 +1372,15 @@ export async function startActiveExecutionWorkflow(
                     baseCommit: worktreeArtifacts.baseCommit,
                 });
                 registerRollback("remove_clean_created_worktree", async () => {
-                    await removeExecutionWorktree({
+                    await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: worktreeArtifacts.path,
-                        branch: worktreeArtifacts.branch,
                         force: false,
                     });
+                    // Deleting the branch is irreversible, so it is its own proven step.
+                    if (worktreeArtifacts.branch) {
+                        await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeArtifacts.branch });
+                    }
                 });
                 worktree = await settleRegistry(projectRoot, worktreeArtifacts);
                 await markEffect("worktree_registry_settled", {

@@ -102,10 +102,10 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                 actions.push("restore-primary");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: (
-                /** @type {{ projectRoot: string, path: string, branch?: string, force?: boolean }} */ args,
+            removeWorktreeGitArtifacts: (
+                /** @type {{ projectRoot: string, path: string, force?: boolean }} */ args,
             ) => {
-                actions.push(`remove:${args.projectRoot}:${args.path}:${args.branch || ""}:${args.force}`);
+                actions.push(`remove:${args.projectRoot}:${args.path}:${args.force}`);
                 return Promise.resolve();
             },
             removeWorktreeRegistryEntry: (/** @type {string} */ projectRoot, /** @type {string} */ id) => {
@@ -139,7 +139,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         `merge:${primaryRoot}:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.`,
         "restore-primary",
         "registry:merged",
-        `remove:${primaryRoot}:/worktree:runwield/worktree/p-wt1:false`,
+        `remove:${primaryRoot}:/worktree:false`,
         `registry-remove:${primaryRoot}:wt1`,
     ]);
     assertEquals(
@@ -383,7 +383,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
                 return Promise.resolve();
             },
             verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             getCodeReviewMode: () => "none",
             recordWorkflowMetric: () => Promise.resolve(null),
         }),
@@ -456,7 +456,7 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                 actions.push(`registry:${updates.status}`);
                 return Promise.reject(new Error("registry unavailable"));
             },
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 actions.push("remove");
                 return Promise.resolve();
             },
@@ -556,7 +556,7 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
             runCompletionGatedRepair: () => Promise.resolve(false),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
         }),
     });
 

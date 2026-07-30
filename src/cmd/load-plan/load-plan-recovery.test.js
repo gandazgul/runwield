@@ -171,7 +171,7 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                 restored = true;
                 return Promise.resolve();
             },
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 removed = true;
                 return Promise.resolve();
             },
@@ -300,7 +300,7 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                 }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 removed = true;
                 return Promise.resolve();
             },
@@ -363,12 +363,12 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeExecutionWorktree: () => {
+            removeWorktreeGitArtifacts: () => {
                 removed = true;
                 return Promise.resolve();
             },
             updateWorktreeRegistryEntry: () => Promise.resolve(/** @type {any} */ ({})),
-            createExecutionWorktreeGitArtifacts: (/** @type {{ baseRef: string }} */ args) => {
+            createWorktreeGitArtifacts: (/** @type {{ baseRef: string }} */ args) => {
                 createdBaseRef = args.baseRef;
                 return Promise.resolve({
                     id: "wt-recreated",
@@ -380,7 +380,7 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                     baseTree: "new-baseline-tree",
                 });
             },
-            settleExecutionWorktreeRegistry: (
+            settleWorktreeAttempt: (
                 /** @type {string} */ _cwd,
                 /** @type {any} */ entry,
             ) => Promise.resolve(entry),
@@ -451,7 +451,7 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
+            removeWorktreeGitArtifacts: (/** @type {{ path: string }} */ args) => {
                 removedPath = args.path;
                 return Promise.resolve();
             },
@@ -459,7 +459,7 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                 abandoned = true;
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createExecutionWorktreeGitArtifacts: (/** @type {{ baseRef: string }} */ args) => {
+            createWorktreeGitArtifacts: (/** @type {{ baseRef: string }} */ args) => {
                 createdBaseRef = args.baseRef;
                 return Promise.resolve({
                     id: "wt-recreated",
@@ -471,7 +471,7 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                     baseTree: "new-baseline-tree",
                 });
             },
-            settleExecutionWorktreeRegistry: (
+            settleWorktreeAttempt: (
                 /** @type {string} */ _cwd,
                 /** @type {any} */ entry,
             ) => Promise.resolve(entry),
@@ -1080,7 +1080,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                     mergedPlanDescription = args.planDescription || "";
                     return Promise.resolve({ updatedPrimaryCheckout: false });
                 },
-                removeExecutionWorktree: (/** @type {{ path: string, force?: boolean }} */ args) => {
+                removeWorktreeGitArtifacts: (/** @type {{ path: string, force?: boolean }} */ args) => {
                     removedPath = args.path;
                     removedForce = args.force;
                     return Promise.resolve();
@@ -1232,7 +1232,7 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
             ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
             recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
-            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeGitArtifacts: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -1409,7 +1409,7 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
                 ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
                 recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
-                removeExecutionWorktree: () => Promise.resolve(),
+                removeWorktreeGitArtifacts: () => Promise.resolve(),
                 removeWorktreeRegistryEntry: () => Promise.resolve(),
                 shouldCleanupMergedWorktrees: () => false,
                 recordWorkflowMetric: () => Promise.resolve(null),

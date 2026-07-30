@@ -1,4 +1,5 @@
 ---
+planId: "ccba05d1-e42a-481e-a97d-c213ee7c6526"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
@@ -18,14 +19,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T23:43:58-04:00"
-updatedAt: "2026-07-28T03:59:20.265Z"
-status: "ready_for_work"
+updatedAt: "2026-07-30T14:41:50.171Z"
+status: "feedback"
 origin: "internal"
 userVerifiedAt: null
-userVerificationNote: null
+humanReviewMode: null
+humanReviewDecision: null
+worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "footer workflow context"
-planId: "ccba05d1-e42a-481e-a97d-c213ee7c6526"
 ---
 
 # Preserve Footer Context During Validation Loop

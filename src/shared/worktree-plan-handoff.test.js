@@ -19,7 +19,7 @@ import {
     createExecutionWorktree,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
     restorePrimaryPlanPathAfterMergeFailure,
 } from "./worktree.js";
 
@@ -109,10 +109,9 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
         assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -174,10 +173,9 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -256,10 +254,9 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
         assertStringIncludes(await git(projectRoot, ["status", "--porcelain", "plans/child-b.md"]), "child-b.md");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -338,10 +335,9 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
         assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -427,10 +423,9 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }
@@ -506,10 +501,9 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
         assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
     } finally {
         if (worktree) {
-            await removeExecutionWorktree({
+            await removeWorktreeGitArtifacts({
                 projectRoot,
                 path: worktree.path,
-                branch: worktree.branch,
                 force: true,
             });
         }

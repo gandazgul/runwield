@@ -51,9 +51,10 @@ import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
     assertPreMergeCandidateUnchanged,
     checkpointExecutionWorktree,
+    deleteMergedWorktreeBranch,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
-    removeExecutionWorktree,
+    removeWorktreeGitArtifacts,
     restorePrimaryPlanPathAfterMergeFailure,
 } from "../worktree.js";
 import {
@@ -915,13 +916,53 @@ async function runGitForMergeVerification(cwd, args) {
  */
 
 /**
+ * Post-merge proof: everything that had to reach the target branch did.
+ *
+ * The paired precondition is `assertPreMergeCandidateUnchanged` in worktree.js, which
+ * runs before the ref moves. This runs after, and answers three questions that used to
+ * be asked separately at each call site:
+ *
+ * 1. Is the validated candidate commit contained in the target branch? (the work)
+ * 2. Is the metadata commit contained in it? (the Plan Front Matter that went with it)
+ * 3. Is the execution branch itself contained in it? (nothing left behind)
+ *
+ * They are genuinely different subjects — a commit and a branch are not the same claim,
+ * and they only coincide when the branch tip happens to be the metadata commit. Asking
+ * them here rather than inline means one verdict, one message format, and no call site
+ * that checks two of the three and calls it proof.
+ *
+ * Returns a verdict instead of throwing: the caller decides whether an unproven
+ * publication is a halt, a repair, or a reconciliation recipe.
+ *
  * @param {Object} opts
  * @param {string} opts.projectRoot
  * @param {string} opts.worktreeBranch
  * @param {string | undefined} opts.worktreeBaseBranch
+ * @param {import('../git-port.ts').GitPort} opts.git
+ * @param {string} [opts.executionCommit] Validated candidate, when Delivery Evidence names one.
+ * @param {string} [opts.metadataCommit] Commit carrying the staged Plan metadata.
+ * @param {string} [opts.targetBranch] Branch the evidence says was published to.
  * @returns {Promise<MergeVerificationResult>}
  */
-async function verifyPostMergeCandidatePublished({ projectRoot, worktreeBranch, worktreeBaseBranch }) {
+async function verifyPostMergeCandidatePublished(
+    { projectRoot, worktreeBranch, worktreeBaseBranch, git, executionCommit, metadataCommit, targetBranch },
+) {
+    // Commit containment first: it names the exact thing validation approved, so its
+    // failure is more specific than "the branch is not contained".
+    if (targetBranch && executionCommit) {
+        if (!(await git.isAncestor(projectRoot, executionCommit, targetBranch))) {
+            return {
+                merged: false,
+                message: `Validated candidate ${executionCommit} is not contained in ${targetBranch}.`,
+            };
+        }
+        if (metadataCommit && !(await git.isAncestor(projectRoot, metadataCommit, targetBranch))) {
+            return {
+                merged: false,
+                message: `Validation metadata commit ${metadataCommit} is not contained in ${targetBranch}.`,
+            };
+        }
+    }
     try {
         const targetRef = worktreeBaseBranch ? `refs/heads/${worktreeBaseBranch}` : "HEAD";
         const branchResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", worktreeBranch]);
@@ -1569,7 +1610,7 @@ export async function runMechanicalValidation({
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
  *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   assertPreMergeCandidateUnchanged?: typeof assertPreMergeCandidateUnchanged,
- *   removeExecutionWorktree?: typeof removeExecutionWorktree,
+ *   removeWorktreeGitArtifacts?: typeof removeWorktreeGitArtifacts,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
@@ -1630,7 +1671,7 @@ export async function runValidationLoop({
         checkpointExecutionWorktree;
     const assertPreMergeCandidateUnchangedImpl = __deps?.assertPreMergeCandidateUnchanged ||
         assertPreMergeCandidateUnchanged;
-    const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
+    const removeWorktreeGitArtifactsImpl = __deps?.removeWorktreeGitArtifacts || removeWorktreeGitArtifacts;
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
@@ -3122,39 +3163,19 @@ export async function runValidationLoop({
                                             ? deliveryEvidence.targetHeadBeforeMerge
                                             : undefined,
                                     });
-                                    let mergeVerificationFailure = "";
-                                    if (deliveryEvidence?.mode === "worktree_merge") {
-                                        const candidateMerged = await gitPort.isAncestor(
-                                            projectRoot,
-                                            deliveryEvidence.executionCommit,
-                                            deliveryEvidence.targetBranch,
-                                        );
-                                        if (!candidateMerged) {
-                                            mergeVerificationFailure =
-                                                `Validated candidate ${deliveryEvidence.executionCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
-                                        }
-                                    }
-                                    if (
-                                        !mergeVerificationFailure && result?.executionMetadataCommit &&
-                                        deliveryEvidence?.mode === "worktree_merge"
-                                    ) {
-                                        const metadataMerged = await gitPort.isAncestor(
-                                            projectRoot,
-                                            result.executionMetadataCommit,
-                                            deliveryEvidence.targetBranch,
-                                        );
-                                        if (!metadataMerged) {
-                                            mergeVerificationFailure =
-                                                `Validation metadata commit ${result.executionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
-                                        }
-                                    }
-                                    const mergeVerification = mergeVerificationFailure
-                                        ? { merged: false, message: mergeVerificationFailure }
-                                        : await verifyPostMergeCandidatePublishedImpl({
-                                            projectRoot,
-                                            worktreeBranch,
-                                            worktreeBaseBranch,
-                                        });
+                                    const mergeVerification = await verifyPostMergeCandidatePublishedImpl({
+                                        projectRoot,
+                                        worktreeBranch,
+                                        worktreeBaseBranch,
+                                        git: gitPort,
+                                        ...(deliveryEvidence?.mode === "worktree_merge"
+                                            ? {
+                                                executionCommit: deliveryEvidence.executionCommit,
+                                                targetBranch: deliveryEvidence.targetBranch,
+                                                metadataCommit: result?.executionMetadataCommit,
+                                            }
+                                            : {}),
+                                    });
                                     if (!mergeVerification.merged) {
                                         throw new Error(
                                             `Direct Delivery publication requires reconciliation: ${mergeVerification.message}`,
@@ -3228,37 +3249,22 @@ export async function runValidationLoop({
                     }
                     let mergeVerificationFailure = "";
                     try {
-                        if (deliveryEvidence?.mode === "worktree_merge") {
-                            const candidateMerged = await gitPort.isAncestor(
-                                projectRoot,
-                                deliveryEvidence.executionCommit,
-                                deliveryEvidence.targetBranch,
-                            );
-                            if (!candidateMerged) {
-                                mergeVerificationFailure =
-                                    `Validated candidate ${deliveryEvidence.executionCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
-                            }
-                        }
-                        if (
-                            !mergeVerificationFailure && sealedExecutionMetadataCommit &&
-                            deliveryEvidence?.mode === "worktree_merge"
-                        ) {
-                            const metadataMerged = await gitPort.isAncestor(
-                                projectRoot,
-                                sealedExecutionMetadataCommit,
-                                deliveryEvidence.targetBranch,
-                            );
-                            if (!metadataMerged) {
-                                mergeVerificationFailure =
-                                    `Validation metadata commit ${sealedExecutionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
-                            }
-                        }
-                        const mergeVerification = mergeVerificationFailure || mergeVerificationAlreadyProved
-                            ? { merged: mergeVerificationAlreadyProved, message: mergeVerificationFailure }
+                        // Already proved inside the publication transaction; re-running it
+                        // would ask Git the same three questions for no new information.
+                        const mergeVerification = mergeVerificationAlreadyProved
+                            ? { merged: true, message: "" }
                             : await verifyPostMergeCandidatePublishedImpl({
                                 projectRoot,
                                 worktreeBranch,
                                 worktreeBaseBranch,
+                                git: gitPort,
+                                ...(deliveryEvidence?.mode === "worktree_merge"
+                                    ? {
+                                        executionCommit: deliveryEvidence.executionCommit,
+                                        targetBranch: deliveryEvidence.targetBranch,
+                                        metadataCommit: sealedExecutionMetadataCommit,
+                                    }
+                                    : {}),
                             });
                         if (!mergeVerification.merged) {
                             mergeVerificationFailure = mergeVerification.message;
@@ -3459,12 +3465,15 @@ export async function runValidationLoop({
                     }
                     if (planName && planName !== "quick-fix" && cleanupMergedWorktrees && executionCwd) {
                         try {
-                            await removeExecutionWorktreeImpl({
+                            await removeWorktreeGitArtifactsImpl({
                                 projectRoot,
                                 path: executionCwd,
-                                branch: worktreeBranch,
                                 force: false,
                             });
+                            // Deleting the branch is irreversible, so it is its own proven step.
+                            if (worktreeBranch) {
+                                await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeBranch });
+                            }
                             if (worktreeId) {
                                 await removeWorktreeRegistryEntryImpl(projectRoot, worktreeId);
                             }
