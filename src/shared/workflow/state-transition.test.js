@@ -1118,3 +1118,86 @@ Deno.test("reconciliation closes a record whose effects a prover accounts for", 
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("an execution start cancelled mid-apply does not strand the Plan", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "ready_for_work", classification: "FEATURE" });
+
+        // Killed after prepare, before any effect was marked — what cancelling an
+        // approved execution actually leaves behind.
+        const failure = await runExecutionPreparationTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            worktreeId: "wt-1",
+            prepare: () => Promise.reject(new Error("cancelled by the user")),
+        });
+        assertEquals(failure.status, "rolled_back");
+
+        // Even a record written at "applying" keeps the before-facts prepare recorded, so
+        // reconciliation can prove it settled. Without that the Plan is blocked forever:
+        // no effect to prove, no revision to compare, no way back.
+        await Deno.mkdir(dirname(getTransitionJournalPath(cwd, "x")), { recursive: true });
+        await Deno.writeTextFile(
+            getTransitionJournalPath(cwd, "stranded"),
+            JSON.stringify({
+                version: 1,
+                transitionId: "stranded",
+                operation: "execution_preparation",
+                planName: "demo",
+                state: "applying",
+                completedEffects: [],
+            }),
+        );
+        const blocked = await runPlanFrontMatterTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            operation: "hold",
+            updates: { status: "on_hold" },
+        });
+        assertEquals(blocked.status, "blocked", "an unresolved record still protects the Plan");
+
+        const reconciliations = await reconcileTransitionRecoveryRecords(cwd, { apply: true });
+        const record = reconciliations.find((entry) => entry.transitionId === "stranded");
+        assertEquals(record?.resolved, true, "a record naming no durable effect must be closable");
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0);
+
+        const after = await runPlanFrontMatterTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            operation: "hold",
+            updates: { status: "on_hold" },
+        });
+        assertEquals(after.status, "committed", "and the Plan works again afterwards");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a journal keeps its before-facts across state changes", async () => {
+    const cwd = await makeProject();
+    try {
+        await savePlan(cwd, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
+        // Interrupt after an effect is marked, which rewrites the record at "applying".
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: cwd,
+            planName: "demo",
+            worktreeId: "wt-1",
+            outcome: "merge_failed",
+            settle: async ({ markEffect }) => {
+                await markEffect("worktree_registry_updated", { worktreeId: "wt-1" });
+                throw new Error("interrupted after the effect");
+            },
+        });
+        assertEquals(failure.status, "needs_recovery");
+        const [record] = await listTransitionRecoveryRecords(cwd);
+        const beforeFacts = /** @type {{ plan?: { revision?: string } }} */ (record.beforeFacts);
+        assertEquals(
+            typeof beforeFacts?.plan?.revision,
+            "string",
+            "the before-revision recorded at prepare survives later state writes",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});

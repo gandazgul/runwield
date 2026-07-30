@@ -23,6 +23,7 @@ import {
     decidePostPlanning as decidePostPlanningFn,
 } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
+import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
 import {
     buildPlanEventUpdates,
     isEpicPlan,
@@ -3692,6 +3693,44 @@ export async function runLoadPlanCommand(argv, options = {}) {
     try {
         const plan = await resolvePlan(projectRoot, planArg);
         loadedPlanName = plan.planName;
+        // Clear our own leftovers before doing anything with the Plan. An interrupted
+        // lifecycle operation blocks every later one, and the record is RunWield's
+        // bookkeeping, not the user's problem — so anything the repository proves is
+        // finished gets closed here and the load simply continues. Only what genuinely
+        // needs a decision is surfaced, and then with the command that resolves it.
+        try {
+            const healed = await healSettledTransitionRecords(projectRoot, { planName: plan.planName });
+            if (healed.closed.length > 0) {
+                uiAPI.appendSystemMessage(
+                    `Cleared ${healed.closed.length} unfinished lifecycle record${
+                        healed.closed.length === 1 ? "" : "s"
+                    } for ${plan.planName} that the repository proves are already settled. Continuing.`,
+                    false,
+                    "RunWield",
+                );
+            }
+            for (const remaining of healed.remaining) {
+                uiAPI.appendSystemMessage(
+                    `${plan.planName} has an unfinished ${
+                        remaining.operation || "lifecycle operation"
+                    } that RunWield cannot confirm on its own: ${remaining.reason}. ` +
+                        `Lifecycle changes to this Plan stay blocked until it is resolved. ` +
+                        `Run \`${CLI_BIN} plans doctor\` to see the exact evidence that is missing, then either resolve it ` +
+                        `with a recovery action below or clear the record once you have checked the state yourself.`,
+                    true,
+                    "RunWield",
+                );
+            }
+        } catch (healError) {
+            // Never let bookkeeping cleanup stop a Plan from loading.
+            uiAPI.appendSystemMessage(
+                `Could not check for unfinished lifecycle records: ${
+                    healError instanceof Error ? healError.message : String(healError)
+                }`,
+                true,
+                "RunWield",
+            );
+        }
         // Loading is the deliberate action that adopts a plain markdown file the user
         // wrote into plans/. Reads elsewhere tolerate the missing Front Matter and
         // leave the file alone; here it stops being an anonymous file and becomes a

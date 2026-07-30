@@ -480,7 +480,16 @@ async function runSemanticTransition<T>(
     const transitionId = crypto.randomUUID();
     const completedEffects: Array<{ effect: string; proof?: Record<string, unknown>; completedAt: string }> = [];
     const rollbackActions: Array<{ label: string; run: () => Promise<void> }> = [];
-    const writeState = async (state: string, extra: Record<string, unknown> = {}) =>
+    // Before-facts are recorded once, at prepare, and every later state carries them.
+    // Each write replaces the whole record, so a state change used to erase them — and a
+    // record with no before-revision can never be proven settled, which permanently
+    // strands its Plan. That is exactly what a cancelled execution start produced: state
+    // "applying", no effects, nothing to compare, no way back.
+    let journaledBeforeFacts: Record<string, unknown> | undefined;
+    const writeState = async (state: string, extra: Record<string, unknown> = {}) => {
+        if (extra.beforeFacts && typeof extra.beforeFacts === "object") {
+            journaledBeforeFacts = extra.beforeFacts as Record<string, unknown>;
+        }
         await writeJournal(projectRoot, transitionId, {
             version: 1,
             transitionId,
@@ -490,9 +499,11 @@ async function runSemanticTransition<T>(
             state,
             intendedPostconditions: postconditions,
             completedEffects,
+            ...(journaledBeforeFacts ? { beforeFacts: journaledBeforeFacts } : {}),
             updatedAt: new Date().toISOString(),
             ...extra,
         });
+    };
     const markEffect: MarkEffect = async (effect, proof) => {
         completedEffects.push({ effect, ...(proof ? { proof } : {}), completedAt: new Date().toISOString() });
         await writeState("applying");
@@ -1249,10 +1260,18 @@ export async function reconcileTransitionRecoveryRecords(
         const journaledRevision = typeof journaledPlan.revision === "string" ? journaledPlan.revision : undefined;
         const current = await loadPlan(projectRoot, planName).catch(() => null);
         if (journaledRevision === undefined && journaledPlan.missing !== true) {
+            // No before-revision to compare, and no effect was ever marked. Completed
+            // effects are the only ledger of durable change, so nothing here is known to
+            // have happened — and anything that did happen without being marked is
+            // visible to a different check that never deletes: an untracked worktree or
+            // branch, a registry row without a Plan, drifted Plan status. Keeping the
+            // record instead would block the Plan forever with nothing able to clear it,
+            // which is how a cancelled execution start stranded a user.
             reconciliations.push({
                 ...base,
-                resolvable: false,
-                reason: "journal recorded no Plan revision, so unchanged Plan metadata cannot be proven",
+                resolvable: true,
+                reason: "no durable effect was recorded, so nothing is known to be outstanding; " +
+                    "any leftover worktree, branch, or registry row is reported separately",
             });
             continue;
         }
