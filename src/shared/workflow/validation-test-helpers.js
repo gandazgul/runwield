@@ -221,3 +221,46 @@ export async function makeValidationProjectRoot(planName = "p", attrs = {}) {
     });
     return root;
 }
+
+/**
+ * A stub Git boundary for tests that do not run a real repository.
+ *
+ * Git is a genuine external boundary, so faking it is legitimate — but it has to be
+ * asked for. These answers used to be handed out implicitly: `getBranchHead` and
+ * `isCommitAncestorOfBranch` were replaced with constants whenever a test injected
+ * `mergeExecutionWorktree`, so a test faking a merge also got an ancestry check that
+ * always said yes, without requesting either. Tests that exercise real publication
+ * must pass no port at all and use a real repository instead.
+ *
+ * @param {Partial<import('../git-port.ts').GitPort>} [overrides]
+ * @returns {import('../git-port.ts').GitPort}
+ */
+export function makeStubGitPort(overrides = {}) {
+    return {
+        branchHead: () => Promise.resolve("b".repeat(40)),
+        isAncestor: () => Promise.resolve(true),
+        captureTree: () => Promise.resolve("stub-tree"),
+        diffTrees: () => Promise.resolve(""),
+        diffAgainstTree: () => Promise.resolve(""),
+        ...overrides,
+    };
+}
+
+/**
+ * Publication-proof stand-ins for tests whose worktree is not a real repository.
+ *
+ * `sealExecutionWorktreeCandidate` and `assertNoUnvalidatedPostSealChanges` are
+ * RunWield's own proof policy, not Git, so they are on the machinery denylist and are
+ * meant to lose their seams as tests move to real worktrees. Until then they must at
+ * least be requested out loud: they used to be swapped for these same no-ops purely
+ * because a test injected `mergeExecutionWorktree`, which is how a suite ends up
+ * exercising a path that exists only under fakes.
+ *
+ * @returns {Record<string, unknown>}
+ */
+export function noOpPublicationProofDeps() {
+    return {
+        sealExecutionWorktreeCandidate: () => Promise.resolve({ executionCommit: "a".repeat(40) }),
+        assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+    };
+}

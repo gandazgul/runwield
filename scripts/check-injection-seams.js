@@ -72,6 +72,22 @@ const MACHINERY_SEAMS = [
     "reconcileEntryIdentity",
     "pruneEntry",
     "run*Transition",
+    // Worktree *policy*, not Git. These have Git-sounding names and call Git, but each
+    // one encodes a RunWield decision: mergeExecutionWorktree proves a sealed candidate
+    // and enforces allowed dirty paths, preparePrimaryPlanPathForMerge refuses non-Plan
+    // paths, sealExecutionWorktreeCandidate is the checkpoint policy. Replacing them in
+    // a test replaces the behaviour under test. The genuine Git boundary is GitPort
+    // (src/shared/git-port.ts); everything here is ours.
+    "mergeExecutionWorktree",
+    "sealExecutionWorktreeCandidate",
+    "checkpointExecutionWorktree",
+    "createExecutionWorktree",
+    "removeExecutionWorktree",
+    "preparePrimaryPlanPathForMerge",
+    "restorePrimaryPlanPathAfterMergeFailure",
+    "verifyExecutionWorktreeMerged",
+    "assertNoUnvalidatedPostSealChanges",
+    "stageValidationPassedInExecutionWorktree",
 ];
 
 /** @param {string} path */
@@ -152,9 +168,22 @@ export function collectConditionalSeams(text) {
     // (`__deps?.name`), nullish coalescing, and optional-property syntax — ordinary
     // reads of an injected value rather than a branch on whether anything was
     // injected at all.
-    for (const match of blankComments(text).matchAll(/__(?:test)?[Dd]eps\s*\n?\s*\?(?![.?:])[^:;{}]{0,300}:/g)) {
+    const scanned = blankComments(text);
+    for (const match of scanned.matchAll(/__(?:test)?[Dd]eps\s*\n?\s*\?(?![.?:])[^:;{}]{0,300}:/g)) {
         const line = text.slice(0, match.index || 0).split("\n").length;
-        offenders.push(`line ${line}`);
+        offenders.push(`line ${line} (gated on the bag itself)`);
+    }
+    // Worse still: a seam gated on a *different* dep — `__deps?.a ? fakeB : realB`.
+    // Injecting one dependency then silently replaces an unrelated one, so a test that
+    // fakes a merge also gets a fake branch head and a fake ancestry check without
+    // asking for either. Nothing at the call site shows it.
+    for (
+        const match of scanned.matchAll(
+            /__(?:test)?[Dd]eps\??\.[A-Za-z_$][\w$]*\s*\n?\s*\?(?![.?:])[\s\S]{0,300}?:/g,
+        )
+    ) {
+        const line = text.slice(0, match.index || 0).split("\n").length;
+        offenders.push(`line ${line} (one seam gated on another dep)`);
     }
     return offenders;
 }
@@ -231,7 +260,13 @@ function findRegressions(current, baseline) {
         if (added.length > 0) {
             problems.push(`${path}: new injection seam(s): ${added.join(", ")}.`);
         }
-        const addedMachinery = entry.machinery.filter((name) => !before.machinery.includes(name));
+        // Only a *new* seam over machinery is a regression. When the denylist grows to
+        // recognize a seam that already existed, the code did not get worse — our
+        // understanding did, and refusing that would mean never being allowed to admit
+        // a mistake. Those are recorded by `--update` so they can still only shrink.
+        const addedMachinery = entry.machinery
+            .filter((name) => !before.machinery.includes(name))
+            .filter((name) => !before.seams.includes(name));
         if (addedMachinery.length > 0) {
             problems.push(
                 `${path}: machinery must never be replaceable, but these became injectable: ${
@@ -259,6 +294,14 @@ function findStaleBaseline(current, baseline) {
         const removed = before.seams.filter((name) => !entry.seams.includes(name));
         if (removed.length > 0) {
             stale.push(`${path}: seam(s) removed (${removed.join(", ")}) — tighten the baseline.`);
+        }
+        const reclassified = entry.machinery.filter((name) => !before.machinery.includes(name));
+        if (reclassified.length > 0) {
+            stale.push(
+                `${path}: existing seam(s) now recognized as machinery (${
+                    reclassified.join(", ")
+                }) — record them so they can only shrink.`,
+            );
         }
     }
     return stale;

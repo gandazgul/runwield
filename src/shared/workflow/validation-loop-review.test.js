@@ -6,8 +6,10 @@ import { __resetSettingsForTests } from "../settings.js";
 
 import {
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
     makeValidationProjectRoot,
+    noOpPublicationProofDeps,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -143,7 +145,9 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: rootSessionManager,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: (/** @type {{ cwd?: string }} */ { cwd }) => {
                 ciCwds.push(cwd);
@@ -205,7 +209,9 @@ Deno.test("runValidationLoop never inlines the diff regardless of size", async (
         planContent: "Add a large feature.",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(largeDiffText),
@@ -253,7 +259,9 @@ Deno.test("runValidationLoop rejects a verdict reached without inspecting the di
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -296,7 +304,9 @@ Deno.test("runValidationLoop nudges the same reviewer session when review_comple
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -382,7 +392,9 @@ Deno.test("runValidationLoop retries the reviewer after invocation errors", asyn
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: rootSessionManager,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -424,12 +436,15 @@ Deno.test("runValidationLoop dispatches rejections to the Reviewer-Feedback Engi
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: rootSessionManager,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -485,12 +500,15 @@ Deno.test("runValidationLoop carries the ledger and repair report into the next 
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -548,12 +566,15 @@ Deno.test("runValidationLoop narrows to verification mode from round three", asy
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerPrompt: (/** @type {string} */ mode) => {
                 promptModes.push(mode);
                 return Promise.resolve({
@@ -630,12 +651,15 @@ Deno.test("runValidationLoop offers code review instead of stranding after three
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -697,7 +721,9 @@ Deno.test("runValidationLoop does not count a failed review_diff call as inspect
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -749,12 +775,15 @@ Deno.test("runValidationLoop refuses to approve while a prior finding goes unmen
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",
@@ -810,12 +839,15 @@ Deno.test("runValidationLoop rejects a re-reported finding that would duplicate 
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            captureTree: () => Promise.resolve("tree-before-repair"),
+            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
+        }),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            captureWorktreeTree: () => Promise.resolve("tree-before-repair"),
-            diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
             loadReviewerFeedbackEngineerDef: () =>
                 Promise.resolve({
                     name: "reviewer-feedback-engineer",

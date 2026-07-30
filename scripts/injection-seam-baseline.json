@@ -95,15 +95,11 @@
             "seams": [
                 "assertNoUnvalidatedPostSealChanges",
                 "autoGenerateWorkRecordForCompletedPlan",
-                "captureWorktreeTree",
-                "diffTrees",
                 "findWorktreeRegistryEntryById",
                 "formatWorkRecordAutoGenerationResult",
-                "getBranchHead",
                 "getCodeReviewMode",
                 "getDiffText",
                 "getGuidedReviewMode",
-                "isCommitAncestorOfBranch",
                 "loadManualQaPrompt",
                 "loadReviewerFeedbackEngineerDef",
                 "loadReviewerPrompt",
@@ -133,10 +129,18 @@
                 "verifyExecutionWorktreeMerged"
             ],
             "machinery": [
+                "assertNoUnvalidatedPostSealChanges",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
+                "removeExecutionWorktree",
                 "removeWorktreeRegistryEntry",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "sealExecutionWorktreeCandidate",
+                "stageValidationPassedInExecutionWorktree",
                 "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
+                "updateWorktreeRegistryEntry",
+                "verifyExecutionWorktreeMerged"
             ]
         },
         "src/shared/workflow/workflow-slicer.js": {
@@ -188,6 +192,8 @@
                 "updateWorktreeRegistryEntry"
             ],
             "machinery": [
+                "checkpointExecutionWorktree",
+                "createExecutionWorktree",
                 "recordPlanEvent",
                 "updateWorktreeRegistryEntry"
             ]

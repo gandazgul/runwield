@@ -21,8 +21,10 @@ import { __resetSettingsForTests } from "../settings.js";
 import {
     git,
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
     makeValidationProjectRoot,
+    noOpPublicationProofDeps,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
 
@@ -58,7 +60,9 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         planContent: "plan",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
                 actions.push(`stage:${args.projectRoot}:${args.executionCwd}:${args.planName}`);
@@ -354,7 +358,9 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
         planContent: "fix",
         triageMeta: { classification: "QUICK_FIX" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runIsolatedAgentSession: () =>
@@ -410,7 +416,9 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -521,7 +529,9 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),

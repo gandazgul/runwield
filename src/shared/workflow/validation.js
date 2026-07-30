@@ -42,15 +42,14 @@ import {
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
-import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./git-snapshot.js";
+import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.ts";
+import { createGitPort } from "../git-port.ts";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
-    getBranchHead,
-    isCommitAncestorOfBranch,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
     removeExecutionWorktree,
@@ -1596,6 +1595,7 @@ export async function runMechanicalValidation({
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
  * @param {import('../session/hosted-session.js').ActiveExecutionWorkflow} [args.executionContext]
+ * @param {import('../git-port.ts').GitPort} [args.git] The Git boundary. Defaults to the real one.
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
  *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
@@ -1611,8 +1611,6 @@ export async function runMechanicalValidation({
  *   restorePrimaryPlanPathAfterMergeFailure?: typeof restorePrimaryPlanPathAfterMergeFailure,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
  *   sealExecutionWorktreeCandidate?: typeof sealExecutionWorktreeCandidate,
- *   getBranchHead?: typeof getBranchHead,
- *   isCommitAncestorOfBranch?: typeof isCommitAncestorOfBranch,
  *   assertNoUnvalidatedPostSealChanges?: typeof assertNoUnvalidatedPostSealChanges,
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
@@ -1623,8 +1621,6 @@ export async function runMechanicalValidation({
  *   switchActiveAgent?: typeof switchActiveAgent,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef,
- *   captureWorktreeTree?: typeof captureWorktreeTree,
- *   diffTrees?: typeof diffTrees,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   requestInteraction?: typeof requestHostedSessionInteraction,
@@ -1644,6 +1640,7 @@ export async function runValidationLoop({
     hostedSession,
     finalAgentName,
     executionContext,
+    git = createGitPort(),
     __deps,
 }) {
     if (!hostedSession) throw new Error("runValidationLoop: hostedSession is required");
@@ -1667,18 +1664,15 @@ export async function runValidationLoop({
     const restorePrimaryPlanPathImpl = __deps?.restorePrimaryPlanPathAfterMergeFailure ||
         restorePrimaryPlanPathAfterMergeFailure;
     const mergeExecutionWorktreeImpl = __deps?.mergeExecutionWorktree || mergeExecutionWorktree;
+    // Git is a real boundary, so it arrives as a port. It used to be four entries in the
+    // bag, each gated on whether `mergeExecutionWorktree` happened to be injected — so a
+    // test that faked a merge silently got a constant branch head and an ancestry check
+    // that always said yes, without asking for either.
+    const gitPort = git;
     const sealExecutionWorktreeCandidateImpl = __deps?.sealExecutionWorktreeCandidate ||
-        (__deps?.mergeExecutionWorktree
-            ? (() => Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }))
-            : sealExecutionWorktreeCandidate);
-    const getBranchHeadImpl = __deps?.getBranchHead ||
-        (__deps?.mergeExecutionWorktree
-            ? (() => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
-            : getBranchHead);
-    const isCommitAncestorOfBranchImpl = __deps?.isCommitAncestorOfBranch ||
-        (__deps?.mergeExecutionWorktree ? (() => Promise.resolve(true)) : isCommitAncestorOfBranch);
+        sealExecutionWorktreeCandidate;
     const assertNoUnvalidatedPostSealChangesImpl = __deps?.assertNoUnvalidatedPostSealChanges ||
-        (__deps?.mergeExecutionWorktree ? (() => Promise.resolve()) : assertNoUnvalidatedPostSealChanges);
+        assertNoUnvalidatedPostSealChanges;
     const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
@@ -1695,8 +1689,6 @@ export async function runValidationLoop({
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const loadReviewerFeedbackEngineerDefImpl = __deps?.loadReviewerFeedbackEngineerDef ||
         loadReviewerFeedbackEngineerDef;
-    const captureWorktreeTreeImpl = __deps?.captureWorktreeTree || captureWorktreeTree;
-    const diffTreesImpl = __deps?.diffTrees || diffTrees;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
@@ -1950,7 +1942,7 @@ export async function runValidationLoop({
         // repair changed. Fail closed: silently reviewing the full scope instead
         // would hide whether the repair did anything.
         try {
-            repairBaselineTree = await captureWorktreeTreeImpl(executionCwd);
+            repairBaselineTree = await gitPort.captureTree(executionCwd);
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             haltReason = `Could not capture the pre-repair tree for focused review: ${detail}`;
@@ -2317,10 +2309,10 @@ export async function runValidationLoop({
             // it is looking at a repair delta would make its verdict meaningless.
             if (repairBaselineTree && !skipSemanticReview) {
                 try {
-                    repairDiffText = await diffTreesImpl(
+                    repairDiffText = await gitPort.diffTrees(
                         executionCwd,
                         repairBaselineTree,
-                        await captureWorktreeTreeImpl(executionCwd),
+                        await gitPort.captureTree(executionCwd),
                     );
                 } catch (error) {
                     const detail = error instanceof Error ? error.message : String(error);
@@ -2955,7 +2947,7 @@ export async function runValidationLoop({
                                 `Target branch metadata is missing for worktree branch ${worktreeBranch}; cannot publish Delivery Evidence.`,
                             );
                         }
-                        const targetHeadBeforeMerge = await getBranchHeadImpl(projectRoot, worktreeBaseBranch);
+                        const targetHeadBeforeMerge = await gitPort.branchHead(projectRoot, worktreeBaseBranch);
                         deliveryEvidence = {
                             version: 1,
                             mode: "worktree_merge",
@@ -3160,7 +3152,7 @@ export async function runValidationLoop({
                                     });
                                     let mergeVerificationFailure = "";
                                     if (deliveryEvidence?.mode === "worktree_merge") {
-                                        const candidateMerged = await isCommitAncestorOfBranchImpl(
+                                        const candidateMerged = await gitPort.isAncestor(
                                             projectRoot,
                                             deliveryEvidence.executionCommit,
                                             deliveryEvidence.targetBranch,
@@ -3174,7 +3166,7 @@ export async function runValidationLoop({
                                         !mergeVerificationFailure && result?.executionMetadataCommit &&
                                         deliveryEvidence?.mode === "worktree_merge"
                                     ) {
-                                        const metadataMerged = await isCommitAncestorOfBranchImpl(
+                                        const metadataMerged = await gitPort.isAncestor(
                                             projectRoot,
                                             result.executionMetadataCommit,
                                             deliveryEvidence.targetBranch,
@@ -3265,7 +3257,7 @@ export async function runValidationLoop({
                     let mergeVerificationFailure = "";
                     try {
                         if (deliveryEvidence?.mode === "worktree_merge") {
-                            const candidateMerged = await isCommitAncestorOfBranchImpl(
+                            const candidateMerged = await gitPort.isAncestor(
                                 projectRoot,
                                 deliveryEvidence.executionCommit,
                                 deliveryEvidence.targetBranch,
@@ -3279,7 +3271,7 @@ export async function runValidationLoop({
                             !mergeVerificationFailure && sealedExecutionMetadataCommit &&
                             deliveryEvidence?.mode === "worktree_merge"
                         ) {
-                            const metadataMerged = await isCommitAncestorOfBranchImpl(
+                            const metadataMerged = await gitPort.isAncestor(
                                 projectRoot,
                                 sealedExecutionMetadataCommit,
                                 deliveryEvidence.targetBranch,

@@ -9,8 +9,10 @@ import { __resetSettingsForTests } from "../settings.js";
 import {
     git,
     makeRecordedSession,
+    makeStubGitPort,
     makeUi,
     makeValidationProjectRoot,
+    noOpPublicationProofDeps,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -113,7 +115,9 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
             planContent: canonicalPlan.markdown,
             triageMeta: canonicalPlan.attrs,
             sessionManager: undefined,
+            git: makeStubGitPort(),
             __deps: /** @type {any} */ ({
+                ...noOpPublicationProofDeps(),
                 ...noOpWorktreePlanHandoffDeps(),
                 resolveValidationExecutionContext: undefined,
                 runLocalCI: runPassingCI,
@@ -184,7 +188,9 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             resolveValidationExecutionContext: (/** @type {any} */ opts) =>
                 Promise.resolve({
@@ -269,7 +275,9 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -344,7 +352,9 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             restorePrimaryPlanPathAfterMergeFailure: () => {
                 actions.push("restore-primary-plan");
@@ -436,7 +446,9 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -509,7 +521,9 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -579,7 +593,9 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -640,7 +656,9 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
         planContent: "plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -756,7 +774,9 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -840,7 +860,9 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort(),
         __deps: /** @type {any} */ ({
+            ...noOpPublicationProofDeps(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -991,7 +1013,17 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
+        git: makeStubGitPort({
+            isAncestor: () => Promise.resolve(true),
+            // The target moves between sealing and publication: the first read is the head
+            // the candidate was sealed against, later reads show it has advanced.
+            branchHead: () => {
+                targetHeadCalls++;
+                return Promise.resolve(targetHeadCalls === 1 ? "b".repeat(40) : "c".repeat(40));
+            },
+        }),
         __deps: /** @type {any} */ ({
+            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -1014,10 +1046,6 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
             sealExecutionWorktreeCandidate: () => {
                 sealCalls++;
                 return Promise.resolve({ executionCommit: "a".repeat(40) });
-            },
-            getBranchHead: () => {
-                targetHeadCalls++;
-                return Promise.resolve(targetHeadCalls === 1 ? "b".repeat(40) : "c".repeat(40));
             },
             stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
                 stagedEvidence.push(args.details.deliveryEvidence);
@@ -1066,7 +1094,6 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
                 return Promise.resolve({});
             },
             shouldCleanupMergedWorktrees: () => false,
-            isCommitAncestorOfBranch: () => Promise.resolve(true),
             verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             recordWorkflowMetric: () => Promise.resolve(null),
         }),
