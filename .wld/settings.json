@@ -1,3 +1,4 @@
 {
-    "verification_command": "deno run ci"
+    "verification_command": "deno run ci",
+    "guidedReview": "ask"
 }
