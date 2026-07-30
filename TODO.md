@@ -7,18 +7,35 @@
       should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
       else re open the review.
 
-- [ ] How to run just 1 test?
+- [ ] P0 break up this file! src/shared/workflow/validation.js and convert it to TS
 
-deno run -A scripts/run-tests.js src/cmd/load-plan/load-plan-review.test.js
+- [ ] golden TUI claude's suggestions:
 
-Uncaught error from ./src/cmd/load-plan/load-plan-review.test.js FAILED
+  planned-change-review-repair-validation-delivery no longer reaches composition idle. It passes at the prior commit and
+  fails with my scenario-runner changes; the scenario consumes its whole script and the workflow completes, so it's
+  harness, not product. I isolated it to scenario-runner.js but not to the specific change, and I stopped rather than
+  keep guessing. That's the one thing I'd pick up first.
 
-ERRORS
+  Highest value — the seams that just broke.
 
-./src/cmd/load-plan/load-plan-review.test.js (uncaught error) error: (in promise) Error: Refusing to load RunWield
-modules in an unsandboxed test run. Run the suite with `deno task test` (or scripts/run-tests.js), which points HOME and
-MNEMOSYNE_DB_PATH at a sandbox. Running `deno test` directly lets tests overwrite the real ~/.wld and the real mnemosyne
-memory database.
+  1. Epic completion and parent advancement: the last child verifies → Epic advances → Work Record → registry fully
+     drained. This is where both remaining anomalies live.
+  2. Resume after interruption: kill a child mid-execution, reopen, /load-plan epic → recovery options. Every bug I hit
+     was a stale-snapshot or precondition bug, and recovery is nothing but preconditions.
+  3. Concurrent Plans: two Plans executing in one Project — the planId backfill bug was a lock/ordering bug, and nothing
+     currently exercises contention.
+
+  Real user journeys with no coverage. 4. /load-plan itself — the richest untested surface in the codebase (hold/resume,
+  reset-to-draft, re-review, user-verify, archive, worktree recovery). I read a lot of it today; almost none is covered
+  end-to-end. 5. Validation failure paths: CI fails → repair → retry → exhausts rounds. Today only the happy path and
+  one reviewer rejection are covered. 6. QUICK_FIX through to Direct Delivery (currently stops at Mechanical
+  Validation). 7. Non-Git in-place execution — a whole delivery mode with no Golden coverage, and the mode the old fake
+  code silently used.
+
+  Strengthening what exists. 8. Assert absence: Guide writes nothing, Ideator writes only the PRD. Mutation-policy
+  claims are currently assertions about screen text, not the filesystem. 9. Assert the worktree registry drains in the
+  PLANNED_CHANGE scenario too, not just PROJECT. 10. A malformed/hand-edited Plan file mid-workflow — front-matter
+  parsing is load-bearing for every precondition and is only unit-tested.
 
 -
   - [ ] Composition tests — the guarantee only exists when parts compose, so it can only be observed there.
