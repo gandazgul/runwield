@@ -19,7 +19,7 @@ import stripAnsi from "strip-ansi";
 /**
  * Format a system line from explicit text/header/style parts (no parsing).
  * `header` (when provided) is rendered bold in `style.headingColor` (default
- * `accent` / `error` based on isError). The body text uses the base color
+ * `accent` / `error` based on isError). The body text uses normal text color
  * unless `style.bodyColor` overrides it.
  *
  * @param {string} text
@@ -29,7 +29,7 @@ import stripAnsi from "strip-ansi";
  * @returns {string}
  */
 function formatSystemLine(text, isError, header = "", style) {
-    const baseColor = style?.bodyColor || (isError ? "error" : "dim");
+    const baseColor = style?.bodyColor || (isError ? "error" : "text");
 
     if (!header) {
         // @ts-ignore: baseColor is always a valid ThemeColor but TS can't verify dynamic strings
@@ -482,7 +482,7 @@ export class SystemMessageBlock {
      * @param {string} text
      * @param {boolean} [isError=false]
      * @param {string} [header='']
-     * @param {{ headingColor?: string }} [style]
+     * @param {{ headingColor?: string, bodyColor?: string }} [style]
      */
     constructor(text, isError = false, header = "", style = {}) {
         this.container = new Container();
@@ -495,7 +495,7 @@ export class SystemMessageBlock {
     /**
      * @param {string} text
      * @param {string} [header='']
-     * @param {{ headingColor?: string }} [style]
+     * @param {{ headingColor?: string, bodyColor?: string }} [style]
      */
     appendText(text, header = "", style) {
         this.container.addChild(

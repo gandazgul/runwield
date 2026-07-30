@@ -213,19 +213,21 @@ Deno.test("SystemMessageBlock renders with mdHeading heading style", () => {
     const plain = stripAnsi(contentLine).trim();
     assertEquals(plain, `${header} ${text}`, "Stripped content should be 'header text'");
 
-    // We expect at least two distinct fg color codes.
+    // The mdHeading color is peach (#fab387) → 250;179;135 (truecolor) or 216 (256-color).
+    // Body text should remain normal text by default, not muted/dim, so the heading
+    // may be the only explicit foreground color on this line.
     // deno-lint-ignore no-control-regex
     const fgMatches = contentLine.match(/\x1b\[(?:38;2;\d+;\d+;\d+|38;5;\d+)m/g) || [];
-    const uniqueFg = [...new Set(fgMatches)];
-    assertEquals(
-        uniqueFg.length >= 2,
-        true,
-        "Should have at least two distinct foreground colors",
-    );
-
-    // The mdHeading color is peach (#fab387) → 250;179;135 (truecolor) or 216 (256-color).
     const hasPeach = fgMatches.some((m) => m === "\x1b[38;2;250;179;135m" || m === "\x1b[38;5;216m");
     assertEquals(hasPeach, true, "Should contain the peach/mdHeading ANSI code");
+
+    const mutedBlock = new SystemMessageBlock(text, false, header, { ...style, bodyColor: "dim" });
+    const mutedContentLine = mutedBlock.render(w).find((l) => stripAnsi(l).trim().length > 0) || "";
+    assertNotEquals(
+        contentLine,
+        mutedContentLine,
+        "Default system body text should not render with the explicit dim/muted body style",
+    );
 });
 
 Deno.test("SystemMessageBlock appendText uses header and style", () => {
