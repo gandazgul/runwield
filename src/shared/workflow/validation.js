@@ -1531,7 +1531,8 @@ export async function runMechanicalValidation({
             agentName: AGENTS.ENGINEER,
             userRequest:
                 "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +
-                "run appropriate verification, then call task_completed when the repair is complete:\n\n" +
+                "run appropriate verification, then call task_completed when the repair is complete. " +
+                "If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
                 ciResult.output,
             sessionManager,
             cwd: validationCwd,
@@ -2130,7 +2131,8 @@ export async function runValidationLoop({
                     agentName: executionAgent,
                     userRequest:
                         "The project failed CI validation. Fix the following build errors, then call task_completed " +
-                        `when the repair is complete:\n\n${ciResult.output}`,
+                        "when the repair is complete. If the repair involves tests, follow the write-tests skill " +
+                        `for sound testing behavior:\n\n${ciResult.output}`,
                     sessionManager,
                     cwd: executionCwd,
                 });
