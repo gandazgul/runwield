@@ -249,7 +249,7 @@ export function makeStubGitPort(overrides = {}) {
 /**
  * Publication-proof stand-ins for tests whose worktree is not a real repository.
  *
- * `sealExecutionWorktreeCandidate` and `assertNoUnvalidatedPostSealChanges` are
+ * `checkpointExecutionWorktree` and `assertPreMergeCandidateUnchanged` are
  * RunWield's own proof policy, not Git, so they are on the machinery denylist and are
  * meant to lose their seams as tests move to real worktrees. Until then they must at
  * least be requested out loud: they used to be swapped for these same no-ops purely
@@ -260,7 +260,7 @@ export function makeStubGitPort(overrides = {}) {
  */
 export function noOpPublicationProofDeps() {
     return {
-        sealExecutionWorktreeCandidate: () => Promise.resolve({ executionCommit: "a".repeat(40) }),
-        assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+        checkpointExecutionWorktree: () => Promise.resolve({ executionCommit: "a".repeat(40) }),
+        assertPreMergeCandidateUnchanged: () => Promise.resolve(),
     };
 }

@@ -163,18 +163,30 @@ out to be finding 14, not a transaction problem.
 `architecture-boundary.test.js` now fails if `mergeExecutionWorktree` is called outside a publication transaction,
 verified by moving it out on purpose.
 
-### 14. A real-Git test was passing by reading the developer's own repository
+### 14. A real-Git test was passing on a fake constant it never asked for
 
-`load-plan-recovery.test.js` built a real Git project in a temp directory but left `session.cwd` pointing at the
-checkout, and did not inject `getBranchHead`, `sealExecutionWorktreeCandidate`, or `isCommitAncestorOfBranch`. Those ran
-against **the RunWield repo**. `getBranchHead` returned that repository's `main`, which mismatched the test project's
-head, so the merge refused with "Target branch advanced before publication" — and the test asserted exactly that
-message.
+`load-plan-recovery.test.js` built a real Git project in a temp directory and asserted that a second merge attempt
+refused with "Target branch advanced before publication". It passed — but not for the stated reason.
 
-The assertion was therefore satisfied by a fixture leak. Correct behaviour after resolving a conflict and re-merging is
-a successful publication, so the test now asserts `verified` plus Delivery Evidence. The target-advanced case got its
-own test that genuinely advances the target between sealing and merging, and both now assert no unresolved journal is
-left behind.
+`validation.js` gated four seams on whether an _unrelated_ dependency was injected:
+
+```js
+const getBranchHeadImpl = __deps?.getBranchHead ||
+    (__deps?.mergeExecutionWorktree ? (() => Promise.resolve("bbbb…")) : getBranchHead);
+```
+
+Because the test injected `mergeExecutionWorktree`, it silently also received a constant branch head, an ancestry check
+hardcoded to `true`, a constant sealed commit, and a no-op post-seal check — none of which it requested. The constant
+head never matched the real project, so the merge always reported the target as advanced. The assertion was satisfied by
+a fake the test did not know it had.
+
+Correct behaviour after resolving a conflict and re-merging is a successful publication, so the test now asserts
+`verified` plus Delivery Evidence, and the target-advanced case got its own test that genuinely advances the target
+between sealing and merging. Both assert no unresolved journal is left.
+
+The seam-ratchet's conditional check originally caught only `__deps ? … :` (gated on the bag itself). It now also
+catches `__deps?.x ? … :` — one seam gated on another dep — which found exactly these four and nothing else. That
+widened check is what makes this class visible rather than folklore.
 
 ## Open — recommended next
 

@@ -112,7 +112,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                 actions.push(`registry-remove:${projectRoot}:${id}`);
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
 
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -382,7 +382,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
                 preservedPaths.push(args.preservePlanPaths);
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             removeExecutionWorktree: () => Promise.resolve(),
             getCodeReviewMode: () => "none",
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -442,7 +442,7 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                 actions.push("merge");
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () =>
+            verifyPostMergeCandidatePublished: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
             runCompletionGatedRepair: (/** @type {any} */ opts) => {
                 actions.push(`repair:${opts.agentName}:merge_verification`);
@@ -552,7 +552,7 @@ Deno.test("an unresolved journal blocks validation settlement with an actionable
                 ),
             getCodeReviewMode: () => "none",
             mergeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () =>
+            verifyPostMergeCandidatePublished: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
             runCompletionGatedRepair: () => Promise.resolve(false),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),

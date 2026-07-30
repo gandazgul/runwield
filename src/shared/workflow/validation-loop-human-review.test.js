@@ -84,7 +84,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry");
                 return Promise.resolve({});
@@ -170,7 +170,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -257,7 +257,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -295,7 +295,7 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
         sessionManager: undefined,
         git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             resolveValidationExecutionContext: () =>
                 Promise.resolve({
@@ -624,7 +624,7 @@ Deno.test("runValidationLoop ends the human review loop only when the human quit
             diffTrees: () => Promise.resolve("diff --git a/file.js b/file.js\n+repair\n"),
         }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),

@@ -93,8 +93,9 @@
         },
         "src/shared/workflow/validation.js": {
             "seams": [
-                "assertNoUnvalidatedPostSealChanges",
+                "assertPreMergeCandidateUnchanged",
                 "autoGenerateWorkRecordForCompletedPlan",
+                "checkpointExecutionWorktree",
                 "findWorktreeRegistryEntryById",
                 "formatWorkRecordAutoGenerationResult",
                 "getCodeReviewMode",
@@ -120,27 +121,24 @@
                 "runLocalCI",
                 "runManualQaChecklistPrompt",
                 "runValidationOutcomeTransition",
-                "sealExecutionWorktreeCandidate",
                 "shouldCleanupMergedWorktrees",
                 "stageValidationPassedInExecutionWorktree",
                 "switchActiveAgent",
                 "updatePlanFrontMatter",
                 "updateWorktreeRegistryEntry",
-                "verifyExecutionWorktreeMerged"
+                "verifyPostMergeCandidatePublished"
             ],
             "machinery": [
-                "assertNoUnvalidatedPostSealChanges",
+                "checkpointExecutionWorktree",
                 "mergeExecutionWorktree",
                 "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
                 "removeExecutionWorktree",
                 "removeWorktreeRegistryEntry",
                 "restorePrimaryPlanPathAfterMergeFailure",
-                "sealExecutionWorktreeCandidate",
                 "stageValidationPassedInExecutionWorktree",
                 "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry",
-                "verifyExecutionWorktreeMerged"
+                "updateWorktreeRegistryEntry"
             ]
         },
         "src/shared/workflow/workflow-slicer.js": {

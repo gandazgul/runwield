@@ -94,7 +94,7 @@ Deno.test("runValidationLoop pauses when the Reviewer-Feedback Engineer stalls",
         sessionManager: undefined,
         git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
@@ -305,7 +305,7 @@ Deno.test("runValidationLoop routes frontend semantic repair to the Reviewer-Fee
         sessionManager: undefined,
         git: makeStubGitPort({ captureTree: () => Promise.resolve("tree-before-repair") }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             resolveValidationExecutionContext: () =>
                 Promise.resolve({
@@ -578,7 +578,7 @@ Deno.test("runValidationLoop halts without prompting when the repair baseline ca
         sessionManager: undefined,
         git: makeStubGitPort({ captureTree: () => Promise.reject(new Error("worktree vanished")) }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -636,7 +636,7 @@ Deno.test("runValidationLoop halts cleanly when the repair diff cannot be comput
             diffTrees: () => Promise.reject(new Error("bad object tree-before-repair")),
         }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),

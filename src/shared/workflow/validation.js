@@ -50,11 +50,12 @@ import { createGitPort } from "../git-port.ts";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
+    assertPreMergeCandidateUnchanged,
+    checkpointExecutionWorktree,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
     removeExecutionWorktree,
     restorePrimaryPlanPathAfterMergeFailure,
-    sealExecutionWorktreeCandidate,
 } from "../worktree.js";
 import {
     findById as findWorktreeRegistryEntryById,
@@ -909,49 +910,6 @@ async function runGitForMergeVerification(cwd, args) {
 }
 
 /**
- * @param {string} path
- * @param {string} planName
- * @returns {boolean}
- */
-function isPlanMetadataPath(path, planName) {
-    return path === `plans/${planName}.md`;
-}
-
-/**
- * @param {Object} opts
- * @param {string} opts.executionCwd
- * @param {string} opts.sealedExecutionCommit
- * @param {string} opts.planName
- * @returns {Promise<void>}
- */
-async function assertNoUnvalidatedPostSealChanges({ executionCwd, sealedExecutionCommit, planName }) {
-    const committed = await runGitForMergeVerification(executionCwd, [
-        "diff",
-        "--name-only",
-        `${sealedExecutionCommit}..HEAD`,
-    ]);
-    if (committed.exitCode !== 0) {
-        throw new Error(`Could not inspect post-seal execution changes: ${committed.stderr.trim()}`);
-    }
-    const dirty = await runGitForMergeVerification(executionCwd, ["status", "--porcelain"]);
-    if (dirty.exitCode !== 0) {
-        throw new Error(`Could not inspect execution worktree status after candidate sealing: ${dirty.stderr.trim()}`);
-    }
-    const changedPaths = [
-        ...committed.stdout.split("\n").map((line) => line.trim()).filter(Boolean),
-        ...dirty.stdout.split("\n").map((line) => line.slice(3).trim()).filter(Boolean),
-    ];
-    const nonPlanPaths = [...new Set(changedPaths.filter((path) => !isPlanMetadataPath(path, planName)))];
-    if (nonPlanPaths.length > 0) {
-        throw new Error(
-            "Execution worktree changed after the validated candidate was sealed. " +
-                "Run Workflow Validation again before publishing these files: " +
-                nonPlanPaths.join(", "),
-        );
-    }
-}
-
-/**
  * @typedef {Object} MergeVerificationResult
  * @property {boolean} merged
  * @property {string} message
@@ -964,7 +922,7 @@ async function assertNoUnvalidatedPostSealChanges({ executionCwd, sealedExecutio
  * @param {string | undefined} opts.worktreeBaseBranch
  * @returns {Promise<MergeVerificationResult>}
  */
-async function verifyExecutionWorktreeMerged({ projectRoot, worktreeBranch, worktreeBaseBranch }) {
+async function verifyPostMergeCandidatePublished({ projectRoot, worktreeBranch, worktreeBaseBranch }) {
     try {
         const targetRef = worktreeBaseBranch ? `refs/heads/${worktreeBaseBranch}` : "HEAD";
         const branchResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", worktreeBranch]);
@@ -1610,8 +1568,8 @@ export async function runMechanicalValidation({
  *   preparePrimaryPlanPathForMerge?: typeof preparePrimaryPlanPathForMerge,
  *   restorePrimaryPlanPathAfterMergeFailure?: typeof restorePrimaryPlanPathAfterMergeFailure,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
- *   sealExecutionWorktreeCandidate?: typeof sealExecutionWorktreeCandidate,
- *   assertNoUnvalidatedPostSealChanges?: typeof assertNoUnvalidatedPostSealChanges,
+ *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
+ *   assertPreMergeCandidateUnchanged?: typeof assertPreMergeCandidateUnchanged,
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
@@ -1625,7 +1583,7 @@ export async function runMechanicalValidation({
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   requestInteraction?: typeof requestHostedSessionInteraction,
  *   getGuidedReviewMode?: typeof getGuidedReviewMode,
- *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
+ *   verifyPostMergeCandidatePublished?: typeof verifyPostMergeCandidatePublished,
  *   resolveValidationExecutionContext?: typeof resolveValidationExecutionContext,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   autoGenerateWorkRecordForCompletedPlan?: typeof autoGenerateWorkRecordForCompletedPlan,
@@ -1669,10 +1627,10 @@ export async function runValidationLoop({
     // test that faked a merge silently got a constant branch head and an ancestry check
     // that always said yes, without asking for either.
     const gitPort = git;
-    const sealExecutionWorktreeCandidateImpl = __deps?.sealExecutionWorktreeCandidate ||
-        sealExecutionWorktreeCandidate;
-    const assertNoUnvalidatedPostSealChangesImpl = __deps?.assertNoUnvalidatedPostSealChanges ||
-        assertNoUnvalidatedPostSealChanges;
+    const checkpointExecutionWorktreeImpl = __deps?.checkpointExecutionWorktree ||
+        checkpointExecutionWorktree;
+    const assertPreMergeCandidateUnchangedImpl = __deps?.assertPreMergeCandidateUnchanged ||
+        assertPreMergeCandidateUnchanged;
     const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
@@ -1693,7 +1651,8 @@ export async function runValidationLoop({
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
     const getGuidedReviewModeImpl = __deps?.getGuidedReviewMode || getGuidedReviewMode;
-    const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
+    const verifyPostMergeCandidatePublishedImpl = __deps?.verifyPostMergeCandidatePublished ||
+        verifyPostMergeCandidatePublished;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const autoGenerateWorkRecordForCompletedPlanImpl = __deps?.autoGenerateWorkRecordForCompletedPlan ||
         autoGenerateWorkRecordForCompletedPlan;
@@ -2928,7 +2887,7 @@ export async function runValidationLoop({
                     cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl(projectRoot);
                     if (!deliveryEvidence) {
                         if (!validatedExecutionCommit) {
-                            const sealedCandidate = await sealExecutionWorktreeCandidateImpl({
+                            const sealedCandidate = await checkpointExecutionWorktreeImpl({
                                 worktreePath: executionCwd,
                                 branch: worktreeBranch,
                                 planName,
@@ -2936,10 +2895,12 @@ export async function runValidationLoop({
                             });
                             validatedExecutionCommit = sealedCandidate.executionCommit;
                         } else {
-                            await assertNoUnvalidatedPostSealChangesImpl({
-                                executionCwd,
+                            await assertPreMergeCandidateUnchangedImpl({
+                                worktreePath: executionCwd,
                                 sealedExecutionCommit: validatedExecutionCommit,
-                                planName,
+                                allowedPlanPaths: preservedPlanPaths.length > 0
+                                    ? preservedPlanPaths
+                                    : [`plans/${planName}.md`],
                             });
                         }
                         if (!worktreeBaseBranch) {
@@ -2956,10 +2917,12 @@ export async function runValidationLoop({
                             targetHeadBeforeMerge,
                         };
                     } else {
-                        await assertNoUnvalidatedPostSealChangesImpl({
-                            executionCwd,
+                        await assertPreMergeCandidateUnchangedImpl({
+                            worktreePath: executionCwd,
                             sealedExecutionCommit: deliveryEvidence.executionCommit,
-                            planName,
+                            allowedPlanPaths: preservedPlanPaths.length > 0
+                                ? preservedPlanPaths
+                                : [`plans/${planName}.md`],
                         });
                     }
                     const deliveryEvidenceKey =
@@ -3178,7 +3141,7 @@ export async function runValidationLoop({
                                     }
                                     const mergeVerification = mergeVerificationFailure
                                         ? { merged: false, message: mergeVerificationFailure }
-                                        : await verifyExecutionWorktreeMergedImpl({
+                                        : await verifyPostMergeCandidatePublishedImpl({
                                             projectRoot,
                                             worktreeBranch,
                                             worktreeBaseBranch,
@@ -3283,7 +3246,7 @@ export async function runValidationLoop({
                         }
                         const mergeVerification = mergeVerificationFailure || mergeVerificationAlreadyProved
                             ? { merged: mergeVerificationAlreadyProved, message: mergeVerificationFailure }
-                            : await verifyExecutionWorktreeMergedImpl({
+                            : await verifyPostMergeCandidatePublishedImpl({
                                 projectRoot,
                                 worktreeBranch,
                                 worktreeBaseBranch,

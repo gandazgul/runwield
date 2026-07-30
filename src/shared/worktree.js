@@ -483,6 +483,42 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
 }
 
 /**
+ * Pre-merge proof: nothing but Plan metadata changed since the candidate was sealed.
+ *
+ * The paired postcondition is `verifyPostMergeCandidatePublished` in validation. This
+ * one runs *before* the target ref moves and answers "is the thing we validated still
+ * the thing we are about to publish?"; that one runs after and answers "did it land?".
+ *
+ * Single implementation on purpose. This check previously existed twice with different
+ * rules — once here inside the merge, keyed on the staged Plan paths, and once in
+ * validation, keyed on `plans/<planName>.md` alone. The narrower rule was wrong for
+ * Epic publication, where the parent Epic and siblings are staged too, so the staged
+ * path set is the correct authority and prefix matching is kept.
+ *
+ * @param {Object} opts
+ * @param {string} opts.worktreePath Execution worktree to inspect.
+ * @param {string} opts.sealedExecutionCommit Commit the validated candidate was sealed at.
+ * @param {string[]} opts.allowedPlanPaths Plan paths staging is permitted to have touched.
+ * @returns {Promise<void>}
+ */
+export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExecutionCommit, allowedPlanPaths }) {
+    const allowed = new Set(allowedPlanPaths);
+    const committed = parseNameOnlyPaths(
+        await runGit(worktreePath, ["diff", "--name-only", `${sealedExecutionCommit}..HEAD`]),
+    );
+    const dirty = parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain"]));
+    const changed = [...new Set([...committed, ...dirty])];
+    const disallowed = changed.filter((path) => !isAllowedDirtyPath(path, allowed));
+    if (disallowed.length > 0) {
+        throw new Error(
+            "Execution worktree changed after the validated candidate was sealed. " +
+                "Run Workflow Validation again before publishing these files: " +
+                disallowed.join(", "),
+        );
+    }
+}
+
+/**
  * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
  * @returns {Promise<{ executionCommit: string }>}
  */
@@ -492,14 +528,6 @@ export async function checkpointExecutionWorktree({ worktreePath, branch, planNa
     if (status.trim()) throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
     const executionCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     return { executionCommit };
-}
-
-/**
- * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
- * @returns {Promise<{ executionCommit: string }>}
- */
-export async function sealExecutionWorktreeCandidate(opts) {
-    return await checkpointExecutionWorktree(opts);
 }
 
 /**
@@ -1130,23 +1158,6 @@ export async function mergeExecutionWorktree(
     /** @type {string | undefined} */
     let executionMetadataCommit;
     if (resolvedWorktreePath) {
-        if (sealedExecutionCommit) {
-            const currentHead = (await runGit(resolvedWorktreePath, ["rev-parse", "HEAD"])).trim();
-            if (currentHead !== sealedExecutionCommit) {
-                const allowedPathSet = new Set(preservePlanPaths);
-                const changedSinceSeal = parseNameOnlyPaths(
-                    await runGit(resolvedWorktreePath, ["diff", "--name-only", `${sealedExecutionCommit}..HEAD`]),
-                );
-                const disallowedPaths = changedSinceSeal.filter((path) => !isAllowedDirtyPath(path, allowedPathSet));
-                if (disallowedPaths.length > 0) {
-                    throw new Error(
-                        `Execution worktree HEAD ${currentHead} changed after candidate sealing; expected ${sealedExecutionCommit}. ` +
-                            "Non-Plan changes require a fresh Workflow Validation attempt:\n" +
-                            disallowedPaths.map((path) => `  - ${path}`).join("\n"),
-                    );
-                }
-            }
-        }
         await commitDirtyWorktreeState(
             resolvedWorktreePath,
             branch,

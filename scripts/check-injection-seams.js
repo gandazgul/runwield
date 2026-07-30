@@ -29,6 +29,15 @@
  * Run with `--update` after removing seams to tighten the baseline. It refuses to
  * loosen: an update that would raise a count or add a machinery seam fails, so
  * "just re-baseline it" is not an escape hatch.
+ *
+ * Renaming a seam looks like removing one and adding another, which the ratchet is
+ * right to reject. Declare it instead:
+ *
+ *     deno run -A scripts/check-injection-seams.js --update --rename old=new
+ *
+ * A rename rewrites the name in the baseline before comparing, so it can carry an
+ * existing seam to a new name but can never introduce one — the old name has to be
+ * there already.
  */
 
 const BASELINE_PATH = new URL("./injection-seam-baseline.json", import.meta.url);
@@ -307,8 +316,39 @@ function findStaleBaseline(current, baseline) {
     return stale;
 }
 
+/**
+ * @param {SeamEntry} baseline
+ * @param {Array<[string, string]>} renames
+ * @returns {SeamEntry}
+ */
+function applyRenames(baseline, renames) {
+    if (renames.length === 0) return baseline;
+    const map = new Map(renames);
+    /** @type {SeamEntry} */
+    const renamed = {};
+    for (const [path, entry] of Object.entries(baseline)) {
+        renamed[path] = {
+            seams: [...new Set(entry.seams.map((name) => map.get(name) || name))].sort(),
+            machinery: [...new Set(entry.machinery.map((name) => map.get(name) || name))].sort(),
+        };
+    }
+    return renamed;
+}
+
 if (import.meta.main) {
     const update = Deno.args.includes("--update");
+    /** @type {Array<[string, string]>} */
+    const renames = [];
+    for (let index = 0; index < Deno.args.length; index++) {
+        if (Deno.args[index] !== "--rename") continue;
+        const pair = Deno.args[index + 1] || "";
+        const [from, to] = pair.split("=");
+        if (!from || !to) {
+            console.error(`--rename expects old=new, received "${pair}".`);
+            Deno.exit(1);
+        }
+        renames.push([from, to]);
+    }
     const { seams, conditional } = await collectSeams();
     const sortedSeams = Object.fromEntries(Object.entries(seams).sort(([a], [b]) => a.localeCompare(b)));
 
@@ -326,7 +366,7 @@ if (import.meta.main) {
     }
 
     if (update) {
-        const baseline = await readBaseline().catch(() => ({}));
+        const baseline = applyRenames(await readBaseline().catch(() => ({})), renames);
         const regressions = findRegressions(sortedSeams, baseline);
         if (Object.keys(baseline).length > 0 && regressions.length > 0) {
             console.error(
@@ -352,7 +392,7 @@ if (import.meta.main) {
         Deno.exit(0);
     }
 
-    const baseline = await readBaseline();
+    const baseline = applyRenames(await readBaseline(), renames);
     const regressions = findRegressions(sortedSeams, baseline);
     const stale = findStaleBaseline(sortedSeams, baseline);
 

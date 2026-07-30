@@ -138,7 +138,7 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
                         }]),
                     ),
                 mergeExecutionWorktree: () => Promise.resolve(),
-                verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+                verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
                 recordPlanEvent: recordEvent,
                 recordWorkflowMetric: () => Promise.resolve(null),
@@ -229,7 +229,7 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
                     }]),
                 ),
             mergeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {{ event: string }} */ event) => {
                 events.push(event.event);
@@ -308,7 +308,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                 actions.push("registry-remove");
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry");
                 return Promise.resolve({});
@@ -551,7 +551,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
             removeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
@@ -622,7 +622,7 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
             removeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
@@ -720,7 +720,7 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
                 actions.push("remove");
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
@@ -816,7 +816,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
                 return Promise.resolve({});
             },
             removeExecutionWorktree: () => Promise.resolve(),
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
@@ -906,7 +906,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                 actions.push("remove");
                 return Promise.resolve();
             },
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
@@ -1023,7 +1023,7 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
             },
         }),
         __deps: /** @type {any} */ ({
-            assertNoUnvalidatedPostSealChanges: () => Promise.resolve(),
+            assertPreMergeCandidateUnchanged: () => Promise.resolve(),
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
@@ -1043,7 +1043,7 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
                     }]),
                 ),
             getCodeReviewMode: () => "none",
-            sealExecutionWorktreeCandidate: () => {
+            checkpointExecutionWorktree: () => {
                 sealCalls++;
                 return Promise.resolve({ executionCommit: "a".repeat(40) });
             },
@@ -1094,7 +1094,7 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
                 return Promise.resolve({});
             },
             shouldCleanupMergedWorktrees: () => false,
-            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            verifyPostMergeCandidatePublished: () => Promise.resolve({ merged: true, message: "merged" }),
             recordWorkflowMetric: () => Promise.resolve(null),
         }),
     });
