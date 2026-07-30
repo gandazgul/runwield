@@ -23,7 +23,6 @@ import {
 } from "../session/session-runtime-interactions.js";
 import {
     checkpointExecutionWorktree,
-    createExecutionWorktree as _createExecutionWorktree,
     createWorktreeGitArtifacts,
     deleteMergedWorktreeBranch,
     findReusableWorktree,
@@ -1091,7 +1090,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   collaborationStyle?: "autonomous"|"pair",
  *   collaborationRecommendation?: "autonomous"|"pair",
  *   __deps?: {
- *     createExecutionWorktree?: typeof _createExecutionWorktree,
+ *     createExecutionWorktree?: typeof createWorktreeGitArtifacts,
  *     createWorktreeGitArtifacts?: typeof createWorktreeGitArtifacts,
  *     settleWorktreeAttempt?: typeof settleWorktreeAttempt,
  *     findReusableWorktree?: typeof findReusableWorktree,
@@ -1353,7 +1352,13 @@ export async function startActiveExecutionWorkflow(
                         force: false,
                     });
                     // Deleting the branch is irreversible, so it is its own proven step.
-                    if (worktree.branch) await deleteMergedWorktreeBranch({ projectRoot, branch: worktree.branch });
+                    if (worktree.branch) {
+                        await deleteMergedWorktreeBranch({
+                            projectRoot,
+                            branch: worktree.branch,
+                            baseCommit: "baseCommit" in worktree ? worktree.baseCommit : undefined,
+                        });
+                    }
                 });
             } else {
                 const worktreeOptions = {
@@ -1379,7 +1384,11 @@ export async function startActiveExecutionWorkflow(
                     });
                     // Deleting the branch is irreversible, so it is its own proven step.
                     if (worktreeArtifacts.branch) {
-                        await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeArtifacts.branch });
+                        await deleteMergedWorktreeBranch({
+                            projectRoot,
+                            branch: worktreeArtifacts.branch,
+                            baseCommit: worktreeArtifacts.baseCommit,
+                        });
                     }
                 });
                 worktree = await settleRegistry(projectRoot, worktreeArtifacts);
@@ -1399,7 +1408,7 @@ export async function startActiveExecutionWorkflow(
                 planName,
                 canonicalSource: canonicalPlanSource,
             });
-            if (planFile.kind !== "present" && planFile.kind !== "restored") {
+            if (planFile.kind !== "present" && planFile.kind !== "restored" && planFile.kind !== "reconciled") {
                 const preparationError = new Error(
                     `Cannot prepare execution worktree Plan file ${planFile.relativePath}: ${
                         planFile.reason || planFile.kind
@@ -1416,7 +1425,7 @@ export async function startActiveExecutionWorkflow(
             }
             const baselineTree =
                 existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree &&
-                    planFile.kind !== "restored"
+                    planFile.kind === "present"
                     ? existing.baselineTree
                     : await captureTree(worktree.path);
             const workflow = {
@@ -1483,6 +1492,7 @@ export async function startActiveExecutionWorkflow(
                     hasBaseBranch: Boolean(worktreeBaseBranch),
                     hasBaselineTree: Boolean(baselineTree),
                     planFileMaterialized: planFile.kind === "restored",
+                    planFileReconciled: planFile.kind === "reconciled",
                 },
             }, { cwd: projectRoot });
             return activeWorkflow;
@@ -1553,7 +1563,11 @@ export async function startActiveExecutionWorkflow(
                     worktreePlan.attrs.classification !== lockedCanonicalPlanSource.attrs.classification ||
                     worktreePlan.attrs.status !== lockedCanonicalPlanSource.attrs.status
                 ) {
-                    throw new Error(`Execution preparation Plan metadata is incompatible for ${planName}.`);
+                    throw new Error(
+                        `RunWield could not synchronize the execution copy of Plan "${planName}". ` +
+                            `Your Plan and worktree were preserved. Retry with \`${CLI_BIN} load-plan ${planName}\`; ` +
+                            `if it still cannot start, run \`${CLI_BIN} plans doctor --repair\` and retry.`,
+                    );
                 }
             }
             return {

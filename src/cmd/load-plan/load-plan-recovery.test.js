@@ -16,7 +16,6 @@ async function savePlanForTest(cwd, planName, content, attrs) {
 
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
 import {
-    createExecutionWorktree,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
     restorePrimaryPlanPathAfterMergeFailure,
@@ -24,6 +23,7 @@ import {
 
 import { git, makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
+import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 
 Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without transient Pair style", async () => {
     const { uiAPI, selections } = makeUi();
@@ -1167,8 +1167,7 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
         });
         await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/manual-conflict.md"]);
         await git(projectRoot, ["commit", "-m", "add manual conflict plan"]);
-        const worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        const worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Manual Conflict",
             planId: "plan-manual-conflict",
@@ -1320,8 +1319,7 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
         });
         await git(projectRoot, ["add", ".gitignore", "app.txt", "plans/stale-target.md"]);
         await git(projectRoot, ["commit", "-m", "add stale target plan"]);
-        const worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        const worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Stale Target",
             planId: "plan-stale-target",

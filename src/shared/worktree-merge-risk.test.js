@@ -1,18 +1,17 @@
 import { assertEquals } from "@std/assert";
 
-import { createExecutionWorktree, inspectExecutionWorktreeMergeRisk, removeWorktreeGitArtifacts } from "./worktree.js";
+import { inspectExecutionWorktreeMergeRisk, removeWorktreeGitArtifacts } from "./worktree.js";
 
-import { git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 
 Deno.test("inspectExecutionWorktreeMergeRisk reports clean target branch as safe without mutating", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Clean Risk",
             worktreeRoot,
@@ -51,12 +50,11 @@ Deno.test("inspectExecutionWorktreeMergeRisk fails when target branch is checked
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     const targetCheckout = await Deno.makeTempDir();
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
     let worktree;
     try {
         await git(projectRoot, ["checkout", "-b", "feature-base"]);
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Checked Out Target Risk",
             worktreeRoot,
@@ -98,11 +96,10 @@ Deno.test("inspectExecutionWorktreeMergeRisk fails when target branch is checked
 Deno.test("inspectExecutionWorktreeMergeRisk requires targetBranch to be a local branch, not a tag", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Tag Risk",
             worktreeRoot,
@@ -139,11 +136,10 @@ Deno.test("inspectExecutionWorktreeMergeRisk requires targetBranch to be a local
 Deno.test("inspectExecutionWorktreeMergeRisk warns on overlapping dirty primary changes", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Dirty Risk",
             worktreeRoot,

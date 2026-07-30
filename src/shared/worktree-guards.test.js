@@ -16,22 +16,20 @@ import { GitRepositoryRequiredError } from "./git.js";
 
 import {
     checkpointExecutionWorktree,
-    createExecutionWorktree,
     deleteMergedWorktreeBranch,
     mergeExecutionWorktree,
     prepareTargetBranchRef,
     removeWorktreeGitArtifacts,
 } from "./worktree.js";
 
-import { git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 
 Deno.test("worktree helpers report Git requirement outside Git", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-worktree-" });
     try {
         await assertRejects(
             () =>
-                createExecutionWorktree({
-                    allowRegistryMutation: "legacy-test-only",
+                createTestWorktreeAttempt({
                     projectRoot,
                     planName: "Non Git Plan",
                 }),
@@ -65,14 +63,13 @@ Deno.test("worktree helpers report Git requirement outside Git", async () => {
 Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside finalized Plan paths", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
     let worktree;
     try {
         await savePlanForTest(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
         await git(projectRoot, ["add", "plans/feature.md"]);
         await git(projectRoot, ["commit", "-m", "add feature plan"]);
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Feature",
             worktreeRoot,
@@ -150,6 +147,18 @@ Deno.test("deleteMergedWorktreeBranch deletes a merged branch and keeps an unmer
         await git(projectRoot, ["commit", "-am", "unmerged work"]);
         await git(projectRoot, ["checkout", "main"]);
 
+        // A branch that never moved off its base carries no work, so rollback can clean it
+        // up. This is the case that used to leave an orphan branch behind forever.
+        const baseCommit = await git(projectRoot, ["rev-parse", "main"]);
+        await git(projectRoot, ["branch", "runwield/worktree/untouched", baseCommit]);
+        const untouched = await deleteMergedWorktreeBranch({
+            projectRoot,
+            branch: "runwield/worktree/untouched",
+            baseCommit,
+        });
+        assertEquals(untouched.deleted, true);
+        assertStringIncludes(untouched.reason, "carried no work");
+
         const kept = await deleteMergedWorktreeBranch({ projectRoot, branch: "runwield/worktree/unmerged" });
         assertEquals(kept.deleted, false);
         assertStringIncludes(kept.reason, "not proven merged");
@@ -158,6 +167,15 @@ Deno.test("deleteMergedWorktreeBranch deletes a merged branch and keeps an unmer
             "runwield/worktree/unmerged",
             "an unproven branch survives, per PR-4",
         );
+
+        // The origin proof must not become a loophole: a branch that moved off its base
+        // holds work, even when a stale base commit is offered.
+        const stillKept = await deleteMergedWorktreeBranch({
+            projectRoot,
+            branch: "runwield/worktree/unmerged",
+            baseCommit,
+        });
+        assertEquals(stillKept.deleted, false, "a branch with commits beyond its base survives");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }

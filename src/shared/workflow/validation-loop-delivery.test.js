@@ -11,13 +11,13 @@ async function savePlanForTest(cwd, planName, content, attrs) {
     const existing = await loadPlan(cwd, planName).catch(() => null);
     return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
 }
-import { createExecutionWorktree } from "../worktree.js";
 import { runValidationLoop } from "./validation.js";
 import { runValidationOutcomeTransition } from "./state-transition.ts";
 import { HostedSession } from "../session/hosted-session.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 
+import { createTestWorktreeAttempt } from "../worktree-test-helpers.js";
 import {
     git,
     makeRecordedSession,
@@ -168,8 +168,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
         await git(projectRoot, ["add", ".gitignore", "plans/git-plan.md"]);
         await git(projectRoot, ["commit", "-m", "add plan"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
-        const worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        const worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Git Plan",
             worktreeRoot,
@@ -255,8 +254,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
         await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/conflict-plan.md"]);
         await git(projectRoot, ["commit", "-m", "add conflict plan"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
-        const worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        const worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Conflict Plan",
             worktreeRoot,

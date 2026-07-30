@@ -615,35 +615,19 @@ export async function createWorktreeGitArtifacts(
  * @param {import('./worktree-registry.js').WorktreeRegistryEntry} entry
  */
 export async function settleWorktreeAttempt(projectRoot, entry) {
-    await addEntry(projectRoot, entry);
-    return entry;
-}
-
-/**
- * Backward-compatible convenience wrapper. New lifecycle code should call
- * createWorktreeGitArtifacts() and settleWorktreeAttempt()
- * from a semantic transition boundary instead.
- *
- * @param {{ projectRoot: string, planName: string, planId?: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string, allowRegistryMutation?: "legacy-test-only" }} opts
- */
-export async function createExecutionWorktree(opts) {
-    if (opts.allowRegistryMutation !== "legacy-test-only") {
-        throw new Error(
-            "createExecutionWorktree is quarantined because it mutates the registry outside the semantic transition boundary; use createWorktreeGitArtifacts() and settleWorktreeAttempt() inside a lifecycle transition.",
-        );
-    }
-    const entry = await createWorktreeGitArtifacts({
-        ...opts,
-        planId: opts.planId || `legacy-test:${opts.planName}`,
-    });
     try {
-        return await settleWorktreeAttempt(opts.projectRoot, entry);
+        await addEntry(projectRoot, entry);
     } catch (error) {
+        // The Git artifacts already exist at this point. Reporting only the registry
+        // error would leave a real worktree on a real branch with nothing naming it, so
+        // say where it is: recovery needs the path and branch, not just the cause.
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
-            `Execution worktree was created but registry settlement failed for attempt ${entry.id}; inspect ${entry.path} on branch ${entry.branch} before removing it: ${message}`,
+            `Execution worktree was created but registry settlement failed for attempt ${entry.id}; ` +
+                `inspect ${entry.path} on branch ${entry.branch} before removing it: ${message}`,
         );
     }
+    return entry;
 }
 
 /**
@@ -1230,13 +1214,33 @@ export async function removeWorktreeGitArtifacts({ projectRoot, path, force = fa
  * unmerged branch is gone. Removing a directory and destroying history are different
  * decisions and now read as different steps at every call site.
  *
- * Proof is `git branch --merged HEAD` naming this exact branch. Without it the branch is
- * left alone and the caller is told nothing was deleted, per PR-4.
+ * Two proofs are accepted, because there are two ways to know nothing is lost:
  *
- * @param {{ projectRoot: string, branch: string }} opts
+ * - The branch is merged into HEAD (`git branch --merged`), so its commits are reachable
+ *   elsewhere.
+ * - The branch never moved off the commit it was created from, so it carries no work at
+ *   all. Rollback of a freshly created attempt is exactly this case, and without it a
+ *   cancelled execution start left an orphan branch behind forever — a loose end doctor
+ *   reports but nothing cleans up.
+ *
+ * Without either proof the branch is left alone and the caller is told nothing was
+ * deleted, per PR-4. `baseCommit` is optional: callers that cannot prove the origin get
+ * the merged check alone.
+ *
+ * @param {{ projectRoot: string, branch: string, baseCommit?: string }} opts
  * @returns {Promise<{ deleted: boolean, reason: string }>}
  */
-export async function deleteMergedWorktreeBranch({ projectRoot, branch }) {
+export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseCommit }) {
+    if (baseCommit) {
+        const tip = await runGitResult(projectRoot, ["rev-parse", `refs/heads/${branch}`]);
+        if (tip.code === 0 && tip.stdout.trim() === baseCommit) {
+            await runGit(projectRoot, ["branch", "-D", branch]);
+            return {
+                deleted: true,
+                reason: `${branch} never moved off ${baseCommit}, so it carried no work and was deleted.`,
+            };
+        }
+    }
     const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);
     const hasMergedProof = merged.code === 0 &&
         merged.stdout.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === branch);

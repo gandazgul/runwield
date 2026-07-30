@@ -4,7 +4,6 @@ import { getHomeDir } from "../constants.js";
 
 import { addEntry, findByPlanId } from "./worktree-registry.js";
 import {
-    createExecutionWorktree,
     findReusableWorktree,
     getWorktreeStatus,
     prepareTargetBranchRef,
@@ -13,7 +12,7 @@ import {
     resolveWorktreeParent,
 } from "./worktree.js";
 
-import { git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 
 Deno.test("resolveWorktreeParent uses session-style full cwd encoding by default", () => {
@@ -41,13 +40,12 @@ Deno.test("resolveCurrentCheckoutBranch returns the primary checkout branch", as
     }
 });
 
-Deno.test("createExecutionWorktree creates a unique branch/path and registry entry", async () => {
+Deno.test("createTestWorktreeAttempt creates a unique branch/path and registry entry", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     let worktree;
     try {
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Demo Plan",
             planId: "plan-demo",
@@ -77,7 +75,7 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
     }
 });
 
-Deno.test("createExecutionWorktree leaves created Git evidence when registry settlement fails", async () => {
+Deno.test("createTestWorktreeAttempt leaves created Git evidence when registry settlement fails", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     /** @type {string | undefined} */
@@ -102,8 +100,7 @@ Deno.test("createExecutionWorktree leaves created Git evidence when registry set
 
         const error = await assertRejects(
             () =>
-                createExecutionWorktree({
-                    allowRegistryMutation: "legacy-test-only",
+                createTestWorktreeAttempt({
                     projectRoot,
                     planName: "Settled Plan",
                     planId: "plan-1",
@@ -130,14 +127,14 @@ Deno.test("createExecutionWorktree leaves created Git evidence when registry set
     }
 });
 
-Deno.test("createExecutionWorktree initializes submodules", async () => {
+Deno.test("createTestWorktreeAttempt initializes submodules", async () => {
     // GIT_ALLOW_PROTOCOL is process-global and affects every concurrent git call.
     await withProcessGlobalTestLock(async () => {
         const projectRoot = await makeRepo();
         const submoduleRoot = await makeRepo();
         const worktreeRoot = await Deno.makeTempDir();
         const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
-        /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+        /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
         let worktree;
         try {
             await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
@@ -147,8 +144,7 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
             await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
             await git(projectRoot, ["commit", "-m", "add submodule"]);
 
-            worktree = await createExecutionWorktree({
-                allowRegistryMutation: "legacy-test-only",
+            worktree = await createTestWorktreeAttempt({
                 projectRoot,
                 planName: "Submodule Plan",
                 planId: "plan-submodule",
@@ -186,15 +182,14 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
     });
 });
 
-Deno.test("createExecutionWorktree rejects duplicate live legacy plan-name attempts", async () => {
+Deno.test("createTestWorktreeAttempt rejects duplicate live legacy plan-name attempts", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.realPath(await Deno.makeTempDir());
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>>[]} */
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>>[]} */
     const worktrees = [];
     try {
         worktrees.push(
-            await createExecutionWorktree({
-                allowRegistryMutation: "legacy-test-only",
+            await createTestWorktreeAttempt({
                 projectRoot,
                 planName: "Repeated Plan",
                 planId: "plan-repeated",
@@ -203,8 +198,7 @@ Deno.test("createExecutionWorktree rejects duplicate live legacy plan-name attem
         );
         await assertRejects(
             () =>
-                createExecutionWorktree({
-                    allowRegistryMutation: "legacy-test-only",
+                createTestWorktreeAttempt({
                     projectRoot,
                     planName: "Repeated Plan",
                     planId: "plan-repeated",
@@ -333,7 +327,7 @@ Deno.test("prepareTargetBranchRef rejects invalid and reserved branch names", as
     }
 });
 
-Deno.test("createExecutionWorktree records supplied target branch independent of current checkout", async () => {
+Deno.test("createTestWorktreeAttempt records supplied target branch independent of current checkout", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     let worktree;
@@ -344,8 +338,7 @@ Deno.test("createExecutionWorktree records supplied target branch independent of
         await git(projectRoot, ["commit", "-m", "feature base"]);
         await git(projectRoot, ["checkout", "main"]);
 
-        worktree = await createExecutionWorktree({
-            allowRegistryMutation: "legacy-test-only",
+        worktree = await createTestWorktreeAttempt({
             projectRoot,
             planName: "Targeted Plan",
             planId: "plan-targeted",
