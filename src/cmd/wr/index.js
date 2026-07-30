@@ -4,7 +4,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { CWD } from "../../constants.js";
+import { getCwd } from "../../constants.js";
 import {
     formatWorkRecordBackfillOutcomes,
     formatWorkRecordBackfillPreview,
@@ -46,7 +46,7 @@ function promptForBackfillConfirmation(message) {
 async function openWorkRecordReadSurface(record, deps) {
     const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurfaceFn;
     const server = await startReadSurface({
-        cwd: CWD,
+        cwd: getCwd(),
         markdown: record.markdown,
         artifactKind: "work-record",
         title: record.title,
@@ -137,7 +137,7 @@ export async function runWorkRecordsCommand(argv, options = {}) {
             return;
         }
         if (parsed.yes && parsed["dry-run"]) throw new Error("Cannot combine --yes with --dry-run.");
-        const preview = await previewWorkRecordBackfill(CWD);
+        const preview = await previewWorkRecordBackfill(getCwd());
         console.log(formatWorkRecordBackfillPreview(preview));
         if (parsed["dry-run"]) {
             console.log("[RunWield] Dry run only; no Work Records or Plan backlinks were written.");
@@ -151,7 +151,7 @@ export async function runWorkRecordsCommand(argv, options = {}) {
             console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
             return;
         }
-        const result = await runWorkRecordBackfill(CWD);
+        const result = await runWorkRecordBackfill(getCwd());
         console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
         return;
     }
@@ -167,7 +167,9 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         const query = parsed._.map(String).join(" ").trim();
         if (!query) throw new Error("Usage: wld wr search <query> [--all]");
         console.log(
-            formatWorkRecordSearchResults(await searchWorkRecords(CWD, query, { includeAll: Boolean(parsed.all) })),
+            formatWorkRecordSearchResults(
+                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all) }),
+            ),
         );
         return;
     }
@@ -182,7 +184,7 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         rejectUnknownFlags(parsed);
         if (parsed._.length !== 1) throw new Error("Usage: wld wr read <recordId>");
         await openWorkRecordReadSurface(
-            await readWorkRecordById(CWD, String(parsed._[0]), { accessMode: "all" }),
+            await readWorkRecordById(getCwd(), String(parsed._[0]), { accessMode: "all" }),
             deps,
         );
         return;
@@ -199,7 +201,7 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         }
         rejectUnknownFlags(parsed);
         if (parsed._.length) throw new Error("Usage: wld wr index rebuild");
-        console.log(formatRebuildResult(await rebuildWorkRecordIndex(CWD)));
+        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd())));
         return;
     }
 
@@ -213,6 +215,6 @@ export async function runWorkRecordsCommand(argv, options = {}) {
     }
     rejectUnknownFlags(parsed, ["all"]);
     if (parsed._.length) throw new Error("Usage: wld wr list [--all]");
-    const records = await listWorkRecords(CWD);
+    const records = await listWorkRecords(getCwd());
     console.log(formatWorkRecordList(records, { includeAll: Boolean(parsed.all) }));
 }

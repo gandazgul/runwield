@@ -134,7 +134,15 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     await Deno.mkdir(join(runwieldDir, "registry"), { recursive: true });
     await Deno.writeTextFile(
         join(runwieldDir, "settings.json"),
-        JSON.stringify({ theme: "default", defaultProvider: GOLDEN_FAUX_PROVIDER, defaultModel: GOLDEN_FAUX_MODEL }),
+        JSON.stringify({
+            theme: "default",
+            defaultProvider: GOLDEN_FAUX_PROVIDER,
+            defaultModel: GOLDEN_FAUX_MODEL,
+            // Composed scenarios drive the production TUI composition, whose Runtime
+            // adapter wires the real notifier. Without this the suite fires actual
+            // desktop notifications on the developer's machine.
+            notifications: { enabled: false },
+        }),
     );
     const env = {
         HOME: home,

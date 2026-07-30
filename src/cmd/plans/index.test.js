@@ -316,7 +316,7 @@ Deno.test("runPlansCommand marks done-enough Epic while keeping remaining child 
     assertEquals(logs.some((m) => m.includes("- done-enough-epic/02-second")), true);
 });
 
-Deno.test("runPlansCommand keeps orphan child Planned Change plans visible", async () => {
+Deno.test("runPlansCommand keeps orphan child plans visible", async () => {
     const logs = await capturePlansOutput([
         {
             name: "missing-parent/01-orphan",

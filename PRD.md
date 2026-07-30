@@ -169,8 +169,9 @@ Routing intents:
 - `IDEATION`: product/research exploration and Socratic shaping before planning
 - `OPERATION`: direct non-code repository or environment operations
 - `QUICK_FIX`: bounded code implementation with no Plan file
-- `FEATURE`: planned executable work
-- `PROJECT`: Epic-scale work that is decomposed into child FEATURE Plans
+- `PLANNED_CHANGE`: planned executable work. Work Kind (`BUG_FIX`, `FEATURE`, `REFACTOR`, `MAINTENANCE`) separately
+  records the nature of the work; legacy `FEATURE` routing and classification values normalize here.
+- `PROJECT`: Epic-scale work that is decomposed into child Planned Change Plans
 
 Workspace planning flows may invoke Router with a planning-oriented route set and may also offer direct actions into
 Ideator, Planner, or Architect when the user already knows what artifact they want.
@@ -209,7 +210,7 @@ Post-tool orchestration:
 - `IDEATION` -> Ideator
 - `OPERATION` -> Operator
 - `QUICK_FIX` -> Engineer with mechanical validation only
-- `FEATURE` -> Planner and Plan workflow
+- `PLANNED_CHANGE` -> Planner and Plan workflow
 - `PROJECT` -> Architect, Epic Plan workflow, and Slicer decomposition after approval
 
 **`plan_written`**
@@ -242,16 +243,16 @@ Canonical statuses:
 Lifecycle gates:
 
 - **Review Gate:** Plannotator or Workspace approval records review events and feedback.
-- **Readiness Gate:** FEATURE Plans promote to `ready_for_work`; PROJECT Epics promote to `ready_for_decomposition`,
-  then `ready_for_work` when Slicer finalizes child Plans.
+- **Readiness Gate:** Planned Change Plans promote to `ready_for_work`; PROJECT Epics promote to
+  `ready_for_decomposition`, then `ready_for_work` when Slicer finalizes child Plans.
 - **Execution Gate:** executable Plans start only from `ready_for_work`.
 - **Implementation Gate:** successful implementation records `implementation_finished`.
-- **Workflow Validation Gate:** executable FEATURE and legacy non-Epic PROJECT work runs local validation and semantic
-  review before reaching `verified`.
+- **Workflow Validation Gate:** executable Planned Change and legacy non-Epic PROJECT work runs local validation and
+  semantic review before reaching `verified`.
 
-PROJECT Epics are containers, not directly executable implementation work. Child FEATURE Plans validate independently.
-An Epic may be marked done enough for now through the existing `epic_done_enough` flow, resulting in `status: verified`
-with `epicCompletionMode: done_enough` and an `epicDoneEnoughSummary`.
+PROJECT Epics are containers, not directly executable implementation work. Child Planned Change Plans validate
+independently. An Epic may be marked done enough for now through the existing `epic_done_enough` flow, resulting in
+`status: verified` with `epicCompletionMode: done_enough` and an `epicDoneEnoughSummary`.
 
 Loading an `in_progress`, `failed`, or `implemented` Plan opens a recovery path. The user can inspect the scoped diff,
 continue, reset to the captured execution baseline, re-open for review, or retry validation.
@@ -271,7 +272,7 @@ Recorder requirements:
 
 Generation policy:
 
-- verified FEATURE Plan -> one Feature Work Record
+- verified Planned Change Plan -> one Planned Change Work Record, preserving Work Kind when known
 - verified PROJECT Epic -> one Epic Work Record
 - Epic marked done enough -> one Epic Work Record with informational `completionMode: done_enough`
 - no-plan QUICK_FIX -> no Work Record initially
@@ -286,7 +287,8 @@ kind: work_record
 recordId:
 title:
 description:
-scope: feature | epic | project
+scope: planned_change | epic | quick_fix | feature # `feature` accepted as legacy compatibility input
+workKind: BUG_FIX | FEATURE | REFACTOR | MAINTENANCE
 status: approved | draft | superseded
 approvalMode: auto | manual
 completionMode: complete | done_enough
@@ -302,10 +304,10 @@ lastEditedWithAgent:
 ```
 
 Stable front matter references RunWield-controlled artifacts plus optional provider-neutral `tickets: [{ url }]` demand
-provenance copied from source Plans. Standalone FEATURE records snapshot direct Plan Ticket References. Epic records
-snapshot a stable first-seen union of direct Epic references followed by child FEATURE references. Git-specific or
-external-process references such as commits, pull requests, deployment links, customer notes, and incidental links
-remain loose markdown body references rather than schema fields.
+provenance copied from source Plans. Standalone Planned Change records snapshot direct Plan Ticket References. Epic
+records snapshot a stable first-seen union of direct Epic references followed by child Planned Change references.
+Git-specific or external-process references such as commits, pull requests, deployment links, customer notes, and
+incidental links remain loose markdown body references rather than schema fields.
 
 Suggested body schema:
 

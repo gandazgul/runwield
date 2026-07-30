@@ -164,8 +164,11 @@ files and worktree registry state.
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
 run local validation, semantic review, delivery evidence capture, and merge-back proof before being marked verified.
-Missing worktree context for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the exact
-plan/worktree identity from durable plan metadata, the worktree registry, and Git facts.
+Semantic review runs in narrowing rounds — two full Plan reviews, then verification-only rounds — with findings carried
+across rounds in a Review Issue Ledger and repaired by the Reviewer-Feedback Engineer in fresh context. See
+`docs/plan-lifecycle.md` for the full sequence. Missing worktree context for a Git-backed FEATURE is a hard validation
+failure unless RunWield can recover the exact plan/worktree identity from durable plan metadata, the worktree registry,
+and Git facts.
 
 ## Completion-time Work Records
 
@@ -203,3 +206,21 @@ historical evidence.
 User Verified children satisfy dependencies and count toward Epic completion, but summaries split RunWield Verified and
 User Verified counts. The manual action may complete a ready parent Epic when every child is RunWield Verified with
 appropriate Delivery Evidence or User Verified, but it does not automatically execute another child.
+
+### Transactional lifecycle and recovery
+
+For saved Plans, RunWield treats each lifecycle action as one transaction. Starting execution, finishing implementation,
+recording validation failure, publishing Direct Delivery, holding/resuming, User Verification, review reopen, and
+archive/restore all go through the same mutation boundary. Callers should not update Plan Front Matter, the worktree
+registry, and Git state separately.
+
+The transaction writes a short recovery record when an interrupted operation cannot be safely completed or rolled back.
+`wld load-plan <plan>` and `wld plans doctor` use that record to show concrete actions, such as retrying validation from
+the recorded worktree, inspecting a merge target, abandoning a specific attempt, or repairing malformed Front Matter.
+
+Direct Delivery verifies a worktree-backed FEATURE only after Git proves the validated candidate commit and verified
+Plan metadata reached the target branch. Cleanup and Work Record generation happen after that proof; if they fail, the
+Plan stays verified and the remaining work is recoverable bookkeeping.
+
+Projects without Git skip worktree and branch operations. FEATURE work runs in the current checkout after explicit
+non-Git execution consent, and lifecycle transactions still protect Plan status and recovery metadata.

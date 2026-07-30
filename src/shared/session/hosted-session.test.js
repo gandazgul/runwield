@@ -44,6 +44,12 @@ Deno.test("HostedSession requires an absolute project root", () => {
     );
 });
 
+Deno.test("HostedSession accepts max as a thinking level", () => {
+    const session = new HostedSession({ id: "max-thinking", cwd: Deno.cwd() });
+    session.setThinkingLevel("max");
+    assertEquals(session.getThinkingLevel(), "max");
+});
+
 Deno.test("HostedSession stores mutable root runtime state per session", () => {
     const sessionManager = makeSessionManager("alpha-manager");
     const eventSink = { name: "sink-alpha" };

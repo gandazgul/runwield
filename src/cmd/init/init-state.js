@@ -8,10 +8,15 @@
  */
 
 import { dirname, join } from "@std/path";
+import { getHomeDir } from "../../constants.js";
 
-const HOME_DIR = Deno.env.get("HOME") || "";
-
-/** @type {string | null} */
+/**
+ * Set only by _setTestStatePath. The resolved home path is deliberately not
+ * memoized here: HOME can change after this module loads, and caching it once
+ * pinned this file to whichever home happened to be current at import time.
+ *
+ * @type {string | null}
+ */
 let STATE_PATH = null;
 
 /**
@@ -28,8 +33,7 @@ export function _setTestStatePath(path) {
  */
 function getStatePath() {
     if (STATE_PATH) return STATE_PATH;
-    STATE_PATH = join(HOME_DIR, ".wld", "init-state.json");
-    return STATE_PATH;
+    return join(getHomeDir(), ".wld", "init-state.json");
 }
 
 /**

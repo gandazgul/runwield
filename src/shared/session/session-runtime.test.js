@@ -1,7 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
-import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import {
+    HANDOFF_LIMIT_MESSAGE,
+    SessionRuntime,
+    SessionTurnInProgressError,
+    shouldEmitProjectedAttention,
+} from "./session-runtime.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { ensureRootAgentSession } from "./session.js";
 import { createSessionContextProjection } from "./session-context-report.js";
@@ -11,10 +16,16 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 
 const STABLE_TEST_CWD = decodeURIComponent(new URL("../../..", import.meta.url).pathname);
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Retries temp-dir cleanup because SessionRuntime managed-session tests can
- * finish filesystem checkpointing just before teardown on macOS, causing a
- * transient ENOTEMPTY during recursive removal.
+ * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
+ * filesystem metadata settles after a test's last writes. Retry boundedly so
+ * cleanup flakiness does not fail an otherwise successful test.
+ *
  * @param {string} path
  */
 async function removeTempDir(path) {
@@ -27,7 +38,7 @@ async function removeTempDir(path) {
             const isRetryable = error instanceof Error &&
                 /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
             if (!isRetryable || attempt === 4) throw error;
-            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+            await delay(25 * (attempt + 1));
         }
     }
 }
@@ -269,7 +280,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true }).catch(() => {});
+            await removeTempDir(home);
         }
     });
 });
@@ -649,6 +660,28 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
     assertEquals(snapshot?.activeAgent, "engineer");
     assertEquals(snapshot?.activeModel, { model: "gpt-next", provider: "test-provider" });
     assertEquals(snapshot?.thinkingLevel, "high");
+});
+
+Deno.test("SessionRuntime emits projected attention only when the attention record changes", () => {
+    const summary = {
+        attention: {
+            eventId: "attention-entry:attention_requested:0",
+            reason: "agentStopped",
+            agentName: "Planner",
+        },
+    };
+
+    // First observation seeds the baseline: a transcript adopted with an attention
+    // entry already in it must not notify about that history.
+    assertEquals(shouldEmitProjectedAttention(summary, undefined), false);
+    // Repeat syncs project the same record and must stay silent.
+    assertEquals(shouldEmitProjectedAttention(summary, "attention-entry:attention_requested:0"), false);
+    // A newly appended attention entry notifies once.
+    assertEquals(shouldEmitProjectedAttention(summary, "older-entry:attention_requested:0"), true);
+    assertEquals(shouldEmitProjectedAttention(summary, null), true);
+    // No attention in the projection is never an emission.
+    assertEquals(shouldEmitProjectedAttention({ attention: null }, "older-entry:attention_requested:0"), false);
+    assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 
 Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", async () => {
@@ -1210,7 +1243,7 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true }).catch(() => {});
+            await removeTempDir(home);
         }
     });
 });
@@ -1246,6 +1279,17 @@ Deno.test("SessionRuntime keeps direct model operations busy until the outermost
     await second;
     assertEquals(busyStates, [true, false]);
     assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
+});
+
+Deno.test("SessionRuntime cycles through max thinking level", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    runtime.setSessionThinkingLevel(sessionId, "xhigh");
+
+    const result = runtime.cycleSessionThinkingLevel(sessionId);
+
+    assertEquals(result, { ok: true, thinkingLevel: "max" });
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.thinkingLevel, "max");
 });
 
 Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", async () => {

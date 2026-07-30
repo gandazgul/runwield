@@ -123,11 +123,15 @@ Deno.test("getSelectedDefaultModelAvailability requires a persisted default mode
     assertEquals(result, { available: false, error: "No default model is selected." });
 });
 
-Deno.test("available models bypass the first-run welcome", async () => {
+Deno.test("available selected models bypass the first-run welcome", async () => {
     const harness = makeHarness("subscription");
     const result = await maybeShowModelWelcome({
         ...harness.options,
         getModelRegistry: () => registryWithAvailable([{ id: "model" }]),
+        getSettingsManager: () => ({
+            getDefaultModel: () => "model",
+            getDefaultProvider: () => "",
+        }),
     });
 
     assertEquals(result, { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false });

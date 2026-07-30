@@ -4,7 +4,7 @@
  */
 
 import {
-    CWD,
+    getCwd,
     PLAN_UI_COMMAND_LABEL,
     PLAN_UI_DEFAULT_HOST,
     PLAN_UI_DEFAULT_PORT,
@@ -199,7 +199,7 @@ export async function runPlansUiCommand(argv, options = {}) {
         const startWorkspaceServer = deps.startWorkspaceServer ||
             (await import("../../ui/workspace/server.js")).startWorkspaceServer;
         const server = await startWorkspaceServer({
-            cwd: deps.cwd || CWD,
+            cwd: deps.cwd || getCwd(),
             host: parsed.host,
             port: parsed.port,
             token,

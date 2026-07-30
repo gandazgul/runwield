@@ -19,6 +19,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 11
 dependencies:
     - "10-transactional-segment-rollover-primitives"
+planId: "ff6209a8-f8f4-4c61-aedb-6697328e2504"
 ---
 
 # Durable Checkpoints and Interaction Persistence

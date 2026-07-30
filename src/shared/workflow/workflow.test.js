@@ -13,10 +13,13 @@ import {
     runSlicerAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
+import { buildEngineerRequest } from "./workflow-prompts.js";
 import { SESSION_COMPLETE_GUIDANCE } from "./plan-review-recovery.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { findPlansByParent, loadPlan, savePlan, withPlanCatalogLock } from "../../plan-store.js";
+import { getTransitionJournalDir } from "./state-transition.ts";
 
 /**
  * @param {string} [id]
@@ -64,6 +67,12 @@ Deno.test("runPlanningAgent forwards triage metadata into the planning root", as
     });
 
     assertEquals(/** @type {any} */ (capturedOptions).triageMeta, triageMeta);
+});
+
+Deno.test("buildEngineerRequest describes documentation Work Kind as planned documentation", () => {
+    const text = buildEngineerRequest("docs-plan", "# Docs Plan", undefined, { workKind: "DOCUMENTATION" });
+
+    assertStringIncludes(text, "This is a planned documentation");
 });
 
 Deno.test("HostedSession scopes active execution workflow independently", () => {
@@ -188,7 +197,7 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
         },
     });
 
-    assertEquals(order, ["load-source", "ensure-plan", "capture-tree"]);
+    assertEquals(order, ["load-source", "load-source", "ensure-plan", "capture-tree"]);
     assertEquals(result.baselineTree, "tree-with-plan");
     assertEquals(metrics.at(-1)?.details.planFileMaterialized, true);
 });
@@ -239,57 +248,57 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
 
 Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan preparation blocks", async () => {
     const hostedSession = makeHostedSession("reused-plan-block");
-    let removed = false;
+    const removed = false;
     let eventRecorded = false;
 
-    await assertRejects(
-        () =>
-            startActiveExecutionWorkflow({
-                planName: "p",
-                triageMeta: { worktreeId: "wt-reuse" },
-                currentStatus: "ready_for_work",
-                hostedSession,
-                __deps: {
-                    probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
-                    findReusableWorktree: () =>
-                        Promise.resolve(
-                            /** @type {any} */ ({
-                                id: "wt-reuse",
-                                path: "/tmp/wt-reuse",
-                                branch: "runwield/worktree/p-wt",
-                                baseBranch: "main",
+    try {
+        await assertRejects(
+            () =>
+                startActiveExecutionWorkflow({
+                    planName: "p",
+                    triageMeta: { worktreeId: "wt-reuse" },
+                    currentStatus: "ready_for_work",
+                    hostedSession,
+                    __deps: {
+                        probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                        findReusableWorktree: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    id: "wt-reuse",
+                                    path: "/tmp/wt-reuse",
+                                    branch: "runwield/worktree/p-wt",
+                                    baseBranch: "main",
+                                }),
+                            ),
+                        resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                        loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("p"),
+                        ensureExecutionPlanFile: () =>
+                            Promise.resolve({
+                                kind: "identity_conflict",
+                                relativePath: "plans/p.md",
+                                reason: "conflicting Plan ID",
                             }),
-                        ),
-                    resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
-                    loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("p"),
-                    ensureExecutionPlanFile: () =>
-                        Promise.resolve({
-                            kind: "identity_conflict",
-                            relativePath: "plans/p.md",
-                            reason: "conflicting Plan ID",
-                        }),
-                    removeExecutionWorktree: () => {
-                        removed = true;
-                        return Promise.resolve();
+                        recordPlanEvent: () => {
+                            eventRecorded = true;
+                            return Promise.resolve(/** @type {any} */ ({}));
+                        },
                     },
-                    recordPlanEvent: () => {
-                        eventRecorded = true;
-                        return Promise.resolve(/** @type {any} */ ({}));
-                    },
-                },
-            }),
-        Error,
-        "plans/p.md",
-    );
+                }),
+            Error,
+            "plans/p.md",
+        );
 
-    assertEquals(removed, false);
-    assertEquals(eventRecorded, false);
+        assertEquals(removed, false);
+        assertEquals(eventRecorded, false);
+    } finally {
+        await Deno.remove(getTransitionJournalDir(hostedSession.cwd), { recursive: true }).catch(() => {});
+    }
 });
 
-Deno.test("startActiveExecutionWorkflow reports cleanup failure and keeps registry evidence", async () => {
+Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence and marks registry failed", async () => {
     const hostedSession = makeHostedSession("fresh-cleanup-failure");
     const worktreePath = await Deno.makeTempDir();
-    let registryRemoved = false;
+    let registryStatus;
     try {
         await assertRejects(
             () =>
@@ -317,19 +326,19 @@ Deno.test("startActiveExecutionWorkflow reports cleanup failure and keeps regist
                                 relativePath: "plans/p.md",
                                 reason: "disk full",
                             }),
-                        removeExecutionWorktree: () => Promise.reject(new Error("remove failed")),
-                        removeWorktreeRegistryEntry: () => {
-                            registryRemoved = true;
-                            return Promise.resolve();
+                        updateWorktreeRegistryEntry: (_projectRoot, _id, patch) => {
+                            registryStatus = patch.status;
+                            return Promise.resolve(/** @type {any} */ ({}));
                         },
                     },
                 }),
             Error,
-            "cleanup failed: remove failed",
+            "execution worktree evidence was preserved",
         );
-        assertEquals(registryRemoved, false);
+        assertEquals(registryStatus, "execution_failed");
     } finally {
         await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+        await Deno.remove(getTransitionJournalDir(hostedSession.cwd), { recursive: true }).catch(() => {});
     }
 });
 
@@ -423,7 +432,12 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
         },
     });
 
-    assertEquals(reuseCalls, [{ projectRoot, planName: "untargeted-plan", worktreeId: "wt-main" }]);
+    assertEquals(reuseCalls, [{
+        projectRoot,
+        planName: "untargeted-plan",
+        planId: "test-plan:untargeted-plan",
+        worktreeId: "wt-main",
+    }]);
     assertEquals(createCalls, 0);
     assertEquals(result.worktreeBaseBranch, "main");
     assertEquals(registryUpdates, [{
@@ -615,20 +629,10 @@ Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consen
         Error,
         "in-place execution was not approved",
     );
-    assertEquals(hostedSession.getActiveExecutionWorkflow(), {
-        planName: "non-git-plan",
-        triageMeta: { classification: "FEATURE" },
-        executionAgent: "engineer",
-        executionStarted: false,
-        collaborationStyle: "autonomous",
-        collaborationRecommendation: "autonomous",
-        pairCheckpointCount: 0,
-        projectRoot: Deno.cwd(),
-        executionCwd: Deno.cwd(),
-    });
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 
-Deno.test("startActiveExecutionWorkflow stores Frontend Engineer owner before non-Git consent failure", async () => {
+Deno.test("startActiveExecutionWorkflow does not activate Frontend Engineer before non-Git consent commits", async () => {
     const hostedSession = makeHostedSession("frontend-non-git-cancel-workflow");
     await assertRejects(
         () =>
@@ -648,8 +652,7 @@ Deno.test("startActiveExecutionWorkflow stores Frontend Engineer owner before no
         "in-place execution was not approved",
     );
 
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, false);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
@@ -1163,6 +1166,78 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     ]);
 });
 
+Deno.test("finalizePlanImplementation restores missing execution_started before lifecycle completion", async () => {
+    /** @type {string[]} */
+    const order = [];
+    const executionContext = /** @type {const} */ ({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: "/project",
+        executionCwd: "/worktree",
+        baselineTree: "attempt-tree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/feature-plan",
+    });
+
+    await finalizePlanImplementation({
+        projectRoot: "/project",
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE", summary: "Recover lifecycle marker order." },
+        executionContext,
+        executionReport: "- Implemented after marker recovery.",
+        __deps: {
+            loadPlan: () => {
+                order.push("load");
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                        },
+                    }),
+                );
+            },
+            checkpointExecutionWorktree: (options) => {
+                order.push(`checkpoint:${options.worktreePath}:${options.branch}`);
+                return Promise.resolve({ executionCommit: "b".repeat(40) });
+            },
+            recordPlanEvent: (event) => {
+                order.push(`event:${event.currentStatus}:${event.event}`);
+                if (event.event === "execution_started") {
+                    assertEquals(/** @type {any} */ (event.details).worktreeStatus, "active");
+                    assertEquals(/** @type {any} */ (event.details).worktreeId, "wt-1");
+                }
+                if (event.event === "implementation_finished") {
+                    assertEquals(
+                        /** @type {any} */ (event.details).executionReport,
+                        "- Implemented after marker recovery.",
+                    );
+                }
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: (status) => {
+                order.push(`registry:${status}`);
+                return Promise.resolve();
+            },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                order.push(`metric:${metric.event}:${metric.details.checkpointCommitted}`);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(order, [
+        "load",
+        "checkpoint:/worktree:runwield/worktree/feature-plan",
+        "event:ready_for_work:execution_started",
+        "event:in_progress:implementation_finished",
+        "registry:completed",
+        "metric:implementation_finished:true",
+    ]);
+});
+
 Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
     let lifecycleMutated = false;
     await assertRejects(
@@ -1581,9 +1656,7 @@ Deno.test("executePlan clears unusable Pair style when execution setup fails", a
 
     assertEquals(result.executionComplete, false);
     assertEquals(activeTurnStarted, false);
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "autonomous");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, false);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 
 Deno.test("executePlan keeps legacy frontend execution autonomous without prompting", async () => {
@@ -1826,14 +1899,14 @@ Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
 Deno.test("buildSlicerRequest includes triage report fields when present", () => {
     const text = buildSlicerRequest("my-plan", {
         classification: "PROJECT",
-        workKind: "REFACTOR",
+        workKind: "DOCUMENTATION",
         complexity: "HIGH",
         summary: "Initialize RunWield",
         affectedPaths: ["src/foo.js", "src/bar.js"],
     });
     assertStringIncludes(text, "Triage Report");
     assertStringIncludes(text, "Classification: PROJECT");
-    assertStringIncludes(text, "Work Kind: REFACTOR");
+    assertStringIncludes(text, "Work Kind: DOCUMENTATION");
     assertStringIncludes(text, "Complexity: HIGH");
     assertStringIncludes(text, "Summary: Initialize RunWield");
     assertStringIncludes(text, "src/foo.js, src/bar.js");
@@ -2128,167 +2201,164 @@ Deno.test("runSlicerAgent reports failure through a system-status event", async 
 });
 
 Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before finalizing approved Epic", async () => {
-    /** @type {any} */
-    let recorded = null;
-    /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[], parentWorktreeBaseBranch?: string }>} */
-    const materializeCalls = [];
-    const childDescriptors = [{
-        order: 1,
-        title: "Child",
-        summary: "Child summary",
-        affectedPaths: ["src/a.js"],
-        dependencies: [],
-        content: "# Child",
-    }];
-    const writeResults = [{
-        name: "epic-a/01-child",
-        path: "/repo/plans/epic-a/01-child.md",
-        title: "Child",
-        action: "created",
-        dependencies: [],
-        metadata: { classification: "FEATURE", status: "draft", parentPlan: "epic-a" },
-    }];
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: {
-                            classification: "PROJECT",
-                            status: "approved",
-                            worktreeBaseBranch: "feature-base",
-                        },
-                    }),
-                ),
-            materializeSlicerDraft: (args) => {
-                materializeCalls.push(args);
-                return Promise.resolve(/** @type {any} */ (writeResults));
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", {
+            classification: "PROJECT",
+            status: "approved",
+            worktreeBaseBranch: "feature-base",
+        });
+        /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[], parentWorktreeBaseBranch?: string }>} */
+        const materializeCalls = [];
+        const childDescriptors = [{
+            order: 1,
+            title: "Child",
+            summary: "Child summary",
+            affectedPaths: ["src/a.js"],
+            dependencies: [],
+            content: "# Child",
+        }];
+        const tool = createSlicerFinalizeTool({
+            planName: "epic-a",
+            cwd,
+            __deps: {
+                // Observe the handoff, then do the real write, so the composite
+                // transaction settles against Plan files that actually exist.
+                materializeSlicerDraft: (args) => {
+                    materializeCalls.push(args);
+                    return materializeSlicerDraft(args);
+                },
             },
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: (args) => {
-                recorded = args;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
+        });
+
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize", children: childDescriptors },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
+
+        assertEquals(materializeCalls.length, 1);
+        assertEquals(materializeCalls[0].cwd, cwd);
+        assertEquals(materializeCalls[0].epicPlanName, "epic-a");
+        assertEquals(materializeCalls[0].children, childDescriptors);
+        assertEquals(materializeCalls[0].parentWorktreeBaseBranch, "feature-base");
+        assertEquals(typeof /** @type {any} */ (materializeCalls[0]).writeOptions?.onChildPlanWritten, "function");
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.error, "");
+        // The Epic Event and the child files commit together, so both are on disk.
+        assertEquals((await loadPlan(cwd, "epic-a"))?.attrs.status, "ready_for_work");
+        assertEquals((await loadPlan(cwd, "epic-a/01-child"))?.attrs.parentPlan, "epic-a");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("createSlicerFinalizeTool rolls back partially written child drafts when materialization fails", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", { classification: "PROJECT", status: "approved" });
+        const childDescriptors = [{
+            order: 1,
+            title: "Child",
+            summary: "Child summary",
+            affectedPaths: [],
+            dependencies: [],
+            content: "# Child",
+        }];
+        const tool = createSlicerFinalizeTool({
+            planName: "epic-a",
+            cwd,
+            __deps: {
+                loadPlan,
+                findPlansByParent,
+                withPlanCatalogLock,
+                materializeSlicerDraft: async (args) => {
+                    await materializeSlicerDraft(args);
+                    throw new Error("later child failed");
+                },
+                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
             },
-        },
-    });
+        });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize", children: childDescriptors },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize", children: childDescriptors },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(materializeCalls, [{
-        cwd: "/repo",
-        epicPlanName: "epic-a",
-        children: childDescriptors,
-        parentWorktreeBaseBranch: "feature-base",
-    }]);
-    assertEquals(recorded.event, "decomposition_finalized");
-    assertEquals(recorded.currentStatus, "approved");
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults,
-        error: "",
-    });
+        assertEquals(result.details.status, "error");
+        assertEquals(await loadPlan(cwd, "epic-a/01-child"), null);
+        assertEquals((await loadPlan(cwd, "epic-a"))?.attrs.status, "approved");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("createSlicerFinalizeTool can finalize existing child FEATURE plans without writing", async () => {
-    /** @type {any} */
-    let recorded = null;
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", status: "ready_for_decomposition" },
-                    }),
-                ),
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: (args) => {
-                recorded = args;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
-            },
-        },
-    });
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", { classification: "PROJECT", status: "ready_for_decomposition" });
+        await savePlan(cwd, "epic-a/01-child", "# Child", {
+            classification: "FEATURE",
+            status: "draft",
+            parentPlan: "epic-a",
+            order: 1,
+        });
+        const tool = createSlicerFinalizeTool({ planName: "epic-a", cwd });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize" },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize" },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(recorded.event, "decomposition_finalized");
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults: [],
-        error: "",
-    });
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.writeResults, []);
+        assertEquals(result.details.error, "");
+        assertEquals((await loadPlan(cwd, "epic-a"))?.attrs.status, "ready_for_work");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("createSlicerFinalizeTool leaves already finalized Epics ready without recording another lifecycle event", async () => {
-    let recordCount = 0;
-    const tool = createSlicerFinalizeTool({
-        planName: "epic-a",
-        cwd: "/repo",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", status: "ready_for_work" },
-                    }),
-                ),
-            findPlansByParent: () =>
-                Promise.resolve([
-                    /** @type {any} */ ({
-                        name: "epic-a/01-child",
-                        attrs: { classification: "FEATURE", status: "draft" },
-                    }),
-                ]),
-            recordPlanEvent: () => {
-                recordCount++;
-                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
-            },
-        },
-    });
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", { classification: "PROJECT", status: "ready_for_work" });
+        await savePlan(cwd, "epic-a/01-child", "# Child", {
+            classification: "FEATURE",
+            status: "draft",
+            parentPlan: "epic-a",
+            order: 1,
+        });
+        const before = await loadPlan(cwd, "epic-a");
+        const tool = createSlicerFinalizeTool({ planName: "epic-a", cwd });
 
-    const result = await tool.execute(
-        "call-1",
-        { confirmation: "yes, finalize" },
-        new AbortController().signal,
-        () => {},
-        /** @type {any} */ ({}),
-    );
+        const result = await tool.execute(
+            "call-1",
+            { confirmation: "yes, finalize" },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
 
-    assertEquals(recordCount, 0);
-    assertEquals(result.details, {
-        status: "ready_for_work",
-        children: ["epic-a/01-child"],
-        writeResults: [],
-        error: "",
-    });
+        assertEquals(result.details.status, "ready_for_work");
+        assertEquals(result.details.children, ["epic-a/01-child"]);
+        assertEquals(result.details.writeResults, []);
+        // Replaying the Plan Event would rewrite the Epic; an already-ready Epic is
+        // left byte-identical instead.
+        assertEquals((await loadPlan(cwd, "epic-a"))?.revision, before?.revision);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("materializeSlicerDraft delegates child Planned Change draft writes without forcing parent Work Kind", async () => {
@@ -2307,7 +2377,7 @@ Deno.test("materializeSlicerDraft delegates child Planned Change draft writes wi
         summary: "Explicit summary",
         affectedPaths: ["src/constants.js"],
         dependencies: ["01-draft-child"],
-        workKind: "MAINTENANCE",
+        workKind: "DOCUMENTATION",
         content: "# Explicit child",
     }]);
     const result = await materializeSlicerDraft({
@@ -2559,5 +2629,126 @@ Deno.test("executePlan records content-free runtime-style metrics", async () => 
             metrics.find((metric) => metric.event === "frontend_runtime_style_resolved")?.details,
             testCase.expected,
         );
+    }
+});
+
+Deno.test("execution preparation ignores Plan body edits the user owns", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-exec-body-" });
+    try {
+        await savePlan(projectRoot, "body-plan", "# Body Plan\n\nOriginal body.\n", {
+            planId: "plan-body",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const stored = await loadPlan(projectRoot, "body-plan");
+        const hostedSession = makeHostedSession("exec-body", projectRoot);
+
+        const result = await startActiveExecutionWorkflow({
+            planName: "body-plan",
+            triageMeta: { planId: "plan-body", classification: "FEATURE" },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            __deps: {
+                probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                findReusableWorktree: () => Promise.resolve(null),
+                // Same lifecycle front matter, different body: the user edited their
+                // Plan outside RunWield, which must not abort execution.
+                loadCanonicalExecutionPlanSource: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            kind: "loaded",
+                            path: stored?.path,
+                            relativePath: "plans/body-plan.md",
+                            markdown: `${stored?.markdown}\n\nEdited in another editor.\n`,
+                            attrs: { ...stored?.attrs },
+                        }),
+                    ),
+                createExecutionWorktree: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            id: "wt1",
+                            path: "/tmp/wt1",
+                            branch: "runwield/worktree/body-plan-wt1",
+                            baseBranch: "main",
+                        }),
+                    ),
+                ensureExecutionPlanFile: () =>
+                    Promise.resolve({ kind: "restored", relativePath: "plans/body-plan.md" }),
+                captureWorktreeTree: () => Promise.resolve("tree1"),
+                updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            },
+        });
+        assertEquals(result.planName, "body-plan");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("execution preparation still refuses when lifecycle front matter drifts", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-exec-fm-" });
+    try {
+        await savePlan(projectRoot, "fm-plan", "# FM Plan\n", {
+            planId: "plan-fm",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const stored = await loadPlan(projectRoot, "fm-plan");
+        const hostedSession = makeHostedSession("exec-fm", projectRoot);
+
+        await assertRejects(
+            () =>
+                startActiveExecutionWorkflow({
+                    planName: "fm-plan",
+                    triageMeta: { planId: "plan-fm", classification: "FEATURE" },
+                    currentStatus: "ready_for_work",
+                    hostedSession,
+                    __deps: {
+                        probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
+                        resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+                        findReusableWorktree: () => Promise.resolve(null),
+                        // Front matter drifted on disk between the locked read and the
+                        // read that materializes the Plan. Drift it in the markdown, the
+                        // way a real edit would: attrs are derived from those bytes, so a
+                        // fixture that changes attrs alone cannot happen in practice.
+                        loadCanonicalExecutionPlanSource: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    kind: "loaded",
+                                    path: stored?.path,
+                                    relativePath: "plans/fm-plan.md",
+                                    markdown: String(stored?.markdown).replace(
+                                        'status: "ready_for_work"',
+                                        'status: "on_hold"',
+                                    ),
+                                    attrs: { ...stored?.attrs, status: "on_hold" },
+                                }),
+                            ),
+                        createExecutionWorktree: () =>
+                            Promise.resolve(
+                                /** @type {any} */ ({
+                                    id: "wt1",
+                                    path: "/tmp/wt1",
+                                    branch: "runwield/worktree/fm-plan-wt1",
+                                    baseBranch: "main",
+                                }),
+                            ),
+                        ensureExecutionPlanFile: () =>
+                            Promise.resolve({ kind: "restored", relativePath: "plans/fm-plan.md" }),
+                        captureWorktreeTree: () => Promise.resolve("tree1"),
+                        updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                        recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+                    },
+                }),
+            Error,
+            "front matter change",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
 });

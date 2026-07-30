@@ -9,8 +9,18 @@ import {
     recordPlanEvent,
     stageValidationPassedInExecutionWorktree,
 } from "./plan-lifecycle.js";
-import { injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
+import { injectFrontMatter, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
+
+/**
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} updates
+ */
+async function updatePlanFrontMatterForTest(cwd, planName, updates) {
+    const plan = await loadPlan(cwd, planName);
+    return await updatePlanFrontMatter(cwd, planName, updates, undefined, { expectedRevision: plan?.revision });
+}
 
 /** @type {import('./plan-lifecycle.js').PlanEventDetails} */
 const TEST_DELIVERY_DETAILS = {
@@ -234,25 +244,22 @@ Deno.test("buildPlanEventUpdates allows manual board movement only within safe s
     assertEquals(updates.worktreeId, undefined);
 });
 
-Deno.test("manual board movement preserves implemented validation and review context", () => {
-    const updates = buildPlanEventUpdates("manual_status_change", "implemented", {
-        manualTargetStatus: "implemented",
-        triageMeta: {
-            failureReason: "Workflow Validation failed.",
-            worktreeStatus: "validation_failed",
-            humanReviewMode: "ask",
-            humanReviewDecision: "skipped",
-            humanReviewedAt: "2026-01-02T03:04:05.000Z",
-        },
-    });
-
-    assertEquals(updates.status, "implemented");
-    assertEquals(updates.failureReason, "Workflow Validation failed.");
-    assertEquals(updates.worktreeStatus, "validation_failed");
-    assertEquals(updates.humanReviewMode, "ask");
-    assertEquals(updates.humanReviewDecision, "skipped");
-    assertEquals(updates.humanReviewedAt, "2026-01-02T03:04:05.000Z");
-    assertEquals(updates.verifiedAt, undefined);
+Deno.test("manual board movement blocks movement into implemented without execution proof", () => {
+    assertThrows(
+        () =>
+            buildPlanEventUpdates("manual_status_change", "implemented", {
+                manualTargetStatus: "implemented",
+                triageMeta: {
+                    failureReason: "Workflow Validation failed.",
+                    worktreeStatus: "validation_failed",
+                    humanReviewMode: "ask",
+                    humanReviewDecision: "skipped",
+                    humanReviewedAt: "2026-01-02T03:04:05.000Z",
+                },
+            }),
+        Error,
+        'manual_status_change cannot move from "implemented" to "implemented"',
+    );
 });
 
 Deno.test("manual board movement clears stale completion metadata when moving before implemented", () => {
@@ -476,20 +483,16 @@ Deno.test("manual board helper exports expose lifecycle-owned rules", () => {
         "feedback",
         "approved",
         "ready_for_work",
-        "in_progress",
-        "implemented",
     ]);
     assertEquals(getAllowedManualPlanStatuses("approved", { classification: "PROJECT" }), [
         "draft",
         "feedback",
         "approved",
         "ready_for_work",
-        "in_progress",
-        "implemented",
         "ready_for_decomposition",
     ]);
     assertEquals(getAllowedManualPlanStatuses("failed"), []);
-    assertEquals(isManualBoardStatusChangeAllowed("approved", "implemented"), true);
+    assertEquals(isManualBoardStatusChangeAllowed("approved", "implemented"), false);
     assertEquals(isManualBoardStatusChangeAllowed("approved", "verified"), false);
     assertEquals(
         isManualBoardStatusChangeAllowed("approved", "ready_for_decomposition", {
@@ -600,7 +603,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
         assertEquals(parent?.attrs.epicCompletionMode, "done_enough");
         assertEquals(
             parent?.attrs.epicDoneEnoughSummary,
-            "All 2 child planned change plans are completed after epic/02-last.",
+            "All 2 child plans are completed after epic/02-last.",
         );
     } finally {
         await Deno.remove(cwd, { recursive: true });
@@ -876,7 +879,7 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
             planName: "child-b",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
-        await savePlan(projectRoot, "epic", "# Updated Epic", { ...epicAttrs, customFlag: true });
+        await updatePlanFrontMatterForTest(projectRoot, "epic", /** @type {any} */ ({ customFlag: true }));
         const retried = await stageValidationPassedInExecutionWorktree({
             projectRoot,
             executionCwd,
@@ -889,7 +892,7 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
         assertEquals(retriedParent?.attrs.status, "verified");
         assertEquals(retriedParent?.attrs.verifiedAt, "2026-01-03T00:00:00.000Z");
         assertEquals(/** @type {any} */ (retriedParent?.attrs).customFlag, true);
-        assertEquals(retriedParent?.body, "# Updated Epic");
+        assertEquals(retriedParent?.body, "# Epic");
         assertEquals(result.planPaths, ["plans/child-b.md", "plans/epic.md"]);
         assertEquals(retried.planPaths, result.planPaths);
     } finally {
@@ -932,7 +935,7 @@ Deno.test("stageValidationPassedInExecutionWorktree reevaluates parent advanceme
             planName: "child-a",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
-        await savePlan(projectRoot, "child-b", "# Child B", {
+        await updatePlanFrontMatterForTest(projectRoot, "child-b", {
             status: "verified",
             classification: "FEATURE",
             ...TEST_DELIVERY_DETAILS,
@@ -991,7 +994,7 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
             planName: "child-a",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
-        await savePlan(projectRoot, "child-b", "# Child B", {
+        await updatePlanFrontMatterForTest(projectRoot, "child-b", {
             status: "feedback",
             classification: "FEATURE",
             parentPlan: "epic",
@@ -1052,8 +1055,7 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
             planName: "child-a",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
-        await savePlan(projectRoot, "epic", "# Epic", {
-            ...epicAttrs,
+        await updatePlanFrontMatterForTest(projectRoot, "epic", {
             status: "on_hold",
             holdReason: "Canonical parent changed while merge recovery was pending.",
         });
@@ -1114,17 +1116,22 @@ Deno.test("recordPlanEvent enforces FEATURE Delivery Evidence without supplied t
 });
 
 Deno.test("recordPlanEvent rejects invalid transitions before writing", async () => {
-    await assertRejects(
-        () =>
-            recordPlanEvent({
-                cwd: "/tmp",
-                planName: "missing",
-                event: "validation_passed",
-                currentStatus: "approved",
-            }),
-        Error,
-        'validation_passed cannot apply to status "approved"',
-    );
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () =>
+                recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "missing",
+                    event: "validation_passed",
+                    currentStatus: "approved",
+                }),
+            Error,
+            "Plan not found: missing",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("getPlanLifecycleActionMetadata keeps protected states behind dedicated actions", () => {

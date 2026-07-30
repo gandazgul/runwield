@@ -20,11 +20,12 @@ import {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
+import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
-import { AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -57,7 +58,7 @@ import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../run
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
-import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
+import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.js";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
@@ -78,12 +79,19 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 import { installEarlySteeringInterruption } from "./early-steering.js";
 
-const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
+/** @returns {string | null} */
+function homePromptsDir() {
+    const homeDir = getHomeDir();
+    return homeDir ? join(homeDir, ".wld", "prompts") : null;
+}
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
 const UNSUPPORTED_TEMPERATURE_RE =
-    /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\bunsupported\b/i;
+    /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\b(?:unsupported|not supported|not allowed|not accepted|invalid temperature)\b|\binvalid temperature\b.*\bonly\b.*\ballowed\b/i;
+
+/** @type {Set<string>} */
+const modelsWithoutTemperature = new Set();
 
 /** @type {WeakMap<object, string>} */
 const modelSelectionSourceByModel = new WeakMap();
@@ -208,7 +216,7 @@ const promptTemplateModelByName = new Map();
 export function getPromptTemplatePaths(cwd) {
     return [
         ...(cwd ? [join(cwd, ".wld", "prompts")] : []),
-        ...(HOME_PROMPTS_DIR ? [HOME_PROMPTS_DIR] : []),
+        ...(homePromptsDir() ? [/** @type {string} */ (homePromptsDir())] : []),
         PROMPT_TEMPLATES_DIR,
     ];
 }
@@ -265,7 +273,9 @@ export async function listPromptTemplates(options = {}) {
     /** @type {Array<{dir: string, source: PromptTemplateSource}>} */
     const layers = [
         ...(cwd ? [{ dir: join(cwd, ".wld", "prompts"), source: /** @type {PromptTemplateSource} */ ("local") }] : []),
-        ...(HOME_PROMPTS_DIR ? [{ dir: HOME_PROMPTS_DIR, source: /** @type {PromptTemplateSource} */ ("home") }] : []),
+        ...(homePromptsDir()
+            ? [{ dir: /** @type {string} */ (homePromptsDir()), source: /** @type {PromptTemplateSource} */ ("home") }]
+            : []),
         { dir: PROMPT_TEMPLATES_DIR, source: "bundled" },
     ];
 
@@ -352,6 +362,7 @@ export async function listSkills(options = {}) {
 
     const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
 
+    const homeDir = getHomeDir();
     const layers = [
         ...(options.cwd
             ? [{
@@ -359,9 +370,9 @@ export async function listSkills(options = {}) {
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
             }]
             : []),
-        ...(HOME_DIR
+        ...(homeDir
             ? [{
-                dir: join(HOME_DIR, ".wld", "skills"),
+                dir: join(homeDir, ".wld", "skills"),
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("home"),
             }]
             : []),
@@ -370,9 +381,9 @@ export async function listSkills(options = {}) {
             source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled"),
         })),
         // ── External (Pi-compatible / marketplace) skills ──
-        ...(enableExternalSkills && HOME_DIR
+        ...(enableExternalSkills && homeDir
             ? [{
-                dir: join(HOME_DIR, ".agents", "skills"),
+                dir: join(homeDir, ".agents", "skills"),
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("external"),
             }]
             : []),
@@ -470,9 +481,10 @@ export async function listLoadedAgentMdFiles(cwd) {
     /** @type {{ path: string, source: "home" | "external" | "local" }[]} */
     const results = [];
 
-    for (const homePath of getGlobalAgentMdPaths(HOME_DIR)) {
+    const homeDir = getHomeDir();
+    for (const homePath of getGlobalAgentMdPaths(homeDir)) {
         if (await fileExists(homePath)) {
-            const source = homePath === join(HOME_DIR, ".agents", "AGENTS.md")
+            const source = homePath === join(homeDir, ".agents", "AGENTS.md")
                 ? /** @type {"external"} */ ("external")
                 : /** @type {"home"} */ ("home");
             results.push({ path: homePath, source });
@@ -540,7 +552,10 @@ export async function steerAgentSessionWithTarget(session, text, images) {
     if (!session.isStreaming) return null;
     const activeModel = session.model || { input: ["text", "image"] };
     const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
-        ? await resolveVisionFallbackModel(session.modelRegistry)
+        ? await resolveVisionFallbackModel(
+            /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
+                getModelRegistry(),
+        )
         : undefined;
     const prepared = prepareImagesForModel({
         text: /** @type {string} */ (text),
@@ -705,15 +720,67 @@ function isUnsupportedTemperatureError(error) {
 }
 
 /**
- * The ChatGPT Codex Responses endpoint rejects sampling temperature. Detect the
- * endpoint capability instead of maintaining a model-name list that will go
- * stale as Codex models change.
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {string}
+ */
+function getTemperatureCapabilityModelKey(model) {
+    return [model.provider, model.api, model.id].filter(Boolean).join(":");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {boolean}
+ */
+function isKnownNoSamplingModelFamily(model) {
+    const provider = String(model.provider || "").toLowerCase();
+    const api = String(model.api || "").toLowerCase();
+    const id = String(model.id || "").toLowerCase();
+    return provider === "openai-codex" || api === "openai-codex-responses" ||
+        provider.includes("kimi") || id.includes("kimi-code") || id.includes("kimi-coding");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {boolean}
+ */
+function isKimiModelFamily(model) {
+    const provider = String(model.provider || "").toLowerCase();
+    const id = String(model.id || "").toLowerCase();
+    return provider.includes("kimi") || id.includes("kimi-code") || id.includes("kimi-coding");
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {import('@earendil-works/pi-ai').Model<any>}
+ */
+function withModelCompatibility(model) {
+    if (!isKimiModelFamily(model)) return model;
+    const compatibleModel = {
+        ...model,
+        compat: {
+            .../** @type {Record<string, unknown> | undefined} */ (model.compat),
+            supportsDeveloperRole: false,
+            supportsTemperature: false,
+        },
+    };
+    const source = modelSelectionSourceByModel.get(model);
+    if (source) modelSelectionSourceByModel.set(compatibleModel, source);
+    return compatibleModel;
+}
+
+/**
+ * The ChatGPT Codex Responses endpoint and some coding-model families reject
+ * sampling temperature. Detect known capability signals up front and remember
+ * runtime rejections so later calls avoid repeating the failed request.
  *
  * @param {import('@earendil-works/pi-ai').Model<any>} model
  * @returns {boolean}
  */
 function modelSupportsTemperature(model) {
-    return model.provider !== "openai-codex" && model.api !== "openai-codex-responses";
+    const compat = /** @type {{ supportsTemperature?: unknown } | undefined} */ (model.compat);
+    if (compat?.supportsTemperature === false) return false;
+    if (isKnownNoSamplingModelFamily(model)) return false;
+    return !modelsWithoutTemperature.has(getTemperatureCapabilityModelKey(model));
 }
 
 /**
@@ -723,9 +790,10 @@ function modelSupportsTemperature(model) {
  *
  * @param {import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} firstSource
  * @param {() => import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} retryWithoutTemperature
+ * @param {() => void} [onUnsupportedTemperature]
  * @returns {import('@earendil-works/pi-ai').AssistantMessageEventStream}
  */
-function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
+function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, onUnsupportedTemperature) {
     const output = createAssistantMessageEventStream();
 
     /**
@@ -734,7 +802,16 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
      * @returns {Promise<"retry" | "done">}
      */
     async function forward(sourcePromise, canRetry) {
-        const source = await sourcePromise;
+        let source;
+        try {
+            source = await sourcePromise;
+        } catch (error) {
+            if (canRetry && isUnsupportedTemperatureError(error)) {
+                onUnsupportedTemperature?.();
+                return "retry";
+            }
+            throw error;
+        }
         let emittedAssistantContent = false;
         /** @type {import('@earendil-works/pi-ai').AssistantMessageEvent[]} */
         const pendingLifecycleEvents = [];
@@ -745,6 +822,7 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
                 canRetry &&
                 isUnsupportedTemperatureError(event.error)
             ) {
+                onUnsupportedTemperature?.();
                 return "retry";
             }
 
@@ -834,24 +912,32 @@ export function getConfiguredAgentTemperature(agentName, projectRoot) {
  */
 export function applySessionTemperature(session, temperature) {
     if (temperature === undefined) return;
-    const originalStreamFn = session.agent.streamFn;
-    session.agent.streamFn = (model, context, options) => {
+    const agent = /** @type {any} */ (session.agent);
+    const streamKey = typeof agent.streamFunction === "function" ? "streamFunction" : "streamFn";
+    const originalStreamFunction = agent[streamKey];
+    agent[streamKey] = (
+        /** @type {import('@earendil-works/pi-ai').Model<any>} */ model,
+        /** @type {import('@earendil-works/pi-ai').Context} */ context,
+        /** @type {import('@earendil-works/pi-ai').SimpleStreamOptions | undefined} */ options,
+    ) => {
         if (!modelSupportsTemperature(model)) {
-            return originalStreamFn(model, context, omitTemperatureOption(options));
+            return originalStreamFunction(model, context, omitTemperatureOption(options));
         }
         const optionsWithTemperature = {
             ...options,
             temperature,
         };
         try {
-            const firstSource = originalStreamFn(model, context, optionsWithTemperature);
+            const firstSource = originalStreamFunction(model, context, optionsWithTemperature);
             return createTemperatureFallbackStream(
                 firstSource,
-                () => originalStreamFn(model, context, omitTemperatureOption(options)),
+                () => originalStreamFunction(model, context, omitTemperatureOption(options)),
+                () => modelsWithoutTemperature.add(getTemperatureCapabilityModelKey(model)),
             );
         } catch (error) {
             if (isUnsupportedTemperatureError(error)) {
-                return originalStreamFn(model, context, omitTemperatureOption(options));
+                modelsWithoutTemperature.add(getTemperatureCapabilityModelKey(model));
+                return originalStreamFunction(model, context, omitTemperatureOption(options));
             }
             throw error;
         }
@@ -1271,8 +1357,8 @@ export async function assembleFinalSystemPromptWithContextProjection(
         createFindToolDefinition(cwd),
         createLsToolDefinition(cwd),
         createReadToolDefinition(cwd),
-        createWriteToolDefinition(cwd),
-        createEditToolDefinition(cwd),
+        wrapPlanSafeFileTool(createWriteToolDefinition(cwd), { cwd, mode: "write" }),
+        wrapPlanSafeFileTool(createEditToolDefinition(cwd), { cwd, mode: "edit" }),
     ];
 
     const extensionTools = [
@@ -1321,7 +1407,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
     const instructionItems = [];
     let globalAgentsMd = "";
-    const homeDir = options.homeDir || Deno.env.get("HOME") || "";
+    const homeDir = options.homeDir || getHomeDir();
     if (hasGlobalAgentsPlaceholder && homeDir) {
         const globalFile = await readGlobalInstructionFile(homeDir);
         if (globalFile) {
@@ -1499,6 +1585,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @param {string} [cwd]
  * @param {string} [projectStateContext]
+ * @param {SystemPromptContextProjectionOptions} [options]
  * @returns {Promise<string>}
  */
 export async function assembleFinalSystemPrompt(
@@ -1507,6 +1594,7 @@ export async function assembleFinalSystemPrompt(
     finalCustomTools,
     cwd,
     projectStateContext = "",
+    options = {},
 ) {
     const result = await assembleFinalSystemPromptWithContextProjection(
         agentDef,
@@ -1514,6 +1602,7 @@ export async function assembleFinalSystemPrompt(
         finalCustomTools,
         cwd,
         projectStateContext,
+        options,
     );
     return result.prompt;
 }
@@ -1531,7 +1620,7 @@ export async function assembleFinalSystemPrompt(
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -1578,14 +1667,17 @@ export async function buildAgentSession({
     await ensureCymbalBinary();
     const agentDef = _agentDefOverride || await loadAgentDef(agentName, sessionCwd);
 
+    const modelRuntime = await getModelRuntime();
     const modelRegistry = getModelRegistry();
-    const resolvedModel = await resolveModel(
-        modelOverride,
-        agentDef,
-        agentName,
-        modelRegistry,
-        targetHostedSession || undefined,
-        sessionCwd,
+    const resolvedModel = withModelCompatibility(
+        await resolveModel(
+            modelOverride,
+            agentDef,
+            agentName,
+            modelRegistry,
+            targetHostedSession || undefined,
+            sessionCwd,
+        ),
     );
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
     const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
@@ -1768,8 +1860,7 @@ export async function buildAgentSession({
     const { session, extensionsResult } = await createAgentSession({
         cwd: sessionCwd,
         agentDir: getSettingsDir("global"),
-        authStorage: modelRegistry.authStorage,
-        modelRegistry,
+        modelRuntime,
         settingsManager: getSettingsManager(sessionCwd),
         tools,
         customTools: finalCustomTools,
@@ -1777,6 +1868,7 @@ export async function buildAgentSession({
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+    /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     installEarlySteeringInterruption(/** @type {any} */ (session));
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
@@ -1825,7 +1917,7 @@ export async function buildAgentSession({
         );
         // Keep the HostedSession footer in sync with what the AgentSession is using.
         targetHostedSession?.setThinkingLevel(
-            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} */ (resolvedThinkingLevel),
+            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"|"max"} */ (resolvedThinkingLevel),
         );
     }
 
@@ -2370,7 +2462,10 @@ export async function runPrompt({
     subscriberState.resetTurn();
 
     const fallback = images && images.length > 0 && !modelSupportsImageInput(session.model)
-        ? await resolveVisionFallbackModel(session.modelRegistry)
+        ? await resolveVisionFallbackModel(
+            /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
+                getModelRegistry(),
+        )
         : undefined;
     const preparedImages = prepareImagesForModel({
         text: userRequest,
@@ -2573,7 +2668,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -2764,7 +2859,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {string} opts.agentName
  * @param {string} opts.userRequest
  * @param {string} [opts.modelOverride]
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} [opts.debugLogPath]
  * @param {string} [opts.projectStateContext]
  * @param {Function} [opts._buildAgentSession]
@@ -2811,11 +2906,14 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
- * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager] - Optional manager to carry
+ *   context across successive isolated invocations (e.g. nudging a Reviewer that omitted its terminal tool call).
+ *   Defaults to a fresh in-memory manager, which keeps the invocation isolated from the workflow transcript.
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.

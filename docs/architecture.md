@@ -20,6 +20,10 @@ when appropriate, a durable Plan workflow. The central design goals are:
 - require explicit completion and validation signals before advancing durable state;
 - allow UIs and external protocols to translate core events and interactions without owning core state.
 
+For entity relationships, durable identities, transient workflow objects, adapter projections, and storage authorities,
+see the companion [RunWield Entity Model](docs/entity-model.md). This architecture map stays focused on control flow,
+dependency direction, runtime boundaries, and source guides.
+
 ## System at a glance
 
 ```mermaid
@@ -339,6 +343,10 @@ event-publisher method.
 
 ## Session runtime
 
+For the conceptual relationship between Sessions, Session Transcripts, Agent Sessions, Agent Definitions, Skills,
+Toolsets, Delegated Agent Sessions, and Session Control, see the
+[Session and Agent model](docs/entity-model.md#session-and-agent-model).
+
 ### Ownership hierarchy
 
 ```mermaid
@@ -574,6 +582,9 @@ apply its own explicit precedence and policy.
 
 ## Workflow orchestration
 
+The [Plan workflow model](docs/entity-model.md#plan-workflow-model) summarizes the entities behind Router Triage, Review
+Loops, Readiness Gates, Plan Workflow Leases, Plan Events, and Workflow Decisions.
+
 RunWield does not infer workflow progress from assistant prose. Protected tools write structured results into the agent
 message stream, and `AgentHandler` examines only the current turn's new messages to avoid replaying a stale outcome.
 
@@ -587,7 +598,7 @@ flowchart TD
     Handler -->|IDEATION| Ideator["Ideator root turn"]
     Handler -->|OPERATION| Operator["Operator root turn"]
     Handler -->|QUICK_FIX| QuickEngineer["Engineer root turn"]
-    Handler -->|FEATURE| Planner["Planner and Plan workflow"]
+    Handler -->|PLANNED_CHANGE| Planner["Planner and Plan workflow"]
     Handler -->|PROJECT| Architect["Architect Epic workflow"]
 
     Operator --> OperationGate{"task_completed?"}
@@ -596,9 +607,9 @@ flowchart TD
 
     Planner --> PlanOutcome["plan_written outcome"]
     Architect --> EpicOutcome["plan_written outcome"]
-    PlanOutcome -->|approved_execute| Execute["Execute FEATURE Plan"]
+    PlanOutcome -->|approved_execute| Execute["Execute PLANNED_CHANGE Plan"]
     PlanOutcome -->|saved or feedback| Planner
-    EpicOutcome -->|approved_decompose| Slicer["Slicer creates child FEATURE Plans"]
+    EpicOutcome -->|approved_decompose| Slicer["Slicer creates child PLANNED_CHANGE Plans"]
     EpicOutcome -->|saved or feedback| Architect
 
     Execute --> CompletionGate{"Engineer task_completed?"}
@@ -611,14 +622,20 @@ The six routing intents have distinct ceremony:
 - `INQUIRY` and `IDEATION` switch to a specialist and preserve that specialist as the root agent.
 - `OPERATION` is direct non-code work. It observes `task_completed` but performs no mechanical validation.
 - `QUICK_FIX` is direct code work with no Plan or worktree. `task_completed` gates Mechanical Validation.
-- `FEATURE` creates and reviews a Plan, then executes only after readiness.
-- `PROJECT` creates an Epic container. It is decomposed into child FEATURE Plans and is never executed directly.
+- `PLANNED_CHANGE` creates and reviews a Plan, then executes only after readiness. `FEATURE` remains a Work Kind and a
+  legacy classification value that normalizes to `PLANNED_CHANGE`.
+- `PROJECT` creates an Epic container. It is decomposed into child PLANNED_CHANGE Plans and is never executed directly.
 
 `workflow-results.js` extracts structured outcomes. `decisions.js` converts them into semantic actions such as
 `execute_plan`, `start_slicer`, `run_validation`, `stay_with_agent`, or `halt`. Callers retain responsibility for state
 mutation, user interaction, recovery, and agent switching.
 
 ## Plan domain
+
+The [Project and artifact model](docs/entity-model.md#project-and-artifact-model) and
+[Plan workflow model](docs/entity-model.md#plan-workflow-model) describe Plan, Epic, child PLANNED_CHANGE Plan, Work
+Record, Ticket Reference, and lifecycle relationships without duplicating this section's persistence and state machine
+details.
 
 ### Canonical Plan representation
 
@@ -647,7 +664,7 @@ stateDiagram-v2
     draft --> approved: review_approved
     feedback --> approved: review_approved
 
-    approved --> ready_for_work: readiness_passed for FEATURE
+    approved --> ready_for_work: readiness_passed for PLANNED_CHANGE
     approved --> ready_for_decomposition: epic_readiness_passed
     ready_for_decomposition --> ready_for_work: decomposition_finalized
 
@@ -697,9 +714,13 @@ repair error.
 
 ## Execution, validation, and worktrees
 
+For entity ownership across execution worktrees, registries, validation attempts, review ledgers, publication
+candidates, delivery modes, Forge Change Requests, and Work Records, see the
+[Execution, validation, and delivery model](docs/entity-model.md#execution-validation-and-delivery-model).
+
 ```mermaid
 flowchart TD
-    Ready["FEATURE Plan in ready_for_work"] --> Gate["executePlan gate\nreject Epic or wrong status"]
+    Ready["PLANNED_CHANGE Plan in ready_for_work"] --> Gate["executePlan gate\nreject Epic or wrong status"]
     Gate --> GitProbe{"Git repository available?"}
 
     GitProbe -->|yes| Worktree["Create or reuse execution worktree"]
@@ -801,6 +822,10 @@ event listeners, extension warnings, and selected cleanup paths are also fail-op
 Cymbal is a hard agent-construction failure, and invalid lifecycle/worktree gates are hard workflow failures.
 
 ## Persistence map
+
+For a broader entity-by-entity authority table, see
+[Persistence and authority](docs/entity-model.md#persistence-and-authority). This table remains the implementation
+location map for Core persistence.
 
 | Data                                      | Location                                                          | Authority and write behavior                         |
 | ----------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |

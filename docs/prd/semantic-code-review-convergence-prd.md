@@ -1,44 +1,69 @@
 # Product Requirements Document: Semantic Code Review Convergence
 
-Last updated: 2026-07-27 15:30 EDT
+Last updated: 2026-07-27
 
 ## Objective
 
-Make Semantic Code Review converge on a trustworthy decision within at most two automatic review-and-repair cycles for
-an implementation attempt, without lowering the Reviewer approval bar.
+Make Semantic Code Review reach a trustworthy decision in a bounded number of rounds, and guarantee that the workflow
+always has a way forward when it does not.
 
-RunWield should make the first review comprehensive, make the second review cumulative and independently verified, and
-prevent serial discovery in which each cycle forgets prior findings or examines only the latest repair.
+RunWield should give discovery two comprehensive passes under an explicit approval default, then narrow: later rounds
+verify the repair rather than rediscover the implementation, and unresolved disagreement goes to a human instead of
+cycling.
 
 ## Problem Statement
 
 Recent Workflow Validation runs commonly pass CI on the first attempt but require three or four Semantic Code Review
-cycles. Successive Reviewer invocations often discover different Plan-adherence issues instead of identifying the full
-set during the first review. Engineer repair handoffs are unstructured, and each isolated Reviewer starts without the
-prior requirement coverage, findings, or repair claims. Semantic repair also currently reuses the long-lived Engineer
-execution context. By the time Reviewer feedback arrives, that context may already be near exhaustion, so the model
-receives its most correctness-sensitive task with degraded attention and insufficient response headroom.
+cycles, and in the worst case never converge at all. Three mechanisms drive this.
 
-This behavior creates semantic coverage debt: an implementation may improve after every repair while the workflow still
-cannot show that every approved Plan requirement was examined or that previously reported issues were independently
-re-verified. More retries increase latency and cost without guaranteeing a more trustworthy result.
+**Serial rediscovery.** Each Reviewer invocation is deliberately isolated and receives only the frozen Plan and the full
+working-tree diff. It has no record of what a prior round already raised, what the Engineer claimed to fix, or which
+round it is in. Every round is therefore a fresh maximal-effort discovery pass over a diff that has grown since the last
+one.
 
-The solution is not to weaken the Reviewer, prefer first-pass approval, or hide ambiguity. RunWield needs a temporary,
-structured Review Issue Ledger that makes requirement coverage and repair state explicit across two bounded cycles.
+**An unbounded finding class.** Plan-adherence findings are drawn from a finite set — the Plan's requirements. Code
+smell findings are not: they scale with the size of the changed code, which grows with every repair. Repair code is also
+the code most likely to read as duplicated logic or repeated conditionals, because it patches around existing structure.
+The result is a ratchet in which each repair enlarges the surface that the next round can reject.
+
+**A repair handoff that loses focus.** Semantic repair reuses the long-lived Engineer execution context. The repair
+instruction arrives as a short turn at the tail of a transcript whose entire gravity is "follow the Implementation
+Steps, run the Verification Plan," and by that point the context may already be near exhaustion. The most
+correctness-sensitive task in the workflow receives the least attention.
+
+Underneath all three, the Reviewer prompt asks for both exhaustive discovery and restraint without saying which wins.
+Producing a finding is a concrete action; judging "good enough" is not, so the tie breaks toward rejection.
+
+The solution is not to weaken plan-adherence review, prefer first-pass approval, or hide ambiguity. RunWield needs an
+explicit approval default, a bounded number of discovery passes followed by a narrower job for later rounds, a mutable
+Review Issue Ledger that carries findings across rounds, and a human escape hatch when automatic rounds run out.
 
 ## Resolved Assumptions
 
-### Trustworthy Two-Cycle Convergence
+### A Narrowing Funnel of Rounds
 
-- The target is approval within two automatic Semantic Code Review cycles, not approval on the first cycle at any cost.
-- The approval standard remains unchanged: every unambiguous approved Plan requirement must be satisfied, and no
-  blocking Review Issue may remain open.
-- RunWield must not start a third consecutive semantic review-and-repair cycle without explicit user recovery action.
-- Reviewer execution failures and existing bounded execution retries are not semantic rejection cycles.
-- CI repair attempts and optional human code review retain their existing semantics and are not incorporated into the
-  initial ledger.
-- If human code review causes implementation changes after semantic approval, the next semantic review starts a new
-  bounded semantic attempt because the previously approved implementation is no longer the current implementation.
+- Semantic review proceeds in numbered rounds. Discovery narrows as rounds progress.
+- **Rounds one and two are discovery rounds.** Each reviews the implementation against the whole frozen Approved Plan.
+  Round two additionally verifies the open ledger from round one.
+- **Round three and above are verification rounds.** They verify open ledger items and inspect the repair delta for
+  regressions. They do not sweep the Plan again and do not open findings outside that scope.
+- Two full sweeps exist so that a requirement overlooked in round one gets a second independent look. Narrowing at round
+  three is what makes the loop terminate.
+- The plan-adherence approval standard is unchanged: every unambiguous approved Plan requirement must be satisfied, and
+  no open blocking Review Issue may remain.
+- After round three's repair completes and CI passes, RunWield must not continue automatically. It presents a choice, at
+  minimum: run another verification round, or open Human Code Review now.
+- Continuing does not reset the round counter or the ledger. Round four follows round three under the verification
+  contract.
+- Opening Human Code Review is authoritative. Human approval permits merge-back even though semantic review never
+  approved; human feedback routes into the human-feedback repair path.
+- Human Code Review may receive a repair that no Reviewer round has verified. This is acceptable: human review is a real
+  review, and the user chose it.
+- Once Human Code Review owns the change, automatic semantic rounds do not resume. Every feedback round reruns CI and
+  reopens the review, without limit. The cycle ends only on human approval or on the human exiting the review; the
+  automatic round cap counts automatic rounds and never terminates a human-driven one.
+- Reviewer execution failures and existing bounded execution retries are not semantic rounds.
+- CI repair attempts retain their existing semantics.
 
 ### Frozen Requirement Set
 
@@ -48,93 +73,114 @@ structured Review Issue Ledger that makes requirement coverage and repair state 
 - The Reviewer may inspect repository context to evaluate behavior, but must not create requirements from unrelated
   code, preferences, or cleanup opportunities.
 
-### Cycle One Is Comprehensive Discovery
+### Discovery Rounds Have an Approval Default
 
-- The first Reviewer must build explicit coverage for every material Plan requirement, including named behavior, edge
-  cases, verification expectations, and substantive constraints.
-- Each requirement must be classified as satisfied, blocked by one or more Review Issues, or ambiguous through one or
-  more Review Advisories.
-- The Reviewer must report all blocking findings it can identify in the current pass rather than stopping after the
-  first defect.
-- Inline and large-diff review modes must enforce the same coverage contract.
+- The default posture is approval. The Reviewer may block only when it can name the specific Plan requirement and the
+  specific changed code that diverges from it.
+- Within that posture, a discovery round must examine every material Plan requirement, including named behavior, edge
+  cases, and substantive constraints, and must report all blocking findings it can identify rather than stopping after
+  the first defect.
+- Findings that cannot be tied to a named Plan requirement, a concrete correctness or regression risk, or a security
+  risk are not Review Issues.
+- Round two carries the additional obligation to verify each open ledger item from round one against the code. Its sweep
+  and its verification are both required; neither substitutes for the other.
+- Rounds one and two together own comprehensiveness for the whole attempt. Verification rounds do not re-derive it.
 
-### Review Issues Are Blocking and Verifiable
+### Review Issues Are Blocking; Code Smells Are Not
 
-- A Review Issue identifies failure to satisfy an unambiguous approved Plan requirement or a substantive correctness,
-  maintenance, regression, or plan-completion risk introduced by the implementation.
-- Every Review Issue must identify the relevant Plan requirement, explain the mismatch or risk, and cite implementation
-  evidence when available.
-- Style preferences, formatter concerns, speculative cleanup, and unrelated improvements are not Review Issues.
-- Review Issues have stable identities for the duration of the implementation attempt so repair claims and subsequent
-  Reviewer decisions can refer to the same finding.
+- A Review Issue identifies failure to satisfy an unambiguous approved Plan requirement, or a concrete correctness,
+  regression, or security defect introduced by the implementation.
+- Every Review Issue must identify the relevant Plan requirement or defect, explain the mismatch, and cite
+  implementation evidence.
+- Code smells — speculative generality, duplicated logic, repeated conditionals, shotgun surgery, data clumps, and
+  similar maintainability observations — are reported as non-blocking Review Advisories alongside an otherwise approving
+  decision. They are never Review Issues.
+- Style preferences, formatter concerns, speculative cleanup, and unrelated improvements are neither.
+- Review Issues have stable identities for the duration of the implementation attempt so repair claims and later rounds
+  refer to the same finding.
 
-### Engineer Repair Claims Are Evidence, Not Resolution
+### The Ledger Is Mutable and Carried Across Rounds
 
-- The Engineer receives the complete set of open Review Issues in one bounded repair handoff.
-- The Engineer must address every issue or explicitly report why an issue remains unresolved.
-- The repair completion report must reference each issue and provide concise evidence of the change or verification
-  performed.
-- Engineer claims do not close Review Issues. Only a later Reviewer can resolve them.
+- The Review Issue Ledger is created from round one's result and carried forward for the remainder of the attempt.
+- Later rounds may resolve open items, keep items open, and append newly discovered items. Appended items receive new
+  stable identities; existing identities are never reused or renumbered.
+- Resolved items remain visible in the ledger with their resolution round, so the workflow can show what was fixed.
+- The ledger, not free-form prose, is what the repair handoff and the next round both consume.
 
-### Fresh Engineer Repair Context
+### Fresh Repair Context
 
-- Every automatic semantic repair cycle starts a fresh persisted **semantic repair Session Transcript Segment** owned by
-  the same stable RunWield Session.
-- Activating the repair segment seals the previous execution or repair segment and makes the repair segment current.
-  Stable Session identity, Plan Workflow Lease ownership, execution worktree, and active Engineer identity do not
-  change.
-- The repair model receives a bounded context packet: the Engineer system prompt, frozen Approved Plan requirements,
-  current execution/worktree state, CI state, the complete open Review Issue set with stable identities and evidence,
-  prior repair claims when applicable, and repository/diff inspection capabilities.
-- The repair model does not receive Planner messages, the earlier Engineer transcript, Reviewer conversation or tool
-  history, or Reviewer reasoning beyond the structured result and concise feedback projection.
-- A repair segment is fresh when the repair begins and remains writable for that repair attempt so interruption can
-  resume the same attempt. A later semantic rejection creates another fresh successor segment rather than accumulating
-  repair rounds in one model context.
-- Context compaction may still protect an unusually long repair attempt, but compaction is a fallback within the fresh
-  segment, not the mechanism used to establish the repair boundary.
-- If repair-segment activation cannot be completed or reconciled safely, Workflow Validation pauses for recovery. It
-  must not silently fall back to the exhausted predecessor context.
+- Semantic repair is performed by a dedicated Reviewer-Feedback repair agent in a fresh isolated session, not by
+  appending to the Engineer's execution transcript.
+- The repair agent receives a bounded packet: its own system prompt, the frozen Approved Plan, the open ledger items,
+  the current execution worktree, and bounded diff and repository inspection tools.
+- It does not receive the Engineer execution transcript, Planner messages, or Reviewer conversation history.
+- It must address every open ledger item and report a per-item disposition — fixed with the change described, already
+  satisfied with evidence, or blocked with the reason.
+- Repair claims are evidence for the next Reviewer, never resolution. Only a later Reviewer closes a ledger item.
+- If the repair agent stops without completing, the existing pause-for-continuation behavior applies.
 
-### Cycle Two Re-Verifies and Sweeps Again
+### Verification Rounds Verify Rather Than Rediscover
 
-- The second Reviewer receives the frozen requirements, current implementation evidence, prior ledger, and Engineer
-  repair claims.
-- It must independently verify every prior Review Issue rather than accepting the Engineer's claims at face value.
-- It must also perform a fresh full requirement sweep so repairs and previously overlooked areas cannot escape review.
-- Resolved findings remain visible in the active ledger, while unresolved findings stay open.
-- Newly discovered Review Issues are appended rather than replacing prior history.
-- Approval is permitted only when all unambiguous requirements are satisfied and every Review Issue is resolved.
+- A verification round receives the round number, the open and resolved ledger items, and the repair agent's per-item
+  report.
+- It must independently verify each open item against the code rather than accepting the repair claim at face value.
+- It must inspect the repair delta for new Plan divergences or regressions the repair introduced.
+- It must not open new code-smell findings, and must not restart a full Plan-wide sweep.
+- It may append new Review Issues when the repair itself introduced a blocking defect.
+- Approval requires that every ledger item is resolved and the repair introduced no new blocking divergence.
+
+### Every Repair Runs in Fresh Context
+
+- All repair dispatched from review feedback — semantic rounds and Human Code Review feedback alike — is performed by
+  the Reviewer-Feedback repair agent in a fresh isolated session.
+- Human Code Review feedback is scoped, concrete, and attached to a diff, so it does not require the execution
+  transcript. Its packet must carry the human's feedback verbatim along with any annotations and images, plus full-diff
+  access, so nothing the human pointed at is lost.
+- The known cost is that feedback referring to earlier conversation ("like we discussed") has no referent in a fresh
+  session. Feedback that cannot be understood from the packet warrants escalation rather than a guess.
 
 ### Ambiguity Is Advisory, Not Blocking
 
-- A Review Advisory records genuine ambiguity in the Approved Plan; it is not a way to excuse a clear omission or
-  incorrect implementation.
-- Each advisory must quote or precisely reference the ambiguous requirement, explain the plausible interpretations,
-  identify the interpretation implemented, and state any useful future clarification.
+- A Review Advisory records genuine ambiguity in the Approved Plan or a non-blocking maintainability observation; it is
+  not a way to excuse a clear omission or incorrect implementation.
+- An ambiguity advisory must reference the ambiguous requirement, explain the plausible interpretations, identify the
+  interpretation implemented, and state any useful future clarification.
 - A reasonable implementation of one valid interpretation may be approved when all unambiguous requirements pass.
-- Review Advisories do not dispatch Engineer repair and do not consume another review cycle by themselves.
+- Review Advisories do not dispatch repair and do not consume a round.
 
 ### Ledger Durability Boundary
 
-- The Review Issue Ledger is temporary validation state for one active implementation attempt.
-- It must survive an Engineer repair turn, validation continuation, and recoverable interruption so resumed validation
-  does not lose coverage or issue history.
-- It remains available when the two-cycle limit stops automatic validation and the user is choosing recovery.
-- Its active state is checkpointed durably enough for interruption and process-loss recovery, then discarded after
-  successful verification or when the attempt is reset, abandoned, or reopened for Plan revision.
+- The ledger is temporary validation state for one active implementation attempt.
+- It lives in memory on the active execution workflow record, not in a validation-loop local, because validation exits
+  and is re-entered whenever it pauses. Round number, ledger, and repair baseline must all survive that round trip.
+- It therefore survives repair dispatch, every pause-and-nudge, and re-entry into validation. It does not survive
+  process loss, which is accepted and out of scope.
 - The ledger, resolved findings, and repair history are not appended to the Plan and are not durable Work Record
   content.
-- A private semantic repair transcript may retain the bounded issue packet and repair claims as ordinary Session
-  history. That historical JSONL is not the active ledger, canonical project memory, or a Work Record.
+
+### Failures Leave the User With the Agent They Can Nudge
+
+- An agent that stops, errors, or exhausts its bounded attempts must never hard-halt the workflow while recoverable
+  state exists. The user must always be left with the stalled agent's own session, able to nudge it.
+- A Reviewer that completes its analysis but omits the terminal `review_complete` call must be nudged inside its
+  existing session, not restarted with the full review prompt. Restarting discards completed work, costs a second full
+  review, and is likely to reproduce the same omission. This failure is common on smaller models and is the primary case
+  this requirement exists to serve.
+- Reviewer isolation means exclusion of the workflow's conversation history from the Reviewer. It does not mean
+  discarding the Reviewer's own prior turn between bounded attempts within a round.
+- Reviewer exhaustion pauses with its session alive and current so the user can nudge by hand, with round number and
+  ledger preserved.
+- Repair-agent stalls keep the existing pause behavior: the session stays with the repair agent, and continuing resumes
+  validation with round number and ledger intact.
+- Any pause must state which round it is in and what continuing will do.
 
 ### Only Advisories Become Durable
 
 - On successful Workflow Validation, advisories from the final approving semantic review are appended to the Verified
   Plan under `## Post-Validation Review Advisories`.
 - The generated section must state that it is post-validation context and is not part of the approved Plan requirements.
-- Each advisory records the ambiguous requirement, why it was ambiguous, the implementation interpretation, and an
-  optional future clarification.
+- Each advisory records the observation or ambiguous requirement, why it was raised, the implementation interpretation
+  where applicable, and an optional future clarification.
 - If no advisories exist, the section is omitted.
 - Writing is idempotent: revalidation replaces or removes the generated section rather than creating duplicates.
 - Future Plan evaluation must exclude the generated section from requirement coverage.
@@ -145,66 +191,78 @@ structured Review Issue Ledger that makes requirement coverage and repair state 
 Most successful implementations should proceed without new user interaction:
 
 1. CI passes.
-2. Semantic Review cycle one approves, or reports a comprehensive set of Review Issues.
-3. RunWield activates a fresh semantic repair segment, and the Engineer repairs all reported issues with evidence.
-4. Semantic Review cycle two independently verifies the repairs, repeats full coverage, and approves when the Plan is
-   satisfied.
+2. Round one approves, or opens a ledger of Review Issues plus any advisories.
+3. The Reviewer-Feedback repair agent fixes every open item in fresh context and reports per-item dispositions.
+4. CI reruns.
+5. Round two sweeps the Plan again and verifies each open item, then approves.
 
-RunWield should present concise progress and outcomes rather than exposing raw internal state by default. A review
-result should make clear:
+When round two also rejects, the same repair step runs and round three verifies without sweeping. If round three does
+not approve, its repair still runs, and the user then chooses between another verification round and Human Code Review.
 
-- the current semantic cycle;
-- how many requirements were satisfied, blocked, or ambiguous;
-- which Review Issues are open, resolved, or newly discovered;
-- whether the Engineer supplied evidence for each requested repair;
-- and why approval occurred or why explicit recovery is required.
+RunWield should present concise progress and outcomes rather than raw internal state. A review result should make clear:
 
-If cycle two still rejects the implementation, RunWield stops automatic semantic cycling, preserves the active ledger,
-and asks the user to choose a recovery path. It must not silently grant approval or begin another batch.
+- the current round and whether it is a discovery or verification round;
+- how many ledger items are open, resolved this round, and newly appended;
+- whether the repair agent supplied a disposition for each open item;
+- and why approval occurred, or what remains open.
+
+RunWield must never silently approve and must never leave the workflow with no available action.
 
 ## Functional Requirements
 
 ### Structured Reviewer Result
 
-- Extend the Reviewer completion contract to return an approval decision, complete requirement coverage, Review Issues,
-  and Review Advisories as structured data.
-- Reject or fail closed on internally inconsistent results, including approval with open Review Issues or unclassified
-  material requirements.
-- Preserve a concise text projection for Runtime events, user-facing status, and diagnostics.
-- Apply the same result contract to initial invocations and Reviewer execution retries.
+- Extend the Reviewer completion contract to return an approval decision, structured findings with stable identities and
+  status, and Review Advisories, while retaining a concise human-readable feedback projection.
+- Reject or fail closed on internally inconsistent results, including approval with open Review Issues.
+- Apply the same result contract to round one, later rounds, and Reviewer execution retries.
+
+### Diff Delivery
+
+- The Reviewer never receives an inlined diff. It inspects changes through a bounded read-only diff tool in every round,
+  which removes the inline/large-diff fork and its size threshold.
+- The diff tool exposes named scopes: the full workflow diff from the execution baseline, and — in later rounds — the
+  repair delta since the previous repair dispatch.
+- A completion call made without any diff inspection is not a valid review. It consumes a bounded Reviewer continuation
+  attempt with an explicit instruction to inspect the diff before deciding.
+- Human Code Review and guided-review recommendation always operate on the full workflow diff, never on a repair delta.
 
 ### Ledger Coordination
 
-- Create the ledger from the first completed semantic review result.
-- Preserve stable Review Issue identity and status across repair and re-review.
-- Record Engineer repair claims against the issue identities supplied in the repair handoff.
-- Provide cycle two with the complete prior ledger without leaking unrelated Agent Session conversation.
-- Distinguish resolved, unresolved, and newly discovered issues in the resulting ledger.
-- Preserve active ledger state across supported validation continuation and recovery paths.
-- Clear the ledger at the defined attempt boundaries.
+- Create the ledger from round one's structured result.
+- Preserve stable identity and status across repair and later rounds; never reuse or renumber identities.
+- Provide each later round with open items, resolved items, and the repair agent's report, without leaking unrelated
+  Agent Session conversation.
+- Distinguish resolved, still-open, and newly appended items in the resulting ledger.
+- Clear the ledger at attempt boundaries.
 
 ### Reviewer Prompt Contract
 
-- Require exhaustive Plan requirement inventory before approval.
-- Require evidence-backed classification for every material requirement.
-- Require all blocking findings in the current pass, not a single representative finding.
-- On cycle two, require independent repair verification plus a fresh full sweep.
-- Explicitly distinguish Review Issues from Review Advisories and retain the existing prohibition on style-only or
-  out-of-scope feedback.
+- Two prompts, not three. A discovery prompt serves rounds one and two; a verification prompt serves rounds three and
+  above. Both receive the round number.
+- Discovery prompt: state the approval default explicitly, require examination of every material Plan requirement within
+  that default, require all blocking findings in the current pass, require diff inspection before deciding, and — when
+  the ledger is non-empty — additionally require independent verification of each open item. An empty ledger makes that
+  obligation vacuous, which is what makes one prompt serve both rounds.
+- Verification prompt: require independent verification of each open item, require inspection of the repair delta, and
+  forbid both new code-smell findings and a full Plan-wide sweep.
+- Both: distinguish Review Issues from Review Advisories, and retain the existing exclusions for verification
+  procedures, execution evidence, style-only feedback, and out-of-scope suggestions.
 
-### Engineer Repair Contract
+### Repair Agent Contract
 
-- Send all open Review Issues together with stable identities and Plan references.
-- Require a per-issue repair claim or explicit unresolved explanation in the completion report.
-- Tell the Engineer that repair claims are evidence for the Reviewer, not self-approval.
-- Keep semantic repair instructions validation-specific; do not weaken the Engineer's broader Plan and verification
-  responsibilities.
-- Before dispatch, transactionally activate a fresh semantic repair segment under the same stable Session using the
-  current execution worktree and Plan Workflow Lease.
-- Keep repository and large-diff evidence inspectable through bounded tools instead of copying an unbounded execution
+- Dispatch semantic repair to the Reviewer-Feedback repair agent in a fresh isolated session for every execution agent,
+  including frontend execution. Pair-execution affordances are deliberately not carried into semantic repair, which is
+  about correctness and plan completeness rather than product taste.
+- Dispatch Human Code Review feedback repair to the same agent and the same fresh-session mechanism, with the human's
+  feedback, annotations, and images in the packet.
+- Send all open ledger items together with their identities and Plan references.
+- Require a per-item disposition in the completion report, and capture that report for the next round.
+- Tell the repair agent that its claims are evidence for the Reviewer, not self-approval.
+- Keep repository and diff evidence inspectable through bounded tools instead of copying an unbounded execution
   transcript or oversized diff into the prompt.
-- Persist the repair segment and pending repair continuation until the attempt reaches a durable completion,
-  interruption, or recovery boundary.
+- Preserve escalation: a finding that genuinely requires architectural change returns to the Router rather than being
+  guessed at.
 
 ### Plan Advisory Appendix
 
@@ -215,20 +273,27 @@ and asks the user to choose a recovery path. It must not silently grant approval
 - Preserve user-authored Plan content outside that managed boundary exactly.
 - Do not write blocking issues, resolved issues, repair claims, or Reviewer deliberation into the Plan.
 
-### Cycle Enforcement and Recovery
+### Round Enforcement and Recovery
 
-- Limit consecutive automatic semantic rejection-and-repair cycles to two per semantic attempt.
-- After the second rejection, preserve recoverable implementation and ledger state and require explicit user action.
-- Do not weaken existing cancellation, failed Reviewer invocation, CI, human review, worktree, or Plan Lifecycle
-  behavior.
-- A resumed active attempt must continue from its ledger rather than silently restarting cycle one.
+- Run rounds one and two under the discovery contract and round three under the verification contract without asking.
+- After round three's repair completes and CI passes, preserve the implementation and ledger and require explicit user
+  action, offering at minimum: run another verification round, or open Human Code Review now.
+- Human Code Review opened from this point is authoritative for merge-back; its feedback routes into the human-feedback
+  repair path.
+- Do not weaken existing cancellation, CI, human review, worktree, or Plan Lifecycle behavior. Reviewer invocation
+  failure changes from halt to pause per the failure-handling assumption.
 
 ### Observability
 
-- Record privacy-safe metrics for semantic cycle number, approval outcome, requirement-state counts, open/resolved/new
-  issue counts, advisory count, and whether approval occurred by cycle two.
-- Distinguish Reviewer execution retries from semantic rejection cycles.
-- Track how often cycle two finds new blocking issues; this is the primary signal of remaining serial-discovery debt.
+- Record privacy-safe metrics for round number, review mode, approval outcome, open/resolved/newly-appended item counts,
+  advisory count, and whether approval occurred by round two.
+- Distinguish Reviewer execution retries from semantic rounds.
+- Track how often round two appends a blocking item that round one did not find. This is the primary signal of round one
+  under-performing, and the justification for keeping a second discovery round.
+- Track how often a verification round appends a new blocking item, which indicates repairs introducing regressions.
+- Track how often the round-three choice point is reached and which option the user picks.
+- Record the human review cycle count on feedback, approval, and exit results. It is a display and measurement signal
+  only; nothing may use it to end the loop.
 - Do not add token-budget enforcement or store Plan text, findings, diffs, repair evidence, or other private content in
   metrics.
 
@@ -237,77 +302,75 @@ and asks the user to choose a recovery path. It must not silently grant approval
 Build the capability around the existing Workflow Validation boundary in `src/shared/workflow/validation.js` and the
 terminal `review_complete` contract.
 
-1. Replace free-form Reviewer feedback as the orchestration contract with a structured semantic result while retaining a
-   readable feedback projection.
-2. Update `src/agent-definitions/workflow-prompts/reviewer-prompt.md` so both inline and exploratory review produce full
-   requirement coverage and distinguish Review Issues from Review Advisories.
-3. Maintain one validation-owned Review Issue Ledger for the active semantic attempt. Pass only the frozen Plan,
-   implementation evidence, ledger, and repair claims into isolated Reviewer invocations.
-4. At every semantic rejection, use the Session-segment rollover boundary to seal the predecessor and activate a fresh
-   persisted semantic repair segment under the same stable Session. Seed it with the bounded repair packet rather than
-   the predecessor transcript.
-5. Make the semantic repair handoff carry all open issue identities and retain the Engineer's completion evidence for
-   the next Reviewer.
-6. Separate the two-cycle semantic limit from CI retries, Reviewer execution retries, and human code-review behavior.
+1. Extend `review_complete` with structured findings while retaining a readable feedback projection.
+2. Split the Reviewer prompt into a discovery prompt and a verification prompt, both loaded through the existing
+   workflow-prompt mechanism and both parameterized by round number.
+3. Remove the inline/large-diff fork so every round uses the bounded diff tool, and extend that tool with full and
+   repair scopes backed by `captureWorktreeTree`/`diffTrees`.
+4. Carry the mutable ledger, round number, and repair baseline on the active execution workflow record so they survive
+   validation's pause-and-re-enter lifecycle, and render them into the repair packet and the next round's prompt.
+5. Add a dedicated Reviewer-Feedback repair agent definition, dispatched through an isolated session with edit
+   capability, and capture its completion report. Route both semantic and human-feedback repair through it.
+6. Separate round enforcement from CI retries and Reviewer execution retries, implement the round-three choice point,
+   make Reviewer continuation resume its existing session with a nudge, and convert Reviewer exhaustion from halt to
+   pause.
 7. At final validation staging, write the managed advisory appendix into the Plan copy that receives
    `validation_passed`; strip that appendix whenever deriving future approved requirements.
-8. Extend deterministic workflow, prompt-contract, result-tool, segment-rollover, Plan-staging, interruption/resume, and
-   metrics tests to cover both review cycles and failure boundaries.
+8. Extend deterministic workflow, prompt-contract, result-tool, diff-tool, Plan-staging, and metrics tests to cover both
+   round contracts, the recovery choices, and failure boundaries.
 
-The ledger representation should be internal and replaceable. The durable product contracts are exhaustive coverage,
-stable issue identity within an attempt, independent re-verification, bounded automatic cycles, and advisory-only Plan
-persistence.
+The ledger representation should be internal and replaceable. The durable product contracts are the approval default,
+comprehensive round one, stable finding identity within an attempt, independent re-verification in later rounds, bounded
+rounds with a human escape hatch, and advisory-only Plan persistence.
 
 ## Success Criteria
 
-- No implementation attempt runs more than two consecutive semantic rejection-and-repair cycles without explicit user
-  action.
-- Every completed Reviewer result classifies every material frozen Plan requirement.
-- Cycle two cannot approve while a prior or newly discovered Review Issue remains open.
-- Engineer repair completion includes a claim for every dispatched Review Issue, and missing claims remain visible to
-  the Reviewer.
+- No implementation attempt runs more than three automatic rounds without explicit user action.
+- The round-three choice point always presents a usable path forward; no workflow is stranded.
+- No number of human feedback rounds ends validation on its own; only human approval or exit does.
+- No agent stall or bounded-attempt exhaustion hard-halts a workflow whose ledger and round state are recoverable; a
+  nudge resumes with nothing lost, in the stalled agent's own session.
+- A Reviewer that omits `review_complete` is recovered by a nudge rather than by a repeated full review.
+- Discovery rounds report their complete set of blocking findings rather than a representative one.
+- A verification round cannot approve while any ledger item remains open.
+- Repair completion includes a disposition for every dispatched item, and missing dispositions remain visible to the
+  next Reviewer.
 - Every semantic repair begins with bounded fresh model context while remaining attached to the same stable user-visible
   Session and Plan workflow.
-- Process loss during repair resumes or recovers the persisted repair attempt without reverting to the predecessor
-  execution context or duplicating uncertain effects.
-- The rate of eligible implementations approved by cycle two materially improves from the current baseline without an
-  increase in defects later found by human review or subsequent validation.
-- The rate of new blocking issues first discovered during cycle two declines as the comprehensive cycle-one contract is
-  evaluated and refined.
+- The rate of implementations approved by round two materially improves from the current baseline without an increase in
+  defects later found by human review.
+- The rate of new blocking items first appended in rounds above one declines as the round-one contract is tuned.
 - Ambiguous but reasonably implemented Plans can be approved, with advisories appearing exactly once in the Verified
   Plan and never being treated as requirements.
-- Validation interruption and resume preserve the active ledger; successful verification and reset paths clear it.
-- Inline and large-diff modes satisfy the same behavioral evaluation scenarios.
+- Code-smell observations reach the user as advisories and never as a rejection.
 
 ## Out of Scope
 
-- Lowering the Semantic Reviewer approval standard.
+- Weakening the plan-adherence approval standard. Demoting code smells to advisories is a scope change to what is
+  blocking, not a reduction of the Plan-adherence bar.
 - Optimizing first-pass approval as an independent goal.
 - Parallel or multi-Reviewer orchestration.
 - Adaptive elevated or extended review tiers described in `docs/vision/adaptive-extended-semantic-review.md`.
 - Token-budget automation or Reviewer cost caps.
-- Incorporating CI findings or human code-review findings into the Review Issue Ledger.
+- Durable checkpointing of the ledger across process loss.
+- Incorporating CI findings into the ledger.
 - Changing the Approved Plan format or requiring authors to assign requirement identifiers.
 - Persisting the full ledger or repair history in Plans, Work Records, or project memory.
-- Treating semantic repair transcripts as disposable in-memory work that cannot survive interruption or process loss.
-- Using compaction of the predecessor Engineer transcript as the normal semantic repair handoff.
+- Carrying pair-execution affordances into semantic repair.
 - Automatically creating follow-up Plans from Review Advisories.
 - Batch approval of Epic children or changes to individual child FEATURE Plan approval.
-- Epic child navigation and automatic loading of the next actionable child.
 
 ## Dependencies and Sequencing
 
-This PRD should precede adaptive extended review because future review tiers need a reliable coverage and finding ledger
-to coordinate multiple Reviewer passes.
+This PRD should precede adaptive extended review because future review tiers need a reliable finding ledger to
+coordinate multiple Reviewer passes.
 
-Implementation depends on the stable Session transcript manifest and generic transactional rollover primitives defined
-by Personal Remote Workspace slices 8–10. The semantic repair workflow is a first concrete consumer of the generic
-"future context boundary" seam: repair segments use the same ordered manifest, fenced activation, aggregate projection,
-and crash reconciliation as the planning-to-execution handoff. Reviewer sessions remain disposable and outside the
-manifest because they are read-only, are not the Session's active root context, and do not own recoverable project
-effects.
+`plans/focused-semantic-review-after-human-feedback.md` introduces a third review mode for post-human-feedback repair
+and refactors the same review prompt builder. It should be rebased onto the round-aware builder this PRD establishes
+rather than introducing a parallel one. The Human Code Review escape hatch defined here feeds directly into that plan's
+human-feedback repair path.
 
 Implementation should preserve current `SessionRuntime`, Plan Lifecycle, worktree merge-back, optional human review, and
-large-diff inspection contracts. Behavioral evaluation should compare the new prompt and ledger against representative
-Plans that previously required three or more semantic cycles, with special attention to cycle-two new-finding rate,
-repair context utilization at dispatch and completion, and escaped defects rather than approval rate alone.
+bounded diff inspection contracts. Behavioral evaluation should compare the new prompts and ledger against
+representative Plans that previously required three or more rounds, with attention to the rate of new items appended in
+later rounds, repair context utilization, and escaped defects rather than approval rate alone.

@@ -64,17 +64,74 @@ behavior.
 
 ## How to Write Tests
 
-### Prefer real collaborators and fakes over mocks
+### Fake the environment, never your own machinery
 
-Use the real object where practical. For expensive or unreliable collaborators (external APIs, databases, file system,
-time/randomness), prefer:
+A test's value is in how much real behavior it runs. Fake the _environment_ — a temp directory, fixture files, a
+throwaway repo, a fixed clock — and let your own code paths actually execute.
 
-1. **Fakes** — lightweight in-memory implementations of the same interface (e.g., an in-memory database instead of
-   mocking the database client)
-2. **Mocks only at system boundaries** — external APIs you don't control, paid services, hardware interfaces
+**Never substitute your own core machinery with a stand-in because a test is inconvenient to set up.** State machines,
+persistence layers, transaction boundaries, and locking are the code under test even when they are not the subject of
+the test. A stand-in for those makes the suite pass while the guarantee it exists to protect goes unverified, and it
+hides real defects: production code that mishandles the real mechanism still looks green.
+
+This failure mode is worst when the substitution is conditional. A helper that swaps the real implementation for a no-op
+"only in tests" silently disarms every test in the file, and the more dependencies a test injects, the less of your
+system it touches. If a test needs twenty injected dependencies to prove one function returns the right value, it is
+asserting its own wiring.
+
+A placeholder that isn't a real thing — a path like `/project` or `/tmp/fake` that no directory backs, an id no record
+uses — is a signal the test needs a real fixture, not a more elaborate fake.
+
+Order of preference:
+
+1. **The real object.** Use it wherever practical.
+2. **Fakes** — lightweight in-memory implementations of the same interface (e.g. an in-memory database instead of
+   mocking the database client).
+3. **Mocks only at system boundaries** — external APIs you don't control, paid services, hardware, the network.
+
+### Faking an external boundary, and what you still owe
+
+Faking a genuine boundary is correct and usually necessary: it is slow, it is not yours, and you are not testing it. The
+obligation that comes with it is to test everything derived from it — the happy path _and_ every failure it can hand
+you. A faked boundary is a way to reach your own error handling cheaply, not a reason to skip it.
+
+But faking a boundary cannot verify that you are _calling_ it correctly. A wrong flag, a reversed argument, or a misread
+exit code stays wrong forever behind a fake, because the fake answers the question you assumed rather than the one you
+asked. Where behavior turns on the real semantics of an external command, keep a **small number of contract tests** that
+run the real thing — enough to pin the meaning, not enough to slow the suite.
+
+Signs you owe a contract test:
+
+- Correctness rests on what a command _means_ (an ancestry check, a lock acquisition, a comparison's argument order).
+- The code treats the boundary's answer as proof of something it will then act on irreversibly.
+- A fixture that omits the boundary entirely still produces the expected result — the test would pass with the call
+  reversed, misspelled, or removed.
+
+That last one is the test to run on your own tests: if the boundary call were subtly wrong, would anything fail? Verify
+it directly by breaking the call on purpose and confirming a test goes red.
+
+### Enforce it, do not just advise it
+
+Guidance loses to convenience. If a project cares about this, the rule belongs in CI as a ratchet, not only in a style
+guide:
+
+- Freeze today's seams per module by name — not just a count, or one seam can be swapped for another at a flat total.
+- Fail the build on any new seam, on any seam that replaces code the project owns, and on any seam whose value depends
+  on whether anything was injected at all.
+- Let the baseline tighten and never loosen, so "re-baseline it" cannot make a failure disappear.
+- Put the reasoning in the failure output. Whoever hits it — person or agent — is reading the error, not the docs.
+
+Check whether the project already has such a check before adding seams, and if it does, tighten its baseline in the same
+change that removes one.
+
+Before reaching for a fake on cost grounds, measure. "Real is too slow" is usually true of the _setup_ rather than the
+operations, and those have very different fixes. One worked example: individual Git commands measured 5–30ms each, while
+building a repository from scratch cost 29–71ms — so the answer was to build one fixture per test module and copy it for
+each test (5ms), not to fake Git at all. Reuse beats substitution whenever the real thing is fast once it exists. Save
+fakes for boundaries measured in seconds: model or agent calls, CI runs, network round trips.
 
 ```typescript
-// GOOD: Uses a real collaborator (or a fake)
+// GOOD: real collaborator, real fixture
 test("order total includes tax", () => {
     const taxCalculator = new TaxCalculator(0.08); // real object
     const order = new Order(taxCalculator);
@@ -82,13 +139,25 @@ test("order total includes tax", () => {
     expect(order.total).toBe(108);
 });
 
-// AVOID: Mocking an internal collaborator you control
+// AVOID: mocking an internal collaborator you control
 test("order total includes tax", () => {
     const mockTax = { apply: jest.fn().mockReturnValue(108) };
     const order = new Order(mockTax);
     order.addItem({ price: 100 });
     expect(mockTax.apply).toHaveBeenCalledWith(100);
 });
+
+// GOOD: only the external boundary is faked, so every branch that derives from it is
+// cheap to reach — and all of them are covered, failures included.
+test("keeps the order unpaid when the payment gateway declines", async () => {
+    const store = await makeTempStore(); // real files, real state machine
+    const result = await checkout(store, "order-1", { gateway: { charge: () => Promise.reject(declined()) } });
+    expect(result.status).toBe("payment_failed");
+    expect(await readOrder(store, "order-1")).toMatchObject({ status: "unpaid" });
+});
+
+// NEVER: swapping out your own transaction boundary because the fixture was awkward
+const runTransaction = testDeps ? fakeThatJustCallsTheCallback : realTransaction;
 ```
 
 ### Test through the public interface

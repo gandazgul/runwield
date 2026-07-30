@@ -57,6 +57,25 @@ function assertKeyboardHelpVisible(result) {
 }
 
 /** @param {GoldenScenarioResult} result */
+function assertStartupLoginPromptOpened(result) {
+    assertEventIncludes(result, "startup:prompt-select:Welcome to RunWield");
+    assertEventIncludes(result, "startup:quit");
+    assert(
+        !result.events.includes("startup:model-selector"),
+        "Expected no-provider startup to open login before model selection.",
+    );
+}
+
+/** @param {GoldenScenarioResult} result */
+function assertStartupModelSelectorOpened(result) {
+    assertEventIncludes(result, "startup:model-selector");
+    assert(
+        !result.events.includes("startup:prompt-select:Welcome to RunWield"),
+        "Expected configured-provider startup to open model selection without login onboarding.",
+    );
+}
+
+/** @param {GoldenScenarioResult} result */
 function assertReviewFeedbackEvent(result) {
     assertEventIncludes(result, "interaction:PLAN_REVIEW:feedback");
     assertEventIncludes(result, "review_feedback");
@@ -132,7 +151,7 @@ export const routerToGuideInquiryScenario = {
     actions: [
         { type: "type", text: "how does routing work?" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
         { type: "assertProjectUnchanged" },
     ],
     assertions: [assertTerminalInputVisible, assertRuntimeGuideSwitch, assertProjectClean],
@@ -164,13 +183,13 @@ export const escapeCancellationScenario = {
     actions: [
         { type: "type", text: "please start a cancellable answer" },
         { type: "enter" },
-        { type: "waitForEvent", event: "runtime:turn_start", timeoutMs: 3000 },
+        { type: "waitForEvent", event: "runtime:turn_start" },
         { type: "escape" },
-        { type: "waitForEvent", event: "runtime:cancellation", timeoutMs: 3000 },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForEvent", event: "runtime:cancellation" },
+        { type: "waitForIdle" },
         { type: "type", text: "benign follow-up after cancel" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertCancellationEvent, assertEditorReady],
 };
@@ -182,9 +201,29 @@ export const helpSlashCommandScenario = {
     actions: [
         { type: "type", text: "/help" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 2000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertHelpSlashVisible, assertKeyboardHelpVisible],
+};
+
+export const startupNoProvidersOpensLoginScenario = {
+    name: "startup-no-providers-opens-login",
+    composedTui: true,
+    modelSetup: "none",
+    terminal: { columns: 100, rows: 30 },
+    actions: [],
+    assertions: [assertStartupLoginPromptOpened],
+    timeoutMs: 5000,
+};
+
+export const startupProviderWithoutModelsOpensModelScenario = {
+    name: "startup-provider-without-models-opens-model",
+    composedTui: true,
+    modelSetup: "provider-without-models",
+    terminal: { columns: 100, rows: 30 },
+    actions: [],
+    assertions: [assertStartupModelSelectorOpened],
+    timeoutMs: 5000,
 };
 
 export const planReviewTransactionContractScenario = {
@@ -221,7 +260,7 @@ export const planReviewTransactionContractScenario = {
         { type: "writeProjectFile", path: "plans/plan.md", text: "# Plan\n\nDo the thing.\n" },
         { type: "type", text: "submit the plan for review" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 8000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertReviewFeedbackEvent, assertReviewApprovedEvent, assertPlanReviewLifecyclePersisted],
 };
@@ -259,7 +298,7 @@ export const fauxProviderProtocolScenario = {
     actions: [
         { type: "type", text: "protocol check" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 5000 },
+        { type: "waitForIdle" },
     ],
     assertions: [
         (/** @type {GoldenScenarioResult} */ result) =>
@@ -342,17 +381,19 @@ export const sessionReplacementContractScenario = {
     ],
     actions: [
         { type: "runEpicContinuationReplacement" },
-        { type: "waitForIdle", timeoutMs: 2000 },
+        { type: "waitForIdle" },
     ],
     assertions: [assertSessionReplacementObserved],
 };
 
+// Deliberately hangs so the parent's scenario timeout fires mid-sleep. The sleep
+// is far longer than that timeout so the kill window cannot be outrun.
 export const timeoutDiagnosticScenario = {
     name: "timeout-diagnostic-contract",
     composedTui: true,
     terminal: { columns: 80, rows: 20 },
-    script: [{ id: "timeout-unused-turn", agent: "unreachable", phase: "diagnostic", text: "unused" }],
-    actions: [{ type: "sleep", ms: 5000 }],
+    script: [{ id: "timeout-unused-turn", agent: "router", phase: "triage", text: "unused" }],
+    actions: [{ type: "sleep", ms: 120_000 }],
 };
 
 export const diagnosticArtifactFailureScenario = {
@@ -371,4 +412,6 @@ export const initialGoldenScenarios = [
     fauxProviderProtocolScenario,
     runtimeInteractionContractScenario,
     sessionReplacementContractScenario,
+    startupNoProvidersOpensLoginScenario,
+    startupProviderWithoutModelsOpensModelScenario,
 ];

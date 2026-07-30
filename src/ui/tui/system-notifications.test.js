@@ -216,13 +216,60 @@ Deno.test("buildNotificationCommand uses terminal-notifier with click execute wh
     assert(command.args.includes("-execute"));
     assert(command.args.includes("-message"));
     assertEquals(command.args.includes("-sound"), false);
-    assertStringIncludes(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-");
+    assertEquals(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-demo");
     assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "/dev/ttys123");
     assertEquals(command.args[command.args.indexOf("-sender") + 1], "com.apple.Terminal");
 });
 
-Deno.test("buildNotificationCommand falls back to osascript notification", async () => {
+Deno.test("buildNotificationCommand groups via terminal-notifier for terminals without a sender bundle", async () => {
     const commands = makeCommandRecorder({ "terminal-notifier": true, osascript: true });
+    const command = await buildNotificationCommand({
+        eventName: "userInterview",
+        title: "Input requested — demo",
+        message: "Question waiting.\nSession: wld - demo",
+        terminal: { sessionLabel: "demo", terminalTitle: "wld - demo", term: "xterm-kitty" },
+        settings: resolveNotificationSettings(undefined),
+    }, {
+        os: "darwin",
+        env: {},
+        pid: 1,
+        getMergedCustomSetting: () => undefined,
+        runCommand: commands.runCommand,
+        writeTerminal: () => {},
+    });
+
+    assert(command);
+    assertEquals(command.cmd, "terminal-notifier");
+    assertEquals(command.args[command.args.indexOf("-group") + 1], "runwield-userInterview-demo");
+    assertEquals(command.args.includes("-sender"), false);
+});
+
+Deno.test("buildNotificationCommand sends Ghostty notifications as Ghostty", async () => {
+    const commands = makeCommandRecorder({ "terminal-notifier": true, osascript: true });
+    const command = await buildNotificationCommand({
+        eventName: "agentStopped",
+        title: "Agent stopped — demo",
+        message: "The agent stopped.\nSession: wld - demo",
+        terminal: { sessionLabel: "demo", terminalTitle: "wld - demo", termProgram: "ghostty" },
+        settings: resolveNotificationSettings(undefined),
+    }, {
+        os: "darwin",
+        env: {},
+        pid: 1,
+        getMergedCustomSetting: () => undefined,
+        runCommand: commands.runCommand,
+        writeTerminal: () => {},
+    });
+
+    assert(command);
+    assertEquals(command.cmd, "terminal-notifier");
+    assertEquals(command.args[command.args.indexOf("-sender") + 1], "com.mitchellh.ghostty");
+    assertEquals(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-demo");
+    assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "Ghostty");
+});
+
+Deno.test("buildNotificationCommand falls back to osascript when terminal-notifier is absent", async () => {
+    const commands = makeCommandRecorder({ osascript: true });
     const command = await buildNotificationCommand({
         eventName: "userInterview",
         title: "Input requested — demo",
@@ -243,6 +290,28 @@ Deno.test("buildNotificationCommand falls back to osascript notification", async
     assertStringIncludes(command.args.join(" "), "display notification");
     assertEquals(command.args.join(" ").includes("beep"), false);
     assertEquals(command.args.join(" ").includes("sound"), false);
+});
+
+Deno.test("notifyRunWieldEvent never reaches the desktop from a Golden TUI run", async () => {
+    const commands = makeCommandRecorder({ "terminal-notifier": true, osascript: true });
+    const bell = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "golden",
+        __deps: {
+            os: "darwin",
+            env: { WLD_GOLDEN_TUI: "1", TERM_PROGRAM: "Apple_Terminal" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            runCommand: commands.runCommand,
+            writeTerminal: bell.writeTerminal,
+        },
+    });
+
+    assertEquals(result.sent, false);
+    assertEquals(result.reason, "golden_tui");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(commands.calls, []);
+    assertEquals(bell.writes, []);
 });
 
 Deno.test("notifyRunWieldEvent emits terminal bell on non-macOS and respects disabled events", async () => {
@@ -373,27 +442,6 @@ Deno.test("notifyRunWieldEvent disables compaction finished independently", asyn
 
     assertEquals(result.sent, false);
     assertEquals(result.reason, "event_disabled");
-    assertEquals(result.terminalBellEmitted, false);
-    assertEquals(bell.writes, []);
-    assertEquals(commands.calls, []);
-});
-
-Deno.test("notifyRunWieldEvent skips bell, tty lookup, and desktop attempts for environment-disabled runs", async () => {
-    const commands = makeCommandRecorder({ osascript: true });
-    const bell = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("agentStopped", {
-        sessionName: "test run",
-        __deps: {
-            os: "darwin",
-            env: { RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS: "1" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            runCommand: commands.runCommand,
-            writeTerminal: bell.writeTerminal,
-        },
-    });
-
-    assertEquals(result.reason, "env_disabled");
     assertEquals(result.terminalBellEmitted, false);
     assertEquals(bell.writes, []);
     assertEquals(commands.calls, []);

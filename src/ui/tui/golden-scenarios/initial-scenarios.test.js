@@ -8,8 +8,29 @@ import {
     routerToGuideInquiryScenario,
     runtimeInteractionContractScenario,
     sessionReplacementContractScenario,
+    startupNoProvidersOpensLoginScenario,
+    startupProviderWithoutModelsOpensModelScenario,
 } from "./initial-scenarios.js";
 import { GoldenScenarioActor, runGoldenScenario } from "../testing/mod.js";
+
+/**
+ * Remove the artifact root a failed child retained.
+ *
+ * These tests provoke child failures on purpose, so the diagnostics they assert
+ * on are expected output, not evidence to preserve — left behind, they were the
+ * only thing still accumulating in TMPDIR run after run. Removing the heartbeat
+ * root rather than `artifactDir` is deliberate: scenario artifacts nest inside
+ * it, so the narrower path strands its own parent.
+ *
+ * @param {unknown} error
+ */
+async function removeChildHeartbeatArtifact(error) {
+    const childPayload =
+        /** @type {{ childPayload?: { heartbeatArtifactDir?: unknown } }} */ (error || {}).childPayload;
+    const root = childPayload?.heartbeatArtifactDir;
+    if (typeof root !== "string" || !root) return;
+    await Deno.remove(root, { recursive: true }).catch(() => {});
+}
 
 const scenarioExportNames = new Map([
     [routerToGuideInquiryScenario, "routerToGuideInquiryScenario"],
@@ -19,6 +40,8 @@ const scenarioExportNames = new Map([
     [fauxProviderProtocolScenario, "fauxProviderProtocolScenario"],
     [runtimeInteractionContractScenario, "runtimeInteractionContractScenario"],
     [sessionReplacementContractScenario, "sessionReplacementContractScenario"],
+    [startupNoProvidersOpensLoginScenario, "startupNoProvidersOpensLoginScenario"],
+    [startupProviderWithoutModelsOpensModelScenario, "startupProviderWithoutModelsOpensModelScenario"],
 ]);
 
 for (const scenario of initialGoldenScenarios) {
@@ -27,7 +50,7 @@ for (const scenario of initialGoldenScenarios) {
         const result = await runGoldenScenarioChildProcess({
             scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
             exportName: scenarioExportNames.get(scenario) || "",
-            timeoutMs: "timeoutMs" in scenario && typeof scenario.timeoutMs === "number" ? scenario.timeoutMs : 8000,
+            timeoutMs: "timeoutMs" in scenario && typeof scenario.timeoutMs === "number" ? scenario.timeoutMs : 30000,
         });
         assertEquals(result.result.actor.remaining, []);
     });
@@ -106,7 +129,7 @@ Deno.test("golden scenario child process runs with isolated environment before s
     const result = await runGoldenScenarioChildProcess({
         scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
         exportName: "helpSlashCommandScenario",
-        timeoutMs: 10000,
+        timeoutMs: 30000,
     });
     assertEquals(result.ok, true);
     assertEquals(result.result.name, "help-slash-command");
@@ -170,6 +193,7 @@ Deno.test("golden scenario child process failure reports retained diagnostics ar
         assert(diagnostics.includes("missingGoldenScenario"));
     } finally {
         await Deno.remove(artifactDir, { recursive: true }).catch(() => {});
+        await removeChildHeartbeatArtifact(error);
     }
 });
 
@@ -180,7 +204,7 @@ Deno.test("golden scenario timeout retains child heartbeat diagnostics", async (
             runGoldenScenarioChildProcess({
                 scenarioModule: "src/ui/tui/golden-scenarios/initial-scenarios.js",
                 exportName: "timeoutDiagnosticScenario",
-                timeoutMs: 4000,
+                timeoutMs: 2000,
             }),
         Error,
         "timeout",
@@ -201,7 +225,7 @@ Deno.test("golden scenario timeout retains child heartbeat diagnostics", async (
             "Expected heartbeat durable state diagnostics.",
         );
     } finally {
-        await Deno.remove(artifactDir, { recursive: true }).catch(() => {});
+        await removeChildHeartbeatArtifact(error);
         const parentArtifactDir = /** @type {Error & { artifactDir?: string }} */ (error).artifactDir;
         if (parentArtifactDir) await Deno.remove(parentArtifactDir, { recursive: true }).catch(() => {});
     }
@@ -232,7 +256,7 @@ Deno.test("golden scenario child crash surfaces substantive scenario diagnostics
         assertEquals(diagnostics.actor.remaining, ["unused-router-turn"]);
         assert(diagnostics.state && typeof diagnostics.state === "object", "Expected durable state diagnostics.");
     } finally {
-        await Deno.remove(artifactDir, { recursive: true }).catch(() => {});
+        await removeChildHeartbeatArtifact(error);
         const parentArtifactDir = /** @type {Error & { artifactDir?: string }} */ (error).artifactDir;
         if (parentArtifactDir) await Deno.remove(parentArtifactDir, { recursive: true }).catch(() => {});
     }

@@ -6,10 +6,18 @@
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, isPlannedChangeClassification, normalizePlanClassification } from "../../constants.js";
-import { resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
+import {
+    findPlansByParent,
+    getPlanRevisionForText,
+    isPlanDependencySatisfiedStatus,
+    loadPlan,
+    resolvePlanExecutionPolicy,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
-import { getAgentDisplayName } from "../session/agents.js";
+import { getAgentDisplayName, loadAgentDefFromPath } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runIsolatedAgentSession } from "../session/session.js";
 import {
     getCodeReviewMode,
@@ -18,7 +26,12 @@ import {
     setCustomSetting,
     shouldCleanupMergedWorktrees,
 } from "../settings.js";
-import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
+import {
+    extractAssistantOutput,
+    readLatestReviewOutcome,
+    readLatestTaskCompletedOutcome,
+    readLatestTaskCompletedReport,
+} from "./workflow.js";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     emitHostedSessionRuntimeEvent,
@@ -29,9 +42,10 @@ import {
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
-import { getWorkflowDiff } from "./git-snapshot.js";
+import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.ts";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
@@ -49,7 +63,15 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { buildGuidedReviewPolicy, recommendGuidedReview } from "./guided-review.js";
-import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-tool.js";
+import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
+import {
+    applyRoundFindings,
+    hasOpenItems,
+    normalizeLedger,
+    openItems,
+    renderOpenItems,
+    renderResolvedItems,
+} from "./review-ledger.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
@@ -58,11 +80,19 @@ import {
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
+const REVIEWER_VERIFY_PROMPT_FILE = "reviewer-verify-prompt.md";
+const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
 const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
-/** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
-const REVIEW_INLINE_DIFF_MAX_BYTES = 60 * 1024;
+/**
+ * @type {number} Diff size above which RunWield recommends guided human review.
+ *
+ * This no longer affects how the diff reaches the Reviewer — every round reads it
+ * through `review_diff`. It survives purely as the "this change is large enough to
+ * warrant a guided walkthrough" signal consumed by `recommendGuidedReview`.
+ */
+const GUIDED_REVIEW_LARGE_DIFF_BYTES = 60 * 1024;
 
 /**
  * @typedef {Object} BundledPromptFrontMatter
@@ -114,6 +144,46 @@ async function readBundledPromptFrontMatter(relativePath, readTextFile, ensurePr
     return normalizeBundledPromptFrontMatter(
         extractYaml(await Deno.readTextFile(join(AGENT_DEFS_DIR, relativePath))),
     );
+}
+/** @param {import('../../plan-store.js').PlanFrontMatter} attrs */
+function hasDirectDeliveryEvidence(attrs) {
+    if (attrs.status !== "verified") return true;
+    const evidence = attrs.deliveryEvidence;
+    return Boolean(
+        evidence && typeof evidence === "object" &&
+            (evidence.mode === "worktree_merge" || evidence.mode === "non_git_in_place"),
+    );
+}
+
+/** @param {string} projectRoot @param {string} planName */
+async function loadCurrentPlanRevision(projectRoot, planName) {
+    const plan = await loadPlan(projectRoot, planName).catch(() => null);
+    return plan?.revision;
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} planName
+ */
+async function loadDirectDeliveryHierarchySnapshot(projectRoot, planName) {
+    const plan = await loadPlan(projectRoot, planName);
+    if (!plan) throw new Error(`Plan not found: ${planName}`);
+    const parentValue = /** @type {{ parentPlan?: unknown }} */ (plan.attrs || {}).parentPlan;
+    const parentPlan = typeof parentValue === "string" && parentValue.trim() ? parentValue : undefined;
+    /** @type {Array<{ name: string, revision: string, status: string | undefined, deliveryEvidence: unknown }>} */
+    const siblingPlans = [];
+    if (parentPlan) {
+        for (const sibling of await findPlansByParent(projectRoot, parentPlan).catch(() => [])) {
+            siblingPlans.push({
+                name: sibling.name,
+                revision: await getPlanRevisionForText(await Deno.readTextFile(sibling.path)),
+                status: sibling.attrs.status,
+                deliveryEvidence: sibling.attrs.deliveryEvidence,
+            });
+        }
+        siblingPlans.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return { revision: plan.revision, parentPlan, siblingPlans };
 }
 
 /**
@@ -216,21 +286,27 @@ function formatCapturedProcessOutput(stdout, stderr) {
  * advertises skills, memory, and exploration tools. Semantic review is a
  * mechanical plan-vs-diff check, so it intentionally receives none of that by default.
  *
- * Every review gets the plan, diff context, and read-only repository exploration
- * tools (`read`, `grep`, `find`, `ls`). Large reviews additionally receive a
- * custom `review_diff` tool for bounded per-file diff inspection. Reviewer has
- * no memory tools so its judgment remains grounded in the supplied evidence.
+ * Every review gets the plan, read-only repository exploration tools (`read`,
+ * `grep`, `find`, `ls`), and the `review_diff` tool. The diff is never inlined —
+ * there is one delivery path for every round regardless of size. Reviewer has no
+ * memory tools so its judgment remains grounded in the supplied evidence.
  *
+ * `mode` selects the round contract: `"discovery"` sweeps the whole Plan (rounds
+ * one and two), `"verify"` only checks the open ledger and the repair delta
+ * (rounds three and above).
+ *
+ * @param {"discovery" | "verify"} [mode]
  * @param {(path: string) => Promise<string>} [readTextFile]
  * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
 export async function loadReviewerPrompt(
+    mode = "discovery",
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
     const { attrs, body } = await readBundledPromptFrontMatter(
-        join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE),
+        join(WORKFLOW_PROMPTS_DIR, mode === "verify" ? REVIEWER_VERIFY_PROMPT_FILE : REVIEWER_PROMPT_FILE),
         readTextFile,
         ensurePromptFile,
     );
@@ -245,6 +321,27 @@ export async function loadReviewerPrompt(
         tools: [],
         systemPrompt: body.trim(),
     };
+}
+
+/**
+ * Load the Reviewer-Feedback Engineer definition.
+ *
+ * Unlike the Reviewer, this is a real execution agent and receives the full
+ * shared system prompt via `loadAgentDefFromPath`. It lives under
+ * `workflow-prompts/` rather than the top-level agent directory because
+ * Workflow Validation dispatches it — a user never selects it, so it must stay
+ * out of `/agent` listings and `return_to_router` targets.
+ *
+ * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
+ * @param {typeof loadAgentDefFromPath} [loadFromPath]
+ * @returns {Promise<import('../session/types.js').AgentDefinition>}
+ */
+export async function loadReviewerFeedbackEngineerDef(
+    ensurePromptFile = ensureBundledAgentDefFile,
+    loadFromPath = loadAgentDefFromPath,
+) {
+    const promptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_FEEDBACK_ENGINEER_FILE));
+    return await loadFromPath(promptPath, { agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER });
 }
 
 /**
@@ -633,6 +730,48 @@ async function runCompletionGatedRepair({
 }
 
 /**
+ * Whether the Reviewer actually opened the diff during an invocation.
+ *
+ * The diff is never inlined into the prompt, so a `review_complete` call made
+ * without any `review_diff` call is a verdict reached without reading the code.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @returns {boolean}
+ */
+export function usedReviewDiffTool(messages) {
+    if (!Array.isArray(messages)) return false;
+    return messages.some((msg) => {
+        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") return false;
+        if (!("toolName" in msg) || msg.toolName !== "review_diff") return false;
+        // A failed lookup or an absent repair scope is not an inspection: the
+        // Reviewer saw no code, so it must not satisfy the read-before-deciding
+        // requirement.
+        if (/** @type {any} */ (msg).isError) return false;
+        const details = /** @type {any} */ (msg).details || {};
+        return details.available !== false;
+    });
+}
+
+/**
+ * Open ledger identities a review result failed to mention.
+ *
+ * The ledger only converges if every round returns a verdict on every open item.
+ * An omission is not neutral: it would let an approval merge over a finding
+ * nobody addressed, and it makes a re-reported issue arrive as a new identity
+ * beside the original, so one defect becomes two and the count grows each round.
+ *
+ * @param {import('./review-ledger.ts').ReviewLedger} ledger
+ * @param {import('../../tools/review-complete.js').ReviewFinding[] | undefined} findings
+ * @returns {string[]}
+ */
+export function unaccountedOpenItems(ledger, findings) {
+    const mentioned = new Set(
+        (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),
+    );
+    return openItems(ledger).map((item) => item.id).filter((id) => !mentioned.has(id));
+}
+
+/**
  * @param {string | undefined} baselineTree
  * @param {string} [cwd]
  * @returns {Promise<string>}
@@ -672,21 +811,34 @@ async function promptForMergeFailureAction(hostedSession, reason) {
 }
 
 /**
+ * Choice presented when the automatic review rounds are spent.
+ *
+ * There is deliberately no "Stop" here. Stopping strands the work with nowhere
+ * to go, which is the dead end this replaced. Either buy another verification
+ * round, or hand the change to a human — whose approval is authoritative even
+ * though semantic review never approved. The user can still cancel the
+ * interaction itself, which falls through to another round.
+ *
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @param {number} maxValidationCycles
- * @returns {Promise<"retry" | "stop">}
+ * @param {number} semanticRound
+ * @param {typeof requestHostedSessionInteraction} [requestInteraction]
+ * @returns {Promise<"continue" | "code_review">}
  */
-async function promptForSemanticValidationLimitAction(hostedSession, maxValidationCycles) {
-    const response = await requestHostedSessionInteraction(hostedSession, {
+async function promptForSemanticRoundLimitAction(
+    hostedSession,
+    semanticRound,
+    requestInteraction = requestHostedSessionInteraction,
+) {
+    const response = await requestInteraction(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
-        prompt:
-            `Semantic validation did not approve after ${maxValidationCycles} cycles.\n\nRetry validation for another ${maxValidationCycles} cycles, or Stop to end the workflow.`,
+        prompt: `Semantic review has not approved after ${semanticRound} rounds. The latest repair has not been ` +
+            "verified by a reviewer.\n\nRun another verification round, or open Code Review and decide yourself.",
         options: [
-            { value: "retry", label: "Retry validation" },
-            { value: "stop", label: "Stop" },
+            { value: "continue", label: "Run another verification round" },
+            { value: "code_review", label: "Open Code Review now" },
         ],
     });
-    return response.outcome === "selected" && response.value === "retry" ? "retry" : "stop";
+    return response.outcome === "selected" && response.value === "code_review" ? "code_review" : "continue";
 }
 
 /**
@@ -937,6 +1089,46 @@ ${diffContext}`
 
 /** @type {WeakMap<object, import('../session/session-runtime-events.js').RuntimeValidationProgress>} */
 const CURRENT_VALIDATION_PROGRESS = new WeakMap();
+
+/**
+ * Attach an unrecorded-outcome note to a halt reason.
+ *
+ * A halt reason is what the user reads and what the Plan's failure reason keeps.
+ * If RunWield also failed to write that outcome down, saying only why the work
+ * stopped would imply the Plan reflects it.
+ *
+ * @param {string} reason
+ * @param {string} unsettledNote
+ * @returns {string}
+ */
+function appendUnsettledNote(reason, unsettledNote) {
+    return unsettledNote ? `${reason} ${unsettledNote}` : reason;
+}
+
+/**
+ * Explain a lifecycle settlement that did not commit.
+ *
+ * When recording an outcome fails, the Plan's metadata is behind what actually
+ * happened in the repository — the merge really did fail, but the Plan may still
+ * read `implemented` with no reason attached. That gap is RunWield's own
+ * bookkeeping, so it must be stated plainly with the commands that resolve it,
+ * never left as a one-line warning the user is expected to decode.
+ *
+ * @param {import('./state-transition.ts').TransitionResult} transition
+ * @param {string} intent What RunWield was trying to record.
+ * @returns {string}
+ */
+function describeUnsettledTransition(transition, intent) {
+    const commands = (transition.recoveryActions || [])
+        .map((action) => action.command)
+        .filter((command, index, all) => command && all.indexOf(command) === index);
+    return [
+        `RunWield could not record ${intent}: ${transition.message}`,
+        "The repository change already happened; only RunWield's record of it is behind, so the Plan may still show " +
+        "its previous status until this is resolved.",
+        ...(commands.length > 0 ? [`Resolve it with: ${commands.join("  or  ")}`] : []),
+    ].join(" ");
+}
 
 /**
  * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
@@ -1426,8 +1618,13 @@ export async function runMechanicalValidation({
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
+ *   runValidationOutcomeTransition?: typeof runValidationOutcomeTransition,
+ *   runDirectDeliveryPublicationTransition?: typeof runDirectDeliveryPublicationTransition,
  *   switchActiveAgent?: typeof switchActiveAgent,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
+ *   loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef,
+ *   captureWorktreeTree?: typeof captureWorktreeTree,
+ *   diffTrees?: typeof diffTrees,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   requestInteraction?: typeof requestHostedSessionInteraction,
@@ -1486,7 +1683,20 @@ export async function runValidationLoop({
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
+    // The real transaction runs in tests too. Substituting a no-op stand-in whenever
+    // any dependency was injected meant the whole validation-loop suite ran without
+    // journaling, locking, revision checks, or rollback — so it proved the
+    // choreography while leaving the atomicity guarantees untested. A test that
+    // genuinely needs to observe a transition in isolation injects it by name.
+    const runValidationOutcomeTransitionImpl = __deps?.runValidationOutcomeTransition ||
+        runValidationOutcomeTransition;
+    const runDirectDeliveryPublicationTransitionImpl = __deps?.runDirectDeliveryPublicationTransition ||
+        runDirectDeliveryPublicationTransition;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
+    const loadReviewerFeedbackEngineerDefImpl = __deps?.loadReviewerFeedbackEngineerDef ||
+        loadReviewerFeedbackEngineerDef;
+    const captureWorktreeTreeImpl = __deps?.captureWorktreeTree || captureWorktreeTree;
+    const diffTreesImpl = __deps?.diffTrees || diffTrees;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
@@ -1635,6 +1845,9 @@ export async function runValidationLoop({
                 executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (executionAgent),
                 executionCwd,
                 validationContinuation: true,
+                // Carry the review round, ledger, and repair baseline across the pause
+                // so a nudge resumes this attempt instead of restarting at round one.
+                ...roundStateForWorkflowRecord(),
             });
             await switchActiveAgentImpl(hostedSession, { agentName: executionAgent });
         }
@@ -1646,44 +1859,209 @@ export async function runValidationLoop({
     let haltReason = null;
     /** @type {HumanReviewMetadata | null} */
     let humanReviewMetadata = null;
-    let validationCycles = 0;
-    const MAX_VALIDATION_CYCLES = 3;
+
+    // Rounds one and two sweep the whole Plan; round three and beyond only verify
+    // the open ledger and the repair delta. Two sweeps give a requirement missed
+    // once a second independent look; narrowing after that is what lets the loop
+    // terminate instead of rediscovering the implementation forever.
+    const DISCOVERY_ROUNDS = 2;
+    const AUTOMATIC_ROUNDS = 3;
+
+    // Round state is rehydrated from the workflow record captured before this loop
+    // cleared it, and written back whenever validation pauses. It cannot live only
+    // in these locals: validation exits on every pause (see
+    // pauseForExecutionContinuation) and the agent handler re-enters it from
+    // scratch, so a nudge would otherwise restart at round one with an empty
+    // ledger.
+    let semanticRound = typeof activeWorkflow?.semanticRound === "number" && activeWorkflow.semanticRound > 0
+        ? activeWorkflow.semanticRound
+        : 0;
+    let reviewLedger = normalizeLedger(activeWorkflow?.reviewLedger);
+    let repairBaselineTree = typeof activeWorkflow?.repairBaselineTree === "string"
+        ? activeWorkflow.repairBaselineTree
+        : "";
+    let lastRepairReport = typeof activeWorkflow?.lastRepairReport === "string" ? activeWorkflow.lastRepairReport : "";
+    // Set once the change is in a human's hands — either because they chose Code
+    // Review at the round limit, or because they returned feedback on a review
+    // that had already been approved. From then on automatic semantic rounds are
+    // over and only the human ends the loop.
+    let semanticEscapeToHumanReview = typeof activeWorkflow?.humanReviewCycle === "number" &&
+        activeWorkflow.humanReviewCycle > 0;
+    // Human review cycles are deliberately uncapped: the loop ends when the human
+    // approves or quits, not on a count. This exists for progress display and
+    // metrics only — never to stop the loop.
+    let humanReviewCycle = typeof activeWorkflow?.humanReviewCycle === "number" ? activeWorkflow.humanReviewCycle : 0;
+
+    /**
+     * Round state to fold into the workflow record whenever validation pauses.
+     *
+     * Pausing is the only exit that resumes, and `pauseForExecutionContinuation` is
+     * the only place that rebuilds the record — this loop clears it on entry, so
+     * there is deliberately no mid-loop write. Approval and halt are terminal and
+     * need no carry-over.
+     */
+    const roundStateForWorkflowRecord = () => ({
+        semanticRound,
+        reviewLedger,
+        repairBaselineTree,
+        lastRepairReport,
+        humanReviewCycle,
+    });
+
     progress = createValidationProgress({
         kind: "workflow",
         outcome: "running",
         stage: "cycle",
-        cycle: 1,
-        maxCycles: MAX_VALIDATION_CYCLES,
-        totalCycle: 1,
+        cycle: Math.min(semanticRound + 1, AUTOMATIC_ROUNDS),
+        maxCycles: AUTOMATIC_ROUNDS,
+        totalCycle: semanticRound + 1,
     });
 
     await recordWorkflowMetricImpl({
         category: "validation",
         event: "workflow_validation_started",
         planName,
-        details: { classification: triageMeta?.classification, hasWorktree: Boolean(worktreeBranch) },
+        details: {
+            classification: triageMeta?.classification,
+            hasWorktree: Boolean(worktreeBranch),
+            resumedAtRound: semanticRound > 0 ? semanticRound : undefined,
+        },
     });
 
+    /**
+     * Dispatch review feedback to the Reviewer-Feedback Engineer in a fresh
+     * isolated session.
+     *
+     * The repair does not run on the execution transcript. Appending it there put
+     * the most correctness-sensitive task in the workflow at the tail of a long,
+     * context-exhausted conversation whose whole gravity was "follow the
+     * Implementation Steps" — so the findings competed with the plan for
+     * attention and usually lost. A fresh session with a bounded packet makes the
+     * findings the entire job.
+     *
+     * @param {{ reason: string, findingsSection: string, repairKind: "semantic" | "human_feedback",
+     *   images?: Array<{base64: string, mimeType: string}> }} args
+     * @returns {Promise<{ paused?: WorkflowValidationResult }>}
+     */
+    async function runReviewFeedbackRepair({ reason, findingsSection, repairKind, images }) {
+        emitRunWieldSystemStatus(hostedSession, reason, true, progress);
+
+        // Capture the pre-repair tree so the next round can diff only what this
+        // repair changed. Fail closed: silently reviewing the full scope instead
+        // would hide whether the repair did anything.
+        try {
+            repairBaselineTree = await captureWorktreeTreeImpl(executionCwd);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            haltReason = `Could not capture the pre-repair tree for focused review: ${detail}`;
+            return {};
+        }
+
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "repair_dispatched",
+            agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+            planName,
+            details: { repairKind, semanticRound },
+        });
+
+        const packet = [
+            repairKind === "human_feedback"
+                ? "A human reviewed this change and asked for the following. Their feedback is authoritative."
+                : "A code reviewer found the following issues with this implementation. Fix every one of them.",
+            "",
+            "### Findings",
+            "",
+            findingsSection || "(no findings text supplied)",
+            "",
+            buildDiffInspectionSection(latestDiffText),
+            "",
+            "### Approved Plan",
+            "",
+            planContent,
+            "",
+            "Report a disposition for every finding in your task_completed message.",
+        ].join("\n");
+
+        let completed = false;
+        let report = "";
+        try {
+            const agentDef = await loadReviewerFeedbackEngineerDefImpl();
+            const sessionMessages = await runIsolatedAgentSessionImpl({
+                hostedSession,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                userRequest: packet,
+                images,
+                cwd: executionCwd,
+                _agentDefOverride: agentDef,
+                customTools: [createReviewDiffTool({ full: latestDiffText })],
+            });
+            const outcome = readLatestTaskCompletedReport(sessionMessages);
+            completed = outcome.completed;
+            report = outcome.message;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            haltReason = `Reviewer-Feedback Engineer execution failed: ${detail}`;
+            return {};
+        }
+
+        lastRepairReport = report;
+
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "repair_completed",
+            agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+            planName,
+            details: { repairKind, semanticRound, taskCompletedObserved: completed, hasReport: Boolean(report) },
+        });
+
+        if (!completed) {
+            return {
+                paused: await pauseForExecutionContinuation(
+                    `${
+                        getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, projectRoot)
+                    } stopped without task_completed during ${
+                        repairKind === "human_feedback" ? "code review" : "semantic"
+                    } repair.`,
+                ),
+            };
+        }
+        return {};
+    }
+
     while (!executionComplete && !haltReason) {
-        validationCycles++;
-        const validationCycleInBatch = ((validationCycles - 1) % MAX_VALIDATION_CYCLES) + 1;
+        // Once the change is in the human's hands, automatic rounds are over: this
+        // pass reruns CI, skips semantic review entirely, and reopens Code Review.
+        const skipSemanticReview = semanticEscapeToHumanReview;
+        if (!skipSemanticReview) semanticRound++;
+        const reviewMode = semanticRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
         await recordWorkflowMetricImpl({
             category: "validation",
             event: "validation_cycle_started",
             planName,
-            details: { validationCycle: validationCycles, maxValidationCycles: MAX_VALIDATION_CYCLES },
+            details: {
+                semanticRound,
+                reviewMode: skipSemanticReview ? "human_review_only" : reviewMode,
+                automaticRounds: AUTOMATIC_ROUNDS,
+            },
         });
         progress = createValidationProgress({
             kind: "workflow",
             outcome: "running",
             stage: "cycle",
-            cycle: validationCycleInBatch,
-            maxCycles: MAX_VALIDATION_CYCLES,
-            totalCycle: validationCycles,
+            cycle: Math.min(semanticRound, AUTOMATIC_ROUNDS),
+            maxCycles: AUTOMATIC_ROUNDS,
+            totalCycle: semanticRound,
         });
         emitRunWieldSystemStatus(
             hostedSession,
-            `Starting Validation Cycle ${validationCycleInBatch}/${MAX_VALIDATION_CYCLES}`,
+            skipSemanticReview
+                ? `Rerunning CI before reopening Code Review${
+                    humanReviewCycle > 1 ? ` (feedback round ${humanReviewCycle})` : ""
+                }...`
+                : `Starting Review Round ${semanticRound}${
+                    semanticRound <= AUTOMATIC_ROUNDS ? `/${AUTOMATIC_ROUNDS}` : ""
+                } (${reviewMode === "discovery" ? "full Plan review" : "verifying repairs"})`,
             "info",
             progress,
         );
@@ -1713,7 +2091,7 @@ export async function runValidationLoop({
                 event: "ci_attempt",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
                     mechanicalAttempt: mechanicalAttempts,
                     exitCode: ciResult.exitCode,
                     passed: ciResult.exitCode === 0,
@@ -1754,7 +2132,7 @@ export async function runValidationLoop({
                     event: "repair_dispatched",
                     agentName: executionAgent,
                     planName,
-                    details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
+                    details: { repairKind: "ci", semanticRound, attempt: mechanicalAttempts },
                 });
                 const completed = await runWorkflowRepair({
                     hostedSession,
@@ -1772,7 +2150,7 @@ export async function runValidationLoop({
                     planName,
                     details: {
                         repairKind: "ci",
-                        validationCycle: validationCycles,
+                        semanticRound,
                         attempt: mechanicalAttempts,
                         taskCompletedObserved: Boolean(completed),
                     },
@@ -1811,70 +2189,159 @@ export async function runValidationLoop({
             break;
         }
 
-        progress = updateValidationProgress(progress, {
-            stage: "semantic_review",
-            repairAttempt: null,
-            maxRepairAttempts: null,
-            checks: { semanticReview: "running" },
-        });
-        emitRunWieldSystemStatus(hostedSession, "Running Semantic Code Review...", "info", progress);
+        if (!skipSemanticReview) {
+            progress = updateValidationProgress(progress, {
+                stage: "semantic_review",
+                repairAttempt: null,
+                maxRepairAttempts: null,
+                checks: { semanticReview: "running" },
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                reviewMode === "discovery"
+                    ? `Running Semantic Code Review (round ${semanticRound}, full Plan review)...`
+                    : `Running Semantic Code Review (round ${semanticRound}, verifying repairs)...`,
+                "info",
+                progress,
+            );
+        }
         let diffText = "";
+        let repairDiffText = "";
         let reviewResponse = "";
         let reviewOutcome = null;
         let semanticUsedLargeDiffPath = false;
         /** @type {boolean} */
         let reviewerFailed = false;
+        let inspectedDiff = false;
+        let roundResolvedCount = 0;
+        let roundAppendedCount = 0;
+        /** @type {string} */
+        let reviewerPauseReason = "";
         const maxReviewerAttempts = 3;
-        const reviewerToolNames = ["read", "grep", "find", "ls", "review_complete"];
+        const reviewerToolNames = ["read", "grep", "find", "ls", "review_diff", "review_complete"];
         /**
+         * Build one Reviewer invocation.
+         *
+         * The diff is never inlined — every round reads it through `review_diff`,
+         * so there is one delivery path and no size threshold to tune. A
+         * continuation attempt sends only a short nudge: the Reviewer keeps its
+         * own session across attempts, so re-sending the full prompt would throw
+         * away analysis it has already done.
+         *
          * @param {import('../session/types.js').AgentDefinition} reviewerAgentDef
-         * @param {string} reviewDiffText
          * @param {number} attempt
+         * @param {string} [nudgeReason]
          * @returns {{ prompt: string, agentDef: import('../session/types.js').AgentDefinition, customTools: import('@earendil-works/pi-coding-agent').ToolDefinition[] }}
          */
-        const buildSemanticReviewAttempt = (reviewerAgentDef, reviewDiffText, attempt) => {
-            const diffBytes = new TextEncoder().encode(reviewDiffText).byteLength;
-            const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
-            const continuationPrefix = attempt > 1
-                ? `Continue reviewing ${planName}. You must finish this semantic review by calling review_complete.\n\n`
-                : "";
+        const buildSemanticReviewAttempt = (reviewerAgentDef, attempt, nudgeReason) => {
+            const hasRepairScope = Boolean(repairDiffText);
             /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-            const customTools = [];
-            let prompt;
+            const customTools = [
+                createReviewDiffTool(hasRepairScope ? { full: diffText, repair: repairDiffText } : { full: diffText }),
+            ];
 
-            if (isLargeDiff) {
-                prompt = continuationPrefix + buildLargeDiffReviewPrompt(
-                    reviewerAgentDef,
-                    planContent,
-                    reviewDiffText,
-                    diffBytes,
-                );
-                customTools.push(createReviewDiffTool(reviewDiffText));
-            } else {
-                prompt = continuationPrefix +
-                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${reviewDiffText}`;
+            if (attempt > 1) {
+                return {
+                    prompt: nudgeReason ||
+                        "You have not called review_complete yet. Finish this review now by calling review_complete " +
+                            "with your decision. Do not restart the review — use what you have already inspected.",
+                    agentDef: { ...reviewerAgentDef, tools: reviewerToolNames },
+                    customTools,
+                };
             }
 
+            const sections = [
+                `You are reviewing ${planName}. This is review round ${semanticRound}.`,
+                "",
+            ];
+
+            if (reviewMode === "discovery" && hasOpenItems(reviewLedger)) {
+                sections.push(
+                    "A previous round opened the findings below and a repair has been attempted since. Sweep the Plan" +
+                        " as usual **and** independently verify each open finding against the code.",
+                    "",
+                    "### Open Findings",
+                    "",
+                    renderOpenItems(reviewLedger),
+                    "",
+                );
+            } else if (reviewMode === "verify") {
+                sections.push(
+                    `Rounds 1-${DISCOVERY_ROUNDS} already reviewed this implementation against the whole Plan. Verify` +
+                        " the open findings below and check the repair for regressions. Do not sweep the Plan again.",
+                    "",
+                    "### Open Findings",
+                    "",
+                    renderOpenItems(reviewLedger),
+                    "",
+                    "### Already Resolved",
+                    "",
+                    renderResolvedItems(reviewLedger),
+                    "",
+                );
+            }
+
+            if (lastRepairReport) {
+                sections.push(
+                    "### Repair Agent's Report",
+                    "",
+                    "These are claims to verify, not proof. Check each one against the code yourself.",
+                    "",
+                    lastRepairReport,
+                    "",
+                );
+            }
+
+            sections.push(
+                buildDiffInspectionSection(diffText, { hasRepairScope }),
+                "",
+                "### Approved Plan",
+                "",
+                planContent,
+            );
+
             return {
-                prompt,
-                agentDef: {
-                    ...reviewerAgentDef,
-                    tools: reviewerToolNames,
-                },
+                prompt: sections.join("\n"),
+                agentDef: { ...reviewerAgentDef, tools: reviewerToolNames },
                 customTools,
             };
         };
         try {
             diffText = await getDiffText(baselineTree, executionCwd);
             latestDiffText = diffText;
+            semanticUsedLargeDiffPath = new TextEncoder().encode(diffText).byteLength > GUIDED_REVIEW_LARGE_DIFF_BYTES;
+
+            // The repair scope only exists once something has been repaired, and only
+            // when the baseline capture succeeded. Fail closed if the stored tree can
+            // no longer be diffed: reviewing the full scope while telling the Reviewer
+            // it is looking at a repair delta would make its verdict meaningless.
+            if (repairBaselineTree && !skipSemanticReview) {
+                try {
+                    repairDiffText = await diffTreesImpl(
+                        executionCwd,
+                        repairBaselineTree,
+                        await captureWorktreeTreeImpl(executionCwd),
+                    );
+                } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    haltReason = `Could not compute the repair diff for review round ${semanticRound}: ${detail}`;
+                }
+            }
+            if (haltReason) break;
 
             if (
+                !skipSemanticReview &&
                 (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
                 diffText.trim()
             ) {
-                const diffBytes = new TextEncoder().encode(diffText).byteLength;
-                semanticUsedLargeDiffPath = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
                 let lastReviewerFailure = "Semantic Reviewer did not complete.";
+                /** @type {string | undefined} */
+                let nudgeReason;
+                // One manager for the whole round so a continuation nudges the same
+                // conversation instead of restarting the review. It is still separate
+                // from the workflow root manager, so the Reviewer never sees the
+                // workflow's conversation history.
+                const reviewerSessionManager = SessionManager.inMemory(executionCwd);
 
                 for (let reviewAttempt = 1; reviewAttempt <= maxReviewerAttempts && !reviewOutcome; reviewAttempt++) {
                     if (reviewAttempt > 1) {
@@ -1884,14 +2351,19 @@ export async function runValidationLoop({
                         });
                         emitRunWieldSystemStatus(
                             hostedSession,
-                            `Sending Semantic Reviewer continuation request: continue reviewing ${planName} (${reviewAttempt}/${maxReviewerAttempts})...`,
+                            `Nudging Semantic Reviewer to finish round ${semanticRound} (${reviewAttempt}/${maxReviewerAttempts})...`,
                             "info",
                             progress,
                         );
                     }
 
-                    const reviewerAgentDef = await loadReviewerPromptImpl();
-                    const reviewAttemptConfig = buildSemanticReviewAttempt(reviewerAgentDef, diffText, reviewAttempt);
+                    const reviewerAgentDef = await loadReviewerPromptImpl(reviewMode);
+                    const reviewAttemptConfig = buildSemanticReviewAttempt(
+                        reviewerAgentDef,
+                        reviewAttempt,
+                        nudgeReason,
+                    );
+                    nudgeReason = undefined;
 
                     try {
                         const sessionMessages = await runIsolatedAgentSessionImpl({
@@ -1900,18 +2372,48 @@ export async function runValidationLoop({
                             userRequest: reviewAttemptConfig.prompt,
                             cwd: executionCwd,
                             _agentDefOverride: reviewAttemptConfig.agentDef,
-                            customTools: reviewAttemptConfig.customTools.length > 0
-                                ? reviewAttemptConfig.customTools
-                                : undefined,
+                            customTools: reviewAttemptConfig.customTools,
                             includeEditFallback: false,
-                            // Reviewer must judge only the supplied plan/diff and its own
-                            // read-only investigation, not the workflow's conversation history.
-                            // Omitting the shared manager gives each attempt a fresh in-memory
-                            // SessionManager, including automatic continuation attempts.
+                            // Isolation here means excluding the workflow's conversation
+                            // history, not discarding the Reviewer's own prior turn: the
+                            // dedicated manager above carries its analysis between the
+                            // bounded continuation attempts within this round.
+                            sessionManager: reviewerSessionManager,
                         });
-                        reviewOutcome = readLatestReviewOutcome(sessionMessages);
-                        if (!reviewOutcome) {
+                        if (usedReviewDiffTool(sessionMessages)) inspectedDiff = true;
+                        const attemptOutcome = readLatestReviewOutcome(sessionMessages);
+                        const unaccounted = unaccountedOpenItems(reviewLedger, attemptOutcome?.findings);
+                        if (!attemptOutcome) {
                             lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
+                        } else if (!inspectedDiff) {
+                            // A verdict reached without opening the diff is not a review.
+                            // Spend a continuation attempt rather than trusting it.
+                            lastReviewerFailure = "Semantic Reviewer decided without inspecting the diff.";
+                            nudgeReason =
+                                "You called review_complete without inspecting the diff. Read the changes with " +
+                                'review_diff(command: "list") and then review_diff(command: "show", ...) before ' +
+                                "deciding, then call review_complete again with your decision.";
+                        } else if (unaccounted.length > 0) {
+                            // Every open finding must come back resolved or still open.
+                            // Silence is the dangerous case in both directions: it would
+                            // let an approval merge over an unaddressed finding, and it
+                            // makes a re-reported issue land as a duplicate alongside the
+                            // original — inflating the ledger every round.
+                            lastReviewerFailure = `Semantic Reviewer did not account for open finding(s): ${
+                                unaccounted.join(", ")
+                            }.`;
+                            nudgeReason =
+                                `Your result does not mention ${
+                                    unaccounted.length === 1 ? "this open finding" : "these open findings"
+                                }: ${
+                                    unaccounted.join(", ")
+                                }. Every open finding must appear in your \`findings\` array — ` +
+                                "with `resolved: true` if you have verified the fix in the code, or with " +
+                                "`resolved: false` and what is still missing. Reuse the existing identities exactly; " +
+                                "do not renumber them or report the same issue as a new finding. Call " +
+                                "review_complete again with the complete set.";
+                        } else {
+                            reviewOutcome = attemptOutcome;
                         }
                     } catch (/** @type {any} */ invocationError) {
                         const errorMsg = invocationError instanceof Error
@@ -1923,23 +2425,36 @@ export async function runValidationLoop({
 
                 if (reviewOutcome) {
                     reviewResponse = reviewOutcome.feedback || "";
+                    const applied = applyRoundFindings(
+                        reviewLedger,
+                        reviewOutcome.findings || [],
+                        semanticRound,
+                    );
+                    reviewLedger = applied.ledger;
+                    roundResolvedCount = applied.resolvedCount;
+                    roundAppendedCount = applied.appendedCount;
+                    // The Reviewer's own signal wins over the ledger only when it
+                    // approves; a rejection with no structured findings still needs
+                    // something actionable, which the feedback projection provides.
                     progress = updateValidationProgress(progress, {
                         checks: { semanticReview: reviewOutcome.approved ? "passed" : "failed" },
                     });
                 } else {
                     reviewerFailed = true;
-                    haltReason = "Semantic Review failed to complete after 3 attempts. Validation halted.";
+                    // Pause rather than halt: the Reviewer's session is still the
+                    // current steering target, so the user can nudge it by hand. The
+                    // pause carries the round and ledger, so continuing resumes this
+                    // round intact.
+                    reviewerPauseReason = `${lastReviewerFailure} Review round ${semanticRound} did not finish after ` +
+                        `${maxReviewerAttempts} attempts. Nudge the Reviewer to finish, or run /compact first if its ` +
+                        "context is full. Validation resumes this round from the preserved findings.";
                     progress = updateValidationProgress(progress, {
                         stage: "semantic_review",
+                        outcome: "paused",
                         checks: { semanticReview: "failed" },
-                        message: `${lastReviewerFailure} ${haltReason}`,
+                        message: reviewerPauseReason,
                     });
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        `${lastReviewerFailure} ${haltReason}`,
-                        true,
-                        progress,
-                    );
+                    emitRunWieldSystemStatus(hostedSession, reviewerPauseReason, true, progress);
                 }
             }
         } catch (error) {
@@ -1954,18 +2469,21 @@ export async function runValidationLoop({
             // SessionRuntime owns turn/busy state for the full validation operation.
         }
 
-        if (reviewerFailed && haltReason) {
+        if (reviewerFailed) {
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "semantic_review_result",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
+                    reviewMode,
                     approved: false,
                     reason: "failed_after_automatic_continuation_attempts",
                 },
             });
-            break;
+            // Step back so the resumed run re-runs this round rather than skipping it.
+            semanticRound--;
+            return await pauseForExecutionContinuation(reviewerPauseReason);
         }
 
         if (haltReason) break;
@@ -1997,17 +2515,48 @@ export async function runValidationLoop({
             break;
         }
 
-        if (!reviewerFailed && reviewOutcome?.approved) {
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "semantic_review_result",
-                planName,
-                details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
-            });
-            progress = updateValidationProgress(progress, { checks: { semanticReview: "passed" } });
-            emitRunWieldSystemStatus(hostedSession, "Semantic Code Review Approved.", "success", progress);
+        if (!reviewerFailed && (skipSemanticReview || reviewOutcome?.approved)) {
+            if (skipSemanticReview) {
+                // Never fabricate a semantic approval. The record has to show that a
+                // human took this decision without one. The stage moves off
+                // semantic_review because a skipped check cannot sit under it.
+                progress = updateValidationProgress(progress, {
+                    stage: "cycle",
+                    checks: { semanticReview: "skipped" },
+                });
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    "Opening Code Review without semantic approval — your decision is final for this change.",
+                    "info",
+                    progress,
+                );
+            } else {
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "semantic_review_result",
+                    planName,
+                    details: {
+                        semanticRound,
+                        reviewMode,
+                        approved: true,
+                        hasDiff: Boolean(diffText.trim()),
+                        approvedByRoundTwo: semanticRound <= 2,
+                        resolvedThisRound: roundResolvedCount,
+                        advisoryCount: (reviewOutcome?.advisories || []).length,
+                    },
+                });
+                progress = updateValidationProgress(progress, { checks: { semanticReview: "passed" } });
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Semantic Code Review Approved (round ${semanticRound}).`,
+                    "success",
+                    progress,
+                );
+            }
             const codeReviewMode = getCodeReviewModeImpl(projectRoot);
-            if (codeReviewMode === "none") {
+            // When the user escaped to Code Review, the configured mode does not get a
+            // vote: they asked for the review, and nothing else has approved this change.
+            if (codeReviewMode === "none" && !skipSemanticReview) {
                 progress = updateValidationProgress(progress, { checks: { humanReview: "skipped" } });
                 humanReviewMetadata = {
                     humanReviewMode: "none",
@@ -2022,8 +2571,8 @@ export async function runValidationLoop({
                 });
                 executionComplete = true;
             } else {
-                let shouldOpenReview = codeReviewMode === "always";
-                if (codeReviewMode === "ask") {
+                let shouldOpenReview = codeReviewMode === "always" || skipSemanticReview;
+                if (codeReviewMode === "ask" && !skipSemanticReview) {
                     const reviewResponse = await requestInteraction(hostedSession, {
                         type: RuntimeInteractionTypes.SELECT,
                         prompt: "Semantic review passed. Open code review before merge-back?",
@@ -2139,6 +2688,8 @@ export async function runValidationLoop({
                     const hasHumanFeedback = Boolean(
                         humanReview.feedback?.trim() || humanReview.annotations?.length || humanReview.images?.length,
                     );
+                    // Quitting is the only way out of this loop other than approving.
+                    // Feedback always continues it, however many times it is given.
                     if (humanReview.exit || (!humanReview.approved && !hasHumanFeedback)) {
                         const decision = humanReview.canceled ? "canceled" : humanReview.exit ? "exited" : "halted";
                         await recordWorkflowMetricImpl({
@@ -2151,6 +2702,7 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                humanReviewCycle,
                             },
                         });
                         progress = updateValidationProgress(progress, {
@@ -2184,6 +2736,11 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                // Distinguishes "human confirmed an approved change" from
+                                // "human overrode an unapproved one" in the record.
+                                withoutSemanticApproval: skipSemanticReview,
+                                semanticRound,
+                                humanReviewCycle,
                             },
                         });
                         executionComplete = true;
@@ -2193,20 +2750,16 @@ export async function runValidationLoop({
                             humanReview.feedback || "(no free-text feedback provided)",
                             annotationText ? `Annotations:\n${annotationText}` : "",
                         ].filter(Boolean).join("\n\n");
+                        humanReviewCycle++;
+                        // No repairAttempt/maxRepairAttempts here: this loop has no
+                        // cap, and showing "1/3" would promise a limit that does not
+                        // exist.
                         progress = updateValidationProgress(progress, {
                             stage: "engineer_repair",
-                            repairAttempt: 1,
-                            maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                            repairAttempt: null,
+                            maxRepairAttempts: null,
                             checks: { humanReview: "failed" },
                         });
-                        emitRunWieldSystemStatus(
-                            hostedSession,
-                            `User code review returned feedback. Sending feedback back to ${
-                                getAgentDisplayName(executionAgent, projectRoot)
-                            }...\nUser Code Review Feedback:\n${feedbackText}`,
-                            true,
-                            progress,
-                        );
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "human_review_result",
@@ -2217,128 +2770,105 @@ export async function runValidationLoop({
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
                                 imageCount: humanReview.images?.length || 0,
+                                humanReviewCycle,
                             },
                         });
-                        await recordWorkflowMetricImpl({
-                            category: "validation",
-                            event: "repair_dispatched",
-                            agentName: executionAgent,
-                            planName,
-                            details: { repairKind: "human_review", validationCycle: validationCycles },
-                        });
-                        const completed = await runWorkflowRepair({
-                            hostedSession,
-                            agentName: executionAgent,
-                            userRequest:
-                                "The user provided feedback about your implementation during a code review. Please fix them, " +
-                                `do not break existing tests, and call task_completed when finished.\n\n` +
-                                `User Code Review Feedback:\n${feedbackText}`,
-                            sessionManager,
-                            cwd: executionCwd,
+                        // Human feedback goes to the same fresh-context repair agent as
+                        // semantic findings. It is scoped, concrete, and attached to a
+                        // diff, so it does not need the execution transcript — but it
+                        // does need the annotations and images verbatim, since that is
+                        // where the human pointed.
+                        const humanRepair = await runReviewFeedbackRepair({
+                            reason: `User code review returned feedback. Dispatching repair...\nUser Code Review ` +
+                                `Feedback:\n${feedbackText}`,
+                            findingsSection: feedbackText,
+                            repairKind: "human_feedback",
                             images: /** @type {Array<{base64: string, mimeType: string}>} */ (
                                 /** @type {unknown} */ (humanReview.images || [])
                             ),
                         });
-                        await recordWorkflowMetricImpl({
-                            category: "validation",
-                            event: "repair_completed",
-                            agentName: executionAgent,
-                            planName,
-                            details: {
-                                repairKind: "human_review",
-                                validationCycle: validationCycles,
-                                taskCompletedObserved: Boolean(completed),
-                            },
-                        });
-                        if (!completed) {
-                            return await pauseForExecutionContinuation(
-                                `${
-                                    getAgentDisplayName(executionAgent, projectRoot)
-                                } stopped without task_completed during human code review repair.`,
-                            );
-                        }
+                        if (humanRepair.paused) return humanRepair.paused;
+                        if (haltReason) break;
+                        // Reopen human review on the next pass rather than re-entering
+                        // automatic semantic rounds: the human owns this decision now,
+                        // and this loop ends only when they approve or quit.
+                        semanticEscapeToHumanReview = true;
                     }
                 }
             }
         } else {
+            const openCount = openItems(reviewLedger).length;
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "semantic_review_result",
                 planName,
                 details: {
-                    validationCycle: validationCycles,
+                    semanticRound,
+                    reviewMode,
                     approved: false,
                     hasReviewerOutput: Boolean(reviewResponse),
+                    openFindingCount: openCount,
+                    resolvedThisRound: roundResolvedCount,
+                    // The serial-discovery signal: how often a later round finds what
+                    // an earlier one missed. High values in round 2 mean round 1's
+                    // prompt needs work; high values in a verify round mean repairs
+                    // are introducing damage.
+                    appendedThisRound: roundAppendedCount,
+                    advisoryCount: (reviewOutcome?.advisories || []).length,
                 },
             });
             progress = updateValidationProgress(progress, {
                 stage: "engineer_repair",
-                repairAttempt: validationCycleInBatch,
-                maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                repairAttempt: Math.min(semanticRound, AUTOMATIC_ROUNDS),
+                maxRepairAttempts: AUTOMATIC_ROUNDS,
                 checks: { semanticReview: "failed" },
             });
-            emitRunWieldSystemStatus(
-                hostedSession,
-                `Review failed. Sending feedback back to ${getAgentDisplayName(executionAgent, projectRoot)}...`,
-                true,
-                progress,
-            );
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "repair_dispatched",
-                agentName: executionAgent,
-                planName,
-                details: { repairKind: "semantic", validationCycle: validationCycles },
-            });
-            const completed = await runWorkflowRepair({
-                hostedSession,
-                agentName: executionAgent,
-                userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
-                    `existing tests, and call task_completed when finished.\n\nReviewer Feedback:\n${reviewResponse}`,
-                sessionManager,
-                cwd: executionCwd,
-            });
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "repair_completed",
-                agentName: executionAgent,
-                planName,
-                details: {
-                    repairKind: "semantic",
-                    validationCycle: validationCycles,
-                    taskCompletedObserved: Boolean(completed),
-                },
-            });
-            if (!completed) {
-                return await pauseForExecutionContinuation(
-                    `${
-                        getAgentDisplayName(executionAgent, projectRoot)
-                    } stopped without task_completed during semantic repair.`,
-                );
-            }
-        }
 
-        if (!executionComplete && !haltReason && validationCycleInBatch >= MAX_VALIDATION_CYCLES) {
-            const action = await promptForSemanticValidationLimitAction(hostedSession, MAX_VALIDATION_CYCLES);
-            if (action === "retry") {
-                progress = createValidationProgress({
-                    kind: "workflow",
+            const repairResult = await runReviewFeedbackRepair({
+                reason: `Review round ${semanticRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+                findingsSection: openCount > 0 ? renderOpenItems(reviewLedger) : reviewResponse,
+                repairKind: "semantic",
+            });
+            if (repairResult.paused) return repairResult.paused;
+            // The repair can halt (tree capture or agent execution failure). Stop here
+            // rather than asking the user to choose a next round we are not going to
+            // run — the loop condition would discard their answer.
+            if (haltReason) break;
+
+            if (semanticRound >= AUTOMATIC_ROUNDS) {
+                // Automatic rounds are spent. Never strand the work: the user either
+                // buys another verification round or hands the change to a human,
+                // whose approval is authoritative even without semantic approval.
+                const action = await promptForSemanticRoundLimitAction(
+                    hostedSession,
+                    semanticRound,
+                    requestInteraction,
+                );
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "semantic_round_limit_choice",
+                    planName,
+                    details: { semanticRound, choice: action, openFindingCount: openItems(reviewLedger).length },
+                });
+                if (action === "code_review") {
+                    // Hand the change to the human. From here the loop ends only on
+                    // their approval or their exit — no automatic path closes it.
+                    semanticEscapeToHumanReview = true;
+                    humanReviewCycle = Math.max(humanReviewCycle, 1);
+                    continue;
+                }
+                progress = updateValidationProgress(progress, {
                     outcome: "running",
                     stage: "cycle",
-                    cycle: 1,
-                    maxCycles: MAX_VALIDATION_CYCLES,
-                    totalCycle: validationCycles + 1,
-                    message: `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                    message: `Continuing with verification round ${semanticRound + 1}...`,
                 });
                 emitRunWieldSystemStatus(
                     hostedSession,
-                    `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                    `Continuing with verification round ${semanticRound + 1}...`,
                     "info",
                     progress,
                 );
-                continue;
             }
-            haltReason = `Semantic validation did not approve after ${MAX_VALIDATION_CYCLES} cycles.`;
         }
     }
 
@@ -2353,6 +2883,9 @@ export async function runValidationLoop({
         let pendingRepairMergeWorktreePath;
         let mergeBackCompleted = false;
         let postMergeVerificationHalted = false;
+        // Set when RunWield failed to record a lifecycle outcome. Carried into the
+        // halt reason so a run never ends describing state it did not manage to write.
+        let unsettledLifecycleNote = "";
         /** @type {import('../../plan-store.js').WorktreeDeliveryEvidence | undefined} */
         let deliveryEvidence;
         /** @type {string | undefined} */
@@ -2439,26 +2972,6 @@ export async function runValidationLoop({
                     }
                     const deliveryEvidenceKey =
                         `${deliveryEvidence.executionCommit}:${deliveryEvidence.targetHeadBeforeMerge}`;
-                    if (planName && planName !== "quick-fix" && stagedDeliveryEvidenceKey !== deliveryEvidenceKey) {
-                        const stagingResult = await stageValidationPassedImpl({
-                            projectRoot,
-                            executionCwd,
-                            planName,
-                            details: {
-                                triageMeta,
-                                executionMode: "worktree",
-                                deliveryEvidence,
-                                worktreeStatus: "merged",
-                                cleanupMergedWorktrees,
-                                ...(humanReviewMetadata || {}),
-                            },
-                        });
-                        preservedPlanPaths = stagingResult.planPaths;
-                        stagedDeliveryEvidenceKey = deliveryEvidenceKey;
-                    }
-                    for (const relativePath of preservedPlanPaths) {
-                        primaryPlanSnapshots.push(await preparePrimaryPlanPathImpl({ projectRoot, relativePath }));
-                    }
                     progress = updateValidationProgress(progress, { stage: "merge", checks: { merge: "running" } });
                     emitRunWieldSystemStatus(
                         hostedSession,
@@ -2468,23 +2981,268 @@ export async function runValidationLoop({
                         "info",
                         progress,
                     );
-                    const mergeResult = await mergeExecutionWorktreeImpl({
-                        projectRoot,
-                        branch: worktreeBranch,
-                        targetBranch: worktreeBaseBranch,
-                        worktreePath: executionCwd,
-                        repairMergeWorktreePath: pendingRepairMergeWorktreePath,
-                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
-                            ? deliveryEvidence.targetHeadBeforeMerge
-                            : undefined,
-                        planName,
-                        planDescription: triageMeta?.summary,
-                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
-                            ? deliveryEvidence.executionCommit
-                            : undefined,
-                        allowedDirtyPaths: preservedPlanPaths.length > 0 ? preservedPlanPaths : [planPath],
-                        preservePlanPaths: preservedPlanPaths,
-                    });
+                    const directDeliveryHierarchy = planName && planName !== "quick-fix"
+                        ? await loadDirectDeliveryHierarchySnapshot(projectRoot, planName).catch(() => ({
+                            revision: undefined,
+                            parentPlan: undefined,
+                            siblingPlans: [],
+                        }))
+                        : { revision: undefined, parentPlan: undefined, siblingPlans: [] };
+                    const directDeliveryParentPlan = directDeliveryHierarchy.parentPlan;
+                    const directDeliverySiblingPlans = directDeliveryHierarchy.siblingPlans;
+                    const directDeliverySiblingPlanNames = directDeliverySiblingPlans.map((plan) => plan.name);
+                    let mergeVerificationAlreadyProved = false;
+                    const mergeResult = await (planName && planName !== "quick-fix"
+                        ? (async () => {
+                            /** @type {Awaited<ReturnType<typeof mergeExecutionWorktreeImpl>> | undefined} */
+                            let result;
+                            return await runDirectDeliveryPublicationTransitionImpl({
+                                projectRoot,
+                                planName,
+                                expectedRevision: directDeliveryHierarchy.revision,
+                                worktreeId,
+                                targetRef: worktreeBaseBranch,
+                                parentPlan: directDeliveryParentPlan,
+                                siblingPlanNames: directDeliverySiblingPlanNames,
+                                publicationProof: {
+                                    deliveryEvidence,
+                                    cleanupMergedWorktrees,
+                                    phase: "stage_merge_settle",
+                                },
+                                publish: async ({ beforePlan, markEffect, registerRollback }) => {
+                                    const lockedParentValue =
+                                        /** @type {{ parentPlan?: unknown }} */ (beforePlan?.attrs || {})
+                                            .parentPlan;
+                                    const lockedParentPlan = typeof lockedParentValue === "string" &&
+                                            lockedParentValue.trim()
+                                        ? lockedParentValue
+                                        : undefined;
+                                    if (lockedParentPlan !== directDeliveryParentPlan) {
+                                        throw new Error(
+                                            `Direct Delivery parent changed while publishing ${planName}; retry validation with the current Plan hierarchy.`,
+                                        );
+                                    }
+                                    /** @type {Array<{ name: string, revision: string, status: string | undefined, deliveryEvidence: unknown }>} */
+                                    const lockedSiblingPlans = [];
+                                    if (directDeliveryParentPlan) {
+                                        for (
+                                            const plan of await findPlansByParent(
+                                                projectRoot,
+                                                directDeliveryParentPlan,
+                                            ).catch(() => [])
+                                        ) {
+                                            lockedSiblingPlans.push({
+                                                name: plan.name,
+                                                revision: await getPlanRevisionForText(
+                                                    await Deno.readTextFile(plan.path),
+                                                ),
+                                                status: plan.attrs.status,
+                                                deliveryEvidence: plan.attrs.deliveryEvidence,
+                                            });
+                                        }
+                                        lockedSiblingPlans.sort((a, b) => a.name.localeCompare(b.name));
+                                    }
+                                    const lockedSiblingPlanNames = lockedSiblingPlans.map((plan) => plan.name);
+                                    if (
+                                        lockedSiblingPlanNames.join("\n") !== directDeliverySiblingPlanNames.join("\n")
+                                    ) {
+                                        throw new Error(
+                                            `Direct Delivery sibling set changed while publishing ${planName}; retry validation with the current parent Epic child set.`,
+                                        );
+                                    }
+                                    for (const expected of directDeliverySiblingPlans) {
+                                        const locked = lockedSiblingPlans.find((plan) => plan.name === expected.name);
+                                        if (
+                                            !locked || locked.revision !== expected.revision ||
+                                            locked.status !== expected.status ||
+                                            JSON.stringify(locked.deliveryEvidence ?? null) !==
+                                                JSON.stringify(expected.deliveryEvidence ?? null)
+                                        ) {
+                                            throw new Error(
+                                                `Direct Delivery sibling ${expected.name} changed while publishing ${planName}; retry validation with current child evidence.`,
+                                            );
+                                        }
+                                        const projectedAttrs =
+                                            /** @type {import('../../plan-store.js').PlanFrontMatter} */ ({
+                                                status: locked.name === planName ? "verified" : locked.status,
+                                                deliveryEvidence: locked.name === planName
+                                                    ? deliveryEvidence
+                                                    : locked.deliveryEvidence,
+                                            });
+                                        if (
+                                            !isPlanDependencySatisfiedStatus(projectedAttrs.status) ||
+                                            !hasDirectDeliveryEvidence(projectedAttrs)
+                                        ) {
+                                            throw new Error(
+                                                `Direct Delivery sibling ${expected.name} is not eligible for Epic publication; retry after every child has mode-appropriate Delivery Evidence.`,
+                                            );
+                                        }
+                                    }
+                                    if (stagedDeliveryEvidenceKey !== deliveryEvidenceKey) {
+                                        const stagingResult = await stageValidationPassedImpl({
+                                            projectRoot,
+                                            executionCwd,
+                                            planName,
+                                            details: {
+                                                triageMeta,
+                                                executionMode: "worktree",
+                                                deliveryEvidence,
+                                                worktreeStatus: "merged",
+                                                cleanupMergedWorktrees,
+                                                ...(humanReviewMetadata || {}),
+                                            },
+                                        });
+                                        preservedPlanPaths = stagingResult.planPaths;
+                                        stagedDeliveryEvidenceKey = deliveryEvidenceKey;
+                                    }
+                                    for (const relativePath of preservedPlanPaths) {
+                                        primaryPlanSnapshots.push(
+                                            await preparePrimaryPlanPathImpl({ projectRoot, relativePath }),
+                                        );
+                                    }
+                                    if (primaryPlanSnapshots.length > 0) {
+                                        registerRollback("restore_primary_plan_snapshots", async () => {
+                                            if (mergeCompleted) return;
+                                            for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                                                await restorePrimaryPlanPathImpl(snapshot);
+                                            }
+                                            primaryPlanSnapshots.splice(0, primaryPlanSnapshots.length);
+                                        });
+                                    }
+                                    await markEffect("direct_delivery_publication_started", {
+                                        planName,
+                                        worktreeId,
+                                        worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        preservedPlanPaths,
+                                    });
+                                    result = await mergeExecutionWorktreeImpl({
+                                        projectRoot,
+                                        branch: worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        worktreePath: executionCwd,
+                                        repairMergeWorktreePath: pendingRepairMergeWorktreePath,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                        planName,
+                                        planDescription: triageMeta?.summary,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        allowedDirtyPaths: preservedPlanPaths.length > 0
+                                            ? preservedPlanPaths
+                                            : [planPath],
+                                        preservePlanPaths: preservedPlanPaths,
+                                    });
+                                    mergeCompleted = true;
+                                    mergeBackCompleted = true;
+                                    sealedExecutionMetadataCommit = result?.executionMetadataCommit;
+                                    await markEffect("direct_delivery_target_ref_moved", {
+                                        planName,
+                                        worktreeId,
+                                        worktreeBranch,
+                                        targetBranch: worktreeBaseBranch,
+                                        updatedPrimaryCheckout: result?.updatedPrimaryCheckout,
+                                        executionMetadataCommit: result?.executionMetadataCommit,
+                                        sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.executionCommit
+                                            : undefined,
+                                        expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                            ? deliveryEvidence.targetHeadBeforeMerge
+                                            : undefined,
+                                    });
+                                    let mergeVerificationFailure = "";
+                                    if (deliveryEvidence?.mode === "worktree_merge") {
+                                        const candidateMerged = await isCommitAncestorOfBranchImpl(
+                                            projectRoot,
+                                            deliveryEvidence.executionCommit,
+                                            deliveryEvidence.targetBranch,
+                                        );
+                                        if (!candidateMerged) {
+                                            mergeVerificationFailure =
+                                                `Validated candidate ${deliveryEvidence.executionCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
+                                        }
+                                    }
+                                    if (
+                                        !mergeVerificationFailure && result?.executionMetadataCommit &&
+                                        deliveryEvidence?.mode === "worktree_merge"
+                                    ) {
+                                        const metadataMerged = await isCommitAncestorOfBranchImpl(
+                                            projectRoot,
+                                            result.executionMetadataCommit,
+                                            deliveryEvidence.targetBranch,
+                                        );
+                                        if (!metadataMerged) {
+                                            mergeVerificationFailure =
+                                                `Validation metadata commit ${result.executionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
+                                        }
+                                    }
+                                    const mergeVerification = mergeVerificationFailure
+                                        ? { merged: false, message: mergeVerificationFailure }
+                                        : await verifyExecutionWorktreeMergedImpl({
+                                            projectRoot,
+                                            worktreeBranch,
+                                            worktreeBaseBranch,
+                                        });
+                                    if (!mergeVerification.merged) {
+                                        throw new Error(
+                                            `Direct Delivery publication requires reconciliation: ${mergeVerification.message}`,
+                                        );
+                                    }
+                                    mergeVerificationAlreadyProved = true;
+                                    if (result?.updatedPrimaryCheckout === false) {
+                                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                                            await restorePrimaryPlanPathImpl(snapshot);
+                                        }
+                                        primaryPlanSnapshots.splice(0, primaryPlanSnapshots.length);
+                                    }
+                                    if (worktreeId) {
+                                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                            status: "merged",
+                                        });
+                                        await markEffect("worktree_registry_updated", { worktreeId, status: "merged" });
+                                    }
+                                    return { mergeResult: result, siblingPlanNames: lockedSiblingPlanNames };
+                                },
+                            }).then((transition) => {
+                                if (transition.status !== "committed") {
+                                    // Rethrow the original failure, not a summary of it. The merge
+                                    // handler below classifies typed merge errors and reads the
+                                    // worktree to repair in off them; a fresh Error would strip that
+                                    // and send repair to the wrong checkout with a generic reason.
+                                    if (transition.cause !== undefined) throw transition.cause;
+                                    throw new Error(
+                                        transition.message ||
+                                            `Direct Delivery publication transaction did not commit for ${planName}.`,
+                                    );
+                                }
+                                return result;
+                            });
+                        })()
+                        : await mergeExecutionWorktreeImpl({
+                            projectRoot,
+                            branch: worktreeBranch,
+                            targetBranch: worktreeBaseBranch,
+                            worktreePath: executionCwd,
+                            repairMergeWorktreePath: pendingRepairMergeWorktreePath,
+                            expectedTargetHead: deliveryEvidence?.mode === "worktree_merge"
+                                ? deliveryEvidence.targetHeadBeforeMerge
+                                : undefined,
+                            planName,
+                            planDescription: triageMeta?.summary,
+                            sealedExecutionCommit: deliveryEvidence?.mode === "worktree_merge"
+                                ? deliveryEvidence.executionCommit
+                                : undefined,
+                            allowedDirtyPaths: preservedPlanPaths.length > 0 ? preservedPlanPaths : [planPath],
+                            preservePlanPaths: preservedPlanPaths,
+                        }));
                     mergeCompleted = true;
                     mergeBackCompleted = true;
                     sealedExecutionMetadataCommit = mergeResult?.executionMetadataCommit;
@@ -2531,8 +3289,8 @@ export async function runValidationLoop({
                                     `Validation metadata commit ${sealedExecutionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`;
                             }
                         }
-                        const mergeVerification = mergeVerificationFailure
-                            ? { merged: false, message: mergeVerificationFailure }
+                        const mergeVerification = mergeVerificationFailure || mergeVerificationAlreadyProved
+                            ? { merged: mergeVerificationAlreadyProved, message: mergeVerificationFailure }
                             : await verifyExecutionWorktreeMergedImpl({
                                 projectRoot,
                                 worktreeBranch,
@@ -2559,6 +3317,19 @@ export async function runValidationLoop({
                                 verificationFailure: mergeVerificationFailure,
                             },
                         });
+                        if (planName && planName !== "quick-fix") {
+                            emitRunWieldSystemStatus(
+                                hostedSession,
+                                `Direct Delivery publication needs reconciliation after target-ref verification failed: ${reason}`,
+                                true,
+                                progress,
+                            );
+                            postMergeVerificationHalted = true;
+                            executionComplete = false;
+                            haltReason =
+                                `Direct Delivery publication needs reconciliation: ${mergeVerificationFailure}`;
+                            break;
+                        }
                         if (mergeRepairAttempts < maxMergeRepairAttempts) {
                             mergeRepairAttempts++;
                             const repairCwd = pendingRepairMergeWorktreePath || executionCwd || projectRoot;
@@ -2622,51 +3393,84 @@ export async function runValidationLoop({
                             true,
                             progress,
                         );
-                        if (worktreeId) {
-                            try {
-                                await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
-                                    status: "merge_conflict",
-                                });
-                            } catch (registryError) {
-                                const registryReason = registryError instanceof Error
-                                    ? registryError.message
-                                    : String(registryError);
-                                emitRunWieldSystemStatus(
-                                    hostedSession,
-                                    `Could not update worktree registry after merge verification failure: ${registryReason}`,
-                                    true,
-                                );
-                            }
-                        }
                         if (planName && planName !== "quick-fix") {
-                            try {
-                                await recordPlanEventImpl({
-                                    cwd: projectRoot,
-                                    planName,
-                                    event: "worktree_merge_failed",
-                                    currentStatus: "implemented",
-                                    details: {
-                                        triageMeta,
-                                        failureReason: reason,
-                                        worktreePath: executionCwd,
-                                        worktreeBranch,
-                                        worktreeBaseBranch,
-                                    },
-                                });
-                            } catch (metadataError) {
-                                const metadataReason = metadataError instanceof Error
-                                    ? metadataError.message
-                                    : String(metadataError);
-                                emitRunWieldSystemStatus(
-                                    hostedSession,
-                                    `Could not update plan metadata after merge verification failure: ${metadataReason}`,
-                                    true,
+                            const transition = await runValidationOutcomeTransitionImpl({
+                                projectRoot,
+                                planName,
+                                expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                                worktreeId,
+                                targetRef: worktreeBaseBranch,
+                                outcome: "merge_failed",
+                                proof: { reason, worktreePath: executionCwd, worktreeBranch, worktreeBaseBranch },
+                                settle: async ({ markEffect }) => {
+                                    /** @type {Error | undefined} */
+                                    let registryFailure;
+                                    if (worktreeId) {
+                                        try {
+                                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                                status: "merge_conflict",
+                                            });
+                                            await markEffect("worktree_registry_updated", {
+                                                worktreeId,
+                                                status: "merge_conflict",
+                                            });
+                                        } catch (error) {
+                                            registryFailure = error instanceof Error ? error : new Error(String(error));
+                                            emitRunWieldSystemStatus(
+                                                hostedSession,
+                                                `Could not update worktree registry after merge verification failure: ${registryFailure.message}`,
+                                                true,
+                                            );
+                                        }
+                                    }
+                                    let attrs;
+                                    try {
+                                        attrs = await recordPlanEventImpl({
+                                            cwd: projectRoot,
+                                            planName,
+                                            event: "worktree_merge_failed",
+                                            currentStatus: "implemented",
+                                            details: {
+                                                triageMeta,
+                                                failureReason: reason,
+                                                worktreePath: executionCwd,
+                                                worktreeBranch,
+                                                worktreeBaseBranch,
+                                            },
+                                        });
+                                    } catch (metadataError) {
+                                        const metadataReason = metadataError instanceof Error
+                                            ? metadataError.message
+                                            : String(metadataError);
+                                        emitRunWieldSystemStatus(
+                                            hostedSession,
+                                            `Could not update plan metadata after merge verification failure: ${metadataReason}`,
+                                            true,
+                                        );
+                                        throw metadataError;
+                                    }
+                                    if (registryFailure) throw registryFailure;
+                                    return attrs;
+                                },
+                            });
+                            if (transition.status !== "committed") {
+                                unsettledLifecycleNote = describeUnsettledTransition(
+                                    transition,
+                                    `the merge verification failure for ${planName}`,
                                 );
+                                emitRunWieldSystemStatus(hostedSession, unsettledLifecycleNote, true);
                             }
+                        } else if (worktreeId) {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "merge_conflict",
+                            });
                         }
                         postMergeVerificationHalted = true;
                         executionComplete = false;
-                        haltReason = `Post-merge verification repair did not complete: ${mergeVerificationFailure}`;
+                        haltReason = appendUnsettledNote(
+                            `Post-merge verification repair did not complete: ${mergeVerificationFailure}`,
+                            unsettledLifecycleNote,
+                        );
                         break;
                     }
                     pendingRepairMergeWorktreePath = undefined;
@@ -2689,21 +3493,7 @@ export async function runValidationLoop({
                             true,
                         );
                     }
-                    if (worktreeId) {
-                        try {
-                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
-                        } catch (registryError) {
-                            const registryReason = registryError instanceof Error
-                                ? registryError.message
-                                : String(registryError);
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Worktree merged, but updating its registry status failed: ${registryReason}`,
-                                true,
-                            );
-                        }
-                    }
-                    if (cleanupMergedWorktrees && executionCwd) {
+                    if (planName && planName !== "quick-fix" && cleanupMergedWorktrees && executionCwd) {
                         try {
                             await removeExecutionWorktreeImpl({
                                 projectRoot,
@@ -2720,7 +3510,7 @@ export async function runValidationLoop({
                                 : String(cleanupError);
                             emitRunWieldSystemStatus(
                                 hostedSession,
-                                `Worktree merged, but cleanup failed: ${cleanupReason}`,
+                                `Worktree published and registry settlement completed, but cleanup needs manual follow-up: ${cleanupReason}`,
                                 true,
                             );
                         }
@@ -2761,18 +3551,42 @@ export async function runValidationLoop({
                         });
                         if (planName && planName !== "quick-fix" && executionCwd) {
                             try {
-                                await updatePlanFrontMatterImpl(executionCwd, planName, {
-                                    status: "implemented",
-                                    verifiedAt: null,
-                                    deliveryEvidence: null,
-                                    executionMode: "worktree",
-                                    executionBaselineTree: baselineTree,
-                                    worktreeId,
-                                    worktreePath: executionCwd,
-                                    worktreeBranch,
-                                    worktreeBaseBranch,
-                                    worktreeStatus: "completed",
+                                const rollbackTransition = await runValidationOutcomeTransitionImpl({
+                                    projectRoot: executionCwd,
+                                    planName,
+                                    expectedRevision: await loadCurrentPlanRevision(executionCwd, planName),
+                                    outcome: "retry",
+                                    proof: { reason: "target_branch_advanced_metadata_rollback" },
+                                    settle: async ({ beforePlan }) => {
+                                        // Keep the attempt's worktree metadata: the retry below
+                                        // republishes from this same attempt, so clearing it would
+                                        // strand the worktree.
+                                        await updatePlanFrontMatterImpl(
+                                            executionCwd,
+                                            planName,
+                                            {
+                                                status: "implemented",
+                                                verifiedAt: null,
+                                                deliveryEvidence: null,
+                                                executionMode: "worktree",
+                                                executionBaselineTree: baselineTree,
+                                                worktreeId,
+                                                worktreePath: executionCwd,
+                                                worktreeBranch,
+                                                worktreeBaseBranch,
+                                                worktreeStatus: "completed",
+                                            },
+                                            beforePlan?.attrs || {},
+                                            { expectedRevision: beforePlan?.revision },
+                                        );
+                                    },
                                 });
+                                if (rollbackTransition.status !== "committed") {
+                                    throw new Error(
+                                        rollbackTransition.message ||
+                                            `Validation metadata rollback transaction did not commit for ${planName}.`,
+                                    );
+                                }
                             } catch (metadataError) {
                                 const metadataReason = metadataError instanceof Error
                                     ? metadataError.message
@@ -2806,48 +3620,76 @@ export async function runValidationLoop({
                         break;
                     }
 
-                    if (worktreeId) {
-                        try {
-                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
-                                status: "merge_conflict",
-                            });
-                        } catch (metadataError) {
-                            const metadataReason = metadataError instanceof Error
-                                ? metadataError.message
-                                : String(metadataError);
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
-                                true,
-                            );
-                        }
-                    }
                     if (planName && planName !== "quick-fix") {
-                        try {
-                            await recordPlanEventImpl({
-                                cwd: projectRoot,
-                                planName,
-                                event: "worktree_merge_failed",
-                                currentStatus: "implemented",
-                                details: {
-                                    triageMeta,
-                                    failureReason: reason,
-                                    worktreeId,
-                                    worktreePath: executionCwd,
-                                    worktreeBranch,
-                                    worktreeBaseBranch,
-                                },
-                            });
-                        } catch (metadataError) {
-                            const metadataReason = metadataError instanceof Error
-                                ? metadataError.message
-                                : String(metadataError);
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
-                                true,
+                        const transition = await runValidationOutcomeTransitionImpl({
+                            projectRoot,
+                            planName,
+                            expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                            worktreeId,
+                            targetRef: worktreeBaseBranch,
+                            outcome: "merge_failed",
+                            proof: { reason, worktreePath: executionCwd, worktreeBranch, worktreeBaseBranch },
+                            settle: async ({ markEffect }) => {
+                                /** @type {Error | undefined} */
+                                let registryFailure;
+                                if (worktreeId) {
+                                    try {
+                                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                            status: "merge_conflict",
+                                        });
+                                        await markEffect("worktree_registry_updated", {
+                                            worktreeId,
+                                            status: "merge_conflict",
+                                        });
+                                    } catch (error) {
+                                        registryFailure = error instanceof Error ? error : new Error(String(error));
+                                        emitRunWieldSystemStatus(
+                                            hostedSession,
+                                            `Could not update worktree registry while merge conflict is active: ${registryFailure.message}`,
+                                            true,
+                                        );
+                                    }
+                                }
+                                let attrs;
+                                try {
+                                    attrs = await recordPlanEventImpl({
+                                        cwd: projectRoot,
+                                        planName,
+                                        event: "worktree_merge_failed",
+                                        currentStatus: "implemented",
+                                        details: {
+                                            triageMeta,
+                                            failureReason: reason,
+                                            worktreeId,
+                                            worktreePath: executionCwd,
+                                            worktreeBranch,
+                                            worktreeBaseBranch,
+                                        },
+                                    });
+                                } catch (metadataError) {
+                                    const metadataReason = metadataError instanceof Error
+                                        ? metadataError.message
+                                        : String(metadataError);
+                                    emitRunWieldSystemStatus(
+                                        hostedSession,
+                                        `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                                        true,
+                                    );
+                                    throw metadataError;
+                                }
+                                if (registryFailure) throw registryFailure;
+                                return attrs;
+                            },
+                        });
+                        if (transition.status !== "committed") {
+                            unsettledLifecycleNote = describeUnsettledTransition(
+                                transition,
+                                `the merge failure for ${planName}`,
                             );
+                            emitRunWieldSystemStatus(hostedSession, unsettledLifecycleNote, true);
                         }
+                    } else if (worktreeId) {
+                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
                     }
 
                     pendingRepairMergeWorktreePath = getMergeWorktreePath(error) || pendingRepairMergeWorktreePath;
@@ -2947,7 +3789,7 @@ export async function runValidationLoop({
                         progress,
                     );
                     executionComplete = false;
-                    haltReason = `Worktree merge failed: ${reason}`;
+                    haltReason = appendUnsettledNote(`Worktree merge failed: ${reason}`, unsettledLifecycleNote);
                 }
             }
         }
@@ -2958,7 +3800,11 @@ export async function runValidationLoop({
                     category: "validation",
                     event: "workflow_validation_finished",
                     planName,
-                    details: { passed: true, validationCycles, hasWorktreeBranch: Boolean(worktreeBranch) },
+                    details: {
+                        passed: true,
+                        semanticRounds: semanticRound,
+                        hasWorktreeBranch: Boolean(worktreeBranch),
+                    },
                 });
             } catch (metricError) {
                 if (!mergeBackCompleted) throw metricError;
@@ -3022,41 +3868,42 @@ export async function runValidationLoop({
                 category: "validation",
                 event: "workflow_validation_finished",
                 planName,
-                details: { passed: false, validationCycles, reason: "halted_after_merge" },
+                details: { passed: false, semanticRounds: semanticRound, reason: "halted_after_merge" },
             });
-            if (!postMergeVerificationHalted && worktreeId) {
-                try {
-                    await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
-                } catch (metadataError) {
-                    const metadataReason = metadataError instanceof Error
-                        ? metadataError.message
-                        : String(metadataError);
-                    emitRunWieldSystemStatus(
-                        hostedSession,
-                        `Could not update worktree registry after merge halt: ${metadataReason}`,
-                        true,
-                    );
-                }
-            }
             if (!postMergeVerificationHalted && planName && planName !== "quick-fix") {
-                try {
-                    await recordPlanEventImpl({
-                        cwd: projectRoot,
-                        planName,
-                        event: "validation_failed",
-                        currentStatus: "implemented",
-                        details: { triageMeta, failureReason: haltReason, nonGitInPlace },
-                    });
-                } catch (metadataError) {
-                    const metadataReason = metadataError instanceof Error
-                        ? metadataError.message
-                        : String(metadataError);
+                const transition = await runValidationOutcomeTransitionImpl({
+                    projectRoot,
+                    planName,
+                    expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                    worktreeId,
+                    targetRef: worktreeBaseBranch,
+                    outcome: "failed",
+                    proof: { failureReason: haltReason || "Validation halted.", nonGitInPlace },
+                    settle: async ({ markEffect }) => {
+                        if (worktreeId) {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "validation_failed",
+                            });
+                            await markEffect("worktree_registry_updated", { worktreeId, status: "validation_failed" });
+                        }
+                        return await recordPlanEventImpl({
+                            cwd: projectRoot,
+                            planName,
+                            event: "validation_failed",
+                            currentStatus: "implemented",
+                            details: { triageMeta, failureReason: haltReason || "Validation halted.", nonGitInPlace },
+                        });
+                    },
+                });
+                if (transition.status !== "committed") {
                     emitRunWieldSystemStatus(
                         hostedSession,
-                        `Could not update plan metadata after merge halt: ${metadataReason}`,
+                        `Could not settle validation halt transaction: ${transition.message}`,
                         true,
                     );
                 }
+            } else if (!postMergeVerificationHalted && worktreeId) {
+                await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
             }
         }
     } else {
@@ -3065,21 +3912,42 @@ export async function runValidationLoop({
             category: "validation",
             event: "workflow_validation_finished",
             planName,
-            details: { passed: false, validationCycles, reason: "halted" },
+            details: { passed: false, semanticRounds: semanticRound, reason: "halted" },
         });
         progress = completeValidationProgress(progress, false, `Workflow halted: ${reason}`);
         emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true, progress);
-        if (worktreeId) {
-            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
-        }
         if (planName && planName !== "quick-fix") {
-            await recordPlanEventImpl({
-                cwd: projectRoot,
+            const transition = await runValidationOutcomeTransitionImpl({
+                projectRoot,
                 planName,
-                event: "validation_failed",
-                currentStatus: "implemented",
-                details: { triageMeta, failureReason: reason, nonGitInPlace },
+                expectedRevision: await loadCurrentPlanRevision(projectRoot, planName),
+                worktreeId,
+                targetRef: worktreeBaseBranch,
+                outcome: "failed",
+                proof: { failureReason: reason, nonGitInPlace },
+                settle: async ({ markEffect }) => {
+                    if (worktreeId) {
+                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
+                        await markEffect("worktree_registry_updated", { worktreeId, status: "validation_failed" });
+                    }
+                    return await recordPlanEventImpl({
+                        cwd: projectRoot,
+                        planName,
+                        event: "validation_failed",
+                        currentStatus: "implemented",
+                        details: { triageMeta, failureReason: reason, nonGitInPlace },
+                    });
+                },
             });
+            if (transition.status !== "committed") {
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Could not settle validation failure transaction: ${transition.message}`,
+                    true,
+                );
+            }
+        } else if (worktreeId) {
+            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }
     }
 

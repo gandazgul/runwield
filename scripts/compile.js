@@ -4,7 +4,7 @@
 
 import { dirname } from "@std/path";
 
-export const DENO_COMPILE_VERSION = "2.9.3";
+export const DENO_COMPILE_MINIMUM_VERSION = "2.9.3";
 
 const STATIC_INCLUDE_PATHS = [
     "src/ui/workspace/static/",
@@ -120,14 +120,42 @@ export function parseCompileOptions(args) {
 }
 
 /**
- * Keep local and release artifacts on the same Deno compiler/runtime.
+ * @param {string} version
+ * @returns {number[]}
+ */
+function parseDenoVersion(version) {
+    return version.split(".").map((part) => Number.parseInt(part, 10));
+}
+
+/**
+ * @param {string} version
+ * @param {string} minimumVersion
+ * @returns {boolean}
+ */
+function isDenoVersionAtLeast(version, minimumVersion) {
+    const currentParts = parseDenoVersion(version);
+    const minimumParts = parseDenoVersion(minimumVersion);
+    const partCount = Math.max(currentParts.length, minimumParts.length);
+
+    for (let index = 0; index < partCount; index += 1) {
+        const currentPart = currentParts[index] || 0;
+        const minimumPart = minimumParts[index] || 0;
+        if (currentPart > minimumPart) return true;
+        if (currentPart < minimumPart) return false;
+    }
+
+    return true;
+}
+
+/**
+ * Keep local and release artifacts on a supported Deno compiler/runtime.
  *
  * @param {string} [version]
  */
 export function assertCompileDenoVersion(version = Deno.version.deno) {
-    if (version !== DENO_COMPILE_VERSION) {
+    if (!isDenoVersionAtLeast(version, DENO_COMPILE_MINIMUM_VERSION)) {
         throw new Error(
-            `RunWield binaries must be compiled with Deno ${DENO_COMPILE_VERSION}; current Deno is ${version}.`,
+            `RunWield binaries must be compiled with Deno ${DENO_COMPILE_MINIMUM_VERSION} or newer; current Deno is ${version}.`,
         );
     }
 }

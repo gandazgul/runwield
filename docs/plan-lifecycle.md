@@ -101,6 +101,42 @@ changing the Plan state machine.
 | `hold_resumed`                       | `on_hold`                                                                                       | `heldFromStatus`              | Caller must run the Resume Check first and provide/read the held-from status; clears hold metadata.                                                                                                                            |
 | `hold_reset_to_draft`                | `on_hold`                                                                                       | `draft`                       | Clears hold and execution/recovery/validation fields while preserving identity/context fields and Plan body.                                                                                                                   |
 
+## Transaction Inventory
+
+Every lifecycle writer must fit one of these transition inventory rows. The table is intentionally operational: it names
+caller inputs, locked resources, owned effects, success proof, rollback limit, and recovery action.
+
+| Event/writer                                                | Required inputs              | Locked resources                                         | Owned effects                                           | Success proof                            | Rollback limit                             | Recovery action                |
+| ----------------------------------------------------------- | ---------------------------- | -------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------- | ------------------------------------------ | ------------------------------ |
+| `review_feedback`                                           | Review feedback payload      | Plan                                                     | Feedback metadata                                       | Status `feedback`                        | None                                       | Review retry                   |
+| `review_approved`                                           | Approved Plan markdown       | Plan                                                     | Approval metadata                                       | Status `approved`                        | None                                       | Review retry                   |
+| `readiness_passed`                                          | FEATURE approved Plan        | Plan                                                     | Ready-for-work metadata                                 | Status `ready_for_work`                  | None                                       | Review reopen                  |
+| `epic_readiness_passed`                                     | PROJECT approved Plan        | Plan                                                     | Ready-for-decomposition metadata                        | Status `ready_for_decomposition`         | None                                       | Review reopen                  |
+| `decomposition_finalized`                                   | Slicer child Plan set        | Catalog, Epic, child Plans                               | Child drafts and Epic ready state                       | Children persisted                       | CAS-written child drafts only              | Slicer retry                   |
+| `execution_started` / `execution_preparation`               | Worktree creation facts      | Catalog, Plan, worktree registry, target ref             | Plan `in_progress`, registry attempt, optional worktree | Baseline/worktree facts                  | Owned new worktree and registry entry only | Load-plan recovery             |
+| `execution_failed`                                          | Engineer failure report      | Plan, attempt                                            | Failed status and reason                                | Failure reason/timestamp                 | None                                       | Recovery reset/continue        |
+| `implementation_finished` / `implementation_checkpoint`     | Checkpoint commit            | Plan, attempt                                            | Implemented status and completed attempt                | Implementation commit                    | None                                       | Validation retry               |
+| `validation_failed`                                         | CI/review failure proof      | Catalog, Plan, attempt, target ref                       | Validation failure metadata                             | Failure reason                           | None                                       | Validation retry               |
+| `validation_passed`                                         | Delivery evidence            | Catalog, Plan, attempt, target ref                       | Verified metadata and publication evidence              | Delivery Evidence and target proof       | Primary Plan snapshot restore only         | Publication recovery           |
+| `worktree_merge_failed` / `validation_merge_failed`         | Merge failure facts          | Catalog, Plan, attempt, target ref                       | Merge-conflict metadata                                 | Merge failure kind                       | Primary Plan snapshot restore only         | Merge repair                   |
+| `direct_delivery_publication`                               | Publication proof            | Catalog, Plan, parent/sibling Plans, attempt, target ref | Target movement proof and registry settlement           | Target ancestry plus sibling eligibility | Primary Plan snapshot restore only         | Transition recovery            |
+| `recovery_continue`                                         | Resume decision              | Plan, attempt                                            | Ready-for-work retry metadata                           | Current attempt retained                 | None                                       | Recovery retry                 |
+| `recovery_reset` / `recovery_recreate` / `recovery_abandon` | Recovery action              | Plan, attempt                                            | Attempt reset/recreate/abandon metadata                 | Exact attempt identity                   | Owned registry/worktree cleanup only       | Recovery retry/manual recovery |
+| `review_reopened`                                           | Reopen decision              | Plan                                                     | Feedback metadata                                       | Status `feedback`                        | None                                       | Review loop                    |
+| `epic_done_enough`                                          | Done-enough attestation      | Catalog, Epic, sibling Plans                             | Epic verified metadata                                  | Done-enough timestamp/summary            | None                                       | Manual reopen                  |
+| `manual_status_change`                                      | Workspace lifecycle action   | Plan                                                     | Board-safe status metadata                              | Requested status/timestamp               | None                                       | Workspace retry                |
+| `manual_closed_without_verification`                        | Closure reason               | Plan                                                     | Terminal closure metadata                               | Closure reason/timestamp                 | None                                       | Manual reopen                  |
+| `manual_user_verified`                                      | User attestation             | Plan and parent/siblings when child                      | User-verified metadata                                  | Attestation note/timestamp               | None                                       | Manual reopen                  |
+| `plan_held`                                                 | Hold reason/baseline         | Plan                                                     | Hold metadata                                           | `heldFromStatus` and `heldAt`            | None                                       | Resume/reset hold              |
+| `hold_resumed`                                              | Resume Check result          | Plan                                                     | Held status restored                                    | Hold fields cleared                      | None                                       | Hold reset                     |
+| `hold_reset_to_draft`                                       | Reset hold decision          | Plan                                                     | Draft reset metadata                                    | Hold/execution fields cleared            | None                                       | Review loop                    |
+| `plan_review_write`                                         | Review markdown/front matter | Plan                                                     | Plan review write                                       | Written revision                         | None                                       | Review retry                   |
+| `plan_front_matter`                                         | Front Matter updates         | Plan                                                     | Metadata update                                         | CAS revision                             | None                                       | Caller retry                   |
+| `plan_archive` / `plan_restore`                             | Archive/restore action       | Catalog, Plan                                            | Physical move metadata                                  | Archive/active path                      | Rename CAS only                            | Restore/archive retry          |
+
+The matching checked-in table in `src/shared/workflow/state-transition.test.js` fails if a row lacks inputs, locks,
+effects, proof, rollback limits, or recovery actions.
+
 ## Manual Board Movement and Closure
 
 Board actions are lifecycle events, not direct Front Matter edits. Generic board movement uses `manual_status_change`
@@ -200,19 +236,43 @@ For worktree-backed plans:
    checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
    creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
    Completion does not merge into the primary checkout.
-3. Workflow Validation runs local CI, computes the workflow diff, starts semantic reviewer sessions, and starts repair
-   sessions in the execution worktree.
-4. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
+3. Workflow Validation runs local CI, computes the workflow diff, and starts semantic review rounds in the execution
+   worktree. Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and
+   rounds three and above only verify the open findings and check the latest repair for regressions. Two full sweeps
+   give a requirement overlooked in round one a second independent look; narrowing after that is what lets the loop
+   terminate instead of rediscovering the implementation indefinitely.
+
+   The Reviewer never receives an inlined diff — it reads changes through the bounded `review_diff` tool in every round,
+   so there is one delivery path regardless of size. A decision reached without inspecting the diff is not accepted.
+
+   Findings carry stable identities in a Review Issue Ledger that lives for the attempt. Later rounds resolve items,
+   keep them open, and append newly discovered ones; identities are never reused or renumbered. Code smells are reported
+   as non-blocking advisories rather than as findings, so an accumulating maintainability backlog cannot stall the loop.
+4. A rejection dispatches the Reviewer-Feedback Engineer, which repairs the open findings in a fresh isolated session
+   seeded with the Plan, the findings, and diff access. It does not inherit the execution transcript, and it reports a
+   per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution.
+5. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
+   open human code review now. There is no dead end: the work is never left with nowhere to go.
+6. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
    passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
-   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback is
-   sent back to the Engineer in the execution worktree, then validation reruns.
-5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
+   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback
+   goes to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and
+   human review then reopens. Human review always sees the full workflow diff, never a repair-scoped one. Human approval
+   reached through the round-limit escape hatch is authoritative and permits merge-back even though semantic review
+   never approved; the record distinguishes that case.
+
+   Once the change is in a human's hands the loop belongs to them: CI reruns and code review reopens after every
+   feedback round, for as many rounds as they give, and automatic semantic rounds do not resume. **The only exits are
+   approval or quitting the review.** Feedback never exhausts a budget, and the three-round semantic cap does not apply
+   — it counts automatic rounds, not human ones. Interrupting and resuming mid-cycle returns to code review rather than
+   restarting semantic review.
+7. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-6. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
+8. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
    pinned candidate commit, captures the target branch head before merge, copies the primary Plan's current implemented
    Front Matter into the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
    `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
-7. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
+9. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
    merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the sealed
@@ -221,11 +281,11 @@ For worktree-backed plans:
    `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
    post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
    `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
-8. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
-   `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
-   execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
-   left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
-   continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
+10. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
+    `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
+    execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
+    left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
+    continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
@@ -372,3 +432,41 @@ Re-opening from `user_verified` returns to `feedback` and clears stale user atte
 
 Canonical domain term follow-up: `User Verified Plan` should be added to `CONTEXT.md` by Ideator/Init in a separate
 context update; this feature intentionally leaves `CONTEXT.md` and ADRs unchanged.
+
+## Transactional lifecycle writes
+
+Lifecycle-changing code must request one semantic transition instead of sequencing Plan writes, registry writes, Git
+commands, and cleanup in the caller. The transition re-reads the canonical Plan, holds the same-Plan mutation lock while
+it applies the change, writes through atomic Plan persistence, verifies the requested postconditions, and either
+commits, rolls back, or leaves a recovery record under `.wld/plan-transitions/`.
+
+The lock protects the logical transition, not just the final file rename. Different Plans may still execute at the same
+time. Shared resources, such as a parent Epic, sibling set, target branch, or registry entry, are acquired only when
+that transition depends on them. The worktree registry file itself is locked only for brief targeted read-modify-write
+updates.
+
+Malformed Front Matter is fail-closed. RunWield distinguishes a missing Plan from malformed YAML, preserves the original
+bytes, blocks mutation, and reports the Plan path and parse error. Repair must be explicit; ordinary lifecycle updates
+do not rebuild unknown or conflicted Front Matter.
+
+Git-backed transitions record proof before and after worktree or branch operations. If Git state is uncertain after an
+interruption, RunWield does not replay the command blindly. It either proves the already-completed outcome or asks the
+user to inspect/retry/abandon the exact recorded worktree or branch.
+
+Non-Git Projects remain supported. When a repository has no Git/VCS metadata and the user has allowed in-place FEATURE
+execution, lifecycle transactions still protect Plan metadata, but Git worktree, branch, registry, and merge-back steps
+are skipped. The FEATURE executes in the current checkout and validation records non-Git delivery evidence rather than
+worktree merge evidence.
+
+## Transaction boundary matrix
+
+| Workflow action                     | Inputs                                                                     | Locked resources                                                                  | Durable effects                                                                                | Success proof                                                        | Rollback limit                                                                         | Recovery actions                                                                |
+| ----------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Review approved/feedback            | Plan name, opened revision, reviewed markdown, decision                    | Plan lock; catalog lock when parent/child state can change                        | Reviewed Plan bytes and review lifecycle status are written in one revision-checked transition | New Plan revision contains both reviewed content and expected status | Never overwrite a newer revision; stale review must reload                             | Reload review, inspect unresolved transition journal                            |
+| Execution preparation               | Plan id/name, expected ready status, target branch or non-Git consent      | Plan lock, exact attempt id, registry file, target ref when Git exists            | Execution mode, attempt id, baseline, worktree metadata                                        | Plan metadata and registry attempt reference the same id/baseline    | If Git/registry facts are uncertain, do not delete by default                          | Retry prepare, inspect worktree, abandon explicit attempt                       |
+| Implementation checkpoint           | Plan id/name, attempt id, execution report                                 | Plan lock and exact attempt lock                                                  | Attempt checkpoint and implemented/failed lifecycle metadata                                   | Plan attempt id still matches registry/worktree evidence             | Do not roll back implementation files after checkpoint uncertainty                     | Resume implementation, reset attempt, inspect worktree                          |
+| Validation passed / Direct Delivery | Child Plan, attempt id, delivery evidence, parent/siblings when applicable | Catalog, child Plan, parent Epic, complete sibling set, exact attempt, target ref | Child verified metadata, eligible parent advancement, publication evidence                     | Plan(s), registry, and Git/non-Git evidence agree                    | Final child and parent must settle together; uncertain publication remains recoverable | Retry validation publication, inspect target ref, recover/abandon exact attempt |
+| Validation failed / retry           | Plan id/name, attempt id, failure reason                                   | Plan lock and exact attempt lock                                                  | Failure metadata preserving retryable worktree identity                                        | Plan status and registry status agree                                | Do not discard worktree without explicit abandon/reset                                 | Retry validation, continue repair, abandon explicit attempt                     |
+| Hold/resume/reset                   | Plan id/name, expected status, hold/resume data                            | Plan lock; exact attempt lock when attempt metadata is present                    | Held-from state or restored lifecycle state                                                    | Plan revision has expected status and hold fields                    | Stale caller state aborts before write                                                 | Resume with staleness confirmation, reset to draft                              |
+| Archive/restore                     | Plan id/name, expected terminal/recoverable state                          | Catalog, Plan path, archived path, exact attempt when recoverable                 | Physical move plus archive/restore metadata                                                    | Active/archived path and Plan metadata agree                         | Existing target or malformed source aborts without overwrite                           | Restore, force archive after explicit confirmation                              |
+| Doctor/repair                       | Plans, registry, journals, Git facts                                       | Registry lock only for proven metadata repair; no destructive lockless action     | Report issues; apply only mechanically proven safe repair                                      | Repair result is re-read and reported                                | Missing paths/branches are not abandonment proof                                       | Inspect, retry, explicit abandon/delete with evidence                           |

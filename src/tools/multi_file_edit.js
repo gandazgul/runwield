@@ -8,7 +8,14 @@
 
 import { defineTool, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { isAbsolute, join } from "@std/path";
+import { isAbsolute, join, relative } from "@std/path";
+import { getHomeDir } from "../constants.js";
+import {
+    getPlanRevisionForText,
+    withPlanCatalogLock,
+    withPlanLock,
+    writePlanMarkdownWithRevision,
+} from "../plan-store.js";
 
 const fileEditSchema = Type.Object({
     path: Type.String({ description: "Path to the file for this replacement, relative to root or the session cwd." }),
@@ -81,9 +88,32 @@ function detectLineEnding(content) {
  * @returns {string}
  */
 function resolveToBaseDir(targetPath, baseDir) {
-    const expanded = targetPath.startsWith("~") ? (Deno.env.get("HOME") || "") + targetPath.slice(1) : targetPath;
+    const expanded = targetPath.startsWith("~") ? getHomeDir() + targetPath.slice(1) : targetPath;
     if (isAbsolute(expanded)) return expanded;
     return join(baseDir, expanded);
+}
+
+/**
+ * @param {string} path
+ * @param {string} baseDir
+ * @returns {boolean}
+ */
+function isPlanMarkdownPath(path, baseDir) {
+    const rel = relative(baseDir, path).replaceAll("\\", "/");
+    return rel.startsWith("plans/") && rel.endsWith(".md") && !rel.startsWith("plans/archived/");
+}
+
+/**
+ * @param {string} path
+ * @param {string} baseDir
+ * @returns {string}
+ */
+function planNameFromMarkdownPath(path, baseDir) {
+    const rel = relative(baseDir, path).replaceAll("\\", "/");
+    if (!rel.startsWith("plans/") || !rel.endsWith(".md") || rel.startsWith("plans/archived/")) {
+        throw new Error(`Not a canonical Plan markdown path: ${path}`);
+    }
+    return rel.slice("plans/".length, -".md".length);
 }
 
 /**
@@ -269,7 +299,14 @@ export function createMultiFileEditTool(cwd) {
             let firstChangedLine;
             let replacementCount = 0;
 
-            try {
+            /** @type {Array<{ path: string, content: string, planName?: string, writtenRevision?: string }>} */
+            const writtenSnapshots = [];
+            const planNames = [...groupedEdits.keys()]
+                .map((filePath) => resolveToBaseDir(filePath, baseDir))
+                .filter((absolutePath) => isPlanMarkdownPath(absolutePath, baseDir))
+                .map((absolutePath) => planNameFromMarkdownPath(absolutePath, baseDir))
+                .sort((a, b) => a.localeCompare(b));
+            const applyAllEdits = async () => {
                 for (const [filePath, fileEdits] of groupedEdits) {
                     const absolutePath = resolveToBaseDir(filePath, baseDir);
                     await withFileMutationQueue(absolutePath, async () => {
@@ -290,7 +327,24 @@ export function createMultiFileEditTool(cwd) {
                         const { baseContent, newContent } = applyEdits(normalizedContent, fileEdits, filePath);
                         const finalContent = bom + restoreLineEndings(newContent, originalEnding);
 
-                        await Deno.writeTextFile(absolutePath, finalContent);
+                        if (isPlanMarkdownPath(absolutePath, baseDir)) {
+                            const expectedRevision = await getPlanRevisionForText(rawContent);
+                            /** @type {{ path: string, content: string, planName: string, writtenRevision?: string }} */
+                            const snapshot = {
+                                path: absolutePath,
+                                content: rawContent,
+                                planName: planNameFromMarkdownPath(absolutePath, baseDir),
+                            };
+                            writtenSnapshots.push(snapshot);
+                            snapshot.writtenRevision = await writePlanMarkdownWithRevision(
+                                absolutePath,
+                                finalContent,
+                                expectedRevision,
+                            );
+                        } else {
+                            writtenSnapshots.push({ path: absolutePath, content: rawContent });
+                            await Deno.writeTextFile(absolutePath, finalContent);
+                        }
 
                         const diffResult = generateDiffString(baseContent, newContent);
                         diffSections.push(`--- ${filePath}\n${diffResult.diff}`);
@@ -298,6 +352,16 @@ export function createMultiFileEditTool(cwd) {
                         replacementCount += fileEdits.length;
                     });
                 }
+            };
+
+            try {
+                /** @param {number} index @returns {Promise<void>} */
+                const runWithPlanLocks = async (index) => {
+                    if (index >= planNames.length) return await applyAllEdits();
+                    return await withPlanLock(baseDir, planNames[index], async () => await runWithPlanLocks(index + 1));
+                };
+                if (planNames.length > 0) await withPlanCatalogLock(baseDir, () => runWithPlanLocks(0));
+                else await applyAllEdits();
 
                 const fileCount = groupedEdits.size;
                 const replacementNoun = replacementCount === 1 ? "replacement" : "replacements";
@@ -311,6 +375,22 @@ export function createMultiFileEditTool(cwd) {
                     details: { diff: diffSections.join("\n\n"), firstChangedLine },
                 };
             } catch (err) {
+                for (const snapshot of writtenSnapshots.toReversed()) {
+                    try {
+                        if (snapshot.planName) {
+                            if (!snapshot.writtenRevision) continue;
+                            await writePlanMarkdownWithRevision(
+                                snapshot.path,
+                                snapshot.content,
+                                snapshot.writtenRevision,
+                            );
+                        } else {
+                            await Deno.writeTextFile(snapshot.path, snapshot.content);
+                        }
+                    } catch {
+                        // Preserve the original error; doctor surfaces stale partial Plan edits if rollback cannot finish.
+                    }
+                }
                 const message = err instanceof Error ? err.message : String(err);
                 return {
                     content: [{ type: "text", text: message }],

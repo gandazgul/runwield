@@ -9,12 +9,16 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { basename, join, relative, resolve } from "@std/path";
+import { getLockHostname, isLockHolderGone } from "./shared/process-liveness.ts";
+import { basename, dirname, join, relative, resolve } from "@std/path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
     CLI_BIN,
+    getRunWieldRuntimeDir,
     isPlannedChangeClassification,
     normalizePlanClassification,
     normalizeWorkKind,
+    PLAN_LOCKS_DIR_NAME,
     PLANS_DIR_NAME,
     ROUTING_INTENT_PLANNED_CHANGE,
 } from "./constants.js";
@@ -137,7 +141,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @typedef {Object} PlanFrontMatter
  * @property {string} [planId] - Durable project-scoped resource identity for URL/addressable Plan lookup
  * @property {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"|"PROJECT"} classification
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
@@ -220,7 +224,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
  * @property {string} content - Planner-format markdown body for the child planned change.
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind] - Optional child Work Kind.
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind] - Optional child Work Kind.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
  * @property {number} [sequence] - Deprecated alias for order.
  */
@@ -1023,6 +1027,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
  */
 export function parsePlanFrontMatter(markdown, opts = {}) {
     const missingOrigin = opts.missingOrigin || DEFAULT_FRONT_MATTER.origin;
+    if (/^(<<<<<<<|=======|>>>>>>>)\s/m.test(markdown)) {
+        throw new Error("Plan contains unresolved merge conflict markers.");
+    }
 
     if (!hasFrontMatter(markdown)) {
         return {
@@ -1214,6 +1221,9 @@ function formatFrontMatterOverrideLines(overrides) {
             appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (overrides)[key]);
         }
     }
+    for (const key of Object.keys(overrides).filter((key) => !KNOWN_FRONT_MATTER_KEYS.has(key)).sort()) {
+        appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (overrides)[key]);
+    }
     return lines;
 }
 
@@ -1223,7 +1233,7 @@ function formatFrontMatterOverrideLines(overrides) {
  * @param {Partial<PlanFrontMatter>} overrides
  * @returns {string}
  */
-function mergeFrontMatterText(markdown, overrides) {
+export function mergeFrontMatterText(markdown, overrides) {
     if (!hasFrontMatter(markdown)) return injectFrontMatter(markdown, overrides);
 
     const { frontMatterBlock, body } = splitPlanMarkdownBody(markdown);
@@ -1234,10 +1244,19 @@ function mergeFrontMatterText(markdown, overrides) {
     for (const key of PLAN_FRONT_MATTER_KEY_ORDER) {
         if (Object.hasOwn(overrides, key)) innerLines = removeTopLevelYamlKey(innerLines, key);
     }
+    const orderedKeys = /** @type {readonly string[]} */ (PLAN_FRONT_MATTER_KEY_ORDER);
+    for (const key of Object.keys(overrides)) {
+        if (!orderedKeys.includes(key)) innerLines = removeTopLevelYamlKey(innerLines, key);
+    }
 
     const overrideLines = formatFrontMatterOverrideLines(overrides);
     const mergedLines = ["---", ...innerLines, ...overrideLines, "---"];
-    return joinFrontMatterAndBody(mergedLines.join(eol), body);
+    const frontMatterTerminator = frontMatterBlock.endsWith("\r\n")
+        ? "\r\n"
+        : frontMatterBlock.endsWith("\n")
+        ? "\n"
+        : "";
+    return `${mergedLines.join(eol)}${frontMatterTerminator}${body}`;
 }
 
 /**
@@ -1247,6 +1266,489 @@ function mergeFrontMatterText(markdown, overrides) {
 export async function hashPlanBody(body) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export class StalePlanWriteError extends Error {
+    /**
+     * @param {string} expectedRevision
+     * @param {string} currentRevision
+     */
+    constructor(expectedRevision, currentRevision) {
+        super("Plan changed on disk after this operation loaded it.");
+        this.name = "StalePlanWriteError";
+        this.expectedRevision = expectedRevision;
+        this.currentRevision = currentRevision;
+    }
+}
+
+export class PlanFrontMatterParseError extends Error {
+    /**
+     * @param {string} path
+     * @param {unknown} cause
+     */
+    constructor(path, cause) {
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        super(`Plan Front Matter could not be parsed in ${path}: ${detail}`);
+        this.name = "PlanFrontMatterParseError";
+        this.path = path;
+        this.cause = cause;
+    }
+}
+
+export class PlanFileIssueError extends Error {
+    /**
+     * @param {string} path
+     * @param {string} kind
+     * @param {string} message
+     */
+    constructor(path, kind, message) {
+        super(message);
+        this.name = "PlanFileIssueError";
+        this.path = path;
+        this.kind = kind;
+    }
+}
+
+/** @param {string} text */
+export async function getPlanRevisionForText(text) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Revision of the Front Matter block alone.
+ *
+ * RunWield owns Plan Front Matter; the user owns the body and may edit it with
+ * any tool, at any time, without telling RunWield. A whole-file revision cannot
+ * tell those two apart, so lifecycle preconditions that use it reject a Plan
+ * whose body someone legitimately rewrote. This token isolates the half RunWield
+ * actually owns, so "did the metadata I read change?" can be answered without
+ * caring what happened to the prose.
+ *
+ * Returns undefined when the text has no closed leading Front Matter block —
+ * there is no metadata to compare, and callers must fall back to whole-file
+ * comparison rather than treat an unparseable file as unchanged.
+ *
+ * @param {string} text
+ * @returns {Promise<string | undefined>}
+ */
+export async function getPlanFrontMatterRevisionForText(text) {
+    try {
+        return await getPlanRevisionForText(splitPlanMarkdownBody(text).frontMatterBlock);
+    } catch {
+        return undefined;
+    }
+}
+
+/** @param {string} path */
+async function syncDirectory(path) {
+    try {
+        const dir = await Deno.open(path, { read: true });
+        try {
+            await dir.sync();
+        } finally {
+            dir.close();
+        }
+    } catch {
+        // Directory fsync is unavailable on some platforms/filesystems; atomic rename still protects torn writes.
+    }
+}
+
+/**
+ * @param {string} path
+ * @param {string} content
+ */
+export async function atomicWriteTextFile(path, content) {
+    await Deno.mkdir(dirname(path), { recursive: true });
+    const tmp = join(dirname(path), `.${basename(path)}.${crypto.randomUUID()}.tmp`);
+    let file;
+    try {
+        file = await Deno.open(tmp, { createNew: true, write: true });
+        await file.write(new TextEncoder().encode(content));
+        await file.sync();
+        file.close();
+        file = undefined;
+        await Deno.rename(tmp, path);
+        await syncDirectory(dirname(path));
+    } catch (error) {
+        if (file) file.close();
+        await Deno.remove(tmp).catch(() => {});
+        throw error;
+    }
+}
+
+/**
+ * Write text only when the target path is still absent. Unlike atomicWriteTextFile,
+ * this never renames over a concurrently-created file, preserving external
+ * evidence for callers that need create-if-absent semantics.
+ * @param {string} path
+ * @param {string} content
+ */
+export async function atomicWriteTextFileIfAbsent(path, content) {
+    await Deno.mkdir(dirname(path), { recursive: true });
+    let file;
+    try {
+        file = await Deno.open(path, { createNew: true, write: true });
+        await file.write(new TextEncoder().encode(content));
+        await file.sync();
+        file.close();
+        file = undefined;
+        await syncDirectory(dirname(path));
+    } catch (error) {
+        if (file) file.close();
+        // Never remove or replace the target path from create-if-absent writes:
+        // if another process created evidence while we were writing, preserving
+        // those bytes is the whole point of this helper.
+        throw error;
+    }
+}
+
+/** @param {string} value */
+function lockSafeSegment(value) {
+    return String(value || "plan").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "plan";
+}
+
+const PLAN_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
+const PLAN_LOCK_STALE_MS = 10 * 60_000;
+const PLAN_LOCK_HEARTBEAT_MS = 10_000;
+
+/** @param {string} lockPath */
+async function acquireSimpleLock(lockPath) {
+    await Deno.mkdir(dirname(lockPath), { recursive: true });
+    const deadline = Date.now() + PLAN_LOCK_WAIT_TIMEOUT_MS;
+    while (true) {
+        try {
+            const file = await Deno.open(lockPath, { createNew: true, write: true });
+            const writeHeartbeat = async () => {
+                await file.truncate(0);
+                await file.seek(0, Deno.SeekMode.Start);
+                await file.write(
+                    new TextEncoder().encode(
+                        // The hostname makes the pid meaningful: a waiter can ask the
+                        // operating system whether this exact holder is still alive
+                        // instead of waiting out a timeout after a crash.
+                        JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() }),
+                    ),
+                );
+                await file.sync();
+            };
+            await writeHeartbeat();
+            const heartbeat = setInterval(() => {
+                writeHeartbeat().catch(() => {});
+            }, PLAN_LOCK_HEARTBEAT_MS);
+            return async () => {
+                clearInterval(heartbeat);
+                file.close();
+                await Deno.remove(lockPath).catch(() => {});
+            };
+        } catch (error) {
+            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+            let stale = false;
+            try {
+                const lockContents = await Deno.readTextFile(lockPath);
+                // Deliberately no same-process shortcut here. Re-entrancy is handled by
+                // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
+                // whether *this* call chain already holds the lock. Treating any lock
+                // written by this pid as already-held would let two concurrent tasks in
+                // one process both proceed, which is the mutual exclusion this lock
+                // exists to provide.
+                //
+                // A dead holder is reclaimed at once. Age alone cannot tell a crash from
+                // legitimate work, so waiting it out made a killed process block every
+                // operation on this Plan for the whole stale window — RunWield's own
+                // bookkeeping locking the user out of their Plan.
+                stale = await isLockHolderGone(lockContents);
+                if (!stale) {
+                    const stat = await Deno.stat(lockPath);
+                    stale = !stat.mtime || Date.now() - stat.mtime.getTime() > PLAN_LOCK_STALE_MS;
+                }
+            } catch {
+                stale = true;
+            }
+            if (stale) {
+                await Deno.remove(lockPath).catch(() => {});
+                continue;
+            }
+            if (Date.now() > deadline) {
+                throw new Error(
+                    `Another RunWield process has been working on this Plan for over ${
+                        Math.round(PLAN_LOCK_WAIT_TIMEOUT_MS / 60_000)
+                    } minutes and has not released it (${lockPath}). ` +
+                        `If no RunWield process is running, clear the abandoned lock with \`${CLI_BIN} plans doctor --repair\`.`,
+                );
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+    }
+}
+
+/** @type {AsyncLocalStorage<Set<string>>} */
+const ACTIVE_PROCESS_PLAN_LOCKS = new AsyncLocalStorage();
+
+/**
+ * @template T
+ * @param {string} key
+ * @param {string} lockPath
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withProcessAwarePlanLock(key, lockPath, fn) {
+    const activeLocks = ACTIVE_PROCESS_PLAN_LOCKS.getStore();
+    if (activeLocks?.has(key)) return await fn();
+    const release = await acquireSimpleLock(lockPath);
+    const nestedLocks = new Set(activeLocks || []);
+    nestedLocks.add(key);
+    try {
+        return await ACTIVE_PROCESS_PLAN_LOCKS.run(nestedLocks, fn);
+    } finally {
+        await release();
+    }
+}
+
+/**
+ * @template T
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export async function withPlanLock(cwd, planName, fn) {
+    const key = `${resolve(cwd)}:${lockSafeSegment(planName)}`;
+    return await withProcessAwarePlanLock(
+        key,
+        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, `${lockSafeSegment(planName)}.lock`),
+        fn,
+    );
+}
+
+/**
+ * @template T
+ * @param {string} cwd
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export async function withPlanCatalogLock(cwd, fn) {
+    const key = `${resolve(cwd)}:catalog`;
+    return await withProcessAwarePlanLock(
+        key,
+        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, "catalog.lock"),
+        fn,
+    );
+}
+
+/**
+ * @param {string} filePath
+ * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string, frontMatterRevision: string|undefined, hasFrontMatter: boolean } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
+ */
+async function loadPlanFileStrict(filePath) {
+    let stat;
+    try {
+        stat = await Deno.lstat(filePath);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return { kind: "not_found", path: filePath };
+        return { kind: "unreadable", path: filePath, error: error instanceof Error ? error : new Error(String(error)) };
+    }
+    if (!stat.isFile) {
+        return { kind: "not_file", path: filePath, message: `Plan path is not a regular file: ${filePath}` };
+    }
+    try {
+        const markdown = await Deno.readTextFile(filePath);
+        const revision = await getPlanRevisionForText(markdown);
+        try {
+            const { attrs, body } = parsePlanFrontMatter(markdown);
+            const frontMatterRevision = await getPlanFrontMatterRevisionForText(markdown);
+            rememberFrontMatterRevision(revision, frontMatterRevision);
+            // A Plan file with no Front Matter at all is not a broken Plan — it is a
+            // markdown file the user put in plans/ that RunWield has not onboarded.
+            // Parsing yields defaults so reads never fail, but the distinction has to
+            // survive: only a deliberate onboarding may write metadata into it.
+            return {
+                kind: "loaded",
+                path: filePath,
+                markdown,
+                attrs,
+                body,
+                revision,
+                frontMatterRevision,
+                hasFrontMatter: hasFrontMatter(markdown),
+            };
+        } catch (error) {
+            return {
+                kind: "malformed",
+                path: filePath,
+                markdown,
+                revision,
+                error: new PlanFrontMatterParseError(filePath, error),
+            };
+        }
+    } catch (error) {
+        return { kind: "unreadable", path: filePath, error: error instanceof Error ? error : new Error(String(error)) };
+    }
+}
+
+/** @param {unknown} result */
+function planIssueMessage(result) {
+    const issue = /** @type {{ message?: string, error?: Error, path?: string }} */ (result || {});
+    return issue.message || issue.error?.message || issue.path || "Plan file issue";
+}
+
+/**
+ * Front Matter revision for each whole-file Plan revision this process has seen.
+ *
+ * Both tokens are content hashes, so this mapping is immutable: a given whole-file
+ * revision always had exactly one Front Matter block. That makes it safe to cache
+ * and to trust later, which is what lets an operation holding only a whole-file
+ * token ask the question it actually cares about — "did the metadata change, or
+ * did the user just rewrite the prose?" — without every caller having to thread a
+ * second token through.
+ *
+ * Bounded and in-process. A token this process never read is simply unknown, and
+ * unknown falls back to strict whole-file comparison.
+ *
+ * @type {Map<string, string>}
+ */
+const frontMatterRevisionsByPlanRevision = new Map();
+
+const KNOWN_REVISION_LIMIT = 1024;
+
+/** @param {string} revision @param {string|undefined} frontMatterRevision */
+function rememberFrontMatterRevision(revision, frontMatterRevision) {
+    if (!frontMatterRevision) return;
+    frontMatterRevisionsByPlanRevision.delete(revision);
+    frontMatterRevisionsByPlanRevision.set(revision, frontMatterRevision);
+    while (frontMatterRevisionsByPlanRevision.size > KNOWN_REVISION_LIMIT) {
+        const oldest = frontMatterRevisionsByPlanRevision.keys().next();
+        if (oldest.done) break;
+        frontMatterRevisionsByPlanRevision.delete(oldest.value);
+    }
+}
+
+/**
+ * The Front Matter revision belonging to a whole-file Plan revision, when this
+ * process has seen those exact bytes.
+ *
+ * @param {string|undefined} revision
+ * @returns {string | undefined}
+ */
+export function getKnownFrontMatterRevision(revision) {
+    return revision ? frontMatterRevisionsByPlanRevision.get(revision) : undefined;
+}
+
+/**
+ * Load a plan with typed fail-closed outcomes.
+ * @param {string} cwd
+ * @param {string} planName
+ * @returns {Promise<Awaited<ReturnType<typeof loadPlanFileStrict>>>}
+ */
+export async function loadPlanStrict(cwd, planName) {
+    const { filePath } = getStoredPlanLocation(cwd, planName);
+    return await loadPlanFileStrict(filePath);
+}
+
+/**
+ * Atomically replace an existing Plan after verifying its byte revision.
+ * @param {string} filePath
+ * @param {string} nextMarkdown
+ * @param {string|undefined} expectedRevision
+ * @returns {Promise<string>}
+ */
+export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expectedRevision) {
+    if (expectedRevision !== undefined) {
+        const current = await loadPlanFileStrict(filePath);
+        if (current.kind !== "loaded") {
+            if (current.kind === "malformed") throw current.error;
+            throw new Error(
+                current.kind === "not_found"
+                    ? `Plan not found: ${filePath}`
+                    : planIssueMessage(current) || `Plan is not writable: ${filePath}`,
+            );
+        }
+        if (current.revision !== expectedRevision) {
+            throw new StalePlanWriteError(expectedRevision, current.revision);
+        }
+    }
+    await atomicWriteTextFile(filePath, nextMarkdown);
+    const revision = await getPlanRevisionForText(nextMarkdown);
+    const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
+    recordPlanWriteRevision(filePath, revision, frontMatterRevision);
+    rememberFrontMatterRevision(revision, frontMatterRevision);
+    return revision;
+}
+
+/**
+ * Revisions this process wrote, keyed by Plan path.
+ *
+ * Every RunWield-owned Plan write funnels through
+ * `writePlanMarkdownWithRevision`, so this is a complete record of what RunWield
+ * itself put on disk. It lets a failed transaction tell its own partial write
+ * apart from an unmanaged external edit: if the file still holds exactly the
+ * bytes RunWield last wrote, restoring the pre-transaction bytes cannot destroy
+ * anyone else's work. Anything else stays fail-closed.
+ *
+ * Deliberately in-process and non-durable. After a crash the map is empty, so no
+ * restore is attempted and recovery goes through the journal instead.
+ *
+ * The Front Matter revision is recorded alongside the whole-file one because the
+ * two answer different questions. Whole-file authorship proves nothing was
+ * touched at all; Front Matter authorship proves RunWield still owns the half it
+ * is allowed to rewrite, which is what lets a failed transition undo its own
+ * metadata on top of a body the user edited meanwhile.
+ *
+ * @type {Map<string, { revision: string, frontMatterRevision?: string }>}
+ */
+const planWriteRevisions = new Map();
+
+/** Bound the map so a long-lived Workspace server cannot grow it without limit. */
+const PLAN_WRITE_REVISION_LIMIT = 512;
+
+/** @param {string} filePath @param {string} revision @param {string} [frontMatterRevision] */
+function recordPlanWriteRevision(filePath, revision, frontMatterRevision) {
+    planWriteRevisions.delete(filePath);
+    planWriteRevisions.set(filePath, { revision, frontMatterRevision });
+    while (planWriteRevisions.size > PLAN_WRITE_REVISION_LIMIT) {
+        const oldest = planWriteRevisions.keys().next();
+        if (oldest.done) break;
+        planWriteRevisions.delete(oldest.value);
+    }
+}
+
+/**
+ * The revision RunWield last wrote to this Plan path in this process, if any.
+ *
+ * @param {string} filePath
+ * @returns {string | undefined}
+ */
+export function getRecordedPlanWriteRevision(filePath) {
+    return planWriteRevisions.get(filePath)?.revision;
+}
+
+/**
+ * The Front Matter revision RunWield last wrote to this Plan path, if any.
+ *
+ * @param {string} filePath
+ * @returns {string | undefined}
+ */
+export function getRecordedPlanWriteFrontMatterRevision(filePath) {
+    return planWriteRevisions.get(filePath)?.frontMatterRevision;
+}
+
+/**
+ * Run a revision-checked Plan markdown write while holding the canonical Plan lock.
+ * Use this for Agent structured file edits that edit Plan markdown directly.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {string} filePath
+ * @param {string} nextMarkdown
+ * @param {string|undefined} expectedRevision
+ * @returns {Promise<string>}
+ */
+export async function writePlanMarkdownWithRevisionLocked(cwd, planName, filePath, nextMarkdown, expectedRevision) {
+    return await withPlanLock(
+        cwd,
+        planName,
+        async () => await writePlanMarkdownWithRevision(filePath, nextMarkdown, expectedRevision),
+    );
 }
 
 export class StalePlanBodyError extends Error {
@@ -1265,6 +1767,9 @@ export class StalePlanBodyError extends Error {
 /**
  * @typedef {Object} PlanWriteOptions
  * @property {symbol} [collaborationLockBypass]
+ * @property {string} [expectedRevision]
+ * @property {Record<string, string>} [expectedRevisions]
+ * @property {(result: SavedChildFeaturePlan) => Promise<void>|void} [onChildPlanWritten]
  */
 
 /**
@@ -1416,17 +1921,38 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
         validatedChildren.push({ child, name, filePath });
     }
 
+    /** @type {Map<string, { action: "created" | "updated", expectedRevision?: string }>} */
+    const writePreconditions = new Map();
+    for (const { name, filePath } of validatedChildren) {
+        let action = /** @type {"created" | "updated"} */ ("created");
+        /** @type {string | undefined} */
+        let childExpectedRevision = options.expectedRevisions?.[name] || options.expectedRevision;
+        const existingChild = await loadPlanFileStrict(filePath);
+        if (existingChild.kind === "loaded") {
+            action = "updated";
+            childExpectedRevision = childExpectedRevision || existingChild.revision;
+            if (childExpectedRevision !== existingChild.revision) {
+                throw new StalePlanWriteError(childExpectedRevision, existingChild.revision);
+            }
+        } else if (existingChild.kind === "malformed") {
+            throw existingChild.error;
+        } else if (existingChild.kind !== "not_found") {
+            throw new PlanFileIssueError(
+                filePath,
+                existingChild.kind,
+                planIssueMessage(existingChild) || `Plan is not writable: ${filePath}`,
+            );
+        }
+        writePreconditions.set(name, { action, expectedRevision: childExpectedRevision });
+    }
+
     /** @type {SavedChildFeaturePlan[]} */
     const results = [];
 
     for (const { child, name, filePath } of validatedChildren) {
-        let action = /** @type {"created" | "updated"} */ ("created");
-        try {
-            const stat = await Deno.stat(filePath);
-            if (stat.isFile) action = "updated";
-        } catch {
-            // File does not exist yet.
-        }
+        const precondition = writePreconditions.get(name) || { action: /** @type {const} */ ("created") };
+        const action = precondition.action;
+        const childExpectedRevision = precondition.expectedRevision;
 
         const dependencies = normalizeStringList(child.dependencies) || [];
         const affectedPaths = normalizeStringList(child.affectedPaths) || [];
@@ -1487,8 +2013,10 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             summary: child.summary,
             dependencies,
             origin: "internal",
-        }, options);
-        results.push({ name, path, title: child.title, action, dependencies, metadata });
+        }, { ...options, expectedRevision: childExpectedRevision });
+        const result = { name, path, title: child.title, action, dependencies, metadata };
+        results.push(result);
+        await options.onChildPlanWritten?.(result);
     }
 
     return results;
@@ -1505,21 +2033,36 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
  * @returns {Promise<string>} The full path where the plan was saved
  */
 export async function savePlan(cwd, planName, content, fmOverrides = {}, options = {}) {
-    const dir = await ensurePlansDir(cwd);
-    const { filePath, segments } = getStoredPlanLocation(cwd, planName);
-    let existingMarkdown;
-    try {
-        existingMarkdown = await Deno.readTextFile(filePath);
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
-    if (existingMarkdown !== undefined) assertPlanMarkdownWriteAllowed(existingMarkdown, options);
-    if (segments.length > 1) {
-        await Deno.mkdir(join(dir, ...segments.slice(0, -1)), { recursive: true });
-    }
-    const withFm = injectFrontMatter(content, fmOverrides);
-    await Deno.writeTextFile(filePath, withFm);
-    return filePath;
+    return await withPlanCatalogLock(cwd, async () =>
+        await withPlanLock(cwd, planName, async () => {
+            const dir = await ensurePlansDir(cwd);
+            const { filePath, segments } = getStoredPlanLocation(cwd, planName);
+            const existing = await loadPlanFileStrict(filePath);
+            if (existing.kind === "loaded") assertSharedPlanWriteAllowed(existing.attrs, options);
+            else if (existing.kind === "malformed") {
+                assertPlanMarkdownWriteAllowed(existing.markdown, options);
+                throw existing.error;
+            } else if (existing.kind !== "not_found") {
+                throw new PlanFileIssueError(
+                    filePath,
+                    existing.kind,
+                    planIssueMessage(existing) || `Plan is not writable: ${filePath}`,
+                );
+            }
+            if (segments.length > 1) {
+                await Deno.mkdir(join(dir, ...segments.slice(0, -1)), { recursive: true });
+            }
+            if (existing.kind === "loaded" && options.expectedRevision === undefined) {
+                throw new StalePlanWriteError("required", existing.revision);
+            }
+            const withFm = injectFrontMatter(content, fmOverrides);
+            if (existing.kind === "not_found") {
+                await atomicWriteTextFileIfAbsent(filePath, withFm);
+            } else {
+                await writePlanMarkdownWithRevision(filePath, withFm, options.expectedRevision);
+            }
+            return filePath;
+        }));
 }
 
 /**
@@ -1554,17 +2097,28 @@ export async function createPulledCollaborationPlan(cwd, options) {
  *
  * @param {string} cwd
  * @param {string} planName - Filename without .md
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string } | null>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision?: string, frontMatterRevision?: string, hasFrontMatter?: boolean } | null>}
  */
 export async function loadPlan(cwd, planName) {
-    const { filePath } = getStoredPlanLocation(cwd, planName);
-    try {
-        const markdown = await Deno.readTextFile(filePath);
-        const { attrs, body } = parsePlanFrontMatter(markdown);
-        return { path: filePath, markdown, attrs, body };
-    } catch {
-        return null;
+    const result = await loadPlanStrict(cwd, planName);
+    if (result.kind === "not_found") return null;
+    if (result.kind === "loaded") {
+        return {
+            path: result.path,
+            markdown: result.markdown,
+            attrs: result.attrs,
+            body: result.body,
+            revision: result.revision,
+            frontMatterRevision: result.frontMatterRevision,
+            hasFrontMatter: result.hasFrontMatter,
+        };
     }
+    if (result.kind === "malformed") throw result.error;
+    throw new PlanFileIssueError(
+        result.path,
+        result.kind,
+        planIssueMessage(result) || `Plan could not be loaded: ${result.path}`,
+    );
 }
 
 /**
@@ -1588,19 +2142,6 @@ export async function loadExternalPlan(absolutePath) {
 }
 
 /**
- * Remove a leading front matter block if present, even if malformed.
- * @param {string} markdown
- * @returns {string}
- */
-function stripLeadingFrontMatterBlock(markdown) {
-    if (!markdown.startsWith("---")) return markdown;
-    const close = markdown.indexOf("\n---", 3);
-    if (close === -1) return markdown;
-    const afterClose = markdown.slice(close + 4);
-    return afterClose.startsWith("\n") ? afterClose.slice(1) : afterClose;
-}
-
-/**
  * Update the status field in a plan's front matter.
  *
  * If the plan file exists but has malformed front matter,
@@ -1621,31 +2162,7 @@ export async function updatePlanStatus(
     recoveryAttrs = {},
     options = {},
 ) {
-    const plan = await loadPlan(cwd, planName);
-    if (plan) {
-        assertSharedPlanWriteAllowed(plan.attrs, options);
-        const withFm = injectFrontMatter(plan.markdown, { status });
-        await Deno.writeTextFile(plan.path, withFm);
-
-        return;
-    }
-
-    const { filePath } = getStoredPlanLocation(cwd, planName);
-    let markdown;
-    try {
-        markdown = await Deno.readTextFile(filePath);
-    } catch {
-        throw new Error(`Plan not found: ${planName}`);
-    }
-
-    assertPlanMarkdownWriteAllowed(markdown, options);
-    const body = stripLeadingFrontMatterBlock(markdown);
-    const healed = injectFrontMatter(body, {
-        ...recoveryAttrs,
-        status,
-        updatedAt: new Date().toISOString(),
-    });
-    await Deno.writeTextFile(filePath, healed);
+    await updatePlanFrontMatter(cwd, planName, { ...recoveryAttrs, status }, {}, options);
 }
 
 /**
@@ -1666,29 +2183,36 @@ export async function updatePlanFrontMatter(
     recoveryAttrs = {},
     options = {},
 ) {
-    const plan = await loadPlan(cwd, planName);
-    if (plan) {
-        assertSharedPlanWriteAllowed(plan.attrs, options);
-        const attrs = { ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
-        const withFm = injectFrontMatter(plan.markdown, attrs);
-        await Deno.writeTextFile(plan.path, withFm);
+    return await withPlanLock(cwd, planName, async () => {
+        const result = await loadPlanStrict(cwd, planName);
+        if (result.kind === "not_found") throw new Error(`Plan not found: ${planName}`);
+        if (result.kind === "malformed") throw result.error;
+        if (result.kind !== "loaded") {
+            throw new PlanFileIssueError(
+                result.path,
+                result.kind,
+                planIssueMessage(result) || `Plan could not be updated: ${result.path}`,
+            );
+        }
+        assertSharedPlanWriteAllowed(result.attrs, options);
+        if (options.expectedRevision === undefined) {
+            throw new Error(`Plan Front Matter update for ${planName} requires expectedRevision.`);
+        }
+        if (result.revision !== options.expectedRevision) {
+            throw new StalePlanWriteError(options.expectedRevision, result.revision);
+        }
+        const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
+        const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
+        /** @type {Partial<PlanFrontMatter>} */
+        const normalizedOverrides = {};
+        for (const key of Object.keys(attrs)) {
+            /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
+                /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
+        }
+        const withFm = mergeFrontMatterText(result.markdown, normalizedOverrides);
+        await writePlanMarkdownWithRevision(result.path, withFm, result.revision);
         return parsePlanFrontMatter(withFm).attrs;
-    }
-
-    const { filePath } = getStoredPlanLocation(cwd, planName);
-    let markdown;
-    try {
-        markdown = await Deno.readTextFile(filePath);
-    } catch {
-        throw new Error(`Plan not found: ${planName}`);
-    }
-
-    assertPlanMarkdownWriteAllowed(markdown, options);
-    const body = stripLeadingFrontMatterBlock(markdown);
-    const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
-    const healed = injectFrontMatter(body, attrs);
-    await Deno.writeTextFile(filePath, healed);
-    return parsePlanFrontMatter(healed).attrs;
+    });
 }
 
 /**
@@ -1704,44 +2228,50 @@ export async function updatePlanFrontMatter(
  * @returns {Promise<PlanFrontMatter>}
  */
 export async function updatePlanCollaborationMetadata(cwd, planName, updates, collaborationLockBypass, options = {}) {
-    const plan = await loadPlan(cwd, planName);
-    if (!plan) throw new Error(`Plan not found: ${planName}`);
-    const hasControlledBodyWrite = typeof options.body === "string";
-    const nextBody = hasControlledBodyWrite ? /** @type {string} */ (options.body) : plan.body;
-    const collaborationUpdates = normalizeCollaborationFrontMatter(updates);
-    if (!hasControlledBodyWrite) {
-        delete collaborationUpdates.collaborationBodyHash;
-    }
-    const planMetadataUpdates = pickKnownPlanFrontMatter(updates);
-    for (
-        const key of [
-            "collaborationState",
-            "collaborationServerUrl",
-            "collaborationSpaceId",
-            "collaborationRevision",
-            "collaborationBodyHash",
-            "collaborationSyncedAt",
-        ]
-    ) {
-        delete /** @type {Record<string, unknown>} */ (planMetadataUpdates)[key];
-    }
-    const definedCollaborationUpdates = Object.fromEntries(
-        Object.entries(collaborationUpdates).filter(([, value]) => value !== undefined),
-    );
-    const attrs = {
-        ...pickKnownPlanFrontMatter(plan.attrs),
-        ...planMetadataUpdates,
-        ...definedCollaborationUpdates,
-        collaborationSyncedAt: collaborationUpdates.collaborationSyncedAt ?? new Date().toISOString(),
-        updatedAt: updates.updatedAt ?? new Date().toISOString(),
-    };
-    if (hasControlledBodyWrite) {
-        attrs.collaborationBodyHash = await hashPlanBody(nextBody);
-    }
-    assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
-    const markdown = injectFrontMatter(nextBody, attrs);
-    await Deno.writeTextFile(plan.path, markdown);
-    return parsePlanFrontMatter(markdown).attrs;
+    return await withPlanLock(cwd, planName, async () => {
+        const plan = await loadPlan(cwd, planName);
+        if (!plan) throw new Error(`Plan not found: ${planName}`);
+        const hasControlledBodyWrite = typeof options.body === "string";
+        const nextBody = hasControlledBodyWrite ? /** @type {string} */ (options.body) : plan.body;
+        const collaborationUpdates = normalizeCollaborationFrontMatter(updates);
+        if (!hasControlledBodyWrite) {
+            delete collaborationUpdates.collaborationBodyHash;
+        }
+        const planMetadataUpdates = pickKnownPlanFrontMatter(updates);
+        for (
+            const key of [
+                "collaborationState",
+                "collaborationServerUrl",
+                "collaborationSpaceId",
+                "collaborationRevision",
+                "collaborationBodyHash",
+                "collaborationSyncedAt",
+            ]
+        ) {
+            delete /** @type {Record<string, unknown>} */ (planMetadataUpdates)[key];
+        }
+        const definedCollaborationUpdates = Object.fromEntries(
+            Object.entries(collaborationUpdates).filter(([, value]) => value !== undefined),
+        );
+        const attrs = {
+            ...pickKnownPlanFrontMatter(plan.attrs),
+            ...planMetadataUpdates,
+            ...definedCollaborationUpdates,
+            bearerCapability: undefined,
+            contentKey: undefined,
+            reviewerUrl: undefined,
+            collaborationSyncedAt: collaborationUpdates.collaborationSyncedAt ?? new Date().toISOString(),
+            updatedAt: updates.updatedAt ?? new Date().toISOString(),
+        };
+        if (hasControlledBodyWrite) {
+            attrs.collaborationBodyHash = await hashPlanBody(nextBody);
+        }
+        assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
+        const sourceMarkdown = hasControlledBodyWrite ? injectFrontMatter(nextBody, plan.attrs) : plan.markdown;
+        const markdown = mergeFrontMatterText(sourceMarkdown, attrs);
+        await writePlanMarkdownWithRevision(plan.path, markdown, plan.revision);
+        return parsePlanFrontMatter(markdown).attrs;
+    });
 }
 
 /**
@@ -1757,19 +2287,20 @@ export async function clearPlanCollaborationMetadata(cwd, planName, collaboratio
     if (collaborationLockBypass !== COLLABORATION_LOCK_BYPASS.unshare) {
         throw new Error("Clearing collaboration metadata requires the unshare collaboration lock bypass.");
     }
-    const plan = await loadPlan(cwd, planName);
-    if (!plan) throw new Error(`Plan not found: ${planName}`);
-    assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
-    const attrs = {
-        ...pickKnownPlanFrontMatter(plan.attrs),
-        updatedAt: options.updatedAt ?? new Date().toISOString(),
-    };
-    for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
-        delete /** @type {Record<string, unknown>} */ (attrs)[key];
-    }
-    const markdown = injectFrontMatter(plan.body, attrs);
-    await Deno.writeTextFile(plan.path, markdown);
-    return parsePlanFrontMatter(markdown).attrs;
+    return await withPlanLock(cwd, planName, async () => {
+        const plan = await loadPlan(cwd, planName);
+        if (!plan) throw new Error(`Plan not found: ${planName}`);
+        assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
+        const attrs = {
+            updatedAt: options.updatedAt ?? new Date().toISOString(),
+        };
+        for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
+            /** @type {Record<string, unknown>} */ (attrs)[key] = undefined;
+        }
+        const markdown = mergeFrontMatterText(plan.markdown, attrs);
+        await writePlanMarkdownWithRevision(plan.path, markdown, plan.revision);
+        return parsePlanFrontMatter(markdown).attrs;
+    });
 }
 
 /**
@@ -1789,6 +2320,7 @@ export async function clearPlanCollaborationMetadata(cwd, planName, collaboratio
  * @property {string} name
  * @property {string} path
  * @property {string} message
+ * @property {unknown} error
  */
 
 /**
@@ -1801,19 +2333,50 @@ export async function clearPlanCollaborationMetadata(cwd, planName, collaboratio
 async function collectPlans(dir, prefix, results, parseIssues) {
     for await (const entry of Deno.readDir(dir)) {
         const entryPath = join(dir, entry.name);
+        const name = [...prefix, entry.name.replace(/\.md$/, "")].join("/");
         if (entry.isDirectory) {
+            if (entry.name.endsWith(".md")) {
+                parseIssues?.push({
+                    name,
+                    path: entryPath,
+                    message: `Plan path is a directory, not a markdown file: ${entryPath}`,
+                    error: new PlanFileIssueError(
+                        entryPath,
+                        "not_file",
+                        `Plan path is a directory, not a markdown file: ${entryPath}`,
+                    ),
+                });
+                continue;
+            }
             if (prefix.length === 0 && HIDDEN_PLAN_DIRS.has(entry.name)) continue;
             await collectPlans(entryPath, [...prefix, entry.name], results, parseIssues);
             continue;
         }
-        if (!entry.isFile || !entry.name.endsWith(".md")) continue;
-        const name = [...prefix, entry.name.replace(/\.md$/, "")].join("/");
+        if (!entry.name.endsWith(".md")) continue;
+        if (!entry.isFile) {
+            parseIssues?.push({
+                name,
+                path: entryPath,
+                message: `Plan path is not a regular markdown file: ${entryPath}`,
+                error: new PlanFileIssueError(
+                    entryPath,
+                    "not_file",
+                    `Plan path is not a regular markdown file: ${entryPath}`,
+                ),
+            });
+            continue;
+        }
         try {
             const markdown = await Deno.readTextFile(entryPath);
-            const { attrs } = parsePlanFrontMatter(markdown);
-            results.push({ name, path: entryPath, attrs });
+            try {
+                const { attrs } = parsePlanFrontMatter(markdown);
+                results.push({ name, path: entryPath, attrs });
+            } catch (error) {
+                const wrapped = new PlanFrontMatterParseError(entryPath, error);
+                parseIssues?.push({ name, path: entryPath, message: formatErrorMessage(error), error: wrapped });
+            }
         } catch (error) {
-            parseIssues?.push({ name, path: entryPath, message: formatErrorMessage(error) });
+            parseIssues?.push({ name, path: entryPath, message: formatErrorMessage(error), error });
         }
     }
 }
@@ -1851,10 +2414,18 @@ export async function listPlans(cwd) {
     const dir = getPlansDir(cwd);
     /** @type {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} */
     const results = [];
+    /** @type {PlanParseIssue[]} */
+    const parseIssues = [];
     try {
-        await collectPlans(dir, [], results);
-    } catch {
-        // plans dir doesn't exist yet
+        await collectPlans(dir, [], results, parseIssues);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return [];
+        throw error;
+    }
+    if (parseIssues.length > 0) {
+        const issue = parseIssues[0];
+        if (issue.error instanceof Error) throw issue.error;
+        throw new PlanFileIssueError(issue.path, "malformed", issue.message);
     }
     return results.sort(comparePlansForList);
 }
@@ -1983,9 +2554,9 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     }
 
     const worktreeStatus = source.attrs.worktreeStatus;
-    if (!options.force && worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
+    if (worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
         throw new Error(
-            `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree first, or use --force.`,
+            `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree before archiving; --force does not bypass recoverable worktree guards.`,
         );
     }
 
@@ -2011,17 +2582,33 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     };
     if (options.reason !== undefined) archiveMetadata.archiveReason = options.reason;
     const markdown = mergeFrontMatterText(source.markdown, archiveMetadata);
-    await Deno.mkdir(join(getArchivedPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
-    await Deno.writeTextFile(source.path, markdown);
-    await Deno.rename(source.path, destination.filePath);
-
-    return {
-        name: source.name,
-        fromPath: source.path,
-        toPath: destination.filePath,
-        relativePath: projectRelativePath(cwd, destination.filePath),
-        attrs: parsePlanFrontMatter(markdown).attrs,
-    };
+    return await withPlanCatalogLock(cwd, async () =>
+        await withPlanLock(cwd, source.name, async () => {
+            const lockedSource = await resolveActivePlanNameOrId(cwd, source.name);
+            if (await getPlanRevisionForText(lockedSource.markdown) !== await getPlanRevisionForText(source.markdown)) {
+                throw new StalePlanWriteError(
+                    await getPlanRevisionForText(source.markdown),
+                    await getPlanRevisionForText(lockedSource.markdown),
+                );
+            }
+            await Deno.mkdir(join(getArchivedPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
+            await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
+            try {
+                await Deno.remove(source.path);
+                await syncDirectory(dirname(source.path));
+                await syncDirectory(dirname(destination.filePath));
+            } catch (error) {
+                await Deno.remove(destination.filePath).catch(() => {});
+                throw error;
+            }
+            return {
+                name: source.name,
+                fromPath: source.path,
+                toPath: destination.filePath,
+                relativePath: projectRelativePath(cwd, destination.filePath),
+                attrs: parsePlanFrontMatter(markdown).attrs,
+            };
+        }));
 }
 
 /**
@@ -2205,7 +2792,7 @@ export async function updateArchivedPlanFrontMatter(cwd, archivedPlanNameOrId, u
     if (!plan) throw new Error(`Archived Plan not found: ${archivedPlanNameOrId}`);
     const attrs = { ...plan.attrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
     const withFm = injectFrontMatter(plan.body, attrs);
-    await Deno.writeTextFile(plan.path, withFm);
+    await writePlanMarkdownWithRevision(plan.path, withFm, await getPlanRevisionForText(plan.markdown));
     return parsePlanFrontMatter(withFm).attrs;
 }
 
@@ -2236,17 +2823,39 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
         restoredFromPath: projectRelativePath(cwd, archived.path),
         updatedAt: now,
     });
-    await Deno.mkdir(join(getPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
-    await Deno.writeTextFile(archived.path, markdown);
-    await Deno.rename(archived.path, destination.filePath);
-
-    return {
-        name: destination.name,
-        fromPath: archived.path,
-        toPath: destination.filePath,
-        relativePath: projectRelativePath(cwd, destination.filePath),
-        attrs: parsePlanFrontMatter(markdown).attrs,
-    };
+    return await withPlanCatalogLock(cwd, async () =>
+        await withPlanLock(cwd, destination.name, async () => {
+            const lockedArchived = await resolveArchivedPlanNameOrId(cwd, archived.name);
+            if (
+                await getPlanRevisionForText(lockedArchived.markdown) !==
+                    await getPlanRevisionForText(archived.markdown)
+            ) {
+                throw new StalePlanWriteError(
+                    await getPlanRevisionForText(archived.markdown),
+                    await getPlanRevisionForText(lockedArchived.markdown),
+                );
+            }
+            if (await fileExists(destination.filePath)) {
+                throw new Error(`Active Plan already exists: ${projectRelativePath(cwd, destination.filePath)}`);
+            }
+            await Deno.mkdir(join(getPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
+            await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
+            try {
+                await Deno.remove(archived.path);
+                await syncDirectory(dirname(archived.path));
+                await syncDirectory(dirname(destination.filePath));
+            } catch (error) {
+                await Deno.remove(destination.filePath).catch(() => {});
+                throw error;
+            }
+            return {
+                name: destination.name,
+                fromPath: archived.path,
+                toPath: destination.filePath,
+                relativePath: projectRelativePath(cwd, destination.filePath),
+                attrs: parsePlanFrontMatter(markdown).attrs,
+            };
+        }));
 }
 
 /**
@@ -2272,17 +2881,6 @@ export function compareChildPlansByOrder(a, b) {
  */
 function isHiddenPlanName(name) {
     return HIDDEN_PLAN_DIRS.has(name.split("/")[0] || "");
-}
-
-/**
- * Rewrite only formatted front matter and concatenate the original parsed body exactly.
- *
- * @param {PlanFrontMatter} attrs
- * @param {string} body
- * @returns {string}
- */
-function rewritePlanMetadata(attrs, body) {
-    return joinFrontMatterAndBody(formatFrontMatter(attrs), body);
 }
 
 /**
@@ -2323,6 +2921,7 @@ function assertNoDuplicatePlanIds(byId) {
  * @property {PlanFrontMatter} attrs
  * @property {string} body
  * @property {string} markdown
+ * @property {string} [revision]
  */
 
 /**
@@ -2330,49 +2929,153 @@ function assertNoDuplicatePlanIds(byId) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol }} [options]
+ * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
+ * @returns {Promise<PlanResource>}
+ */
+async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
+    const { name } = canonicalizeStoredPlanName(planName);
+    return await withPlanLock(cwd, name, async () => {
+        const plan = await loadPlan(cwd, name);
+        if (!plan) throw new Error(`Plan not found: ${planName}`);
+        if (isHiddenPlanName(name)) {
+            throw new Error(`Plan is archived or hidden and cannot be assigned a planId: ${name}`);
+        }
+
+        let reservedPlanIds = options.reservedPlanIds;
+        if (!reservedPlanIds) {
+            const plans = await listPlans(cwd);
+            const byId = groupExistingPlanIds(plans);
+            assertNoDuplicatePlanIds(byId);
+            reservedPlanIds = new Set(byId.keys());
+        }
+        const idGenerator = options.idGenerator || options.__testGenerateId || (() => crypto.randomUUID());
+        let planId = normalizePlanId(plan.attrs.planId);
+        let markdown = plan.markdown;
+        let attrs = { ...plan.attrs, planId };
+
+        // A file with no Front Matter has not been onboarded, and a listing is not
+        // consent to onboard it. Backfilling here would let opening a Plan Board or
+        // reading the worktree registry stamp RunWield metadata into a markdown file
+        // the user merely dropped in plans/. Onboarding is deliberate: see
+        // onboardExternalPlan(), which /load-plan calls.
+        if (!plan.hasFrontMatter && !options.onboardExternal) {
+            return {
+                planName: name,
+                name,
+                relativePath: `${PLANS_DIR_NAME}/${name}.md`,
+                path: plan.path,
+                planId: "",
+                attrs: plan.attrs,
+                body: plan.body,
+                markdown: plan.markdown,
+                revision: plan.revision,
+            };
+        }
+
+        if (!planId) {
+            do {
+                planId = normalizePlanId(idGenerator());
+            } while (!planId || reservedPlanIds.has(planId));
+            assertSharedPlanWriteAllowed(plan.attrs, options);
+            attrs = { ...plan.attrs, planId };
+            markdown = mergeFrontMatterText(plan.markdown, { planId });
+            await writePlanMarkdownWithRevision(plan.path, markdown, plan.revision);
+        }
+
+        return {
+            planName: name,
+            name,
+            relativePath: `${PLANS_DIR_NAME}/${name}.md`,
+            path: plan.path,
+            planId,
+            attrs: /** @type {PlanFrontMatter} */ (attrs),
+            body: parsePlanFrontMatter(markdown).body,
+            markdown,
+            revision: await getPlanRevisionForText(markdown),
+        };
+    });
+}
+
+/**
+ * Ensure a single saved Plan has a durable planId under the shared catalog/Plan lock boundary.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
  * @returns {Promise<PlanResource>}
  */
 export async function ensurePlanIdentity(cwd, planName, options = {}) {
+    return await withPlanCatalogLock(cwd, async () => await ensurePlanIdentityLocked(cwd, planName, options));
+}
+
+/**
+ * Adopt a plain markdown file in `plans/` as a RunWield Plan.
+ *
+ * Users write Plans in their own editors and drop them in `plans/`. Such a file
+ * has no Front Matter, and every read path already tolerates that — parsing
+ * yields defaults so nothing panics. What it must not stay is anonymous: without
+ * durable metadata it has no identity, no status, and no place in the lifecycle.
+ *
+ * This is the one place that writes metadata into such a file, and it only ever
+ * runs from a deliberate user action (`/load-plan`), never from a listing. The
+ * body is preserved byte for byte — the user owns it. `createdAt` comes from the
+ * file's own creation time rather than the clock, because the Plan existed before
+ * RunWield learned about it and its age is real history.
+ *
+ * Idempotent: a file that already has Front Matter is returned untouched, so
+ * loading a Plan twice cannot rewrite metadata the lifecycle has since set.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {{ idGenerator?: () => string, now?: () => Date }} [options]
+ * @returns {Promise<{ resource: PlanResource, onboarded: boolean }>}
+ */
+export async function onboardExternalPlan(cwd, planName, options = {}) {
     const { name } = canonicalizeStoredPlanName(planName);
-    const plan = await loadPlan(cwd, name);
-    if (!plan) throw new Error(`Plan not found: ${planName}`);
-    if (isHiddenPlanName(name)) {
-        throw new Error(`Plan is archived or hidden and cannot be assigned a planId: ${name}`);
+    const existing = await loadPlan(cwd, name);
+    if (!existing) throw new Error(`Plan not found: ${planName}`);
+    if (existing.hasFrontMatter) {
+        return {
+            resource: await ensurePlanIdentity(cwd, name, { idGenerator: options.idGenerator }),
+            onboarded: false,
+        };
     }
 
-    let reservedPlanIds = options.reservedPlanIds;
-    if (!reservedPlanIds) {
-        const plans = await listPlans(cwd);
-        const byId = groupExistingPlanIds(plans);
-        assertNoDuplicatePlanIds(byId);
-        reservedPlanIds = new Set(byId.keys());
-    }
-    const idGenerator = options.idGenerator || options.__testGenerateId || (() => crypto.randomUUID());
-    let planId = normalizePlanId(plan.attrs.planId);
-    let markdown = plan.markdown;
-    let attrs = { ...plan.attrs, planId };
-
-    if (!planId) {
-        do {
-            planId = normalizePlanId(idGenerator());
-        } while (!planId || reservedPlanIds.has(planId));
-        assertSharedPlanWriteAllowed(plan.attrs, options);
-        attrs = { ...plan.attrs, planId };
-        markdown = rewritePlanMetadata(attrs, plan.body);
-        await Deno.writeTextFile(plan.path, markdown);
-    }
-
-    return {
-        planName: name,
-        name,
-        relativePath: `${PLANS_DIR_NAME}/${name}.md`,
-        path: plan.path,
-        planId,
-        attrs: /** @type {PlanFrontMatter} */ (attrs),
-        body: plan.body,
-        markdown,
-    };
+    const fileCreatedAt = await Deno.stat(existing.path)
+        .then((info) => info.birthtime || info.mtime || null)
+        .catch(() => null);
+    const now = options.now ? options.now() : new Date();
+    return await withPlanCatalogLock(cwd, async () => {
+        const resource = await withPlanLock(cwd, name, async () => {
+            const plan = await loadPlan(cwd, name);
+            if (!plan) throw new Error(`Plan not found: ${planName}`);
+            // Re-checked under the lock: another onboarding may have won the race, and
+            // adopting twice would overwrite the identity the first one established.
+            if (plan.hasFrontMatter) return null;
+            const markdown = injectFrontMatter(plan.markdown, {
+                classification: DEFAULT_FRONT_MATTER.classification,
+                complexity: DEFAULT_FRONT_MATTER.complexity,
+                summary: DEFAULT_FRONT_MATTER.summary,
+                affectedPaths: [],
+                createdAt: (fileCreatedAt || now).toISOString(),
+                updatedAt: now.toISOString(),
+                status: "draft",
+                origin: "external",
+            });
+            await writePlanMarkdownWithRevision(plan.path, markdown, plan.revision);
+            return true;
+        });
+        // planId generation belongs to the identity writer, which already handles
+        // collision retry against the whole catalog. Onboarding sets the metadata that
+        // makes this file a Plan; that call gives it a durable id.
+        return {
+            resource: await ensurePlanIdentityLocked(cwd, name, {
+                idGenerator: options.idGenerator,
+                onboardExternal: true,
+            }),
+            onboarded: Boolean(resource),
+        };
+    });
 }
 
 /**
@@ -2383,40 +3086,42 @@ export async function ensurePlanIdentity(cwd, planName, options = {}) {
  * @returns {Promise<PlanResource[]>}
  */
 export async function listPlanResources(cwd, options = {}) {
-    const backfillMissing = options.backfillMissing !== false;
-    const plans = await listPlans(cwd);
-    const byId = groupExistingPlanIds(plans);
-    assertNoDuplicatePlanIds(byId);
-    const reservedPlanIds = new Set(byId.keys());
+    return await withPlanCatalogLock(cwd, async () => {
+        const backfillMissing = options.backfillMissing !== false;
+        const plans = await listPlans(cwd);
+        const byId = groupExistingPlanIds(plans);
+        assertNoDuplicatePlanIds(byId);
+        const reservedPlanIds = new Set(byId.keys());
 
-    /** @type {PlanResource[]} */
-    const resources = [];
-    for (const plan of plans) {
-        if (!plan.attrs.planId && !backfillMissing) {
-            const loaded = await loadPlan(cwd, plan.name);
-            if (!loaded) continue;
-            resources.push({
-                planName: plan.name,
-                name: plan.name,
-                relativePath: `${PLANS_DIR_NAME}/${plan.name}.md`,
-                path: loaded.path,
-                planId: "",
-                attrs: loaded.attrs,
-                body: loaded.body,
-                markdown: loaded.markdown,
+        /** @type {PlanResource[]} */
+        const resources = [];
+        for (const plan of plans) {
+            if (!plan.attrs.planId && !backfillMissing) {
+                const loaded = await loadPlan(cwd, plan.name);
+                if (!loaded) continue;
+                resources.push({
+                    planName: plan.name,
+                    name: plan.name,
+                    relativePath: `${PLANS_DIR_NAME}/${plan.name}.md`,
+                    path: loaded.path,
+                    planId: "",
+                    attrs: loaded.attrs,
+                    body: loaded.body,
+                    markdown: loaded.markdown,
+                });
+                continue;
+            }
+
+            const resource = await ensurePlanIdentityLocked(cwd, plan.name, {
+                idGenerator: options.idGenerator || options.__testGenerateId,
+                reservedPlanIds,
             });
-            continue;
+            reservedPlanIds.add(resource.planId);
+            resources.push(resource);
         }
 
-        const resource = await ensurePlanIdentity(cwd, plan.name, {
-            idGenerator: options.idGenerator || options.__testGenerateId,
-            reservedPlanIds,
-        });
-        reservedPlanIds.add(resource.planId);
-        resources.push(resource);
-    }
-
-    return resources;
+        return resources;
+    });
 }
 
 /**
@@ -2492,26 +3197,47 @@ export async function loadPlanBodyById(cwd, planId) {
  * @returns {Promise<PlanBodyResource>}
  */
 export async function savePlanBodyById(cwd, planId, newBody, expectedBodyHash, options = {}) {
-    const resource = await findPlanById(cwd, planId);
-    if (isEpicPlan(resource.attrs)) throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
-    const markdown = await Deno.readTextFile(resource.path);
-    const { attrs } = parsePlanFrontMatter(markdown);
-    assertSharedPlanWriteAllowed(attrs, options);
-    const { frontMatterBlock, body } = splitPlanMarkdownBody(markdown);
-    const currentBodyHash = await hashPlanBody(body);
-    if (currentBodyHash !== expectedBodyHash) {
-        throw new StalePlanBodyError(expectedBodyHash, currentBodyHash);
-    }
+    return await withPlanCatalogLock(cwd, async () => {
+        const resource = await findPlanById(cwd, planId);
+        return await withPlanLock(cwd, resource.planName || resource.name, async () => {
+            if (isEpicPlan(resource.attrs)) {
+                throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
+            }
+            const result = await loadPlanFileStrict(resource.path);
+            if (result.kind === "malformed") throw result.error;
+            if (result.kind !== "loaded") {
+                throw new PlanFileIssueError(
+                    result.path,
+                    result.kind,
+                    planIssueMessage(result) || `Plan could not be saved: ${result.path}`,
+                );
+            }
+            const { attrs } = result;
+            assertSharedPlanWriteAllowed(attrs, options);
+            if (options.expectedRevision === undefined) {
+                throw new Error(`Plan body write for ${resource.planName || resource.name} requires expectedRevision.`);
+            }
+            if (result.revision !== options.expectedRevision) {
+                throw new StalePlanWriteError(options.expectedRevision, result.revision);
+            }
+            const { frontMatterBlock, body } = splitPlanMarkdownBody(result.markdown);
+            const currentBodyHash = await hashPlanBody(body);
+            if (currentBodyHash !== expectedBodyHash) {
+                throw new StalePlanBodyError(expectedBodyHash, currentBodyHash);
+            }
 
-    const nextMarkdown = `${frontMatterBlock}${newBody}`;
-    await Deno.writeTextFile(resource.path, nextMarkdown);
-    return {
-        ...resource,
-        attrs,
-        body: newBody,
-        markdown: nextMarkdown,
-        bodyHash: await hashPlanBody(newBody),
-    };
+            const nextMarkdown = `${frontMatterBlock}${newBody}`;
+            await writePlanMarkdownWithRevision(result.path, nextMarkdown, result.revision);
+            return {
+                ...resource,
+                attrs,
+                body: newBody,
+                markdown: nextMarkdown,
+                revision: await getPlanRevisionForText(nextMarkdown),
+                bodyHash: await hashPlanBody(newBody),
+            };
+        });
+    });
 }
 
 /**
@@ -2705,7 +3431,7 @@ export function countChildPlanProgress(children) {
  *
  * @param {string} cwd
  * @param {string} arg - Plan name (e.g., "add-dark-mode" or "epic/feature1") or file path
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, planName: string }>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, planName: string, hasFrontMatter?: boolean }>}
  */
 export async function resolvePlan(cwd, arg) {
     try {

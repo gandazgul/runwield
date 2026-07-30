@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 
 import { AGENTS } from "../../constants.js";
@@ -73,6 +73,61 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
     assertEquals(messages.some((m) => m.includes("The quick brown fox")), true);
     assertEquals(messages.some((m) => m.includes("Jump over")), true);
     assertEquals(messages.some((m) => m.includes("Load canceled")), false);
+});
+
+Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("planner_re_review");
+    const fixture = makeRuntimeFixture();
+    /** @type {Array<Record<string, any>>} */
+    const planningCalls = [];
+    /** @type {Array<{ event: string, currentStatus: string }>} */
+    const events = [];
+
+    await runLoadPlanCommand(["plan-ready-rereview"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-ready-rereview"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-ready-rereview",
+                    path: "plans/plan-ready-rereview.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                events.push({ event: event.event, currentStatus: event.currentStatus });
+                return Promise.resolve({ ...event.details.triageMeta, status: "feedback" });
+            },
+            runPlanningAgent: (/** @type {Record<string, any>} */ args) => {
+                planningCalls.push(args);
+                return Promise.resolve({ outcome: "canceled" });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(prompts[0].options.slice(0, 3).map((option) => option.value), [
+        "proceed",
+        "planner_re_review",
+        "review",
+    ]);
+    assertEquals(events, [{ event: "review_reopened", currentStatus: "ready_for_work" }]);
+    assertEquals(planningCalls.length, 1);
+    assertEquals(planningCalls[0].agentName, AGENTS.PLANNER);
+    assertEquals(planningCalls[0].triageMeta.status, "feedback");
+    assertEquals(
+        String(planningCalls[0].initialRequest).includes("Plan Re-review Requested: plan-ready-rereview"),
+        true,
+    );
 });
 
 Deno.test("runLoadPlanCommand approved review uses the Runtime review interaction", async () => {
@@ -170,6 +225,107 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
     });
 
     assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand checkpoints completed execution before validation", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
+    });
+    let finalized = false;
+    let validated = false;
+    /** @type {any[]} */
+    const finalizeCalls = [];
+    const cwd = Deno.cwd();
+
+    await runLoadPlanCommand(["plan-run-checkpoint"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-run-checkpoint"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-checkpoint",
+                    path: "plans/plan-run-checkpoint.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            loadPlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-checkpoint",
+                    path: "plans/plan-run-checkpoint.md",
+                    body: "fresh body",
+                    markdown: "fresh markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: finalized ? "implemented" : "ready_for_work",
+                        executionMode: "non_git_in_place",
+                    },
+                }),
+            executePlan: () =>
+                Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: true,
+                    completionReport: "- Done.",
+                    executionContext: {
+                        planName: "plan-run-checkpoint",
+                        triageMeta: { classification: "FEATURE", status: "ready_for_work" },
+                        executionAgent: "engineer",
+                        executionMode: "non_git_in_place",
+                        projectRoot: cwd,
+                        executionCwd: cwd,
+                        nonGitInPlace: true,
+                    },
+                }),
+            finalizePlanImplementation: (/** @type {any} */ args) => {
+                finalizeCalls.push(args);
+                assertEquals(validated, false);
+                assertEquals(args.planName, "plan-run-checkpoint");
+                assertEquals(args.executionReport, "- Done.");
+                assertEquals(args.triageMeta.status, "ready_for_work");
+                finalized = true;
+                return Promise.resolve({});
+            },
+            resolveValidationExecutionContext: (/** @type {any} */ args) => {
+                assertEquals(finalized, true);
+                assertEquals(args.triageMeta.status, "implemented");
+                return Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "non_git_in_place",
+                        planName: "plan-run-checkpoint",
+                        projectRoot: cwd,
+                        executionCwd: cwd,
+                        source: "test",
+                    },
+                });
+            },
+            runValidationLoop: (/** @type {any} */ args) => {
+                validated = true;
+                assertEquals(finalized, true);
+                assertEquals(args.triageMeta.status, "implemented");
+                assertEquals(args.executionContext.nonGitInPlace, true);
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(finalizeCalls.length, 1);
+    assertEquals(validated, true);
 });
 
 Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readiness and execution", async () => {
@@ -347,8 +503,18 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                         summary: "s",
                         affectedPaths: [],
                         status: "ready_for_work",
+                        worktreeId: "old-worktree",
                         worktreeStatus: "completed",
                     },
+                }),
+            findWorktreeById: () =>
+                Promise.resolve({
+                    id: "old-worktree",
+                    planName: "plan-reapproval",
+                    path: "/tmp/old-worktree",
+                    branch: "runwield/worktree/plan-reapproval-old",
+                    baseBranch: "main",
+                    status: "completed",
                 }),
             findWorktreeByPlanName: () =>
                 Promise.resolve({
@@ -390,8 +556,56 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
         id: "old-worktree",
         updates: { status: "abandoned" },
     }]);
-    assertEquals(reviewMeta.worktreeStatus, "abandoned");
-    assertEquals(reviewMeta.worktreeBaseBranch, null);
+    assertEquals(reviewMeta.worktreeStatus, "completed");
+    assertEquals(reviewMeta.worktreeBaseBranch, undefined);
+});
+
+Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree metadata", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let recorded = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
+    });
+
+    await assertRejects(
+        () =>
+            runLoadPlanCommand(["plan-unmanaged-worktree"], {
+                ...fixture.context,
+                uiAPI,
+                editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+                __testDeps: /** @type {any} */ ({
+                    parseArgs: () => ({ help: false, _: ["plan-unmanaged-worktree"] }),
+                    resolvePlan: () =>
+                        Promise.resolve({
+                            planName: "plan-unmanaged-worktree",
+                            path: "plans/plan-unmanaged-worktree.md",
+                            body: "body",
+                            attrs: {
+                                classification: "FEATURE",
+                                complexity: "LOW",
+                                summary: "s",
+                                affectedPaths: [],
+                                status: "ready_for_work",
+                                worktreePath: "/tmp/unmanaged-worktree",
+                                worktreeBranch: "runwield/worktree/unmanaged",
+                                worktreeStatus: "completed",
+                            },
+                        }),
+                    findWorktreeById: () => Promise.resolve(null),
+                    findWorktreeByPlanName: () => Promise.resolve(null),
+                    recordPlanEvent: () => {
+                        recorded = true;
+                        return Promise.resolve({});
+                    },
+                    resetTuiState: () => {},
+                }),
+            }),
+        Error,
+        "lacks a registry id",
+    );
+
+    assertEquals(recorded, false);
 });
 
 Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executing", async () => {
@@ -631,7 +845,7 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
     });
 
     assertEquals(executed, false);
-    assertEquals(messages.some((message) => message.includes("no child Planned Change plans")), true);
+    assertEquals(messages.some((message) => message.includes("no child plans")), true);
 });
 
 Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without transient operator switch", async () => {
@@ -907,7 +1121,7 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
     });
 
     assertEquals(lifecycleCalled, false);
-    assertEquals(registryStatuses, ["abandoned", "active"]);
+    assertEquals(registryStatuses, []);
     assertEquals(fixture.state.workflow, preReviewWorkflow);
 });
 

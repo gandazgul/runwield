@@ -1,7 +1,7 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 
 Deno.test("release prompt starts with the three release choices before policy discovery", async () => {
-    const prompt = await Deno.readTextFile("src/prompt-templates/release.md");
+    const prompt = await Deno.readTextFile(new URL("../src/prompt-templates/release.md", import.meta.url));
     const choiceIndex = prompt.indexOf("What kind of release operation should I run?");
     const discoveryIndex = prompt.indexOf("Discover the repository's release policy");
 
@@ -23,7 +23,7 @@ Deno.test("release prompt starts with the three release choices before policy di
 });
 
 Deno.test("wld release policy distinguishes repository-specific policy from generic wld usage", async () => {
-    const policy = await Deno.readTextFile("RELEASING.md");
+    const policy = await Deno.readTextFile(new URL("../RELEASING.md", import.meta.url));
 
     assertStringIncludes(policy, "This document is wld's release policy");
     assertStringIncludes(policy, "wld users releasing other repositories");
@@ -55,7 +55,7 @@ Deno.test("release workflow is tag-only and channel-safe", async () => {
 });
 
 Deno.test("release CLI does not own host release creation or notes editing", async () => {
-    const script = await Deno.readTextFile("scripts/release.js");
+    const script = await Deno.readTextFile(new URL("./release.js", import.meta.url));
 
     assertEquals(script.includes("release create"), false);
     assertEquals(script.includes("release edit"), false);
@@ -65,6 +65,6 @@ Deno.test("release CLI does not own host release creation or notes editing", asy
 });
 
 Deno.test("README links to wld release policy", async () => {
-    const readme = await Deno.readTextFile("README.md");
+    const readme = await Deno.readTextFile(new URL("../README.md", import.meta.url));
     assertStringIncludes(readme, "[RELEASING.md](RELEASING.md)");
 });

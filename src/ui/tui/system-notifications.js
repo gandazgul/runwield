@@ -113,7 +113,11 @@ function writeTerminal(bytes) {
 
 const defaultDeps = {
     os: Deno.build.os,
-    env: Deno.env.toObject(),
+    // Read live rather than snapshotting at import time: the Golden TUI child
+    // process sets its isolation env after this module is already loaded.
+    get env() {
+        return Deno.env.toObject();
+    },
     pid: Deno.pid,
     getMergedCustomSetting,
     runCommand,
@@ -157,8 +161,11 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
         return { ...baseResult, reason: "unknown_event" };
     }
 
-    if (isNotificationSuppressedByEnvironment(deps.env)) {
-        return { ...baseResult, reason: "env_disabled" };
+    // Golden TUI scenarios compose the production TUI, so they reach this notifier
+    // with production wiring. A test run must never reach the developer's
+    // Notification Center, regardless of the settings the fixture happens to write.
+    if (deps.env.WLD_GOLDEN_TUI || deps.env.WLD_GOLDEN_TUI_CHILD) {
+        return { ...baseResult, reason: "golden_tui" };
     }
 
     if (!settings.enabled) {
@@ -286,9 +293,15 @@ export async function detectTerminalIdentity(sessionLabel, deps = defaultDeps) {
 export async function buildNotificationCommand(options, deps = defaultDeps) {
     if (deps.os !== "darwin") return null;
 
-    const activationCommand = buildActivationCommand(options.terminal, options.settings.activation);
-    const senderBundleId = inferTerminalSenderBundleId(options.terminal);
-    if (activationCommand && senderBundleId && await commandExists("terminal-notifier", deps)) {
+    // Prefer terminal-notifier whenever it is installed. Its stable -group is the
+    // only thing that makes macOS replace a session's previous notification rather
+    // than stack a new one, and the osascript fallback cannot express a group at
+    // all. Activation target and sender bundle are refinements, not preconditions:
+    // requiring them stranded every terminal except iTerm2 and Apple Terminal on
+    // the ungrouped path, where notifications pile up indefinitely.
+    if (await commandExists("terminal-notifier", deps)) {
+        const activationCommand = buildActivationCommand(options.terminal, options.settings.activation);
+        const senderBundleId = inferTerminalSenderBundleId(options.terminal);
         return {
             cmd: "terminal-notifier",
             args: [
@@ -297,11 +310,9 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
                 "-message",
                 options.message,
                 "-group",
-                buildNotificationGroup(options.eventName),
-                "-execute",
-                activationCommand,
-                "-sender",
-                senderBundleId,
+                buildNotificationGroup(options.eventName, options.terminal),
+                ...(activationCommand ? ["-execute", activationCommand] : []),
+                ...(senderBundleId ? ["-sender", senderBundleId] : []),
             ],
         };
     }
@@ -311,10 +322,15 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
 
 /**
  * @param {NotificationEventName} eventName
+ * @param {TerminalIdentity} terminal
  * @returns {string}
  */
-function buildNotificationGroup(eventName) {
-    return `runwield-${eventName}-${Date.now()}-${crypto.randomUUID()}`;
+function buildNotificationGroup(eventName, terminal) {
+    const sessionKey = normalizeLabel(terminal.sessionLabel || terminal.terminalTitle || "RunWield")
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "runwield";
+    return `runwield-${eventName}-${sessionKey}`;
 }
 
 /**
@@ -387,6 +403,7 @@ export function inferTerminalApplication(terminal) {
     if (isAppleTerminal(terminal)) return "Terminal";
     if (terminal.weztermPane || terminal.termProgram === "WezTerm") return "WezTerm";
     if (isKitty(terminal)) return "kitty";
+    if (isGhostty(terminal)) return "Ghostty";
     return null;
 }
 
@@ -397,6 +414,7 @@ export function inferTerminalApplication(terminal) {
 export function inferTerminalSenderBundleId(terminal) {
     if (isITerm(terminal)) return "com.googlecode.iterm2";
     if (isAppleTerminal(terminal)) return "com.apple.Terminal";
+    if (isGhostty(terminal)) return "com.mitchellh.ghostty";
     return null;
 }
 
@@ -508,15 +526,6 @@ function emitTerminalBell(deps) {
 }
 
 /**
- * @param {Record<string, string | undefined>} env
- * @returns {boolean}
- */
-function isNotificationSuppressedByEnvironment(env) {
-    const value = String(env.RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS || "").toLowerCase();
-    return value === "1" || value === "true" || value === "yes";
-}
-
-/**
  * @param {string} cmd
  * @param {string[]} [args]
  * @returns {Promise<CommandResult>}
@@ -608,4 +617,9 @@ function isAppleTerminal(terminal) {
 /** @param {TerminalIdentity} terminal */
 function isKitty(terminal) {
     return terminal.termProgram === "kitty" || terminal.term === "xterm-kitty" || !!terminal.kittyListenOn;
+}
+
+/** @param {TerminalIdentity} terminal */
+function isGhostty(terminal) {
+    return terminal.termProgram === "ghostty" || terminal.term === "xterm-ghostty";
 }

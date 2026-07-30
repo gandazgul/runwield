@@ -25,9 +25,10 @@ import { theme } from "../theme/theme.js";
  * @property {string} [initialAgentModel]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {Record<string, { execute: (argv: string[], options?: import('../../cmd/registry.js').CommandContext) => Promise<void> }>} [commandRegistry]
- * @property {() => { getAvailable?: () => Array<unknown>, find?: (provider: string, id: string) => unknown }} [getModelRegistry]
+ * @property {() => { getAvailable?: () => Array<unknown>, find?: (provider: string, id: string) => unknown, getRegisteredProviderIds?: () => readonly string[] }} [getModelRegistry]
  * @property {() => { getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }} [getSettingsManager]
  * @property {(options?: import('../../cmd/registry.js').CommandContext) => Promise<void>} [quit]
+ * @property {boolean} [forceModelSelection]
  */
 
 /**
@@ -58,6 +59,18 @@ export function detectModelAvailability(registry) {
 export function getConfiguredModelAvailability(getModelRegistry = getModelRegistryFn) {
     try {
         return detectModelAvailability(getModelRegistry());
+    } catch (error) {
+        return { available: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+
+/**
+ * @param {() => { getRegisteredProviderIds?: () => readonly string[] }} getModelRegistry
+ * @returns {ModelAvailability}
+ */
+export function getConfiguredProviderAvailability(getModelRegistry = getModelRegistryFn) {
+    try {
+        return { available: (getModelRegistry().getRegisteredProviderIds?.() || []).length > 0, error: null };
     } catch (error) {
         return { available: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -105,12 +118,19 @@ export async function maybeShowModelWelcome(options) {
     const getSettingsManager = options.getSettingsManager || getSettingsManagerFn;
     const commandRegistry = options.commandRegistry || defaultCommandRegistry;
     const initialAvailability = getConfiguredModelAvailability(getModelRegistry);
-    if (initialAvailability.available) {
+    const selectedDefaultAvailability = getSelectedDefaultModelAvailability(getModelRegistry, getSettingsManager);
+    if (initialAvailability.available && selectedDefaultAvailability.available && !options.forceModelSelection) {
         return { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false };
     }
 
     options.editor.disableSubmit = true;
     options.tui.requestRender();
+
+    let afterLoginAvailability = initialAvailability;
+    const providerAvailability = getConfiguredProviderAvailability(getModelRegistry);
+    if (!afterLoginAvailability.available && providerAvailability.available) {
+        afterLoginAvailability = { available: true, error: null };
+    }
 
     const title = [
         theme.bold("Welcome to RunWield"),
@@ -120,7 +140,6 @@ export async function maybeShowModelWelcome(options) {
         initialAvailability.error ? `Model registry note: ${initialAvailability.error}` : "",
     ].filter(Boolean).join("\n");
 
-    let afterLoginAvailability = initialAvailability;
     while (!afterLoginAvailability.available) {
         const choice = await options.uiAPI.promptSelect(
             title,

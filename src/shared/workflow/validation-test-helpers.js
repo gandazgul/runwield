@@ -191,3 +191,33 @@ export function noOpWorktreePlanHandoffDeps() {
         },
     };
 }
+
+/**
+ * A real project root for a validation test.
+ *
+ * Workflow Validation settles its outcomes through the actual transaction layer,
+ * which takes Plan locks and writes recovery journals under `.wld/`. That needs a
+ * writable directory holding a real Plan — a placeholder path like `/primary`
+ * fails, and the repository's own root would let tests write into the developer's
+ * checkout and interfere with each other.
+ *
+ * One root per test keeps them independent: a journal a failure path leaves behind
+ * blocks later work on that Plan, which is the intended behavior and must not leak
+ * into the next test.
+ *
+ * @param {string} [planName]
+ * @param {Record<string, unknown>} [attrs]
+ * @returns {Promise<string>}
+ */
+export async function makeValidationProjectRoot(planName = "p", attrs = {}) {
+    const root = await Deno.makeTempDir({ prefix: "runwield-validation-root-" });
+    const { savePlan } = await import("../../plan-store.js");
+    await savePlan(root, planName, `# ${planName}\n\nvalidation fixture\n`, {
+        classification: "FEATURE",
+        status: "in_progress",
+        summary: "validation fixture",
+        affectedPaths: [],
+        ...attrs,
+    });
+    return root;
+}

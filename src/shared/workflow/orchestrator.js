@@ -55,7 +55,7 @@ export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./valida
  * @typedef {Object} TriageOutcome
  * @property {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT"} routingIntent
  * @property {"PLANNED_CHANGE" | "FEATURE" | "PROJECT" | undefined} [classification]
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind]
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind]
  * @property {"LOW" | "MEDIUM" | "HIGH"} complexity
  * @property {string} summary
  * @property {string} [sessionName]

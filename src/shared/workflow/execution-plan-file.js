@@ -2,8 +2,8 @@
  * Materialize and verify canonical Plan files inside execution worktrees.
  */
 
-import { basename, dirname, join, relative, SEPARATOR } from "@std/path";
-import { getStoredPlanPath, parsePlanFrontMatter } from "../../plan-store.js";
+import { dirname, join, relative, SEPARATOR } from "@std/path";
+import { atomicWriteTextFileIfAbsent, getStoredPlanPath, parsePlanFrontMatter } from "../../plan-store.js";
 
 /**
  * @typedef {Object} ExecutionPlanFileResult
@@ -323,20 +323,15 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
         }
     }
 
-    const tempPath = join(targetDir, `.rw-plan-${basename(targetPath)}-${crypto.randomUUID()}.tmp`);
     try {
-        await Deno.writeTextFile(tempPath, canonicalSource.markdown, { createNew: true });
-        const tempMarkdown = await Deno.readTextFile(tempPath);
-        const { attrs } = parsePlanFrontMatter(tempMarkdown);
-        if (
-            tempMarkdown !== canonicalSource.markdown || hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)
-        ) {
+        const { attrs } = parsePlanFrontMatter(canonicalSource.markdown);
+        if (hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)) {
             return {
                 kind: "restore_failed",
                 path: targetPath,
                 relativePath,
                 reason:
-                    `Temporary execution Plan validation failed for ${relativePath}. Existing evidence was preserved.`,
+                    `Canonical execution Plan validation failed for ${relativePath}. Existing evidence was preserved.`,
             };
         }
         const recheckedParents = await verifyParentChain(executionCwd, parentSegments, false);
@@ -348,20 +343,28 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
                 reason: recheckedParents.reason,
             };
         }
+        const recheckedTarget = await lstatOrNull(targetPath);
+        if (recheckedTarget) {
+            const concurrent = await ensureExecutionPlanFile({ executionCwd, planName, canonicalSource });
+            return concurrent.kind === "present" ? { kind: "present", path: targetPath, relativePath } : concurrent;
+        }
+        await Deno.mkdir(targetDir, { recursive: true });
         try {
-            await Deno.link(tempPath, targetPath);
+            await atomicWriteTextFileIfAbsent(targetPath, canonicalSource.markdown);
         } catch (error) {
             if (error instanceof Deno.errors.AlreadyExists) {
                 const concurrent = await ensureExecutionPlanFile({ executionCwd, planName, canonicalSource });
                 return concurrent.kind === "present" ? { kind: "present", path: targetPath, relativePath } : concurrent;
             }
-            const reason = error instanceof Error ? error.message : String(error);
+            throw error;
+        }
+        const restoredMarkdown = await Deno.readTextFile(targetPath);
+        if (restoredMarkdown !== canonicalSource.markdown) {
             return {
                 kind: "restore_failed",
                 path: targetPath,
                 relativePath,
-                reason:
-                    `Failed to restore execution Plan path ${relativePath}: ${reason}. Existing evidence was preserved.`,
+                reason: `Atomic execution Plan restore verification failed for ${relativePath}.`,
             };
         }
         return { kind: "restored", path: targetPath, relativePath };
@@ -374,8 +377,6 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
             reason:
                 `Failed to restore execution Plan path ${relativePath}: ${reason}. Existing evidence was preserved.`,
         };
-    } finally {
-        await Deno.remove(tempPath).catch(() => {});
     }
 }
 

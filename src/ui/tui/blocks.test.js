@@ -304,7 +304,9 @@ Deno.test("ValidationHandoffBlock renders full validation state and latest hando
 
     assertBlockBackground(lines, w, "ValidationHandoffBlock");
     assertEquals(plain.includes("Workflow Validation paused"), true);
-    assertEquals(plain.includes("cycle 2/3 (total 5)"), true);
+    // Workflow validation counts review rounds; "cycle" would contradict every
+    // other message in the loop.
+    assertEquals(plain.includes("round 2/3 (total 5)"), true);
     assertEquals(plain.includes("stage engineer repair"), true);
     assertEquals(plain.includes("attempt 1/3"), true);
     assertEquals(plain.includes("CI failed, Review pending, Human pending, Merge pending"), true);

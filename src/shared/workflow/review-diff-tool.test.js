@@ -1,5 +1,5 @@
 import {
-    buildLargeDiffReviewPrompt,
+    buildDiffInspectionSection,
     createReviewDiffTool,
     formatChangedFileList,
     getFileDiff,
@@ -150,37 +150,26 @@ Deno.test("listDiffFiles does not mark small entries as truncated", () => {
     }
 });
 
-Deno.test("buildLargeDiffReviewPrompt produces compact review packet without full diff", () => {
-    const reviewerAgentDef = {
-        name: "reviewer",
-        displayName: "Reviewer",
-        model: "",
-        description: "",
-        tools: [],
-        systemPrompt: "",
-    };
-    const planContent = "Add a feature that does X.";
-    const totalBytes = new TextEncoder().encode(SAMPLE_INLINE_DIFF).byteLength;
-    const prompt = buildLargeDiffReviewPrompt(reviewerAgentDef, planContent, SAMPLE_INLINE_DIFF, totalBytes);
+Deno.test("buildDiffInspectionSection lists changed files without inlining the diff", () => {
+    const section = buildDiffInspectionSection(SAMPLE_INLINE_DIFF);
 
-    // Should NOT contain the full diff
-    assertEquals(prompt.includes("new line"), false);
-    assertEquals(prompt.includes("brand new"), false);
-    assertEquals(prompt.includes("removed line1"), false);
+    // The diff is never inlined — the Reviewer reads it through review_diff.
+    assertEquals(section.includes("new line"), false);
+    assertEquals(section.includes("brand new"), false);
+    assertEquals(section.includes("removed line1"), false);
 
-    // Should contain the changed file listing
-    assertStringIncludes(prompt, "src/a.js");
-    assertStringIncludes(prompt, "src/b.js");
-    assertStringIncludes(prompt, "src/c.js");
+    assertStringIncludes(section, "src/a.js");
+    assertStringIncludes(section, "src/b.js");
+    assertStringIncludes(section, "src/c.js");
+    assertStringIncludes(section, "review_diff");
+});
 
-    // Should contain the original plan
-    assertStringIncludes(prompt, "Add a feature that does X");
-
-    // Should contain usage instructions
-    assertStringIncludes(prompt, "review_diff");
-
-    // Should mention the size
-    assertStringIncludes(prompt, "omitted");
+Deno.test("buildDiffInspectionSection documents the repair scope only when one exists", () => {
+    assertEquals(buildDiffInspectionSection(SAMPLE_INLINE_DIFF).includes('scope: "repair"'), false);
+    assertStringIncludes(
+        buildDiffInspectionSection(SAMPLE_INLINE_DIFF, { hasRepairScope: true }),
+        'scope: "repair"',
+    );
 });
 
 Deno.test("review_diff tool responds to list command", async () => {
@@ -190,6 +179,36 @@ Deno.test("review_diff tool responds to list command", async () => {
     assertStringIncludes(result.content[0].text, "src/b.js");
     assertEquals(result.details.command, "list");
     assertEquals(result.details.fileCount, 5);
+});
+
+Deno.test("review_diff tool lists the repair scope separately from the full diff", async () => {
+    const repairOnly = `diff --git a/src/fix.js b/src/fix.js
+index 8888888..9999999 100644
+--- a/src/fix.js
++++ b/src/fix.js
+@@ -1 +1 @@
+-broken
++fixed
+`;
+    const tool = createReviewDiffTool({ full: SAMPLE_INLINE_DIFF, repair: repairOnly });
+
+    const full = await /** @type {any} */ (tool.execute)("scope-1", { command: "list" });
+    assertEquals(full.details.scope, "full");
+    assertEquals(full.details.fileCount, 5);
+
+    const repair = await /** @type {any} */ (tool.execute)("scope-2", { command: "list", scope: "repair" });
+    assertEquals(repair.details.scope, "repair");
+    assertEquals(repair.details.fileCount, 1);
+    assertStringIncludes(repair.content[0].text, "src/fix.js");
+});
+
+Deno.test("review_diff tool explains the repair scope is absent in the first round", async () => {
+    const tool = createReviewDiffTool({ full: SAMPLE_INLINE_DIFF });
+    const result = await /** @type {any} */ (tool.execute)("scope-3", { command: "list", scope: "repair" });
+
+    assertEquals(result.details.available, false);
+    assertEquals(result.isError, undefined);
+    assertStringIncludes(result.content[0].text, "No repair scope in this round");
 });
 
 Deno.test("review_diff tool responds to show command", async () => {

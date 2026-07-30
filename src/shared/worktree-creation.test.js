@@ -1,8 +1,8 @@
 import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { basename, dirname } from "@std/path";
-import { HOME_DIR } from "../constants.js";
+import { getHomeDir } from "../constants.js";
 
-import { findByPlanName } from "./worktree-registry.js";
+import { addEntry, findByPlanId } from "./worktree-registry.js";
 import {
     createExecutionWorktree,
     findReusableWorktree,
@@ -14,14 +14,16 @@ import {
 } from "./worktree.js";
 
 import { git, makeRepo } from "./worktree-test-helpers.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 
 Deno.test("resolveWorktreeParent uses session-style full cwd encoding by default", () => {
     const projectRoot = "/Users/alice/Documents/web/runwield";
 
-    if (HOME_DIR) {
+    const homeDir = getHomeDir();
+    if (homeDir) {
         assertEquals(
             resolveWorktreeParent(projectRoot, undefined),
-            `${HOME_DIR}/.wld/worktrees/--Users-alice-Documents-web-runwield--`,
+            `${homeDir}/.wld/worktrees/--Users-alice-Documents-web-runwield--`,
         );
     } else {
         assertEquals(resolveWorktreeParent(projectRoot, undefined), `${projectRoot}/.wld/worktrees`);
@@ -44,12 +46,18 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
     const worktreeRoot = await Deno.makeTempDir();
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Demo Plan", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Demo Plan",
+            planId: "plan-demo",
+            worktreeRoot,
+        });
         assertMatch(worktree.branch, /^runwield\/worktree\/demo-plan-[a-f0-9]{8}$/);
         assertEquals(dirname(worktree.path), worktreeRoot);
         assertMatch(basename(worktree.path), /runwield-demo-plan-[a-f0-9]{8}$/);
         assertEquals(await git(worktree.path, ["branch", "--show-current"]), worktree.branch);
-        const registryEntry = await findByPlanName(projectRoot, "Demo Plan");
+        const registryEntry = await findByPlanId(projectRoot, "plan-demo");
         assertEquals(registryEntry?.id, worktree.id);
         assertEquals(registryEntry?.baseTree, await git(projectRoot, ["rev-parse", "HEAD^{tree}"]));
 
@@ -70,68 +78,153 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
     }
 });
 
-Deno.test("createExecutionWorktree initializes submodules", async () => {
+Deno.test("createExecutionWorktree leaves created Git evidence when registry settlement fails", async () => {
     const projectRoot = await makeRepo();
-    const submoduleRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
-    const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
-    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
-    let worktree;
+    /** @type {string | undefined} */
+    let createdPath;
+    /** @type {string | undefined} */
+    let createdBranch;
     try {
-        await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
-        await git(submoduleRoot, ["add", "."]);
-        await git(submoduleRoot, ["commit", "-m", "add module css"]);
-        Deno.env.set("GIT_ALLOW_PROTOCOL", "file");
-        await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
-        await git(projectRoot, ["commit", "-m", "add submodule"]);
-
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Submodule Plan", worktreeRoot });
-
-        assertEquals(await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`), "body { color: red; }\n");
-        await removeExecutionWorktree({
-            projectRoot,
-            path: worktree.path,
-            branch: worktree.branch,
-            force: false,
+        await addEntry(projectRoot, {
+            id: "existing",
+            planName: "Settled Plan",
+            planId: "plan-1",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: await git(projectRoot, ["rev-parse", "HEAD^{tree}"]),
+            branch: "runwield/worktree/settled-plan-existing",
+            path: `${worktreeRoot}/existing`,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
         });
-        await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
-        worktree = undefined;
+
+        const error = await assertRejects(
+            () =>
+                createExecutionWorktree({
+                    allowRegistryMutation: "legacy-test-only",
+                    projectRoot,
+                    planName: "Settled Plan",
+                    planId: "plan-1",
+                    worktreeRoot,
+                }),
+            Error,
+            "registry settlement failed",
+        );
+        assertMatch(error.message, /inspect .* on branch runwield\/worktree\/settled-plan-/);
+
+        const created = [];
+        for await (const item of Deno.readDir(worktreeRoot)) {
+            if (item.isDirectory && item.name.includes("settled-plan")) created.push(item.name);
+        }
+        assertEquals(created.length, 1);
+        createdPath = `${worktreeRoot}/${created[0]}`;
+        createdBranch = await git(createdPath, ["branch", "--show-current"]);
+        assertMatch(createdBranch, /^runwield\/worktree\/settled-plan-[a-f0-9]{8}$/);
     } finally {
-        if (previousAllowedProtocols === undefined) {
-            Deno.env.delete("GIT_ALLOW_PROTOCOL");
-        } else {
-            Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
-        }
-        if (worktree) {
-            await removeExecutionWorktree({
-                projectRoot,
-                path: worktree.path,
-                branch: worktree.branch,
-                force: true,
-            }).catch(() => {});
-        }
+        if (createdPath) await git(projectRoot, ["worktree", "remove", "--force", createdPath]).catch(() => "");
+        if (createdBranch) await git(projectRoot, ["branch", "-D", createdBranch]).catch(() => "");
         await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(submoduleRoot, { recursive: true });
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
-Deno.test("findReusableWorktree selects the recorded execution id when plan names repeat", async () => {
+Deno.test("createExecutionWorktree initializes submodules", async () => {
+    // GIT_ALLOW_PROTOCOL is process-global and affects every concurrent git call.
+    await withProcessGlobalTestLock(async () => {
+        const projectRoot = await makeRepo();
+        const submoduleRoot = await makeRepo();
+        const worktreeRoot = await Deno.makeTempDir();
+        const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
+        /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+        let worktree;
+        try {
+            await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
+            await git(submoduleRoot, ["add", "."]);
+            await git(submoduleRoot, ["commit", "-m", "add module css"]);
+            Deno.env.set("GIT_ALLOW_PROTOCOL", "file");
+            await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
+            await git(projectRoot, ["commit", "-m", "add submodule"]);
+
+            worktree = await createExecutionWorktree({
+                allowRegistryMutation: "legacy-test-only",
+                projectRoot,
+                planName: "Submodule Plan",
+                planId: "plan-submodule",
+                worktreeRoot,
+            });
+
+            assertEquals(
+                await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`),
+                "body { color: red; }\n",
+            );
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: false,
+            });
+            await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
+            worktree = undefined;
+        } finally {
+            if (previousAllowedProtocols === undefined) {
+                Deno.env.delete("GIT_ALLOW_PROTOCOL");
+            } else {
+                Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
+            }
+            if (worktree) {
+                await removeExecutionWorktree({
+                    projectRoot,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    force: true,
+                }).catch(() => {});
+            }
+            await Deno.remove(projectRoot, { recursive: true });
+            await Deno.remove(submoduleRoot, { recursive: true });
+            await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("createExecutionWorktree rejects duplicate live legacy plan-name attempts", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.realPath(await Deno.makeTempDir());
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>>[]} */
     const worktrees = [];
     try {
-        worktrees.push(await createExecutionWorktree({ projectRoot, planName: "Repeated Plan", worktreeRoot }));
-        worktrees.push(await createExecutionWorktree({ projectRoot, planName: "Repeated Plan", worktreeRoot }));
+        worktrees.push(
+            await createExecutionWorktree({
+                allowRegistryMutation: "legacy-test-only",
+                projectRoot,
+                planName: "Repeated Plan",
+                planId: "plan-repeated",
+                worktreeRoot,
+            }),
+        );
+        await assertRejects(
+            () =>
+                createExecutionWorktree({
+                    allowRegistryMutation: "legacy-test-only",
+                    projectRoot,
+                    planName: "Repeated Plan",
+                    planId: "plan-repeated",
+                    worktreeRoot,
+                }),
+            Error,
+            "already has a nonterminal attempt",
+        );
 
         const reusable = await findReusableWorktree({
             projectRoot,
             planName: "Repeated Plan",
-            worktreeId: worktrees[1].id,
+            planId: "plan-repeated",
+            worktreeId: worktrees[0].id,
         });
 
-        assertEquals(reusable?.id, worktrees[1].id);
+        assertEquals(reusable?.id, worktrees[0].id);
     } finally {
         for (const worktree of worktrees.toReversed()) {
             await removeExecutionWorktree({
@@ -256,8 +349,10 @@ Deno.test("createExecutionWorktree records supplied target branch independent of
         await git(projectRoot, ["checkout", "main"]);
 
         worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Targeted Plan",
+            planId: "plan-targeted",
             baseRef: "refs/heads/feature-base",
             baseBranch: "feature-base",
             worktreeRoot,

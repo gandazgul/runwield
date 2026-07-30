@@ -19,6 +19,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 8
 dependencies:
     - "07-activation-enforcement-hardening-across-adapters"
+planId: "905d9252-da29-4c44-83c6-0d84cd780ed4"
 ---
 
 # Segment Manifest and Legacy Migration

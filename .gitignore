@@ -12,7 +12,12 @@ debug.log
 .wld/debug/
 .wld/worktrees.json
 .wld/worktrees.lock
+.wld/worktree-registry-migration-issues.json
 .wld/collaboration-secrets.json
+.wld/plan-transitions/
+.wld/plan-locks/
+.wld/plan-backups/
+.wld/plan-staging/
 
 # Local throwaway prototypes. Executable prototype files must stay under
 # prototypes/<kebab-case-slug>/ and must not be tracked or placed beside src/ code.

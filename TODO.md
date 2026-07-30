@@ -2,9 +2,81 @@
 
 ## Bugs
 
+- [ ] P0 "RunWield Workflow halted: User code review exited without approval or feedback." Workflow halt is meaningless,
+      unless the user explicitly said stop runwield should never end the workflow early. In that example a qustion
+      should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
+      else re open the review.
+
+-
+  - [ ] Composition tests — the guarantee only exists when parts compose, so it can only be observed there.
+  - Mutation checks — break the call on purpose; if nothing goes red, the test is decorative. That's how I found eleven
+    ancestry tests passing with reversed arguments.
+  - Structural enforcement — no seam at all, plus a ratchet so it can't come back.
+
+Today, planId is assigned lazily by ensurePlanIdentity (plan-store.js:2941), and only four production callers ever
+trigger it:
+
+┌──────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────┐
+│ Caller │ When it fires │
+├──────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+│ workflow.js:1158 │ execution start — only if triageMeta.planId is absent │
+├──────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+│ work-records/generation.js:349 │ work record generation │
+├──────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+│ cmd/plans/share.js:136 │ wld plans share │
+├──────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+│ listPlanResources({backfillMissing}) │ defaults to true — Workspace plan list, doctor --repair, registry migration,
+findPlanById │
+└──────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────┘
+
+plan_written has zero planId handling — I grepped the whole file, no matches. savePlan doesn't assign one. Neither does
+saveChildFeaturePlans, the Slicer's child-creation path.
+
+So your Plan had no id because nothing had happened to need one yet. Planner wrote the file, you approved it — and
+neither step touches identity.
+
+The part I'd call a genuine footgun: listPlanResources defaults to backfillMissing: true, so a read-shaped function
+writes to Plan files as a side effect. That's why ids seem to appear at random moments — whichever of the Workspace,
+doctor, or registry migration happens to run first silently stamps them in. It also means a Plan's id can be minted by a
+background surface rather than a lifecycle event.
+
+Should plan_written assign one? Yes — but it isn't sufficient on its own.
+
+For it:
+
+- plan_written is where RunWield adopts an authored Plan. Everything downstream keys on planId — registry binding
+  (addEntry outright throws without one), hierarchy, Workspace routing (server.js:427,432,437), sharing, work records.
+- It would erase a whole doctor issue class (registry_missing_plan_id) and the entire legacy-migration branch in
+  worktree-registry.js:72-138, which exists purely because ids arrive late.
+- It removes a lock hazard: ensurePlanIdentity takes catalog → plan, while the execution transition holds plan without
+  catalog. Minting ids at creation keeps the catalog lock out of the execution path entirely.
+
+The catch:
+
+- plan_written is called repeatedly (initial write, then again after review feedback), so assignment must be
+  create-if-absent, never regenerate. ensurePlanIdentityLocked already has exactly that semantic.
+- It doesn't cover Slicer children, which are created by saveChildFeaturePlans. Those would stay lazy.
+
+So the shape I'd suggest is "assign wherever RunWield creates or adopts a Plan file" — plan_written and
+saveChildFeaturePlans — and then flip listPlanResources to backfillMissing: false by default so listing stops writing.
+doctor --repair keeps the explicit backfill as the one place that heals older Plans.
+
+That makes identity a lifecycle fact from birth instead of a side effect of whoever reads first.
+
+Want me to implement that? It's three focused changes plus turning the default off, and I'd keep ensurePlanIdentity as
+the single assigner so there's still exactly one place that mints ids.
+
+✻ Cogitated for 1m 29s ~413k uncached · /clear to start fresh
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ saveChildFeaturePlans should also do the same thing, both tools that declare a plan should then assign a planId to
+"make it official" add if missing should always be the policy make a single function that does this. Keep the other lazy
+additions although I would remove the one from listPlanResources, a read function has no business having write side
+effects, make sure this doesnt now break something downstream that required plan id
+
 - [ ] P0 Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s ·
       tokens unavailable · cost unavailable"
-
+- [ ] wld plans doctor is usless it just vomits all plans again, make this actually give actionable feedback about
+      broken plans and what to do.
 - [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
 - [ ] Implement auto update and wld update
@@ -36,6 +108,7 @@
 - [x] After hitting other on a user-interview question, there's no way to go back to the multiple choice options. The
       user has to cancel the interview and the model gets nothing. Esc should go back to the multiple choice options, a
       second Esc then cancels the interview.
+- [ ] Implement this from claude: `Resume this session with:\nclaude --resume eee7ef72-6d78-4961-bcfa-668dc80b3122`
 
 ## Backlog
 

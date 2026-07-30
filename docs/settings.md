@@ -395,6 +395,15 @@ Values:
 
 RunWield trims and normalizes this value case-insensitively; invalid or missing values behave as `none`.
 
+This setting governs the gate that runs _after_ semantic approval. It does not suppress the code review offered when
+automatic semantic rounds run out: if you choose to open code review there, it opens even under `none`, because nothing
+else has approved the change and the alternative is stranding the work. Approving from that path merges back without
+semantic approval, and RunWield records that distinction.
+
+Code review feedback — from either path — is repaired by the Reviewer-Feedback Engineer in a fresh session with your
+feedback, annotations, and images, after which CI reruns and code review reopens for your explicit approval. That cycle
+is uncapped: it repeats for as many feedback rounds as you give and ends only when you approve or quit the review.
+
 Example:
 
 ```jsonc
@@ -416,8 +425,9 @@ Values:
 - `auto`: default. Automatically generate only for large, cross-cutting, visual, or conceptually hard reviews.
 - `always`: generate whenever human code review opens.
 
-Guided Review Explainers are ephemeral review-session state. RunWield does not persist guide job IDs, model names,
-tokens, widget files, or guide completion state in Plan Front Matter.
+Guided Review Explainers are ephemeral review-session state. By default, generation uses RunWield's own model access
+(`wld`) rather than External Agent Host CLIs; `RUNWIELD_GUIDED_REVIEW_COMMAND` is only an explicit override. RunWield
+does not persist guide job IDs, model names, tokens, widget files, or guide completion state in Plan Front Matter.
 
 Example:
 

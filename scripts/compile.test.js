@@ -1,5 +1,10 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { assertCompileDenoVersion, buildCompileArgs, DENO_COMPILE_VERSION, parseCompileOptions } from "./compile.js";
+import {
+    assertCompileDenoVersion,
+    buildCompileArgs,
+    DENO_COMPILE_MINIMUM_VERSION,
+    parseCompileOptions,
+} from "./compile.js";
 
 Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
     const args = buildCompileArgs();
@@ -75,7 +80,11 @@ Deno.test("parseCompileOptions supports separated and equals forms", () => {
     assertThrows(() => parseCompileOptions(["--wat"]), Error, "Unknown compile option");
 });
 
-Deno.test("standalone compiler version is pinned", () => {
-    assertCompileDenoVersion(DENO_COMPILE_VERSION);
-    assertThrows(() => assertCompileDenoVersion("2.8.0"), Error, DENO_COMPILE_VERSION);
+Deno.test("standalone compiler version allows the minimum Deno version or newer", () => {
+    assertCompileDenoVersion(DENO_COMPILE_MINIMUM_VERSION);
+    assertCompileDenoVersion("2.9.4");
+    assertCompileDenoVersion("2.10.0");
+    assertCompileDenoVersion("3.0.0");
+    assertThrows(() => assertCompileDenoVersion("2.9.2"), Error, DENO_COMPILE_MINIMUM_VERSION);
+    assertThrows(() => assertCompileDenoVersion("2.8.0"), Error, DENO_COMPILE_MINIMUM_VERSION);
 });

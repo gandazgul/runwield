@@ -29,6 +29,13 @@ import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-re
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 
 /**
+ * Scenario waits poll and return the moment the condition holds, so this budget
+ * only bounds failures. Keep it generous: a tight bound buys nothing on the
+ * success path and turns a loaded CI runner into a flake.
+ */
+const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
+
+/**
  * @typedef {Object} GoldenScenario
  * @property {string} name
  * @property {{ columns?: number, rows?: number }} [terminal]
@@ -46,6 +53,7 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
  * @property {number} [timeoutMs]
  * @property {boolean} [composedTui]
  * @property {{ userText: string, agentName?: string, assistantText: string }} [priorSession]
+ * @property {"default" | "none" | "provider-without-models"} [modelSetup]
  */
 
 /**
@@ -183,7 +191,7 @@ async function registerGoldenFauxProviderForEnvironment(options = {}) {
 
 /**
  * @param {GoldenScenario} scenario
- * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string }} [options]
+ * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string, onReady?: () => void }} [options]
  * @returns {Promise<GoldenScenarioResult>}
  */
 export async function runGoldenScenario(scenario, options = {}) {
@@ -201,7 +209,8 @@ export async function runGoldenScenario(scenario, options = {}) {
     const events = [];
     /** @type {string | null} */
     let artifactDir = null;
-    const timeoutMs = scenario.timeoutMs || 2000;
+    const timeoutMs = scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+    options.onReady?.();
     const startedAt = Date.now();
     try {
         for (const action of scenario.actions || []) {
@@ -386,7 +395,7 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
 
 /**
  * @param {GoldenScenario} scenario
- * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string }} options
+ * @param {{ keepArtifacts?: boolean, artifactRoot?: string, heartbeatPath?: string, onReady?: () => void }} options
  * @returns {Promise<GoldenScenarioResult>}
  */
 async function runComposedTuiScenario(scenario, options) {
@@ -401,7 +410,8 @@ async function runComposedTuiScenario(scenario, options) {
             for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
             Deno.chdir(env.projectRoot);
         }
-        const initStatePath = env?.runwieldDir ? join(env.runwieldDir, "init-state.json") : null;
+        const runwieldDir = env?.runwieldDir || Deno.env.get("RUNWIELD_HOME") || null;
+        const initStatePath = runwieldDir ? join(runwieldDir, "init-state.json") : null;
         if (initStatePath) {
             const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
             _setTestStatePath(initStatePath);
@@ -412,9 +422,29 @@ async function runComposedTuiScenario(scenario, options) {
             await Deno.mkdir(join(path, ".."), { recursive: true });
             await Deno.writeTextFile(path, String(/** @type {any} */ (fixture).text || ""));
         }
+        if (runwieldDir && scenario.modelSetup === "none") {
+            await Deno.remove(join(runwieldDir, "models.json")).catch(() => {});
+            await Deno.writeTextFile(
+                join(runwieldDir, "settings.json"),
+                JSON.stringify({ theme: "default", notifications: { enabled: false } }),
+            );
+        } else if (runwieldDir && scenario.modelSetup === "provider-without-models") {
+            await Deno.writeTextFile(
+                join(runwieldDir, "models.json"),
+                JSON.stringify({ providers: { empty: { name: "Empty Golden Provider", apiKey: "golden-test-key" } } }),
+            );
+            await Deno.writeTextFile(
+                join(runwieldDir, "settings.json"),
+                JSON.stringify({ theme: "default", notifications: { enabled: false } }),
+            );
+        }
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
-        const fauxProvider = await registerGoldenFauxProviderForEnvironment({ runwieldDir: env?.runwieldDir });
-        const priorSessionState = await seedGoldenPriorSession(scenario.priorSession, fauxProvider);
+        const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+            ? null
+            : await registerGoldenFauxProviderForEnvironment({ runwieldDir: runwieldDir || undefined });
+        const priorSessionState = fauxProvider
+            ? await seedGoldenPriorSession(scenario.priorSession, fauxProvider)
+            : null;
         const actor = new GoldenScenarioActor(scenario.script || []);
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
@@ -432,6 +462,8 @@ async function runComposedTuiScenario(scenario, options) {
         let artifactDir = null;
         /** @type {Array<{ event: string, status?: unknown, updatedAt?: unknown }>} */
         const persistedLifecycleEvents = [];
+        /** @type {null | { registry: Record<string, any>, quitName: string, execute: unknown }} */
+        let startupModelSetupCommandPatch = null;
         const writeHeartbeat = async () => {
             if (!options.heartbeatPath) return;
             await Deno.mkdir(join(options.heartbeatPath, ".."), { recursive: true }).catch(() => {});
@@ -463,6 +495,18 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
         try {
+            if (scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models") {
+                const { commandRegistry, COMMAND_NAMES } = await import("../../../cmd/registry.js");
+                startupModelSetupCommandPatch = {
+                    registry: commandRegistry,
+                    quitName: COMMAND_NAMES.QUIT,
+                    execute: commandRegistry[COMMAND_NAMES.QUIT].execute,
+                };
+                commandRegistry[COMMAND_NAMES.QUIT].execute = () => {
+                    events.push("startup:quit");
+                    return Promise.resolve();
+                };
+            }
             const scriptedProviderTurns = (scenario.script || []).filter((turn) =>
                 turn.id !== "slicer-materializes-two-children"
             );
@@ -507,12 +551,26 @@ async function runComposedTuiScenario(scenario, options) {
                     text: "Golden fallback response.",
                 });
             });
-            fauxProvider.setResponses([...scriptedResponseFactories, ...fallbackResponseFactories]);
+            fauxProvider?.setResponses([...scriptedResponseFactories, ...fallbackResponseFactories]);
             composition = await createInteractiveTuiComposition(null, {
                 terminal,
                 sessionStartMode: scenario.sessionStartMode || "new",
                 initialAgentName: scenario.initialAgentName || "router",
-                initialAgentModel: `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                    ? undefined
+                    : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                configureUiAPI: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                    ? (uiAPI) => {
+                        uiAPI.promptSelect = (prompt) => {
+                            events.push(`startup:prompt-select:${String(prompt).split("\n", 1)[0]}`);
+                            return Promise.resolve(null);
+                        };
+                        uiAPI.showModelSelector = () => {
+                            events.push("startup:model-selector");
+                            return Promise.resolve();
+                        };
+                    }
+                    : undefined,
                 interactionDependencies: reviewSurface
                     ? {
                         submitPlanForReview: async (request) => {
@@ -553,6 +611,9 @@ async function runComposedTuiScenario(scenario, options) {
                     : undefined,
             });
             await writeHeartbeat();
+            // Startup is done and the heartbeat carries real actor state, so the
+            // parent can switch from its startup budget to the scenario budget.
+            options.onReady?.();
             if (interactionSurface) {
                 const originalPromptSelect = composition.uiAPI.promptSelect?.bind(composition.uiAPI);
                 const originalPromptText = composition.uiAPI.promptText?.bind(composition.uiAPI);
@@ -1003,7 +1064,7 @@ async function runComposedTuiScenario(scenario, options) {
                     await new Promise((resolve) => setTimeout(resolve, typed.ms || 1000));
                 } else if (typed.type === "waitForEvent") {
                     const expected = String(typed.event || "");
-                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
                     const startedAt = Date.now();
                     while (!events.includes(expected)) {
                         if (Date.now() - startedAt > timeoutMs) {
@@ -1034,14 +1095,14 @@ async function runComposedTuiScenario(scenario, options) {
                     }
                     events.push(`project:plan-status:${planName}:${latestStatus}`);
                 } else if (typed.type === "waitForIdle") {
-                    await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || 3000);
+                    await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
                 } else {
                     throw new Error(`Unknown composed scenario action: ${typed.type}`);
                 }
                 await terminal.flush();
                 await writeHeartbeat();
             }
-            await composition.waitForIdle?.(scenario.timeoutMs || 3000).catch(() => {});
+            await composition.waitForIdle?.(scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS).catch(() => {});
             await terminal.flush();
             await writeHeartbeat();
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
@@ -1111,9 +1172,13 @@ async function runComposedTuiScenario(scenario, options) {
             }
             throw error;
         } finally {
+            if (startupModelSetupCommandPatch) {
+                startupModelSetupCommandPatch.registry[startupModelSetupCommandPatch.quitName].execute =
+                    startupModelSetupCommandPatch.execute;
+            }
             unsubscribe();
             await composition?.dispose?.();
-            fauxProvider.unregister?.();
+            fauxProvider?.unregister?.();
             if (env) {
                 Deno.chdir(previousCwd);
                 if (previousHome === undefined) Deno.env.delete("HOME");

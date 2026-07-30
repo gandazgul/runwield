@@ -22,12 +22,10 @@
     },
     "imports": {
         "chalk": "npm:chalk@^5.6.2",
-        "@earendil-works/pi-tui": "npm:@earendil-works/pi-tui@0.80.5",
-        "@earendil-works/pi-ai": "npm:@earendil-works/pi-ai@0.80.5",
-        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@0.80.5",
-        "@earendil-works/pi-coding-agent-latest-observed": "npm:@earendil-works/pi-coding-agent@0.82.1",
-        "@earendil-works/pi-agent-core": "npm:@earendil-works/pi-agent-core@0.80.5",
-        "@earendil-works/pi-agent-core-latest-observed": "npm:@earendil-works/pi-agent-core@0.82.1",
+        "@earendil-works/pi-tui": "npm:@earendil-works/pi-tui@^0.82.1",
+        "@earendil-works/pi-ai": "npm:@earendil-works/pi-ai@^0.82.1",
+        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.82.1",
+        "@earendil-works/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.82.1",
         "@sinclair/typebox": "npm:@sinclair/typebox@^0.34.52",
         "@std/front-matter": "jsr:@std/front-matter@^1.0.9",
         "@std/path": "jsr:@std/path@^1.1.6",
@@ -39,8 +37,8 @@
         "dockview-react": "npm:dockview-react@^7.0.2",
         "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
         "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.8.0",
-        "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.3.2",
-        "@plannotator/markdown-editor/themes/plannotator.css": "npm:@plannotator/markdown-editor@^0.3.2/themes/plannotator.css",
+        "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.4.0",
+        "@plannotator/markdown-editor/themes/plannotator.css": "npm:@plannotator/markdown-editor@^0.4.0/themes/plannotator.css",
         "@plannotator/ui/": "./third_party/plannotator/packages/ui/",
         "@plannotator/shared/": "./third_party/plannotator/packages/shared/",
         "@plannotator/ai/": "./third_party/plannotator/packages/ai/",
@@ -117,12 +115,14 @@
         "@xterm/headless": "npm:@xterm/headless@5.5.0"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q test",
+        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q test",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",
         "language-policy:check": "deno run -A scripts/check-language-policy.js",
-        "test": "deno run -A scripts/write-version.js && RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS=1 snip run -- deno test -A --parallel --no-check --ignore=third_party --ignore=src/ui/tui/golden-scenarios && deno task test:golden-tui",
+        "seams:check": "deno run -A scripts/check-injection-seams.js",
+        "seams:update": "deno run -A scripts/check-injection-seams.js --update",
+        "test": "deno run -A scripts/write-version.js && snip run -- deno run -A scripts/run-tests.js",
         "lint": "snip run -- deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
@@ -132,7 +132,7 @@
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",
-        "workspace:test": "deno test -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.js",
+        "workspace:test": "deno run -A scripts/run-tests.js -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.js",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
@@ -141,14 +141,19 @@
         "ux:new-user": "podman build --target wld-ux-latest --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
         "ux:new-user:current": "sh -c 'case $(uname -m) in arm64|aarch64) target=aarch64-unknown-linux-gnu ;; x86_64|amd64) target=x86_64-unknown-linux-gnu ;; *) echo unsupported container compile architecture: $(uname -m) >&2; exit 1 ;; esac; deno task compile --target \"$target\" && podman build --target wld-ux-current --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux-current:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux-current:local'",
         "release:check": "deno run -A scripts/release-check.js",
-        "test:golden-tui:extensive": "deno task test:golden-tui",
         "release:metadata": "deno run -A scripts/release.js metadata",
         "release:candidate": "deno run -A scripts/release.js candidate",
         "release:promote": "deno run -A scripts/release.js promote",
         "release:stable": "deno run -A scripts/release.js stable",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js",
-        "test:golden-tui": "deno run -A scripts/write-version.js && RUNWIELD_DISABLE_SYSTEM_NOTIFICATIONS=1 deno test -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios"
+        "test:golden-tui": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/testing src/ui/tui/golden-scenarios",
+        "test:golden-tui:extensive": "deno task test:golden-tui"
+    },
+    "lint": {
+        "plugins": [
+            "./scripts/lint-rules/no-module-scope-process-state.js"
+        ]
     },
     "fmt": {
         "lineWidth": 120,

@@ -10,6 +10,7 @@ import {
     git,
     makeRecordedSession,
     makeUi,
+    makeValidationProjectRoot,
     noOpRecordPlanEvent,
     noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
@@ -55,6 +56,7 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
         await addEntry(projectRoot, {
             id: "wt-1",
             planName: "p",
+            planId: "plan-p",
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit,
@@ -123,6 +125,10 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -141,7 +147,10 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
 
         assertEquals(result.kind, "verified");
         assertEquals(ciRan, true);
-        assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalPlan.markdown);
+        const restoredPlan = await loadPlan(worktreePath, "p");
+        if (!restoredPlan) throw new Error("Expected restored worktree Plan");
+        assertEquals(restoredPlan.body, canonicalPlan.body);
+        assertEquals(restoredPlan.attrs.status, canonicalPlan.attrs.status);
         assertEquals(uiAPI.messages.filter(isRestorationMessage).length, 1);
         assertEquals(events.includes("validation_failed"), false);
     } finally {
@@ -151,6 +160,7 @@ Deno.test("runValidationLoop restores a real missing worktree Plan and continues
 });
 
 Deno.test("runValidationLoop reports restored Plan file once and continues CI without spurious validation_failed", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const events = [];
@@ -161,7 +171,7 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -183,7 +193,7 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
                     context: {
                         executionMode: "worktree",
                         planName: opts.planName,
-                        projectRoot: "/primary",
+                        projectRoot: primaryRoot,
                         executionCwd: "/worktree",
                         baselineTree: "baseline-tree",
                         worktreeId: "wt1",
@@ -202,6 +212,10 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -231,6 +245,7 @@ Deno.test("runValidationLoop reports restored Plan file once and continues CI wi
 });
 
 Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */
     const actions = [];
@@ -241,7 +256,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -263,6 +278,10 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -299,6 +318,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
 });
 
 Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -311,7 +331,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -337,6 +357,10 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -388,6 +412,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
 });
 
 Deno.test("runValidationLoop still prompts when merge-conflict metadata updates fail", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -398,7 +423,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -422,6 +447,10 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
                         content: [{ type: "text", text: "The implementation matches the plan." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -440,7 +469,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         }),
     });
 
-    assertEquals(actions, ["registry-failed", "plan-event-failed", "registry-failed", "plan-event-failed"]);
+    assertEquals(actions, ["registry-failed", "plan-event-failed", "registry-failed"]);
     assertEquals(uiAPI.promptSelections, ["prompted"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
@@ -457,6 +486,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
 });
 
 Deno.test("runValidationLoop recovers missing worktree target branch from registry before merge", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {Array<string | undefined>} */
     const targets = [];
@@ -467,7 +497,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -488,6 +518,10 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -522,6 +556,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
 });
 
 Deno.test("runValidationLoop fails closed instead of using guarded primary-checkout fallback", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {Array<string | undefined>} */
     const targets = [];
@@ -532,7 +567,7 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -553,6 +588,10 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -577,6 +616,7 @@ Deno.test("runValidationLoop fails closed instead of using guarded primary-check
 });
 
 Deno.test("runValidationLoop dispatches active owner merge repair and retries merge-back", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -587,7 +627,7 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         executionAgent: "frontend-engineer",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -609,6 +649,10 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -676,6 +720,7 @@ Deno.test("runValidationLoop dispatches active owner merge repair and retries me
 });
 
 Deno.test("runValidationLoop completes after merge repair task_completed and retry", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI } = makeValidationUi();
     const repairHostedSession = makeRecordedSession("merge-repair-completion-test", uiAPI);
     repairHostedSession.setRootAgentName("engineer");
@@ -698,7 +743,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -720,6 +765,10 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -762,6 +811,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
 });
 
 Deno.test("runValidationLoop retries worktree merge after user fixes primary checkout", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -777,7 +827,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -799,6 +849,10 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -847,6 +901,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
 });
 
 Deno.test("runValidationLoop marks active worktree validation_failed when validation fails", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */
     const actions = [];
@@ -857,7 +912,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -898,6 +953,10 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
 // ─── review-diff-tool tests ────────────────────────────────────────────────
 
 Deno.test("runValidationLoop mechanically retries when target branch advances before publication", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
+    // The target-advanced rollback rewrites the staged Plan inside the execution
+    // worktree, so that transaction is scoped to the worktree and needs a real one.
+    const worktreeRoot = await makeValidationProjectRoot();
     const { uiAPI } = makeValidationUi();
     const session = makeRecordedSession("target-advance-validation-test", uiAPI);
     session.setActiveExecutionWorkflow({
@@ -906,8 +965,8 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
-        executionCwd: "/worktree",
+        projectRoot: primaryRoot,
+        executionCwd: worktreeRoot,
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
         worktreeBaseBranch: "main",
@@ -941,6 +1000,10 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -1032,7 +1095,7 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
         },
     ]);
     assertEquals(resetUpdates, [{
-        cwd: "/worktree",
+        cwd: worktreeRoot,
         planName: "p",
         updates: {
             status: "implemented",
@@ -1041,7 +1104,7 @@ Deno.test("runValidationLoop mechanically retries when target branch advances be
             executionMode: "worktree",
             executionBaselineTree: "baseline-tree",
             worktreeId: "wt1",
-            worktreePath: "/worktree",
+            worktreePath: worktreeRoot,
             worktreeBranch: "runwield/worktree/p-wt1",
             worktreeBaseBranch: "main",
             worktreeStatus: "completed",

@@ -2,384 +2,186 @@
 
 # RunWield
 
-**RunWield** is collaborative software planning with AI.
+**Review what the AI plans to do before it touches your code. Then prove it did it.**
 
-RunWield helps developers review what an AI plans to do before it changes their code—then verifies the result and
-remembers what the team learned.
+RunWield is a coding harness that makes the agent slow down at the moments that matter. It sorts your request by risk,
+writes a plan you actually review when the blast radius is real, executes it through specialized roles, and refuses to
+call the work done until CI and a separate reviewer agree it matches the plan you approved.
 
 ```text
 ideate -> plan -> execute -> record -> use records to plan better
 ```
 
-[Watch the 60-second demo] · [Install](#installation) · [Documentation](docs/index.md)
+[Install](#install-in-30-seconds) · [How it works](#the-problem) · [Documentation](docs/index.md)
 
-> I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running,
-> quickly fix anything that blocks you, and give you a direct say in the roadmap.
-> [Try it with me →](https://github.com/gandazgul/runwield/issues)
+---
 
-## Is it for me?
-
-It's for developers who want LLMs to slow down at the right moments: classify the work, write a reviewable plan when the
-blast radius is real, execute through specialized roles, and then prove the result. Don't trust the LLM did the right
-thing, verify it and only then merge and make a durable record explaining why, what and who.
-
-If most of your work is quick one-shot edits, RunWield is probably more ceremony than you need; Pi or another
-lightweight harness will be faster.
-
-## Installation
-
-### macOS / Linux
+## Install in 30 seconds
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `wld` plus the
-runtime helpers RunWield Sessions need: required [`mnemosyne`](https://github.com/gandazgul/mnemosyne), required
-[`cymbal`](https://github.com/1broseidon/cymbal), required
-[`agent-browser`](https://github.com/vercel-labs/agent-browser), and optional
-[`snip`](https://github.com/edouard-claude/snip). By default everything RunWield manages is installed to `~/.local/bin`
-and does not require root. To choose another user-writable directory shared by all managed binaries, set
-`WLD_INSTALL_DIR`.
-
-## Quick Start
-
-Initialize RunWield in a project to build CONTEXT.md and seed the memory with facts about the repository.
+Then, from your project root:
 
 ```bash
-wld init
+wld
 ```
 
-Then start a request:
-
-```bash
-wld "fix the failing parser test"
-```
-
-Interactive sessions are optimized for one topic at a time. A new session starts with Router, but after Router hands off
-to Guide, Ideator, Operator, Planner, Architect, or another specialist, that specialist remains active so follow-up
-messages keep the useful working context. Use `/new` to start a fresh session, or `/agent router` when you want the next
-message in the same session to go through triage again.
-
-## Why RunWield
-
-Most coding harnesses optimize for getting an agent typing quickly, chat and hope. RunWield optimizes for getting the
-right kind of work done with the right amount of ceremony.
-
-- Review intent before code changes.
-- Use more process only when the risk warrants it.
-- Verify the result against the approved plan. Automatically and with optional code reviews.
-- Preserve useful context for the next change through durable layared memory: Prompt injected (similar to AGENTS.md),
-  searchable by the agent (memories and work records), PRDs and ADRs and plans.
-
-## High-Level Flow
-
-```mermaid
-graph TD
-    U[Your request] --> R[Router]
-
-    R -->|inquiry| G[Guide answers or explains]
-
-    R -->|ideation| I[Ideator researches and sharpens idea]
-    I --> IR[PRD]
-
-    R -->|operation| O[Operator executes directly]
-
-    R -->|quick fix| QE[Engineer implements directly]
-
-    R -->|feature| P[Planner collaborates with you on a plan]
-    P --> E[Engineer executes approved plan]
-
-    R -->|project| A[Architect collaborates with you on an Epic design plan]
-    A --> S[Interactive Slicer discusses boundaries and makes feature plans]
-```
-
-## Settings
-
-RunWield stores its own data under `~/.wld/`:
-
-- `~/.wld/sessions/` for session history
-- `~/.wld/settings.json` for global settings
-- `~/.wld/RUNWIELD.md` or `~/.wld/AGENTS.md` for global RunWield instructions
-- `~/.wld/agents/` for home-level agent overrides
-- `~/.wld/prompts/` for home-level prompt templates
-
-By default, RunWield also reads shared multi-agent instructions from `~/.agents/AGENTS.md` when no RunWield-owned global
-instruction file exists. Disable that shared fallback with `"enableExternalGlobalAgentsMd": false` in
-`~/.wld/settings.json`.
-
-For editor autocomplete and validation, `~/.wld/settings.json` and `.wld/settings.json` can include
-`"$schema": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json"`. See
-[docs/settings.md](docs/settings.md) for the complete settings reference.
-
-Project-level plans and optional overrides live in the current repository:
-
-- `plans/*.md`
-- `.wld/settings.json`
-- `.wld/agents/*.md`
-- `.wld/prompts/*.md`
-
-## Local Workspace & Collaboration
-
-RunWield also includes a self-hosted encrypted Shared Space path for collaborative Plan review. See
-[Self-hosted collaborative planning](docs/collaboration.md) for Podman/OCI + SQLite Plan Server setup and the
-`wld plans share|pull|push|unshare` workflow.
-
-## Common Commands
-
-```bash
-wld "your request"                  # route through triage
-wld router "your request"           # explicit router form
-wld agent                           # list available agents
-wld agent engineer "implement X"    # start with Engineer instead of Router
-wld plans                           # list active saved plans
-wld plans read <name-or-id>         # open an active or archived plan read-only in the browser
-wld plans archive                   # list archived plans
-wld plans archive <name-or-id>      # move a verified/closed plan to plans/archived/
-wld plans archive --all --status verified # bulk archive active verified plans
-wld plans archive restore <name>    # restore an archived plan to active plans/
-wld plans ui --no-open              # start the local read-only Plans Workspace
-wld load-plan <name-or-path>        # review, execute, or continue a plan
-wld init                            # bootstrap project context
-wld snip-filters install            # optional: install Deno filters for plain snip commands
-wld snip-filters cleanup            # remove RunWield-managed user Snip filters
-wld help
-wld help <command>
-```
-
-`wld help` and `wld help <command>` are generated from the command registry. Inside the TUI, `/` autocomplete is built
-from the same registry plus installed prompt templates and skills.
-
-Prompt templates from `src/prompt-templates/`, `~/.wld/prompts/`, and `.wld/prompts/` also become slash commands when
-they do not collide with built-ins. Bundled skills can be invoked as `/skill:<name>`.
-
-## Skills
-
-RunWield intentionally focuses on skill discovery and invocation rather than becoming another skill package manager. It
-loads skills from these locations, in priority order:
-
-1. Local project skills: `<repo>/.wld/skills`
-2. Home skills: `~/.wld/skills`
-3. Bundled skills: `src/skills`
-4. External ecosystem skills: `~/.agents/skills`
-
-Each skill lives in a directory with a `SKILL.md` file. Skills are advertised to agents by name and description, and the
-full instructions are injected only when a user invokes the skill with `/skill:<name>` or an agent loads a matching
-skill. The bundled `documentation` skill guides Markdown docs work that used to require a dedicated docs role.
-
-External tools can own skill installation and updates. RunWield should interoperate with that ecosystem by reading
-`~/.agents/skills`, making loaded skills visible, and providing clear invocation behavior.
-
-## Plans
-
-Plans are markdown files with YAML front matter in `plans/`. RunWield records:
-
-- routing intent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT` for routed requests
-- plan classification: `FEATURE` or `PROJECT` for saved implementation plans
-- complexity: `LOW`, `MEDIUM`, or `HIGH`
-- summary and affected paths
-- status: `draft`, `feedback`, `approved`, `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`,
-  `implemented`, `verified`, `closed_without_verification`, or `on_hold`
-- origin: `internal` or `external`
-- Epic metadata: `classification: PROJECT` on parent Epic containers, plus `parentPlan` and optional `dependencies` on
-  child FEATURE plans
-
-PROJECT plans are Epics by default: the parent PROJECT plan is a container for design and decomposition state, not an
-implementation unit. The interactive Slicer helps choose vertical child FEATURE boundaries, writes draft children under
-`plans/<epic-name>/`, and finalizes the Epic only after explicit confirmation. Each child FEATURE then follows the
-normal FEATURE lifecycle with its own review, execution, validation, and merge history.
-
-Use `wld plans` to list active saved plans. Epic children are grouped under their parent, and orphaned child plans are
-shown separately. Agents can also use foreground Delegated Agent Sessions through `delegate_agent` for bounded read-only
-investigation or one exclusive write task without sharing parent conversation history. Physical archives are not a Plan
-status: archived Plans stay as plaintext markdown under `plans/archived/` and keep their last durable status plus
-archive metadata.
-
-Archive commands are explicit and reversible:
-
-```bash
-wld plans archive                                      # list archived plans
-wld plans archive <plan-name-or-id> --reason "done"    # archive a verified or closed plan
-wld plans archive <plan-name-or-id> --force            # archive another status when safe
-wld plans archive --all --status verified --reason "done" # best-effort bulk archive exact status matches
-wld plans archive restore <archived-plan-name-or-id>   # restore to plans/
-wld plans read <plan-name-or-id>                       # open active or archived plan markdown read-only in the browser
-```
-
-`verified` and `closed_without_verification` Plans can be archived without `--force`; other statuses require `--force`,
-and recoverable worktree states remain blocked. `wld plans archive --all --status <status>` bulk archives active Plans
-by exact status match on a best-effort basis: safe matches move, blocked matches are reported, and any failure makes the
-command exit non-zero after printing the summary. Restore refuses to overwrite an active file. `wld plans read` starts a
-local token-protected read-only browser view with Contents navigation and remains attached until Close is used or the
-process is cancelled.
-
-Use `wld plans ui` to launch the local browser Workspace for the current checkout:
-
-```bash
-wld plans ui --no-open
-```
-
-The Workspace is a read-only milestone: it shows Board, Closed, On Hold, and Plan detail views, but does not provide
-edit, drag/drop, or lifecycle mutation controls. It serves non-archived Plans from the checkout where the command was
-started and uses stable `planId` detail URLs. Plans missing `planId` may be backfilled by the existing Plan resource
-loader; Plan bodies and lifecycle fields are not changed by the UI.
-
-Security defaults are intentionally local-first. The server binds to `127.0.0.1` and a random available port by default,
-prints a tokenized URL, and requires that per-server token for Workspace HTML and API access. Plan markdown is local
-plaintext and may contain sensitive context. If you explicitly expose the server with `--bind`/`--host` (for example
-`wld plans ui --bind 0.0.0.0 --no-open`), RunWield prints a warning before serving. No permissive CORS is enabled.
-
-Use `wld load-plan <name-or-path>` to:
-
-- execute a ready standalone FEATURE or child FEATURE plan
-- open or resume Slicer decomposition for a PROJECT Epic
-- pick a child FEATURE plan from a decomposed Epic
-- mark a decomposed Epic done enough for now when appropriate
-- re-open an approved, implemented, or verified plan for review
-- view plan or Epic details
-- continue a draft or feedback plan
-- load an external markdown plan and let RunWield add front matter
-
-`/resume` is different: it resumes a recent interactive chat session, not a plan file.
-
-## Agents
-
-Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/). They are markdown files with front
-matter for name, model, description, and tools.
-
-| Agent     | Purpose                                                                                               |
-| --------- | ----------------------------------------------------------------------------------------------------- |
-| Router    | Default triage Agent that calls `triage_report`.                                                      |
-| Guide     | Answers `INQUIRY` requests; on explicit follow-up, can save ordinary `.md` docs with docs-only tools. |
-| Ideator   | Researches and sharpens `IDEATION` requests before planning.                                          |
-| Operator  | Executes direct `OPERATION` work without code implementation.                                         |
-| Engineer  | Implements approved plans and bounded no-plan `QUICK_FIX` code changes.                               |
-| Planner   | Writes reviewable plans for `FEATURE` work.                                                           |
-| Architect | Designs `PROJECT` plans without implementing code.                                                    |
-| Slicer    | Decomposes approved PROJECT Epics into child FEATURE plans.                                           |
-| Engineer  | Implements approved executable plans and uses skills for specialized work.                            |
-| Tester    | Writes, updates, and runs tests for assigned work.                                                    |
-| Reviewer  | Compares the final diff against the original plan.                                                    |
-
-### Agent Overrides
-
-Agent definitions are layered in this order, highest precedence first:
-
-1. Local: `<repo>/.wld/agents`
-2. Home: `~/.wld/agents`
-3. Bundled: `src/agent-definitions`
-
-Scalar front matter fields override lower layers. Prompt bodies append by default. A layer can set
-`promptOverride: true` to replace lower-layer prompt content. Tool lists replace lower layers, but RunWield re-adds
-protected tools required for its workflow.
-
-## Themes
-
-RunWield includes the embedded `catppuccin-mocha` theme and supports theme packages from npm, git, or local paths.
-
-```bash
-wld install npm:<package-spec>
-wld install git:<url>
-wld install local:<path>
-wld remove <source>
-```
-
-Only JSON theme files are registered. Logic extensions, JavaScript, prompts, and skills inside packages are ignored.
-Install skills with whichever external skill tooling you prefer; RunWield reads compatible skills from
-`~/.agents/skills` and its local/home/bundled skill directories.
-
-Switch themes inside the TUI with `/theme`; the picker previews themes live and persists the selected theme.
-
-See [docs/themes.md](docs/themes.md) for theme package details.
-
-## Troubleshooting
-
-### Mnemosyne, Cymbal, or agent-browser Is Missing
-
-Interactive agent workflows require all three binaries in `PATH`. Rerun the RunWield installer to restore missing
-required helpers into the same install directory as `wld`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
-```
-
-If you use a custom directory, pass the same `WLD_INSTALL_DIR` again. Existing helper binaries found on `PATH` or in the
-install directory are preserved; remove a RunWield-managed helper from `WLD_INSTALL_DIR` before rerunning if you want
-the installer to fetch a fresh copy.
-
-### Plan Review UI Does Not Open
-
-Plan review now runs inside the Workspace UI. For source checkouts, confirm the reviewed Plannotator source checkout and
-published Plannotator packages are available:
-
-- `third_party/plannotator/` exists and matches `third_party/plannotator-revision.txt`.
-- `deno task workspace:dev:plan-review` starts the fixture-backed review route.
-- `deno task workspace:check` can resolve the `@plannotator/*` imports from `deno.json` and Workspace aliases.
-
-### A Saved Plan Is Not Loading
-
-- Use `wld plans` to list plan names.
-- Use `wld load-plan <name>` for a plan in `plans/`.
-- Use `wld load-plan plans/<name>.md` for a direct path.
-- Use `/resume` only for chat sessions.
-
-### Agent Behavior Looks Off
-
-- Check local overrides in `<repo>/.wld/agents/`.
-- Check home overrides in `~/.wld/agents/`.
-- Run `/reload` in the TUI after changing memories, settings, prompt templates, skills, models, or themes.
-
-## Development
-
-It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI, a browser-based plan review loop via
-[Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
-[Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
-
-```bash
-deno task cli "your request"
-deno task check
-deno task test
-deno task ci
-deno task compile
-```
-
-`deno task ci` runs check, lint, format check, and tests.
-
-See [RELEASING.md](RELEASING.md) for RunWield's Candidate, Stable promotion, and release-publication policy.
-
-The codebase is pure JavaScript with JSDoc typing. Do not add TypeScript files or TypeScript syntax.
-
-### Project Structure
+First run asks you to connect a model — a subscription login or your own API key. RunWield works with any provider. Then
+run `/init` once to let it explore the repo and build project context, and just say what you want:
 
 ```text
-src/
-  agent-definitions/   bundled agent markdown definitions
-  cmd/                 command handlers and registry
-  extensions/          external tool integrations
-  prompt-templates/    bundled slash-command prompt templates
-  shared/
-    interactive/       TUI chat loop, slash dispatch, keybindings
-    models/            model registry and validation
-    session/           agent/session loading and execution
-    ui/                TUI components and theme glue
-    workflow/          triage dispatch, plan execution, validation
-  skills/              bundled skill definitions
-  tools/               RunWield-specific agent tools
-plans/                 persisted plans
-docs/                  ADRs, PRDs, and feature docs
+> fix the failing parser test
 ```
+
+macOS and Linux, installs to `~/.local/bin`, no root required.
+
+For full setup: model provider auth, runtime helpers, running from source, etc check out the
+[Quickstart Guide](docs/quickstart.md).
+
+> **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
+> running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
+> [Try it with me →](https://github.com/gandazgul/runwield/issues)
+
+---
+
+## The problem
+
+Most coding harnesses optimize for getting an agent typing as fast as possible. Chat, and hope.
+
+So the expensive part is never the typing. It's the moment you're staring at a 40-file diff, trying to reverse-engineer
+what the model _thought_ it was building, and deciding whether to spend an hour reviewing it or an afternoon redoing it.
+You never got to say "no, not like that" while it was still cheap. And when you finally merge, everything you learned
+along the way evaporates — the next session starts from zero and makes a version of the same mistake.
+
+### What RunWield does differently
+
+**1. You review intent, not just diffs.** For anything non-trivial, a Planner agent writes a plan before an Engineer
+writes code. You review it in a real browser UI — inline comments, revisions, approval — not by squinting at a wall of
+chat. Redirecting a plan costs a sentence. Redirecting a finished branch costs a day.
+
+**2. Ceremony scales with risk.** Every request is triaged into one of six intents, and only the expensive ones get the
+expensive treatment:
+
+| Your request                            | What happens                                                                                                               |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| "how does auth work here?"              | **Inquiry** — Guide just answers. No plan, no ceremony.                                                                    |
+| "should we move to event sourcing?"     | **Ideation** — Ideator researches, interviews you, produces a PRD.                                                         |
+| "bump the deps and update the lockfile" | **Operation** — Operator does it directly. No code implementation.                                                         |
+| "fix the failing parser test"           | **Quick fix** — Engineer implements, then CI has to pass.                                                                  |
+| "add SSO to the admin panel"            | **Planned Change** — bug, feature, or refactor. Planner writes a plan → you approve → Engineer executes → full validation. |
+| "migrate the billing system"            | **Project** — Architect designs an Epic, Slicer decomposes it with you into shippable Planned Changes.                     |
+
+How much ceremony the work gets is tracked separately from what kind of work it is. A gnarly bug that needs a real plan
+is still recorded as a bug fix, not quietly relabeled a feature.
+
+**3. "Done" is proven, not asserted.** This is the part most harnesses skip. When an Engineer says it's finished,
+RunWield doesn't believe it:
+
+- **Mechanical validation** runs your project's real CI. Failures go back to the Engineer for bounded repair attempts,
+  not an apology.
+- **Semantic review** then runs in narrowing rounds — two full plan-vs-diff reviews, then verification-only passes.
+  Findings are tracked in a Review Issue Ledger across rounds and repaired by a separate agent working in _fresh
+  context_, so nothing gets rationalized away by the model that wrote it.
+- **Merge proof.** Plan work runs in a linked git worktree, and the plan is only marked `verified` after Git itself
+  confirms the sealed implementation commit reached your target branch. Not because an agent said so.
+
+**4. Your project remembers.** Every finished plan produces a Work Record — what changed, why, what was rejected along
+the way. Combined with searchable project memory, PRDs, and ADRs, the next planning session starts from what you already
+learned instead of from an empty context window.
+
+### What a Planned Change actually looks like
+
+You type `wld "add rate limiting to the public API"`. Then:
+
+1. **Router** classifies it as a **Planned Change** and hands off to Planner.
+2. **Planner** investigates the repo and writes a plan to `plans/`.
+3. **You review it** in the browser — comment, request changes, approve. Iterate as many times as you want. Nothing has
+   touched your code yet.
+4. **Engineer** executes the approved plan in an isolated git worktree.
+5. **CI runs.** Failures get bounded repair attempts.
+6. **Reviewer** compares the final diff against the plan _you_ approved, over multiple narrowing rounds, with findings
+   carried in a ledger until they're resolved.
+7. **Merge-back is verified by Git**, and the plan flips to `verified`.
+8. **A Manual QA checklist and a Work Record** are generated automatically, so the reasoning survives the PR.
+
+Every one of those steps is a place you can interrupt, redirect, or stop. That's the whole idea.
+
+### Is it for you?
+
+**Yes, if** you work on codebases where a bad change is expensive, you want to steer before code exists instead of
+after, and you're tired of "done!" meaning "the model stopped typing."
+
+**Probably not, if** most of your work is quick one-shot edits. RunWield would be more ceremony than you need —
+[Pi](https://pi.dev) or another lightweight harness will be faster and you'll be happier.
+
+---
+
+## Try it with me
+
+I'm looking for **five developers** to run RunWield on one real, non-trivial change — not a toy repo, not a demo.
+
+In exchange: I'll personally help you get set up, fix whatever blocks you, and you get a direct line into what gets
+built next.
+
+**[Open an issue and say hi →](https://github.com/gandazgul/runwield/issues)**
+
+---
+
+## Under the hood
+
+RunWield is built on [Pi](https://pi.dev) and ships as a single compiled binary.
+
+- **CLI + TUI** — Deno, pure JavaScript with JSDoc typing -> Moving to TypeScript.
+- **Plan review** — a browser UI powered by [Plannotator](https://plannotator.ai).
+- **Code intelligence** — [Cymbal](https://github.com/1broseidon/cymbal).
+- **Memory** — [Mnemosyne](https://github.com/gandazgul/mnemosyne) for project and global memory.
+- **Workspace UI** — Astro + React, local-first (binds to `127.0.0.1` with a per-server token by default).
+- **Extensible** — layered agent definitions, prompt templates, skills, and themes, overridable per project or per user.
+- **ACP-compatible**, so external clients can drive sessions.
+
+The agent roster:
+
+| Agent             | Purpose                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| Router            | Default triage. Classifies the request and routes it.                                                  |
+| Guide             | Answers questions and explains the codebase. Cites your durable artifacts instead of making things up. |
+| Ideator           | Researches and sharpens fuzzy ideas into a PRD. (Inspired by Grill Me from Matt Pocock)                |
+| Operator          | Direct repository and environment work, no code implementation.                                        |
+| Planner           | Writes reviewable plans for Planned Changes.                                                           |
+| Architect         | Designs larger projects as Epics.                                                                      |
+| Slicer            | Decomposes an approved Epic into shippable child Planned Changes.                                      |
+| Engineer          | Implements approved plans and bounded quick fixes.                                                     |
+| Frontend Engineer | Implements browser UI work, autonomously or via pair programming checkpoints.                          |
+| Reviewer          | Compares the final diff against the original plan.                                                     |
+| Recorder          | Writes the durable Work Record after completion.                                                       |
+
+Everything RunWield owns lives under `~/.wld/` (sessions, settings, global instructions, overrides). Everything about
+_your project_ stays in your repo as plain markdown: `plans/`, `.wld/`, `CONTEXT.md`. No lock-in, no database, all
+greppable.
+
+**Documentation:** [full docs index](docs/index.md) · [usage](docs/usage.md) · [plans and workflows](docs/workflows.md)
+· [settings](docs/settings.md) · [customization](docs/customization.md) · [collaboration](docs/collaboration.md) ·
+[troubleshooting](docs/troubleshooting.md)
 
 ### Contributing
 
-1. Create a branch.
-2. Make focused changes.
-3. Run `deno task ci`.
-4. Open a PR with a summary, affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
-   `FEATURE`, or `PROJECT`), and validation notes.
+```bash
+deno task cli "your request"   # run from source
+deno task ci                   # check, lint, format, tests
+deno task compile              # build the binary
+```
+
+Branch, keep changes focused, run `deno task ci`, and open a PR with a summary and validation notes. The codebase is
+mostly pure JavaScript with JSDoc typing -> moving to TypeScript. See [contributing](docs/contributing.md) and
+[RELEASING.md](RELEASING.md).
+
+---
 
 ## License
 
-RunWield is source-available and free to use, but it is not open source yet.
+RunWield is **source-available and free to use**, but it is not open source yet.
 
 You may install, run, inspect, and use RunWield for personal, internal, or commercial work. You may also submit issues
 and pull requests.
@@ -387,7 +189,7 @@ and pull requests.
 You may not distribute modified versions, publish derivative works, rebrand RunWield, or offer it as a competing product
 or service without prior written permission.
 
-RunWield also includes third-party dependencies, including Pi and Plannotator-related packages, which remain under their
-own license terms.
+RunWield includes third-party dependencies, including Pi and Plannotator-related packages, which remain under their own
+license terms.
 
 See [LICENSE](LICENSE).

@@ -22,7 +22,7 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 /**
  * @typedef {Object} TestAgentSessionOptions
  * @property {string} agentName
- * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [thinkingLevelOverride]
+ * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [thinkingLevelOverride]
  */
 
 /**

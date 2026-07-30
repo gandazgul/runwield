@@ -213,7 +213,7 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
 
     assertEquals(/** @type {any} */ (recorded).event, "plan_held");
     assertEquals(
-        messages.some((message) => message.includes("Child Planned Change Plans will be hidden/blocked")),
+        messages.some((message) => message.includes("Child Plans will be hidden/blocked")),
         true,
     );
 });
@@ -418,15 +418,15 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                         affectedPaths: [],
                         status: "on_hold",
                         heldFromStatus: "implemented",
-                        worktreeId: "wt-1",
-                        worktreePath: "/tmp/wt-1",
+                        worktreeId: "wt-held-delete-worktree",
+                        worktreePath: "/tmp/wt-held-delete-worktree",
                         worktreeBranch: "runwield/worktree/held-delete-worktree-12345678",
                     },
                 }),
             findWorktreeById: () =>
                 Promise.resolve({
-                    id: "wt-1",
-                    path: "/tmp/wt-1",
+                    id: "wt-held-delete-worktree",
+                    path: "/tmp/wt-held-delete-worktree",
                     branch: "runwield/worktree/held-delete-worktree-12345678",
                     status: "in_progress",
                 }),

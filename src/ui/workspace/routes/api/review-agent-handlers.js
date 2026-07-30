@@ -56,7 +56,7 @@ export async function cleanupReviewAgentState(state) {
  */
 export async function reviewAgentApi(request, url, state) {
     if (request.method === "GET" && url.pathname === "/api/agents/capabilities") {
-        const provider = await detectGuideProvider();
+        const provider = detectGuideProvider();
         return Response.json({
             mode: "review",
             available: Boolean(provider),
@@ -89,11 +89,11 @@ export async function reviewAgentApi(request, url, state) {
                 status: 400,
             });
         }
-        const provider = await detectGuideProvider();
+        const provider = detectGuideProvider();
         if (!provider && !state.reviewPayload.guidedReviewFixture) {
             return Response.json({
                 error:
-                    "No Guided Review provider available. Configure RUNWIELD_GUIDED_REVIEW_COMMAND or install claude/codex.",
+                    "No Guided Review provider available. Configure RUNWIELD_GUIDED_REVIEW_COMMAND or use RunWield model access.",
             }, { status: 503 });
         }
         const entry = createGuideJob(state, provider);
@@ -305,33 +305,18 @@ function parseJsonFromModel(raw) {
     }
 }
 
-async function detectGuideProvider() {
+function detectGuideProvider() {
     const configured = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
     if (configured) {
         return { provider: "custom", model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || "configured-command" };
     }
-    if (await commandExists("claude")) return { provider: "claude", model: "claude-cli" };
-    if (await commandExists("codex")) return { provider: "codex", model: "codex-cli" };
-    return null;
-}
-
-/** @param {string} command */
-async function commandExists(command) {
-    const which = Deno.build.os === "windows" ? "where" : "which";
-    const output = await new Deno.Command(which, { args: [command], stdout: "null", stderr: "null" }).output().catch(
-        () => ({ success: false }),
-    );
-    return Boolean(output.success);
+    return { provider: "wld", model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || "wld" };
 }
 
 /** @param {string} prompt @param {AbortSignal} signal @param {string} cwd */
 async function runConfiguredGuideCommand(prompt, signal, cwd) {
     const configured = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
-    const command = configured
-        ? shellCommand(configured)
-        : await commandExists("claude")
-        ? { command: "claude", args: ["--print"] }
-        : { command: "codex", args: ["exec", "-"] };
+    const command = configured ? shellCommand(configured) : await resolveRunWieldGuideCommand(cwd);
     const child = new Deno.Command(command.command, {
         args: command.args,
         stdin: "piped",
@@ -350,9 +335,28 @@ async function runConfiguredGuideCommand(prompt, signal, cwd) {
     return {
         stdout,
         stderr,
-        provider: configured ? "custom" : command.command,
-        model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || command.command,
+        provider: configured ? "custom" : "wld",
+        model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || (configured ? "configured-command" : "wld"),
     };
+}
+
+/** @param {string} cwd */
+async function resolveRunWieldGuideCommand(cwd) {
+    if (await commandExists("wld")) return { command: "wld", args: ["guided-review"] };
+    return {
+        command: Deno.execPath(),
+        args: ["run", "-A", "--unstable-no-legacy-abort", "src/cli.js", "guided-review"],
+        cwd,
+    };
+}
+
+/** @param {string} command */
+async function commandExists(command) {
+    const which = Deno.build.os === "windows" ? "where" : "which";
+    const output = await new Deno.Command(which, { args: [command], stdout: "null", stderr: "null" }).output().catch(
+        () => ({ success: false }),
+    );
+    return Boolean(output.success);
 }
 
 /** @param {string} configured */

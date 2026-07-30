@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 
+import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 import { workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.js";
 
 import {
@@ -17,6 +19,7 @@ import { createWorkspaceApp } from "./server.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 
 import { createTestApiContext, createTestEnv } from "./workspace-test-helpers.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 Deno.test("remote Shared Space development gate requires both development and remote mode", () => {
     assertEquals(isRemoteDevelopmentModeEnabled({ isDevelopment: true, workspaceMode: "remote" }), true);
@@ -26,30 +29,36 @@ Deno.test("remote Shared Space development gate requires both development and re
 });
 
 Deno.test("remote development API and page share the central gate", async () => {
-    const apiSource = await Deno.readTextFile("src/ui/workspace/server/remote-dev-api.js");
-    const pageSource = await Deno.readTextFile("src/ui/workspace/pages/p/[spaceId].astro");
+    const apiSource = await Deno.readTextFile(join(RUNWIELD_ROOT, "src/ui/workspace/server/remote-dev-api.js"));
+    const pageSource = await Deno.readTextFile(join(RUNWIELD_ROOT, "src/ui/workspace/pages/p/[spaceId].astro"));
     assertStringIncludes(apiSource, "isRemoteDevelopmentModeEnabled");
     assertStringIncludes(pageSource, "isRemoteDevelopmentModeEnabled");
 });
 
 Deno.test("remote development API rejects non-development and non-remote requests", async () => {
-    const originalMode = Deno.env.get("RUNWIELD_WORKSPACE_MODE");
-    try {
-        Deno.env.set("RUNWIELD_WORKSPACE_MODE", "remote");
-        const nonDevelopment = await handleRemoteSpaceApi(
-            createTestApiContext(new Request("http://localhost/api/spaces")),
-        );
-        assertEquals(nonDevelopment.status, 404);
-        assertEquals(await nonDevelopment.json(), { error: "Not found" });
+    // RUNWIELD_WORKSPACE_MODE is process-global; without the lock this window is
+    // visible to every other test file running concurrently.
+    await withProcessGlobalTestLock(async () => {
+        const originalMode = Deno.env.get("RUNWIELD_WORKSPACE_MODE");
+        try {
+            Deno.env.set("RUNWIELD_WORKSPACE_MODE", "remote");
+            const nonDevelopment = await handleRemoteSpaceApi(
+                createTestApiContext(new Request("http://localhost/api/spaces")),
+            );
+            assertEquals(nonDevelopment.status, 404);
+            assertEquals(await nonDevelopment.json(), { error: "Not found" });
 
-        Deno.env.set("RUNWIELD_WORKSPACE_MODE", "local");
-        const nonRemote = await handleRemoteSpaceApi(createTestApiContext(new Request("http://localhost/api/spaces")));
-        assertEquals(nonRemote.status, 404);
-        assertEquals(await nonRemote.json(), { error: "Not found" });
-    } finally {
-        if (originalMode === undefined) Deno.env.delete("RUNWIELD_WORKSPACE_MODE");
-        else Deno.env.set("RUNWIELD_WORKSPACE_MODE", originalMode);
-    }
+            Deno.env.set("RUNWIELD_WORKSPACE_MODE", "local");
+            const nonRemote = await handleRemoteSpaceApi(
+                createTestApiContext(new Request("http://localhost/api/spaces")),
+            );
+            assertEquals(nonRemote.status, 404);
+            assertEquals(await nonRemote.json(), { error: "Not found" });
+        } finally {
+            if (originalMode === undefined) Deno.env.delete("RUNWIELD_WORKSPACE_MODE");
+            else Deno.env.set("RUNWIELD_WORKSPACE_MODE", originalMode);
+        }
+    });
 });
 
 Deno.test("remote Shared Space review route is isolated to remote mode", async () => {

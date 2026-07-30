@@ -2,6 +2,17 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 
 import { loadPlan, savePlan } from "../plan-store.js";
 
+/**
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {string} content
+ * @param {import('../plan-store.js').PlanFrontMatterInput} attrs
+ */
+async function savePlanForTest(cwd, planName, content, attrs) {
+    const existing = await loadPlan(cwd, planName).catch(() => null);
+    return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
+}
+
 import { stageValidationPassedInExecutionWorktree } from "./workflow/plan-lifecycle.js";
 
 import {
@@ -55,12 +66,17 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        await savePlan(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
+        await savePlanForTest(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await git(projectRoot, ["add", "plans/feature.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add feature plan"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Feature", worktreeRoot });
-        await savePlan(projectRoot, "feature", "# Feature", {
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Feature",
+            worktreeRoot,
+        });
+        await savePlanForTest(projectRoot, "feature", "# Feature", {
             status: "implemented",
             implementedAt: "2026-01-01T00:00:00.000Z",
             worktreeId: worktree.id,
@@ -111,13 +127,18 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        await savePlan(projectRoot, "verified-conflict", "# Verified Conflict", { status: "ready_for_work" });
+        await savePlanForTest(projectRoot, "verified-conflict", "# Verified Conflict", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await git(projectRoot, ["add", "plans/verified-conflict.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add verified conflict plan"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Verified Conflict", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Verified Conflict",
+            worktreeRoot,
+        });
 
-        await savePlan(projectRoot, "verified-conflict", "# Verified Conflict", {
+        await savePlanForTest(projectRoot, "verified-conflict", "# Verified Conflict", {
             status: "implemented",
             implementedAt: "2026-04-01T00:00:00.000Z",
             worktreeId: worktree.id,
@@ -172,7 +193,7 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
     let worktree;
     try {
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await savePlan(
+        await savePlanForTest(
             projectRoot,
             "epic",
             "# Epic",
@@ -182,7 +203,7 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
             }),
         );
         for (const name of ["child-a", "child-b"]) {
-            await savePlan(projectRoot, name, `# ${name}`, {
+            await savePlanForTest(projectRoot, name, `# ${name}`, {
                 status: "ready_for_work",
                 classification: "FEATURE",
                 parentPlan: "epic",
@@ -190,16 +211,21 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
         }
         await git(projectRoot, ["add", "plans", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add concurrent children"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Child A", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Child A",
+            worktreeRoot,
+        });
 
-        await savePlan(projectRoot, "child-a", "# child-a", {
+        await savePlanForTest(projectRoot, "child-a", "# child-a", {
             status: "implemented",
             classification: "FEATURE",
             parentPlan: "epic",
             worktreeBranch: worktree.branch,
             worktreePath: worktree.path,
         });
-        await savePlan(projectRoot, "child-b", "# child-b", {
+        await savePlanForTest(projectRoot, "child-b", "# child-b", {
             status: "in_progress",
             classification: "FEATURE",
             parentPlan: "epic",
@@ -253,22 +279,27 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
             classification: "PROJECT",
         });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await savePlan(projectRoot, "epic", "# Epic", epicAttrs);
-        await savePlan(projectRoot, "child-a", "# A", {
+        await savePlanForTest(projectRoot, "epic", "# Epic", epicAttrs);
+        await savePlanForTest(projectRoot, "child-a", "# A", {
             status: "ready_for_work",
             classification: "FEATURE",
             parentPlan: "epic",
         });
-        await savePlan(projectRoot, "child-b", "# B", {
+        await savePlanForTest(projectRoot, "child-b", "# B", {
             status: "ready_for_work",
             classification: "FEATURE",
             parentPlan: "epic",
         });
         await git(projectRoot, ["add", "plans", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add epic hierarchy"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Child B", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Child B",
+            worktreeRoot,
+        });
 
-        await savePlan(projectRoot, "child-a", "# A", {
+        await savePlanForTest(projectRoot, "child-a", "# A", {
             status: "verified",
             classification: "FEATURE",
             ...TEST_DELIVERY_DETAILS,
@@ -276,7 +307,7 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
         });
         await git(projectRoot, ["add", "plans/child-a.md"]);
         await git(projectRoot, ["commit", "-m", "verify first child"]);
-        await savePlan(projectRoot, "child-b", "# B", {
+        await savePlanForTest(projectRoot, "child-b", "# B", {
             status: "implemented",
             classification: "FEATURE",
             parentPlan: "epic",
@@ -325,18 +356,23 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        await savePlan(projectRoot, "conflicted-retry", "# Conflicted Retry", { status: "ready_for_work" });
+        await savePlanForTest(projectRoot, "conflicted-retry", "# Conflicted Retry", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await git(projectRoot, ["add", "plans/conflicted-retry.md", "conflict.txt", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add conflicted retry plan"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Conflicted Retry", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Conflicted Retry",
+            worktreeRoot,
+        });
         const activeWorktree = worktree;
 
         await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
         await git(projectRoot, ["add", "conflict.txt"]);
         await git(projectRoot, ["commit", "-m", "target conflict"]);
-        await savePlan(projectRoot, "conflicted-retry", "# Conflicted Retry", {
+        await savePlanForTest(projectRoot, "conflicted-retry", "# Conflicted Retry", {
             status: "implemented",
             worktreeBranch: activeWorktree.branch,
             worktreePath: activeWorktree.path,
@@ -410,12 +446,17 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
     let worktree;
     try {
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await savePlan(projectRoot, "retry", "# Retry", { status: "ready_for_work" });
+        await savePlanForTest(projectRoot, "retry", "# Retry", { status: "ready_for_work" });
         await git(projectRoot, ["add", "plans/retry.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add retry plan"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Retry", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Retry",
+            worktreeRoot,
+        });
         const activeWorktree = worktree;
-        await savePlan(projectRoot, "retry", "# Retry", {
+        await savePlanForTest(projectRoot, "retry", "# Retry", {
             status: "implemented",
             worktreeBranch: worktree.branch,
             worktreePath: worktree.path,

@@ -203,6 +203,7 @@ graph TD
 - [Sessions](sessions.md) - RunWield session paths, root-agent behavior, resume, and compaction notes.
 - [Providers and models](providers.md) - RunWield credential/config paths and links to Pi provider setup.
 - [Customization](customization.md) - settings, agent overrides, prompts, skills, and themes.
+- [Troubleshooting](troubleshooting.md) - missing runtime helpers, plan review UI, plan loading, and agent overrides.
 - [Contributing](contributing.md) - development setup, contribution guidelines, ADRs, and PRDs.
 
 ### RunWield reference
@@ -211,6 +212,7 @@ graph TD
 - [Themes](themes.md) - RunWield theme package behavior and theme files.
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
+- [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.

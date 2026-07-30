@@ -17,6 +17,7 @@ import {
  * @property {string} [closedWithoutVerificationReason]
  * @property {string} [userVerificationNote]
  * @property {boolean} [acceptResumeWarnings]
+ * @property {string} [expectedRevision]
  */
 
 /**
@@ -162,7 +163,10 @@ export function PlanLifecycleActions({
         setPending(true);
         setMessage("");
         try {
-            const { response, payload } = await dispatchPlanLifecycleAction(intent);
+            const { response, payload } = await dispatchPlanLifecycleAction({
+                ...intent,
+                expectedRevision: plan.revision || intent.expectedRevision,
+            });
             if (response.status === 409 && payload.requiresConfirmation) {
                 setWarningIntent({ ...intent, acceptResumeWarnings: true });
                 setMessage(

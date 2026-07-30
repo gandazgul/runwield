@@ -6,6 +6,7 @@ import { isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import {
     findById as findWorktreeRegistryEntryById,
+    findByPlanId as findWorktreeRegistryEntryByPlanId,
     findByPlanName as findWorktreeRegistryEntryByPlanName,
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
@@ -139,7 +140,7 @@ async function recordResolutionMetric({
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, findWorktreeRegistryEntryByPlanName?: typeof findWorktreeRegistryEntryByPlanName, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
+ * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, findWorktreeRegistryEntryByPlanId?: typeof findWorktreeRegistryEntryByPlanId, findWorktreeRegistryEntryByPlanName?: typeof findWorktreeRegistryEntryByPlanName, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
  * @returns {Promise<ValidationContextResolution>}
  */
 export async function resolveValidationExecutionContext({
@@ -154,6 +155,7 @@ export async function resolveValidationExecutionContext({
     const prepareExecutionPlanFileFn = __deps.prepareExecutionPlanFile || prepareExecutionPlanFile;
     const recordMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
     const findByIdFn = __deps.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
+    const findByPlanIdFn = __deps.findWorktreeRegistryEntryByPlanId || findWorktreeRegistryEntryByPlanId;
     const findByPlanNameFn = __deps.findWorktreeRegistryEntryByPlanName || findWorktreeRegistryEntryByPlanName;
     const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
     const runGitFn = __deps.runGit || runGit;
@@ -252,8 +254,11 @@ export async function resolveValidationExecutionContext({
         );
     }
     const candidateWorktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
+    const canonicalPlanId = asString(attrs.planId);
     const recoveredRegistryEntry = candidateWorktreeId
-        ? await findByIdFn(projectRoot, candidateWorktreeId) || await findByPlanNameFn(projectRoot, planName)
+        ? await findByIdFn(projectRoot, candidateWorktreeId)
+        : canonicalPlanId
+        ? await findByPlanIdFn(projectRoot, canonicalPlanId)
         : await findByPlanNameFn(projectRoot, planName);
     const executionMode = normalizedCandidateMode || durableMode || (recoveredRegistryEntry ? "worktree" : undefined);
     if (!executionMode) {
@@ -274,10 +279,16 @@ export async function resolveValidationExecutionContext({
 
     if (executionMode === "non_git_in_place") {
         if (plan && attrs.executionMode !== "non_git_in_place" && selected.source !== "durable_recovery") {
-            await updatePlanFrontMatterFn(projectRoot, planName, {
-                executionMode: "non_git_in_place",
-                deliveryEvidence: null,
-            }, attrs);
+            await updatePlanFrontMatterFn(
+                projectRoot,
+                planName,
+                {
+                    executionMode: "non_git_in_place",
+                    deliveryEvidence: null,
+                },
+                attrs,
+                { expectedRevision: plan.revision },
+            );
         }
         await recordResolutionMetric({
             recordWorkflowMetric: recordMetricFn,
@@ -459,7 +470,9 @@ export async function resolveValidationExecutionContext({
 
     let persistedLegacyExecutionMode = false;
     if (plan && !attrs.worktreeId && worktreeId) {
-        await updatePlanFrontMatterFn(projectRoot, planName, { worktreeId }, attrs);
+        await updatePlanFrontMatterFn(projectRoot, planName, { worktreeId }, attrs, {
+            expectedRevision: plan.revision,
+        });
         persistedLegacyExecutionMode = attrs.executionMode !== "worktree";
     }
     await recordResolutionMetric({

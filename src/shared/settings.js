@@ -3,6 +3,7 @@ import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
 import { normalizeServerUrl } from "./collaboration/urls.js";
+import { getHomeDir } from "../constants.js";
 
 export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
 
@@ -34,7 +35,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
  * @returns {string}
  */
 export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
-    const homeDir = Deno.env.get("HOME") || "";
+    const homeDir = getHomeDir();
     if (scope === "global") return join(homeDir, ".wld");
     return join(projectRoot, ".wld");
 }
@@ -70,7 +71,7 @@ function fileExists(path) {
  * @returns {{ copied: boolean, skipped: boolean, error?: string }}
  */
 export function migratePiSettingsOnce(options = {}) {
-    const homeDir = options.homeDir ?? Deno.env.get("HOME") ?? "";
+    const homeDir = options.homeDir ?? getHomeDir();
     const runwieldPath = options.runwieldPath ?? join(homeDir, ".wld", "settings.json");
     const piPath = options.piPath ?? join(homeDir, ".pi", "agent", "settings.json");
 

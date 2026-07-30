@@ -3,7 +3,7 @@
  * Open active or archived Plan markdown in a read-only browser view.
  */
 
-import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../../constants.js";
+import { CLI_BIN, getCwd, PLANS_DIR_NAME } from "../../constants.js";
 import { findPlanById, listArchivedPlans, loadArchivedPlan, loadPlan } from "../../plan-store.js";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
 
@@ -32,7 +32,7 @@ async function openPlanReadSurface(artifact, deps, options = {}) {
     const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurface;
     const noOpen = options.noOpen === true;
     const server = await startReadSurface({
-        cwd: CWD,
+        cwd: getCwd(),
         markdown: artifact.markdown,
         artifactKind: "plan",
         title: artifact.title,
@@ -92,7 +92,7 @@ export async function runPlansReadCommand(argv, options = {}) {
     const listArchivedPlansDep = deps.listArchivedPlans || listArchivedPlans;
     const findPlanByIdDep = deps.findPlanById || findPlanById;
 
-    const active = await loadPlanDep(CWD, target).catch(() => null);
+    const active = await loadPlanDep(getCwd(), target).catch(() => null);
     if (active && !target.replaceAll("\\", "/").startsWith("archived/")) {
         await openPlanReadSurface(
             {
@@ -106,7 +106,7 @@ export async function runPlansReadCommand(argv, options = {}) {
         return;
     }
 
-    const archived = await loadArchivedPlanDep(CWD, target).catch(() => null);
+    const archived = await loadArchivedPlanDep(getCwd(), target).catch(() => null);
     if (archived) {
         await openPlanReadSurface(
             {
@@ -120,12 +120,12 @@ export async function runPlansReadCommand(argv, options = {}) {
         return;
     }
 
-    const archivedMatches = (await listArchivedPlansDep(CWD)).filter((plan) => plan.planId === target);
+    const archivedMatches = (await listArchivedPlansDep(getCwd())).filter((plan) => plan.planId === target);
     if (archivedMatches.length > 1) {
         throw new Error(`Duplicate archived planId values found for ${target}; use an archived Plan name instead.`);
     }
     if (archivedMatches.length === 1) {
-        const loaded = await loadArchivedPlanDep(CWD, archivedMatches[0].name);
+        const loaded = await loadArchivedPlanDep(getCwd(), archivedMatches[0].name);
         if (loaded) {
             await openPlanReadSurface(
                 {
@@ -141,7 +141,7 @@ export async function runPlansReadCommand(argv, options = {}) {
     }
 
     try {
-        const activeById = await findPlanByIdDep(CWD, target);
+        const activeById = await findPlanByIdDep(getCwd(), target);
         await openPlanReadSurface(
             {
                 title: activeById.planName,

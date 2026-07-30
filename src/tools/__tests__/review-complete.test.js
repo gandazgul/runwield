@@ -33,3 +33,63 @@ for (const approved of [true, false]) {
         assertEquals(metrics[0].event, "review_complete");
     });
 }
+
+/** @param {string} id */
+function makeReviewTool(id) {
+    const events = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({ id, cwd: Deno.cwd() });
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    const tool = createReviewCompletedTool({
+        hostedSession,
+        agentName: "reviewer",
+        recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
+    });
+    return { tool, events };
+}
+
+Deno.test("review_complete does not report resolved findings as outstanding issues", async () => {
+    const { tool, events } = makeReviewTool("review-resolved-projection");
+
+    // Observed live: the Reviewer narrated a resolved item alongside a new one in
+    // free-text feedback, and it rendered under "issues found" — reporting finished
+    // work as still broken, which makes a converging loop look stuck.
+    const result = await /** @type {any} */ (tool.execute)("call", {
+        approved: false,
+        feedback: "- The model-availability facade is cold-empty.\n- R1-1 is fixed: the mutation queue now serializes.",
+        findings: [
+            { id: "R1-1", resolved: true, title: "Credential store does not serialize mutations" },
+            { title: "Model-availability facade is cold-empty for runtime models" },
+        ],
+    });
+
+    const message = events[0].delta;
+    assertEquals(message.includes("R1-1 is fixed"), false, "a resolved item must not appear as an open issue");
+    assertEquals(message.includes("1 issue open, 1 resolved this round"), true);
+    assertEquals(message.includes("Model-availability facade is cold-empty"), true);
+    assertEquals(result.details.findings.length, 2);
+});
+
+Deno.test("review_complete falls back to prose only when no findings are supplied", async () => {
+    const { tool, events } = makeReviewTool("review-prose-fallback");
+
+    await /** @type {any} */ (tool.execute)("call", {
+        approved: false,
+        feedback: "fix the boundary",
+    });
+
+    assertEquals(events[0].delta.includes("issues found"), true);
+    assertEquals(events[0].delta.includes("fix the boundary"), true);
+});
+
+Deno.test("review_complete refuses to approve while a finding is unresolved", async () => {
+    const { tool } = makeReviewTool("review-approve-with-open");
+
+    const result = await /** @type {any} */ (tool.execute)("call", {
+        approved: true,
+        findings: [{ title: "Still missing the guard" }],
+    });
+
+    assertEquals(result.terminate, false, "an inconsistent result must not end the review");
+    assertEquals(result.details.outcome, "rejected");
+    assertEquals(result.details.reason, "approved_with_open_findings");
+});

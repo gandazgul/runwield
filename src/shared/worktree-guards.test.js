@@ -1,6 +1,17 @@
 import { assertRejects } from "@std/assert";
 
-import { savePlan } from "../plan-store.js";
+import { loadPlan, savePlan } from "../plan-store.js";
+
+/**
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {string} content
+ * @param {import('../plan-store.js').PlanFrontMatterInput} attrs
+ */
+async function savePlanForTest(cwd, planName, content, attrs) {
+    const existing = await loadPlan(cwd, planName).catch(() => null);
+    return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
+}
 import { GitRepositoryRequiredError } from "./git.js";
 
 import {
@@ -17,7 +28,12 @@ Deno.test("worktree helpers report Git requirement outside Git", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-worktree-" });
     try {
         await assertRejects(
-            () => createExecutionWorktree({ projectRoot, planName: "Non Git Plan" }),
+            () =>
+                createExecutionWorktree({
+                    allowRegistryMutation: "legacy-test-only",
+                    projectRoot,
+                    planName: "Non Git Plan",
+                }),
             GitRepositoryRequiredError,
             "Creating an execution worktree requires a Git repository",
         );
@@ -52,10 +68,15 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        await savePlan(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
+        await savePlanForTest(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
         await git(projectRoot, ["add", "plans/feature.md"]);
         await git(projectRoot, ["commit", "-m", "add feature plan"]);
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Feature", worktreeRoot });
+        worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Feature",
+            worktreeRoot,
+        });
         const activeWorktree = worktree;
         await Deno.writeTextFile(`${activeWorktree.path}/feature.txt`, "validated\n");
         const sealed = await sealExecutionWorktreeCandidate({
@@ -63,7 +84,7 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
             branch: activeWorktree.branch,
             planName: "feature",
         });
-        await savePlan(activeWorktree.path, "feature", "# Feature", { status: "verified" });
+        await savePlanForTest(activeWorktree.path, "feature", "# Feature", { status: "verified" });
         await Deno.mkdir(`${activeWorktree.path}/.wld`, { recursive: true });
         await Deno.writeTextFile(`${activeWorktree.path}/.wld/worktrees.json`, "{}\n");
 

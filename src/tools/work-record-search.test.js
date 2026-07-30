@@ -19,7 +19,7 @@ Deno.test("work_record_search returns readable text and structured details", asy
                         summary: "Full summary text",
                         status: "approved",
                         scope: "planned_change",
-                        workKind: "BUG_FIX",
+                        workKind: "DOCUMENTATION",
                         origin: "internal",
                         completionMode: "verified",
                         sourcePlans: ["plan-1"],
@@ -37,8 +37,8 @@ Deno.test("work_record_search returns readable text and structured details", asy
     assertEquals(Object.hasOwn(result.details.records[0], "record"), false);
     assertEquals(Object.hasOwn(result.details.records[0], "body"), false);
     assertStringIncludes(result.content[0].text, "Useful outcome");
-    assertStringIncludes(result.content[0].text, "work: Planned bug fix");
-    assertStringIncludes(result.content[0].text, "workKind: BUG_FIX");
+    assertStringIncludes(result.content[0].text, "work: Planned documentation");
+    assertStringIncludes(result.content[0].text, "workKind: DOCUMENTATION");
     assertStringIncludes(result.content[0].text, "Full summary text");
 });
 

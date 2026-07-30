@@ -1,0 +1,245 @@
+{
+    "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
+    "files": {
+        "src/shared/session/agent-handler.js": {
+            "seams": [
+                "_agentDefOverride",
+                "allowReturnToRouter",
+                "customTools",
+                "decidePostExecution",
+                "decidePostPlanning",
+                "dispatchPostTriage",
+                "executePlan",
+                "finalizePlanImplementation",
+                "hostedSession",
+                "readLatestPlanOutcome",
+                "readLatestTaskCompletedOutcome",
+                "readLatestTriageOutcome",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "requestAttention",
+                "runMechanicalValidation",
+                "runRootTurn",
+                "runSlicerAgent",
+                "runValidationLoop",
+                "switchActiveAgent"
+            ],
+            "machinery": [
+                "recordPlanEvent"
+            ]
+        },
+        "src/shared/work-records/auto-generation.js": {
+            "seams": [
+                "generateWorkRecordForSource",
+                "shouldAutoGenerate"
+            ],
+            "machinery": []
+        },
+        "src/shared/workflow/epic-continuation.js": {
+            "seams": [
+                "decidePostExecution",
+                "decidePostPlanning",
+                "executePlan",
+                "findPlansByParent",
+                "loadPlan",
+                "recordPlanEvent",
+                "resolveSiblingChildPlanDependencies",
+                "runPlanningAgent",
+                "runValidationLoop"
+            ],
+            "machinery": [
+                "recordPlanEvent"
+            ]
+        },
+        "src/shared/workflow/execution-context.js": {
+            "seams": [
+                "canonicalLoadPlan",
+                "findWorktreeRegistryEntryById",
+                "findWorktreeRegistryEntryByPlanId",
+                "findWorktreeRegistryEntryByPlanName",
+                "loadPlan",
+                "prepareExecutionPlanFile",
+                "realPath",
+                "recordWorkflowMetric",
+                "runGit",
+                "updatePlanFrontMatter"
+            ],
+            "machinery": [
+                "updatePlanFrontMatter"
+            ]
+        },
+        "src/shared/workflow/orchestrator.js": {
+            "seams": [
+                "confirmNonGitQuickFixExecution",
+                "decidePostExecution",
+                "decidePostPlanning",
+                "ensurePlansDir",
+                "executePlan",
+                "hasNonGitExecutionConsent",
+                "loadPlan",
+                "probeGitRepository",
+                "readLatestReturnToRouterOutcome",
+                "readLatestTaskCompletedOutcome",
+                "recordWorkflowMetric",
+                "runMechanicalValidation",
+                "runPlanningAgent",
+                "runRootTurn",
+                "runSlicerAgent",
+                "runValidationLoop",
+                "shouldRunWorkflowValidation",
+                "switchActiveAgent"
+            ],
+            "machinery": []
+        },
+        "src/shared/workflow/validation.js": {
+            "seams": [
+                "assertNoUnvalidatedPostSealChanges",
+                "autoGenerateWorkRecordForCompletedPlan",
+                "captureWorktreeTree",
+                "diffTrees",
+                "findWorktreeRegistryEntryById",
+                "formatWorkRecordAutoGenerationResult",
+                "getBranchHead",
+                "getCodeReviewMode",
+                "getDiffText",
+                "getGuidedReviewMode",
+                "isCommitAncestorOfBranch",
+                "loadManualQaPrompt",
+                "loadReviewerFeedbackEngineerDef",
+                "loadReviewerPrompt",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
+                "readLatestTaskCompletedOutcome",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "removeExecutionWorktree",
+                "removeWorktreeRegistryEntry",
+                "requestInteraction",
+                "resolveValidationExecutionContext",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "runActiveAgentTurn",
+                "runCompletionGatedRepair",
+                "runDirectDeliveryPublicationTransition",
+                "runIsolatedAgentSession",
+                "runLocalCI",
+                "runManualQaChecklistPrompt",
+                "runValidationOutcomeTransition",
+                "sealExecutionWorktreeCandidate",
+                "shouldCleanupMergedWorktrees",
+                "stageValidationPassedInExecutionWorktree",
+                "switchActiveAgent",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry",
+                "verifyExecutionWorktreeMerged"
+            ],
+            "machinery": [
+                "recordPlanEvent",
+                "removeWorktreeRegistryEntry",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ]
+        },
+        "src/shared/workflow/workflow-slicer.js": {
+            "seams": [
+                "findPlansByParent",
+                "loadPlan",
+                "materializeSlicerDraft",
+                "parsePlanFrontMatter",
+                "readTextFile",
+                "recordPlanEvent",
+                "runActiveAgentTurn",
+                "runSlicerAgent",
+                "saveChildFeaturePlans",
+                "switchActiveAgent",
+                "withPlanCatalogLock"
+            ],
+            "machinery": [
+                "recordPlanEvent",
+                "saveChildFeaturePlans",
+                "withPlanCatalogLock"
+            ]
+        },
+        "src/shared/workflow/workflow.js": {
+            "seams": [
+                "captureWorktreeTree",
+                "checkpointExecutionWorktree",
+                "confirmNonGitFeaturePlanExecution",
+                "createExecutionWorktree",
+                "createExecutionWorktreeGitArtifacts",
+                "ensureExecutionPlanFile",
+                "executeSingleEngineerPlan",
+                "findReusableWorktree",
+                "findWorktreeRegistryEntryById",
+                "hasNonGitExecutionConsent",
+                "loadCanonicalExecutionPlanSource",
+                "loadPlan",
+                "markActiveWorktreeStatus",
+                "now",
+                "prepareTargetBranchRef",
+                "probeGitRepository",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "requestPlanReview",
+                "resolveCurrentCheckoutBranch",
+                "resolveTargetBranchName",
+                "runActiveAgentTurn",
+                "runImplementationCheckpointTransition",
+                "settleExecutionWorktreeRegistry",
+                "updateWorktreeRegistryEntry"
+            ],
+            "machinery": [
+                "recordPlanEvent",
+                "updateWorktreeRegistryEntry"
+            ]
+        },
+        "src/tools/return-to-router.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": []
+        },
+        "src/ui/review/code-review.js": {
+            "seams": [
+                "loadReviewEditorHtml",
+                "openInDefaultBrowser",
+                "startCodeReviewSurface",
+                "startReviewServer"
+            ],
+            "machinery": []
+        },
+        "src/ui/review/plan-review.js": {
+            "seams": [
+                "htmlContent",
+                "openInDefaultBrowser",
+                "recordPlanEvent",
+                "startPlanReviewServer",
+                "startPlanReviewSurface"
+            ],
+            "machinery": [
+                "recordPlanEvent"
+            ]
+        },
+        "src/ui/tui/boot-banner.js": {
+            "seams": [
+                "getSettingsManager",
+                "hasSnipBinary",
+                "listLoadedAgentMdFiles",
+                "listSkills",
+                "recordSnipMissingWarningShown",
+                "shouldShowSnipMissingWarning"
+            ],
+            "machinery": []
+        },
+        "src/ui/tui/ui-api-overrides.js": {
+            "seams": [
+                "Image",
+                "ModelSelectorComponent",
+                "getActiveModelState",
+                "getModelRegistry",
+                "getModelRuntime",
+                "getSettingsManager"
+            ],
+            "machinery": []
+        }
+    }
+}

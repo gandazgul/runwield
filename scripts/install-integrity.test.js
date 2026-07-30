@@ -4,7 +4,7 @@ import { join } from "@std/path";
 import { createFixture, runInstaller } from "./install-test-helpers.js";
 
 Deno.test("install.sh uses GitHub asset digest when helper checksum manifest omits an asset", async () => {
-    const fixture = await createFixture({ omitChecksumFor: "mnemosyne" });
+    const fixture = await createFixture({ omitChecksumFor: "mnemosyne", releaseApiFailsFor: ["mnemosyne"] });
     try {
         const result = await runInstaller(fixture);
         assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);

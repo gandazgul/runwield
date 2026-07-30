@@ -127,7 +127,8 @@ export const ACTION_META = {
     [PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT]: {
         action: PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT,
         label: "Reset status to draft",
-        description: "Clear hold/worktree/recovery metadata without deleting worktrees.",
+        description:
+            "Clear hold/worktree/recovery metadata after any physical worktree attempt is explicitly resolved.",
     },
 };
 
@@ -269,6 +270,7 @@ export function serializePlanSummary(resource) {
     attrs.planId = resource.planId;
     return {
         planId: resource.planId,
+        revision: resource.revision || "",
         planName: resource.planName || resource.name,
         name: resource.planName || resource.name,
         attrs,
@@ -482,6 +484,7 @@ export function serializePlanDetail(resource, plans) {
         frontMatter: workspaceSafeFrontMatter(resource.attrs),
         body: resource.body || "",
         bodyHash: resource.bodyHash || "",
+        revision: resource.revision || summary.revision || "",
         workspaceKey: resource.workspaceKey || "",
         capabilities: resource.capabilities || { bodyEditing: false },
         markdown: resource.markdown || "",
@@ -594,9 +597,11 @@ export function projectWorkspaceDetail(resource, plans) {
  * @param {string} planId
  * @param {string} body
  * @param {string} expectedBodyHash
+ * @param {string} expectedRevision
  */
-export async function saveWorkspacePlanBody(cwd, planId, body, expectedBodyHash) {
-    const saved = await savePlanBodyById(cwd, planId, body, expectedBodyHash);
+export async function saveWorkspacePlanBody(cwd, planId, body, expectedBodyHash, expectedRevision) {
+    if (!expectedRevision) throw new Error("Workspace body save requires expectedRevision.");
+    const saved = await savePlanBodyById(cwd, planId, body, expectedBodyHash, { expectedRevision });
     const summaries = await loadPlanSummaries(cwd);
     return projectWorkspaceDetail({
         ...saved,
@@ -694,12 +699,16 @@ export async function runWorkspaceResumeCheck(cwd, attrs) {
 
 /**
  * @param {unknown} payload
+ * @param {{ requireRevision?: boolean }} [options]
  */
-function validateLifecycleActionPayload(payload) {
+function validateLifecycleActionPayload(payload, options = {}) {
     const body = safeObject(payload);
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.values(PLAN_LIFECYCLE_ACTIONS).includes(/** @type {any} */ (action))) {
         throw new Error("Unknown lifecycle action.");
+    }
+    if (options.requireRevision && typeof body.expectedRevision !== "string") {
+        throw new Error("Workspace lifecycle action requires expectedRevision.");
     }
     if (action === PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS) {
         const targetStatus = typeof body.targetStatus === "string" ? body.targetStatus : "";
@@ -775,8 +784,11 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
         message = `Plan resumed to ${statusOption(String(attrs.heldFromStatus)).label}.`;
     } else if (action === PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT) {
         if (!metadata.canResetToDraft) throw new Error(metadata.blockedReasons.reset_to_draft);
+        if (attrs.worktreeStatus && !["merged", "abandoned", "none"].includes(String(attrs.worktreeStatus))) {
+            throw new Error("Reset to draft is blocked until the recorded worktree attempt is abandoned or settled.");
+        }
         event = "hold_reset_to_draft";
-        message = "Held Plan reset to draft; worktrees were not deleted.";
+        message = "Held Plan reset to draft after worktree attempt resolution.";
     }
 
     const nextAttrs = buildPlanEventUpdates(event, currentStatus, details);
@@ -810,7 +822,8 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
  * @param {WorkspaceLifecycleActionDeps} [deps]
  */
 export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps = {}) {
-    const request = validateLifecycleActionPayload(payload);
+    const request = validateLifecycleActionPayload(payload, { requireRevision: true });
+    const expectedRevision = String(request.expectedRevision);
     const resource = await findPlanById(cwd, planId);
     const attrs = safeObject(resource.attrs);
     const currentStatus = /** @type {any} */ (String(attrs.status || "draft"));
@@ -873,12 +886,15 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
         message = `Plan resumed to ${statusOption(String(attrs.heldFromStatus)).label}.`;
     } else if (action === PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT) {
         if (!metadata.canResetToDraft) throw new Error(metadata.blockedReasons.reset_to_draft);
+        if (attrs.worktreeStatus && !["merged", "abandoned", "none"].includes(String(attrs.worktreeStatus))) {
+            throw new Error("Reset to draft is blocked until the recorded worktree attempt is abandoned or settled.");
+        }
         event = "hold_reset_to_draft";
-        message = "Held Plan reset to draft; worktrees were not deleted.";
+        message = "Held Plan reset to draft after worktree attempt resolution.";
     }
 
     const planName = resource.planName || resource.name;
-    await recordPlanEvent({ cwd, planName, event, currentStatus, details });
+    await recordPlanEvent({ cwd, planName, event, currentStatus, details, expectedRevision });
     if (event === "manual_closed_without_verification" || event === "manual_user_verified") {
         const generateWorkRecord = deps.autoGenerateWorkRecordForCompletedPlan ||
             autoGenerateWorkRecordForCompletedPlanFn;

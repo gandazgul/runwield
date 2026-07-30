@@ -1,18 +1,7 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Agent } from "@earendil-works/pi-agent-core";
-import {
-    AgentSession,
-    createAgentSession,
-    estimateTokens,
-    VERSION as PI_CODING_AGENT_VERSION,
-} from "@earendil-works/pi-coding-agent";
-import {
-    AgentSession as LatestObservedAgentSession,
-    createAgentSession as createLatestObservedAgentSession,
-    VERSION as LATEST_OBSERVED_PI_CODING_AGENT_VERSION,
-} from "@earendil-works/pi-coding-agent-latest-observed";
-import { Agent as LatestObservedAgent } from "@earendil-works/pi-agent-core-latest-observed";
+import { AgentSession, createAgentSession, estimateTokens } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 /** @returns {import('@earendil-works/pi-ai').Usage} */
@@ -145,6 +134,7 @@ Deno.test("RunWield/Pi seam currently submits another provider call after tool-r
         },
     });
 
+    assertEquals(typeof agent.streamFunction, "function");
     await agent.prompt("start");
 
     assertEquals(completedToolResults, 6);
@@ -185,21 +175,25 @@ function characterizePublicContextResilienceContract(api) {
             publicAgentSessionMethods.includes("queueContinuation"),
         hasPrivateAutoCompactionOnly: agentSessionMethods.includes("_runAutoCompaction"),
         hasLowLevelAgentLoopConfig: agentMethods.includes("createLoopConfig"),
+        hasPublicStreamFunction: "streamFunction" in api.AgentClass.prototype ||
+            Object.getOwnPropertyNames(new api.AgentClass({ streamFn: () => messageStream(makeDoneMessage()) }))
+                .includes(
+                    "streamFunction",
+                ),
     };
 }
 
 Deno.test("selected public Pi AgentSession contract lacks the required completed-turn stop and recovery hook", async () => {
     const repositoryRoot = new URL("../../../", import.meta.url);
     const denoConfig = JSON.parse(await Deno.readTextFile(new URL("deno.json", repositoryRoot)));
-    assertEquals(
-        denoConfig.imports["@earendil-works/pi-coding-agent"],
-        `npm:@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}`,
-    );
-    assertEquals(
-        denoConfig.imports["@earendil-works/pi-agent-core"],
-        `npm:@earendil-works/pi-agent-core@${PI_CODING_AGENT_VERSION}`,
-    );
-    assertEquals(denoConfig.imports["@earendil-works/pi-ai"], `npm:@earendil-works/pi-ai@${PI_CODING_AGENT_VERSION}`);
+    for (const [name, specifier] of Object.entries(denoConfig.imports)) {
+        if (!name.startsWith("@earendil-works/")) continue;
+        assertMatch(
+            /** @type {string} */ (specifier),
+            /^npm:@earendil-works\/[^@]+@\^\d+\.\d+\.\d+/,
+            `${name} should use an upgradeable npm range`,
+        );
+    }
 
     const contract = characterizePublicContextResilienceContract({
         AgentSessionClass: AgentSession,
@@ -212,6 +206,7 @@ Deno.test("selected public Pi AgentSession contract lacks the required completed
     assertEquals(contract.hasPublicContinuationAfterManagedCompaction, false);
     assertEquals(contract.hasQueueOrderContractForContinuation, false);
     assertEquals("shouldStopAfterTurn" in Agent.prototype, false);
+    assertEquals(contract.hasPublicStreamFunction, true);
     assertEquals(
         contract.hasLowLevelAgentLoopConfig,
         true,
@@ -222,33 +217,4 @@ Deno.test("selected public Pi AgentSession contract lacks the required completed
         true,
         "AgentSession compaction remains private and must not be used by RunWield",
     );
-});
-
-Deno.test("latest observed public Pi AgentSession contract still blocks mid-run context resilience", () => {
-    assertEquals(LATEST_OBSERVED_PI_CODING_AGENT_VERSION, "0.82.1");
-
-    const contract = characterizePublicContextResilienceContract({
-        AgentSessionClass: LatestObservedAgentSession,
-        AgentClass: LatestObservedAgent,
-        createSession: createLatestObservedAgentSession,
-    });
-
-    assertEquals(contract.hasCompletedTurnStopHook, false);
-    assertEquals(
-        contract.hasRecoveryNumbersBeforeContinuation,
-        false,
-        "without public recovery numbers, RunWield cannot decide whether continuation is safe",
-    );
-    assertEquals(
-        contract.hasPublicContinuationAfterManagedCompaction,
-        false,
-        "without a public AgentSession continuation contract, RunWield cannot preserve queued-message ordering",
-    );
-    assertEquals(contract.hasQueueOrderContractForContinuation, false);
-    assertEquals(
-        contract.hasLowLevelAgentLoopConfig,
-        true,
-        "0.82.1 exposes only lower-level Agent loop control, not the public AgentSession contract RunWield may use",
-    );
-    assertEquals(contract.hasPrivateAutoCompactionOnly, true);
 });

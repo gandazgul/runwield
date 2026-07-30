@@ -116,6 +116,74 @@ Deno.test("runInitCommand reports duplicate init through ui when available", asy
     assertStringIncludes(messages[0], "/tmp/project");
 });
 
+Deno.test("runInitCommand launches TUI setup for CLI init when no providers are configured", async () => {
+    /** @type {Array<{ request: string | null, options: { initialAgentName?: string } }>} */
+    const launches = [];
+
+    await runInitCommand(
+        [],
+        /** @type {any} */ ({
+            __testDeps: /** @type {any} */ ({
+                isInitDone: () => false,
+                parseArgs: () => ({}),
+                cwd: () => "/tmp/project",
+                isEmptyProjectDirectory: () => Promise.resolve(false),
+                getModelRegistry: () => ({
+                    getRegisteredProviderIds: () => [],
+                    find: () => undefined,
+                }),
+                getSettingsManager: () => ({
+                    getDefaultModel: () => "",
+                    getDefaultProvider: () => "",
+                }),
+                startInteractiveSession: (
+                    /** @type {string | null} */ request,
+                    /** @type {{ initialAgentName?: string }} */ options,
+                ) => {
+                    launches.push({ request, options });
+                    return Promise.resolve({});
+                },
+            }),
+        }),
+    );
+
+    assertEquals(launches, [{ request: "/init", options: { initialAgentName: "router" } }]);
+});
+
+Deno.test("runInitCommand launches TUI setup for CLI init when providers exist without a selected model", async () => {
+    /** @type {Array<{ request: string | null, options: { initialAgentName?: string } }>} */
+    const launches = [];
+
+    await runInitCommand(
+        [],
+        /** @type {any} */ ({
+            __testDeps: /** @type {any} */ ({
+                isInitDone: () => false,
+                parseArgs: () => ({}),
+                cwd: () => "/tmp/project",
+                isEmptyProjectDirectory: () => Promise.resolve(false),
+                getModelRegistry: () => ({
+                    getRegisteredProviderIds: () => ["configured"],
+                    find: () => undefined,
+                }),
+                getSettingsManager: () => ({
+                    getDefaultModel: () => "",
+                    getDefaultProvider: () => "configured",
+                }),
+                startInteractiveSession: (
+                    /** @type {string | null} */ request,
+                    /** @type {{ initialAgentName?: string }} */ options,
+                ) => {
+                    launches.push({ request, options });
+                    return Promise.resolve({});
+                },
+            }),
+        }),
+    );
+
+    assertEquals(launches, [{ request: "/init", options: { initialAgentName: "router" } }]);
+});
+
 Deno.test("runInitCommand runs init agent and records completion in CLI mode", async () => {
     /** @type {string[]} */
     const events = [];
@@ -135,6 +203,14 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
                     isInitDone: () => false,
                     parseArgs: () => ({}),
                     cwd: () => "/tmp/project",
+                    getModelRegistry: () => ({
+                        getRegisteredProviderIds: () => ["configured"],
+                        find: () => ({ id: "model" }),
+                    }),
+                    getSettingsManager: () => ({
+                        getDefaultModel: () => "model",
+                        getDefaultProvider: () => "configured",
+                    }),
                     extractBundledSkills: () => {
                         events.push("skills");
                         return Promise.resolve("/tmp/bundled-skills");
@@ -200,6 +276,14 @@ Deno.test("runInitCommand reports failure and does not record completion", async
                         __testDeps: /** @type {any} */ ({
                             isInitDone: () => false,
                             parseArgs: () => ({}),
+                            getModelRegistry: () => ({
+                                getRegisteredProviderIds: () => ["configured"],
+                                find: () => ({ id: "model" }),
+                            }),
+                            getSettingsManager: () => ({
+                                getDefaultModel: () => "model",
+                                getDefaultProvider: () => "configured",
+                            }),
                             loadAgentDefFromPath: () => Promise.resolve({}),
                             recordInitOffered: () => {},
                             createRuntime: () => ({

@@ -1,12 +1,30 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
+
+/**
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {string} content
+ * @param {import('../../plan-store.js').PlanFrontMatterInput} attrs
+ */
+async function savePlanForTest(cwd, planName, content, attrs) {
+    const existing = await loadPlan(cwd, planName).catch(() => null);
+    return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
+}
 import { createExecutionWorktree } from "../worktree.js";
 import { runValidationLoop } from "./validation.js";
+import { runValidationOutcomeTransition } from "./state-transition.ts";
 import { HostedSession } from "../session/hosted-session.js";
 
 import { __resetSettingsForTests } from "../settings.js";
 
-import { git, makeRecordedSession, makeUi, noOpWorktreePlanHandoffDeps } from "./validation-test-helpers.js";
+import {
+    git,
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    noOpWorktreePlanHandoffDeps,
+} from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
@@ -14,6 +32,7 @@ function makeValidationUi() {
 }
 
 Deno.test("runValidationLoop stages validation_passed before worktree merge succeeds", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */
     const actions = [];
@@ -26,7 +45,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -55,6 +74,10 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -108,12 +131,12 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
     });
 
     assertEquals(actions, [
-        "stage:/primary:/worktree:p",
-        "merge:/primary:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.",
+        `stage:${primaryRoot}:/worktree:p`,
+        `merge:${primaryRoot}:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.`,
         "restore-primary",
         "registry:merged",
-        "remove:/primary:/worktree:runwield/worktree/p-wt1:false",
-        "registry-remove:/primary:wt1",
+        `remove:${primaryRoot}:/worktree:runwield/worktree/p-wt1:false`,
+        `registry-remove:${primaryRoot}:wt1`,
     ]);
     assertEquals(
         metrics.some((metric) =>
@@ -133,7 +156,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
         await git(projectRoot, ["config", "user.email", "tests@example.com"]);
         await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await savePlan(projectRoot, "git-plan", "# Git Plan", {
+        await savePlanForTest(projectRoot, "git-plan", "# Git Plan", {
             status: "ready_for_work",
             classification: "FEATURE",
             summary: "Verify metadata in history.",
@@ -142,11 +165,12 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
         await git(projectRoot, ["commit", "-m", "add plan"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
             projectRoot,
             planName: "Git Plan",
             worktreeRoot,
         });
-        await savePlan(projectRoot, "git-plan", "# Git Plan", {
+        await savePlanForTest(projectRoot, "git-plan", "# Git Plan", {
             status: "implemented",
             classification: "FEATURE",
             summary: "Verify metadata in history.",
@@ -186,6 +210,10 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -216,18 +244,23 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
         await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
-        await savePlan(projectRoot, "conflict-plan", "# Conflict Plan", {
+        await savePlanForTest(projectRoot, "conflict-plan", "# Conflict Plan", {
             status: "ready_for_work",
             classification: "FEATURE",
         });
         await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/conflict-plan.md"]);
         await git(projectRoot, ["commit", "-m", "add conflict plan"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
-        const worktree = await createExecutionWorktree({ projectRoot, planName: "Conflict Plan", worktreeRoot });
+        const worktree = await createExecutionWorktree({
+            allowRegistryMutation: "legacy-test-only",
+            projectRoot,
+            planName: "Conflict Plan",
+            worktreeRoot,
+        });
         await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
         await git(projectRoot, ["add", "conflict.txt"]);
         await git(projectRoot, ["commit", "-m", "target conflict"]);
-        await savePlan(projectRoot, "conflict-plan", "# Conflict Plan", {
+        await savePlanForTest(projectRoot, "conflict-plan", "# Conflict Plan", {
             status: "implemented",
             classification: "FEATURE",
             worktreeId: worktree.id,
@@ -266,6 +299,10 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
                             content: [{ type: "text", text: "The implementation matches the plan." }],
                         }, {
                             role: "toolResult",
+                            toolName: "review_diff",
+                            details: { command: "list", scope: "full", fileCount: 1 },
+                        }, {
+                            role: "toolResult",
                             toolName: "review_complete",
                             details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
@@ -296,6 +333,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
 });
 
 Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick-fix worktrees", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[][]} */
     const preservedPaths = [];
@@ -304,7 +342,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
         triageMeta: { classification: "QUICK_FIX" },
         executionAgent: "engineer",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeBranch: "runwield/worktree/quick-fix-wt1",
         worktreeBaseBranch: "main",
@@ -326,6 +364,10 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
                         content: [{ type: "text", text: "The quick fix is valid." }],
                     }, {
                         role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
                         toolName: "review_complete",
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
@@ -345,6 +387,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
 });
 
 Deno.test("runValidationLoop halts and preserves worktree when post-merge verification fails", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
@@ -354,7 +397,7 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         executionAgent: "frontend-engineer",
         baselineTree: "baseline-tree",
-        projectRoot: "/primary",
+        projectRoot: primaryRoot,
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -376,6 +419,10 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
                     }, {
                         role: "toolResult",
                         toolName: "review_complete",
@@ -414,17 +461,12 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
         }),
     });
 
-    assertEquals(actions, [
-        "merge",
-        "repair:frontend-engineer:merge_verification",
-        "registry:merge_conflict",
-        "event:worktree_merge_failed:Post-merge verification found remaining merge-back work: branch is not contained in target",
-    ]);
+    assertEquals(actions, ["merge"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Dispatching Frontend Engineer for automatic merge repair attempt")
         ),
-        true,
+        false,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) => message.includes("preserving worktree for recovery")),
@@ -436,10 +478,83 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
                 "Could not update worktree registry after merge verification failure: registry unavailable",
             )
         ),
-        true,
+        false,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) => message.includes("execution and validation complete")),
-        false,
+        true,
     );
+});
+
+Deno.test("an unresolved journal blocks validation settlement with an actionable message", async () => {
+    const primaryRoot = await makeValidationProjectRoot();
+    // A prior lifecycle operation on this Plan was interrupted and left durable
+    // evidence behind. Real state, written by the transaction layer itself.
+    const stranded = await runValidationOutcomeTransition({
+        projectRoot: primaryRoot,
+        planName: "p",
+        worktreeId: "wt1",
+        outcome: "merge_failed",
+        settle: async ({ markEffect }) => {
+            await markEffect("worktree_registry_updated", { worktreeId: "wt1", status: "merge_conflict" });
+            throw new Error("interrupted after a durable effect");
+        },
+    });
+    assertEquals(stranded.status, "needs_recovery");
+
+    const { uiAPI, hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
+        baselineTree: "baseline-tree",
+        projectRoot: primaryRoot,
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () =>
+                Promise.resolve({ merged: false, message: "branch is not contained in target" }),
+            runCompletionGatedRepair: () => Promise.resolve(false),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            removeExecutionWorktree: () => Promise.resolve(),
+        }),
+    });
+
+    // The verification failure is real, but RunWield could not record it while the
+    // earlier evidence still stands. It has to say so: the user needs to know the
+    // Plan's status is behind reality, and which command clears the way.
+    const messages = uiAPI.messages.join("\n");
+    assertStringIncludes(messages, "could not record");
+    assertStringIncludes(messages, "the Plan may still show");
+    assertStringIncludes(messages, "plans doctor --repair");
 });

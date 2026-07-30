@@ -1,6 +1,6 @@
 ---
 planId: "f9544cf4-7c0c-4564-8e1c-52ee10369263"
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
 complexity: "HIGH"
 summary: "Refactor the Plan Lifecycle machine so every lifecycle/worktree transition is one transactional operation across Plan files, the worktree registry, Git, and durable recovery evidence."
 affectedPaths:
@@ -68,11 +68,16 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T00:56:36-04:00"
-updatedAt: "2026-07-27T03:57:09.315Z"
-status: "implemented"
+updatedAt: "2026-07-29T05:04:55.566Z"
+status: "user_verified"
 origin: "internal"
-failureReason: "User canceled validation after Semantic Review failure."
-userVerifiedAt: null
+failureReason: "Worktree merge failed: Execution worktree changed after the validated candidate was sealed. Run Workflow Validation again before publishing these files: plans/golden-tui-scenario-testing/01-establish-golden-tui-scenario-harness.md, plans/golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio.md, plans/mid-run-tool-result-auto-compaction.md, plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md, plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md, plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md, plans/personal-remote-workspace-v1/13-execution-segment-handoff-backend.md, plans/release-candidate-and-promotion-flow.md"
+userVerifiedAt: "2026-07-29T05:04:55.391Z"
+userVerificationNote: "Part of it was done in main by sol part of it in the branch by 5.5 merged by claude code a real team effort."
+workRecord:
+    status: "failed"
+    lastAttemptAt: "2026-07-29T05:04:55.463Z"
+    error: "Recorder returned no structured output."
 worktreeId: "a999678c"
 worktreeStatus: "validation_failed"
 ---

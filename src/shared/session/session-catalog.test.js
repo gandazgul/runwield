@@ -293,7 +293,6 @@ Deno.test("readGlobalAgentMd falls through configured global instruction paths",
 
 Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and bundled paths", async () => {
     await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-assemble-prompt-" });
         const projectRoot = await Deno.makeTempDir({ prefix: "runwield-assemble-project-" });
         const projectHarnessPath = join(projectRoot, "RUNWIELD.md");
@@ -302,7 +301,6 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
         const skillPath = join(skillDir, "SKILL.md");
 
         try {
-            Deno.env.set("HOME", tempHome);
             await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
             await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global prompt context");
             await Deno.writeTextFile(projectHarnessPath, "Project prompt context");
@@ -342,6 +340,8 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
                     promptSnippet: "custom snippet",
                 }]),
                 projectRoot,
+                "",
+                { homeDir: tempHome },
             );
 
             assertStringIncludes(prompt, "- read -");
@@ -352,8 +352,6 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
             assertStringIncludes(prompt, `${skillName} - Available for prompt assembly (read: ${skillPath})`);
             assertStringIncludes(prompt, "agent-definitions");
         } finally {
-            if (originalHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", originalHome);
             await Deno.remove(tempHome, { recursive: true }).catch(() => {});
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         }

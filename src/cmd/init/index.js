@@ -22,6 +22,9 @@ import {
     extractBundledSkills as extractBundledSkillsFn,
 } from "../../shared/session/agent-assets.js";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
+import { getSettingsManager as getSettingsManagerFn } from "../../shared/settings.js";
+import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     isInitDone as isInitDoneFn,
@@ -30,6 +33,23 @@ import {
 } from "./init-state.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
+
+/**
+ * @param {{ getRegisteredProviderIds?: () => readonly string[], find?: (provider: string, modelId: string) => unknown }} registry
+ * @param {{ getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }} settingsManager
+ * @returns {boolean}
+ */
+function shouldLaunchTuiForModelSetup(registry, settingsManager) {
+    const configuredProviderIds = registry.getRegisteredProviderIds?.() || [];
+    if (configuredProviderIds.length === 0) return true;
+
+    const defaultModel = settingsManager.getDefaultModel?.()?.trim();
+    if (!defaultModel) return true;
+
+    if (!registry.find) return false;
+    const defaultProvider = settingsManager.getDefaultProvider?.()?.trim() || "";
+    return !registry.find(defaultProvider, defaultModel);
+}
 
 /**
  * @typedef {Object} CommandDependencies
@@ -43,6 +63,9 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
  * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
  * @property {typeof extractBundledSkillsFn} [extractBundledSkills]
  * @property {typeof isEmptyProjectDirectoryFn} [isEmptyProjectDirectory]
+ * @property {typeof getModelRegistryFn} [getModelRegistry]
+ * @property {typeof getSettingsManagerFn} [getSettingsManager]
+ * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof Deno.cwd} [cwd]
  */
 
@@ -65,6 +88,9 @@ export async function runInitCommand(argv, options = {}) {
         ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
         extractBundledSkills: extractBundledSkillsDep,
         isEmptyProjectDirectory: isEmptyProjectDirectoryDep,
+        getModelRegistry: getModelRegistryDep,
+        getSettingsManager: getSettingsManagerDep,
+        startInteractiveSession: startInteractiveSessionDep,
         cwd: cwdDep,
     } = deps;
 
@@ -79,6 +105,9 @@ export async function runInitCommand(argv, options = {}) {
     const ensureBundledAgentDefFile = ensureBundledAgentDefFileDep || ensureBundledAgentDefFileFn;
     const extractBundledSkills = extractBundledSkillsDep || extractBundledSkillsFn;
     const isEmptyProjectDirectory = isEmptyProjectDirectoryDep || isEmptyProjectDirectoryFn;
+    const getModelRegistry = getModelRegistryDep || getModelRegistryFn;
+    const getSettingsManager = getSettingsManagerDep || getSettingsManagerFn;
+    const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
 
     const parsed = parseArgs(argv, {
         boolean: ["help"],
@@ -109,6 +138,11 @@ export async function runInitCommand(argv, options = {}) {
         } else {
             console.warn(msg);
         }
+        return;
+    }
+
+    if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(cwd()))) {
+        await startInteractiveSession(`/${COMMAND_NAMES.INIT}`, { initialAgentName: AGENTS.ROUTER });
         return;
     }
 

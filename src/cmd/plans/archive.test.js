@@ -90,6 +90,50 @@ Deno.test("archive command archives a target with reason and force", async () =>
     assertEquals(logs.some((line) => line.includes("plans/archived/draft.md")), true);
 });
 
+Deno.test("archive command archives by planId through the resolved canonical Plan transition", async () => {
+    /** @type {any} */
+    let transitionCall;
+    const logs = await captureLogs(() =>
+        runPlansArchiveCommand(
+            ["plan-id-1", "--force"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    listPlans: () =>
+                        Promise.resolve([
+                            {
+                                name: "canonical-plan",
+                                path: "/repo/plans/canonical-plan.md",
+                                attrs: { planId: "plan-id-1", status: "draft", classification: "FEATURE" },
+                            },
+                        ]),
+                    loadPlan: (/** @type {string} */ _cwd, /** @type {string} */ name) =>
+                        Promise.resolve(name === "canonical-plan" ? { revision: "rev-canonical" } : null),
+                    archivePlan: (
+                        /** @type {string} */ _cwd,
+                        /** @type {string} */ target,
+                        /** @type {any} */ options,
+                    ) => Promise.resolve({ name: target, relativePath: `plans/archived/${target}.md`, options }),
+                    runArchiveTransition: (/** @type {any} */ transition) => {
+                        transitionCall = transition;
+                        return transition.move().then((/** @type {any} */ value) =>
+                            Promise.resolve({
+                                status: "committed",
+                                operation: `plan_${transition.action}`,
+                                transitionId: "tx-canonical",
+                                value: { value },
+                            })
+                        );
+                    },
+                },
+            }),
+        )
+    );
+
+    assertEquals(transitionCall.planName, "canonical-plan");
+    assertEquals(transitionCall.expectedRevision, "rev-canonical");
+    assertEquals(logs.some((line) => line.includes("plans/archived/canonical-plan.md")), true);
+});
+
 Deno.test("archive command restores an archived target with optional destination", async () => {
     /** @type {any} */
     let call;
@@ -166,6 +210,50 @@ Deno.test("archive command prints no-op bulk archive summary", async () => {
     );
 
     assertEquals(logs, ["[RunWield] No active Plans with status verified found."]);
+});
+
+Deno.test("archive command bulk archive journals each real Plan instead of fake aggregate", async () => {
+    /** @type {string[]} */
+    const transitionPlanNames = [];
+    const logs = await captureLogs(() =>
+        runPlansArchiveCommand(
+            ["--all", "--status", "verified"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    listPlans: () =>
+                        Promise.resolve([
+                            {
+                                name: "parent",
+                                path: "/repo/plans/parent.md",
+                                attrs: { status: "verified", classification: "FEATURE" },
+                            },
+                            {
+                                name: "parent/01-child",
+                                path: "/repo/plans/parent/01-child.md",
+                                attrs: { status: "implemented", classification: "FEATURE", parentPlan: "parent" },
+                            },
+                        ]),
+                    loadPlan: (/** @type {string} */ _cwd, /** @type {string} */ name) =>
+                        Promise.resolve({ revision: `rev-${name}` }),
+                    archivePlan: (/** @type {string} */ _cwd, /** @type {string} */ name) =>
+                        Promise.resolve({ name, relativePath: `plans/archived/${name}.md` }),
+                    runArchiveTransition: (/** @type {any} */ transition) => {
+                        transitionPlanNames.push(transition.planName);
+                        return transition.move().then((/** @type {any} */ value) => ({
+                            status: "committed",
+                            operation: `plan_${transition.action}`,
+                            transitionId: `tx-${transition.planName}`,
+                            value: { value },
+                        }));
+                    },
+                },
+            }),
+        )
+    );
+
+    assertEquals(transitionPlanNames, ["parent", "parent/01-child"]);
+    assertEquals(transitionPlanNames.some((name) => name.startsWith("__bulk_archive:")), false);
+    assertEquals(logs.some((line) => line.includes("Archived 2/2 matching Plan(s); 0 failed")), true);
 });
 
 Deno.test("archive command reports bulk failures and exits non-zero after best-effort successes", async () => {

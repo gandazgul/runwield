@@ -64,7 +64,7 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  * @property {string} recordId
  * @property {"pending_verification"|"draft"|"approved"|"superseded"} status
  * @property {"planned_change"|"feature"|"epic"|"quick_fix"} scope
- * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"} [workKind]
+ * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind]
  * @property {"internal"|"external"} origin
  * @property {"verified"|"closed_without_verification"|"user_verified"|"done_enough"} completionMode
  * @property {string} createdAt

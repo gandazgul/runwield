@@ -18,8 +18,8 @@ function OrphanRepairSection({ screen, url }) {
                 <p className="eyebrow">Repair</p>
                 <h3>Orphaned child Plans ({screen.orphanChildren.length})</h3>
                 <p>
-                    These child planned change Plans reference a parentPlan value that does not resolve to a loaded Epic
-                    and remain visible for repair.
+                    These child Plans reference a parentPlan value that does not resolve to a loaded Epic and remain
+                    visible for repair.
                 </p>
             </header>
             <div className="repair-grid">

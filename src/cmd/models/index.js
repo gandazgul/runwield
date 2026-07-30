@@ -10,6 +10,14 @@ import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 
 /**
+ * @param {any} registry
+ * @returns {Promise<void>}
+ */
+async function hydrateModelRegistry(registry) {
+    if (typeof registry.getRuntime === "function") await registry.getRuntime();
+}
+
+/**
  * @typedef {Object} CommandDependencies
  * @property {typeof getModelRegistryFn} [getModelRegistry]
  * @property {typeof parseProviderModelFn} [parseProviderModel]
@@ -48,6 +56,7 @@ export async function runModelsCommand(argv, options = {}) {
     }
 
     const modelRegistry = getModelRegistry();
+    await hydrateModelRegistry(modelRegistry);
 
     if (!firstArg) {
         if (uiAPI && editor) {

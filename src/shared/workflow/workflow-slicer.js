@@ -7,12 +7,20 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlans } from "../../plan-store.js";
+import {
+    findPlansByParent,
+    loadPlan,
+    parsePlanFrontMatter,
+    saveChildFeaturePlans,
+    withPlanCatalogLock,
+    writePlanMarkdownWithRevision,
+} from "../../plan-store.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
+import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
@@ -118,9 +126,10 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
         Type.Literal("FEATURE"),
         Type.Literal("REFACTOR"),
         Type.Literal("MAINTENANCE"),
+        Type.Literal("DOCUMENTATION"),
     ], {
         description:
-            "Child Work Kind. Set for new child planned changes based on the work's nature; omit only to preserve an existing child draft's Work Kind.",
+            "Child Work Kind. Set for new child planned changes based on the work's nature, including DOCUMENTATION for documentation creation or substantial documentation updates; omit only to preserve an existing child draft's Work Kind.",
     })),
     content: Type.String({
         description: "Complete child planned change plan markdown body without YAML front matter.",
@@ -135,10 +144,13 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
  * @param {string} opts.epicPlanName - Parent Epic plan name.
  * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
  * @param {string} [opts.parentWorktreeBaseBranch]
+ * @param {import('../../plan-store.js').PlanWriteOptions} [opts.writeOptions]
  * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
-export async function materializeSlicerDraft({ cwd, epicPlanName, children, parentWorktreeBaseBranch, __deps }) {
+export async function materializeSlicerDraft(
+    { cwd, epicPlanName, children, parentWorktreeBaseBranch, writeOptions, __deps },
+) {
     const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
     const inheritedChildren = parentWorktreeBaseBranch
         ? children.map((child) =>
@@ -147,7 +159,7 @@ export async function materializeSlicerDraft({ cwd, epicPlanName, children, pare
                 : { ...child, worktreeBaseBranch: parentWorktreeBaseBranch }
         )
         : children;
-    return await saveChildren(cwd, epicPlanName, inheritedChildren);
+    return await saveChildren(cwd, epicPlanName, inheritedChildren, writeOptions);
 }
 
 /**
@@ -158,11 +170,36 @@ function formatToolError(text) {
     return `Slicer tool failed: ${text}`;
 }
 
+/** @param {string} title */
+function slicerChildSlug(title) {
+    return String(title || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+/** @param {number | undefined} order */
+function slicerChildOrderPrefix(order) {
+    if (order === undefined) return "";
+    if (!Number.isInteger(order) || order < 0) {
+        throw new Error(`Child plan sequence must be a non-negative integer: ${order}`);
+    }
+    return `${String(order).padStart(2, "0")}-`;
+}
+
+/** @param {string} epicPlanName @param {import('../../plan-store.js').ChildFeaturePlanDescriptor} child */
+function slicerChildPlanName(epicPlanName, child) {
+    const slug = slicerChildSlug(child.title);
+    if (!slug) throw new Error(`Child plan title must produce a valid plan name: ${child.title}`);
+    return `${epicPlanName}/${slicerChildOrderPrefix(child.order)}${slug}`;
+}
+
 /**
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} [opts.cwd]
- * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, recordPlanEvent?: typeof recordPlanEvent, materializeSlicerDraft?: typeof materializeSlicerDraft }} [opts.__deps]
+ * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, recordPlanEvent?: typeof recordPlanEvent, materializeSlicerDraft?: typeof materializeSlicerDraft, withPlanCatalogLock?: typeof withPlanCatalogLock }} [opts.__deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
@@ -171,6 +208,12 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
     const findChildren = __deps?.findPlansByParent || findPlansByParent;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const materialize = __deps?.materializeSlicerDraft || materializeSlicerDraft;
+    // The real catalog lock and the real decomposition transaction run in tests too.
+    // Disabling them whenever any dependency was injected left the composite Epic
+    // transaction — the thing that keeps a half-written child set from finalizing —
+    // with no coverage at all. A test that needs to observe either one injects it by
+    // name.
+    const lockCatalog = __deps?.withPlanCatalogLock || withPlanCatalogLock;
     return defineTool({
         name: "slicer_finalize_decomposition",
         label: "Finalize Epic Decomposition",
@@ -189,64 +232,208 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                 if (!String(params.confirmation || "").trim()) {
                     throw new Error("Explicit user confirmation is required to finalize decomposition.");
                 }
-                const epic = await loadPlanImpl(cwd, planName);
-                if (!epic) throw new Error(`Epic plan not found: ${planName}`);
-                if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
-                if (epic.attrs.status === "draft") throw new Error("Draft Epics cannot be finalized.");
-                if (
-                    epic.attrs.status !== "approved" && epic.attrs.status !== "ready_for_decomposition" &&
-                    epic.attrs.status !== "ready_for_work"
-                ) {
-                    throw new Error(
-                        `Cannot finalize Epic from status "${epic.attrs.status}". Expected approved or ready_for_decomposition.`,
-                    );
-                }
+                const runFinalizeBody = async () => {
+                    const epic = await loadPlanImpl(cwd, planName);
+                    if (!epic) throw new Error(`Epic plan not found: ${planName}`);
+                    if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
+                    if (epic.attrs.status === "draft") throw new Error("Draft Epics cannot be finalized.");
+                    if (
+                        epic.attrs.status !== "approved" && epic.attrs.status !== "ready_for_decomposition" &&
+                        epic.attrs.status !== "ready_for_work"
+                    ) {
+                        throw new Error(
+                            `Cannot finalize Epic from status "${epic.attrs.status}". Expected approved or ready_for_decomposition.`,
+                        );
+                    }
+                    const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
+                        (params.children || []);
+                    const beforeChildren = await findChildren(cwd, planName);
+                    /** @type {Array<{ name: string, path: string, markdown: string, revision: string }>} */
+                    const beforeSnapshots = [];
+                    for (const child of beforeChildren) {
+                        const loadedChild = await loadPlan(cwd, child.name);
+                        if (
+                            loadedChild?.path && typeof loadedChild.markdown === "string" &&
+                            typeof loadedChild.revision === "string"
+                        ) {
+                            beforeSnapshots.push({
+                                name: child.name,
+                                path: loadedChild.path,
+                                markdown: loadedChild.markdown,
+                                revision: loadedChild.revision,
+                            });
+                        }
+                    }
+                    /** @type {Awaited<ReturnType<typeof materializeSlicerDraft>>} */
+                    const writeResults = [];
+                    /** @type {Map<string, string>} */
+                    const stagedWriteRevisions = new Map();
+                    try {
+                        const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));
+                        return await (async () => {
+                            const lockedEpic = await loadPlanImpl(cwd, planName);
+                            if (!lockedEpic) throw new Error(`Epic plan not found while finalizing: ${planName}`);
+                            if (lockedEpic.revision !== epic.revision) {
+                                throw new Error(`Epic plan changed while finalizing decomposition: ${planName}`);
+                            }
+                            const beforeNames = new Set(beforeSnapshots.map((snapshot) => snapshot.name));
+                            const expectedRevisions = Object.fromEntries(
+                                beforeSnapshots.map((snapshot) => [snapshot.name, snapshot.revision]),
+                            );
+                            for (const snapshot of beforeSnapshots) {
+                                const lockedChild = await loadPlan(cwd, snapshot.name);
+                                if (!lockedChild || lockedChild.revision !== snapshot.revision) {
+                                    throw new Error(
+                                        `Child plan changed while finalizing decomposition: ${snapshot.name}`,
+                                    );
+                                }
+                            }
+                            for (const childName of plannedChildNames) {
+                                if (beforeNames.has(childName)) continue;
+                                const unexpectedChild = await loadPlan(cwd, childName);
+                                if (unexpectedChild) {
+                                    throw new Error(
+                                        `Child plan was created concurrently while finalizing decomposition: ${childName}`,
+                                    );
+                                }
+                            }
+                            /** @param {import('../../plan-store.js').SavedChildFeaturePlan} writeResult */
+                            const captureWrittenChild = async (writeResult) => {
+                                writeResults.push(writeResult);
+                                const staged = await loadPlan(cwd, writeResult.name);
+                                if (staged?.revision) stagedWriteRevisions.set(writeResult.name, staged.revision);
+                            };
+                            if (childDescriptors.length > 0) {
+                                const returnedWriteResults = await materialize({
+                                    cwd,
+                                    epicPlanName: planName,
+                                    children: childDescriptors,
+                                    parentWorktreeBaseBranch: epic.attrs.worktreeBaseBranch || undefined,
+                                    writeOptions: {
+                                        expectedRevisions,
+                                        onChildPlanWritten: captureWrittenChild,
+                                    },
+                                });
+                                for (const writeResult of returnedWriteResults) {
+                                    if (writeResults.some((captured) => captured.name === writeResult.name)) continue;
+                                    writeResults.push(writeResult);
+                                    const staged = await loadPlan(cwd, writeResult.name);
+                                    if (staged?.revision) stagedWriteRevisions.set(writeResult.name, staged.revision);
+                                }
+                            }
 
-                const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
-                    (params.children || []);
-                const writeResults = childDescriptors.length === 0 ? [] : await materialize({
-                    cwd,
-                    epicPlanName: planName,
-                    children: childDescriptors,
-                    parentWorktreeBaseBranch: epic.attrs.worktreeBaseBranch || undefined,
-                });
+                            const children = (await findChildren(cwd, planName)).filter((child) =>
+                                isPlannedChangeClassification(child.attrs.classification)
+                            );
+                            if (children.length === 0) {
+                                throw new Error(
+                                    "At least one child planned change plan is required to finalize decomposition.",
+                                );
+                            }
 
-                const children = (await findChildren(cwd, planName)).filter((child) =>
-                    isPlannedChangeClassification(child.attrs.classification)
-                );
-                if (children.length === 0) {
-                    throw new Error("At least one child planned change plan is required to finalize decomposition.");
-                }
+                            const childNames = children.map((child) => child.name);
+                            const writeSummary = writeResults.length === 0
+                                ? "No child planned change drafts were written."
+                                : writeResults.map((writeResult) => `${writeResult.action}: ${writeResult.name}`).join(
+                                    "\n",
+                                );
 
-                const childNames = children.map((child) => child.name);
-                const writeSummary = writeResults.length === 0
-                    ? "No child planned change drafts were written."
-                    : writeResults.map((result) => `${result.action}: ${result.name}`).join("\n");
+                            if (epic.attrs.status === "ready_for_work") {
+                                return {
+                                    updated: epic.attrs,
+                                    children,
+                                    childNames,
+                                    writeResults,
+                                    writeSummary,
+                                    alreadyReady: true,
+                                };
+                            }
 
-                if (epic.attrs.status === "ready_for_work") {
+                            const updated = await recordEvent({
+                                cwd,
+                                planName,
+                                event: "decomposition_finalized",
+                                currentStatus:
+                                    /** @type {import('./plan-lifecycle.js').PlanStatus} */ (epic.attrs.status),
+                                details: { triageMeta: epic.attrs },
+                            });
+                            return { updated, children, childNames, writeResults, writeSummary, alreadyReady: false };
+                        })();
+                    } catch (error) {
+                        const createdResults = writeResults.filter((writeResult) =>
+                            writeResult.action === "created" && typeof writeResult.path === "string"
+                        );
+                        for (const writeResult of createdResults) {
+                            const stagedRevision = stagedWriteRevisions.get(writeResult.name);
+                            const current = await loadPlan(cwd, writeResult.name).catch(() => null);
+                            if (!stagedRevision || !current || current.revision !== stagedRevision) continue;
+                            await Deno.remove(writeResult.path).catch(() => {});
+                        }
+                        for (const snapshot of beforeSnapshots) {
+                            const stagedRevision = stagedWriteRevisions.get(snapshot.name);
+                            const current = await loadPlan(cwd, snapshot.name).catch(() => null);
+                            if (!current) {
+                                await Deno.writeTextFile(snapshot.path, snapshot.markdown, { createNew: true });
+                                continue;
+                            }
+                            if (!stagedRevision) continue;
+                            await writePlanMarkdownWithRevision(snapshot.path, snapshot.markdown, stagedRevision);
+                        }
+                        throw error;
+                    }
+                };
+                const result = /** @type {any} */ (await (lockCatalog(cwd, async () => {
+                    const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
+                        (params.children || []);
+                    const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));
+                    const existingChildNames = (await findChildren(cwd, planName)).map((child) => child.name);
+                    const transition = await runEpicDecompositionFinalizeTransition({
+                        projectRoot: cwd,
+                        planName,
+                        resources: [
+                            { kind: "catalog" },
+                            { kind: "plan", id: planName },
+                            ...existingChildNames.map((name) => ({
+                                kind: /** @type {const} */ ("plan"),
+                                id: name,
+                            })),
+                            ...plannedChildNames.map((name) => ({ kind: /** @type {const} */ ("plan"), id: name })),
+                        ],
+                        finalize: async () => await runFinalizeBody(),
+                    });
+                    if (transition.status !== "committed") {
+                        throw new Error(
+                            transition.message || `Epic decomposition transaction failed for ${planName}.`,
+                        );
+                    }
+                    return transition.value;
+                })));
+                if (result.alreadyReady) {
                     return {
                         content: [{
                             type: "text",
                             text:
-                                `${writeSummary}\nEpic already ready_for_work with ${children.length} child planned change plan(s).`,
+                                `${result.writeSummary}\nEpic already ready_for_work with ${result.children.length} child planned change plan(s).`,
                         }],
-                        details: { status: "ready_for_work", children: childNames, writeResults, error: "" },
+                        details: {
+                            status: "ready_for_work",
+                            children: result.childNames,
+                            writeResults: result.writeResults,
+                            error: "",
+                        },
                     };
                 }
-
-                const updated = await recordEvent({
-                    cwd,
-                    planName,
-                    event: "decomposition_finalized",
-                    currentStatus: /** @type {import('./plan-lifecycle.js').PlanStatus} */ (epic.attrs.status),
-                    details: { triageMeta: epic.attrs },
-                });
                 return {
                     content: [{
                         type: "text",
-                        text: `${writeSummary}\nFinalized Epic decomposition: ${planName} is ready_for_work.`,
+                        text: `${result.writeSummary}\nFinalized Epic decomposition: ${planName} is ready_for_work.`,
                     }],
-                    details: { status: updated.status, children: childNames, writeResults, error: "" },
+                    details: {
+                        status: result.updated.status,
+                        children: result.childNames,
+                        writeResults: result.writeResults,
+                        error: "",
+                    },
                 };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);

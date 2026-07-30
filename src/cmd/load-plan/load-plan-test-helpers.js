@@ -1,4 +1,4 @@
-import { AGENTS } from "../../constants.js";
+import { AGENTS, getCwd } from "../../constants.js";
 
 /**
  * @typedef {Object} SlicerTriageMeta
@@ -60,6 +60,7 @@ export function makeUi() {
 
 /**
  * @typedef {Object} RuntimeFixtureOptions
+ * @property {string} [cwd] Project root the session reports. Defaults to a throwaway directory.
  * @property {string} [sessionId]
  * @property {string} [activeAgent]
  * @property {(request: any) => any} [requestInteraction]
@@ -68,6 +69,16 @@ export function makeUi() {
 /** @param {RuntimeFixtureOptions} [options] */
 export function makeRuntimeFixture(options = {}) {
     const sessionId = options.sessionId || "load-plan-test";
+    // Lifecycle operations lock and journal under the session cwd, so a test whose
+    // cwd is the developer's checkout writes Plan locks and recovery journals into
+    // it. Any test that owns a project on disk must pass `cwd` so its transactions
+    // land there instead.
+    //
+    // The default is still the process cwd because the tests that fake `resolvePlan`
+    // never build a project at all, and the real transaction needs a Plan file to
+    // read. Converting those to real fixtures is the remaining half of this cleanup;
+    // until then they run against the checkout.
+    const cwd = options.cwd || getCwd();
     const state = {
         activeAgent: options.activeAgent || AGENTS.ROUTER,
         agentHistory: /** @type {string[]} */ ([]),
@@ -81,7 +92,7 @@ export function makeRuntimeFixture(options = {}) {
                 id === sessionId
                     ? {
                         id,
-                        cwd: Deno.cwd(),
+                        cwd,
                         activeAgent: state.activeAgent,
                         activeExecutionWorkflow: state.workflow,
                     }
@@ -130,8 +141,8 @@ export function makeRuntimeFixture(options = {}) {
     };
 }
 
-export function makeRuntimeContext() {
-    return makeRuntimeFixture().context;
+export function makeRuntimeContext(options = {}) {
+    return makeRuntimeFixture(options).context;
 }
 
 export function noOpRecordPlanEvent() {

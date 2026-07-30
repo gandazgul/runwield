@@ -7,30 +7,24 @@ open source yet. Before contributing, read the [license](../LICENSE).
 
 RunWield has strong workflow opinions. Before changing behavior, read the docs that explain the current model:
 
-### Architecture Decision Records
+- [Core Architecture](architecture.md) maps the runtime boundary, workflow orchestration, Plan lifecycle, validation,
+  persistence, and source guide.
+- [Entity Model](entity-model.md) maps durable entities, transient workflow objects, adapter projections, and storage
+  authorities.
+- [Plan Lifecycle](plan-lifecycle.md) explains Plan statuses, events, validation, repair, and delivery.
+- [Settings Reference](settings.md) documents configuration files, precedence, and commands.
+- [Themes](themes.md) and the [Design System](design-system.md) cover user-facing UI conventions.
 
-- [ADR 000: Initial Tech Stack](adr/000-initial-tech-stack.md)
-- [ADR 001: Codebase Optimization Types and Handlers](adr/001-codebase-optimization-types-and-handlers.md)
-- [ADR 002: Two-Tier Tool System](adr/002-two-tier-tool-system.md)
-- [ADR 003: Plan Recovery Baseline Tree](adr/003-plan-recovery-baseline-tree.md)
-- [ADR 004: Plan Lifecycle Event Module](adr/004-plan-lifecycle-event-module.md)
-- [ADR 005: Concurrent Worktree Isolation](adr/005-concurrent-worktree-isolation.md)
+Product and architecture history:
 
-### PRDs
-
-- [Collaborative Planning PRD](prd/collaborative-planning-PRD.md)
-- [Project Decomposition PRD](prd/project-decomposition-PRD.md)
-- [Theme Extensions PRD](prd/theme-extensions.md)
-
-### Related reference docs
-
-- [Plan Lifecycle](plan-lifecycle.md)
-- [Settings Reference](settings.md)
-- [Themes](themes.md)
+- [ADRs](adr/) hold Architecture Decision Records. Read the relevant ADRs for any architectural seam you touch.
+- [PRDs](prd/) hold product requirements and living specifications. Start with
+  [RunWield Core PRD](prd/runwield-core-prd.md) when behavior affects routing, sessions, plans, validation, Workspace,
+  or core agent policy.
 
 ## Development setup
 
-Contributors use Deno.
+Contributors use Deno. Common commands:
 
 ```bash
 deno task cli "your request"
@@ -40,48 +34,53 @@ deno task ci
 deno task compile
 ```
 
-`deno task ci` runs check, lint, format check, and tests. The ordinary test task includes the Golden TUI Scenario
-portfolio. You can run that portfolio directly with `deno task test:golden-tui`; `deno task test:golden-tui:extensive`
-is the explicit release-tier alias for the same measured suite while it remains fast enough for normal CI.
+`deno task ci` runs submodule checks, Deno checks, Workspace checks, lint, language-policy checks, seam checks, and
+tests. Always use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run
+`deno test` directly, because the test runner sandboxes `HOME` and process-global state per file.
 
-Development and interactive workflow testing use these binaries in `PATH`:
+The ordinary test task includes the Golden TUI Scenario portfolio. You can run that portfolio directly with
+`deno task test:golden-tui`; `deno task test:golden-tui:extensive` is the explicit release-tier alias for the same
+measured suite while it remains fast enough for normal CI.
+
+Interactive RunWield sessions expect these helper binaries in `PATH`:
 
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for memory-backed agent behavior.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code intelligence.
-- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. RunWield runtime treats Snip as
-  optional and falls back to plain commands when it is not installed. Repository validation tasks run plain Deno by
-  default; set `WLD_VALIDATION_WITH_SNIP=1` to opt into Snip-wrapped validation locally. RunWield ships bundled filters
-  for compact `deno check`, `deno fmt`, `deno lint`, and `deno test` output.
+- [`agent-browser`](https://github.com/vercel-labs/agent-browser) for browser-driven UI/UX verification.
+- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional at runtime and
+  fail-open, but local validation tasks may invoke it when installed by the standard setup path.
 
-  **How RunWield integrates Snip at runtime:**
+The installer is the normal recovery path for missing helper binaries. RunWield also ships bundled Snip filters for Deno
+validation output; install or remove user-level copies with:
 
-  During session setup (`src/shared/session/session.js`), RunWield checks whether `snip` is on `PATH`. If found, it
-  registers the `snipExtension` from `src/extensions/snip/index.js` as a `tool_call` event handler.
+```bash
+wld snip-filters install
+wld snip-filters cleanup
+```
 
-  The extension listens for agent-initiated `bash` tool calls and prefixes simple eligible commands with `snip run --`.
-  The bundled Deno filters are installed into Snip's default user filter directory by the installer or by
-  `wld snip-filters install`, so RunWield does not maintain a separate Snip config. The extension skips non-`bash`
-  tools, empty commands, commands already prefixed with `snip`, and shell builtins such as `cd`. If Snip is missing or
-  setup fails for any reason, the original command runs unchanged (fail-open). Manual `!`/`!!` shell shortcuts are never
-  rewritten — the hook only intercepts programmatic agent bash tool calls.
+## Codebase guide
 
-  To make the bundled Deno filters available to plain Snip commands, run `wld snip-filters install`. This copies
-  RunWield-managed filters into `~/.config/snip/filters/` without overwriting non-RunWield files. Remove those
-  user-level copies with `wld snip-filters cleanup`.
+Use this as an orientation map, not a directory inventory:
 
-  **Why RunWield uses Snip instead of RTK:**
-
-  RunWield switched from RTK to Snip because runtime command optimization must preserve agent trust in command output.
-  RTK's caching and aggressive truncation made some workflows worse: cached `git` output can hide fresh repository
-  state, and truncated test or CI output can make the model rerun commands or search for alternate evidence, spending
-  more tokens than the compression saved.
-
-  RunWield-owned Snip filters should optimize for decision-quality output, not maximum compression. For stateful
-  commands like `git status`, `git diff`, and `git log`, freshness is more important than savings. For validation
-  commands, success output should collapse to a clear pass summary; failure output should keep the actionable diagnostic
-  detail rather than leaving the agent to guess what failed. Snip is a better fit because it is an extensible filter
-  engine: command behavior lives in declarative YAML filters that can be added, tested, overridden, and reviewed without
-  growing special cases in RunWield core.
+- `src/cli.js` is the executable entry point. It stays thin and delegates to command handlers registered from
+  `src/cmd/`.
+- `src/cmd/` owns CLI command boundaries such as `router`, `load-plan`, `plans`, `workspace`, `init`, settings, auth,
+  and install/update helpers.
+- `src/shared/session/` is the live Session runtime center of gravity: hosted sessions, agent construction, transcript
+  segments, adapter-neutral events, and continuation control.
+- `src/shared/workflow/` owns routing decisions, Plan approval/execution orchestration, lifecycle transitions,
+  mechanical and semantic validation, repairs, and Epic/FEATURE flow.
+- `src/shared/` also contains cross-cutting project state, settings, model/resource handling, collaboration, worktrees,
+  work records, and runtime preflight helpers.
+- `src/agent-definitions/`, `src/prompt-templates/`, and `src/skills/` are the bundled agent, slash-prompt, and skill
+  layers. Project `.wld/` overrides home `~/.wld/`, which overrides these bundled defaults.
+- `src/extensions/` contains runtime integrations for Mnemosyne, Cymbal, and Snip. Keep integration-specific tools,
+  hooks, and tests isolated there when practical.
+- `src/tools/` contains RunWield-specific agent tools that are not better owned by an extension package.
+- `src/ui/tui/` is the terminal adapter. `src/ui/workspace/`, `src/review-workspace-server.js`, and `src/ui/review/` are
+  the browser Workspace and review surfaces. Shared visual language belongs in `src/ui/design-system/` and
+  `src/ui/theme/`.
+- `plans/` stores durable Plan Markdown. `docs/` stores user, contributor, architecture, ADR, PRD, and product docs.
 
 ## Golden TUI Scenarios
 
@@ -122,8 +121,7 @@ startup/raw-terminal layer rather than replacing these deterministic scenarios.
 
 ## Bundled runtime extensions
 
-Runtime integrations live under `src/extensions/`. They are loaded as Pi extension factories during Agent Session setup
-in `src/shared/session/session.js`.
+Runtime integrations live under `src/extensions/`. They are loaded as Pi extension factories during Agent Session setup.
 
 - `src/extensions/mnemosyne/` adds memory recall, storage, and deletion tools backed by Mnemosyne.
 - `src/extensions/cymbal/` adds code search, symbol lookup, impact analysis, and tracing tools backed by Cymbal.
@@ -135,32 +133,23 @@ rewriting, and focused tests.
 
 ## Code style
 
-- Write pure JavaScript (`.js`). Do not add TypeScript files.
-- Use JSDoc for types. Do not use TypeScript syntax in executable code.
-- Keep CLI entry points thin. Command behavior belongs under `src/cmd/<command>/` and shared behavior belongs under
-  `src/shared/`.
+- New production source files should be TypeScript (`.ts` or `.tsx` as appropriate). Existing JavaScript with JSDoc is
+  still valid; do not force-convert unrelated files, but migrate JS files when you are already touching them for source
+  changes and the migration is reasonably bounded.
+- Keep Deno-native execution. Use real file extensions in imports, do not add a `tsc` emit pipeline for runtime code,
+  and let `deno check`/CI be the type gate.
+- Do not use `any`, `unknown`, or bare `object` in TypeScript types. Define named object shapes instead of inline
+  complex types.
+- In remaining JavaScript, use JSDoc for types. Prefer `@typedef` for object shapes and type function parameters in the
+  `@param` block rather than adding casts or body-local `@type` declarations.
+- Keep CLI entry points thin. Command behavior belongs under `src/cmd/<command>/`; shared behavior belongs under
+  `src/shared/` or the narrower center of gravity that owns it.
+- Resolve home and cwd through `getHomeDir()` and `getCwd()` from `src/constants.js` in `src/`. Do not read
+  `Deno.env.get("HOME")` or `Deno.cwd()` directly in source, and do not cache process-global state at module scope.
+- Wrap tests that mutate `HOME` or the working directory in `withProcessGlobalTestLock` from
+  `src/testing/process-global-lock.js`.
 - Preserve the layered customization model: project `.wld/` overrides home `~/.wld/`, which overrides bundled defaults.
-- Keep docs and plans as Markdown.
-
-## Project structure
-
-```text
-src/
-  agent-definitions/   bundled agent markdown definitions
-  cmd/                 command handlers and registry
-  extensions/          bundled runtime integrations for Mnemosyne, Cymbal, and Snip
-  prompt-templates/    bundled slash-command prompt templates
-  shared/
-    interactive/       TUI chat loop, slash dispatch, keybindings
-    models/            model registry and validation
-    session/           agent/session loading and execution
-    ui/                TUI components and theme glue
-    workflow/          triage dispatch, plan execution, validation
-  skills/              bundled skill definitions
-  tools/               RunWield-specific agent tools
-plans/                 persisted plans
-docs/                  ADRs, PRDs, and feature docs
-```
+- Keep docs, plans, ADRs, PRDs, and Work Records as Markdown.
 
 ## Pull request checklist
 
@@ -168,7 +157,7 @@ docs/                  ADRs, PRDs, and feature docs
 2. Make focused changes.
 3. Update docs when behavior changes.
 4. Run `deno task ci` for code changes.
-5. For docs-only or config-only changes, run `deno fmt`.
+5. For docs-only or config-only changes, run `deno fmt` at minimum.
 6. Open a PR with:
    - a summary,
    - the affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `PLANNED_CHANGE`, or
