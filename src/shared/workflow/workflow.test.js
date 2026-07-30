@@ -111,7 +111,7 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
     const prepareCalls = [];
     const result = await startActiveExecutionWorkflow({
         planName: "targeted-plan",
-        triageMeta: { worktreeBaseBranch: " feature-base " },
+        triageMeta: { planId: "plan-under-test", worktreeBaseBranch: " feature-base " },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -155,7 +155,7 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
     const hostedSession = makeHostedSession("baseline-after-plan-restore");
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: {},
+        triageMeta: { planId: "plan-under-test" },
         executionAgent: "engineer",
         executionMode: "worktree",
         baselineTree: "stale-tree-without-plan",
@@ -172,7 +172,7 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
 
     const result = await startActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: {},
+        triageMeta: { planId: "plan-under-test" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -214,7 +214,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
         () =>
             startActiveExecutionWorkflow({
                 planName: "p",
-                triageMeta: { worktreeId: "wt-recorded" },
+                triageMeta: { planId: "plan-under-test", worktreeId: "wt-recorded" },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -258,7 +258,7 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
             () =>
                 startActiveExecutionWorkflow({
                     planName: "p",
-                    triageMeta: { worktreeId: "wt-reuse" },
+                    triageMeta: { planId: "plan-under-test", worktreeId: "wt-reuse" },
                     currentStatus: "ready_for_work",
                     hostedSession,
                     __deps: {
@@ -276,9 +276,9 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
                         loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("p"),
                         ensureExecutionPlanFile: () =>
                             Promise.resolve({
-                                kind: "identity_conflict",
+                                kind: "malformed",
                                 relativePath: "plans/p.md",
-                                reason: "conflicting Plan ID",
+                                reason: "malformed Front Matter",
                             }),
                         recordPlanEvent: () => {
                             eventRecorded = true;
@@ -306,7 +306,7 @@ Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence an
             () =>
                 startActiveExecutionWorkflow({
                     planName: "p",
-                    triageMeta: {},
+                    triageMeta: { planId: "plan-under-test" },
                     currentStatus: "ready_for_work",
                     hostedSession,
                     __deps: {
@@ -352,7 +352,7 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
     let reuseLookups = 0;
     await startActiveExecutionWorkflow({
         planName: "untargeted-plan",
-        triageMeta: { worktreeStatus: "completed" },
+        triageMeta: { planId: "plan-under-test", worktreeStatus: "completed" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -401,7 +401,7 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
     let createCalls = 0;
     const result = await startActiveExecutionWorkflow({
         planName: "untargeted-plan",
-        triageMeta: { worktreeId: "wt-main" },
+        triageMeta: { planId: "plan-under-test", worktreeId: "wt-main" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -437,7 +437,7 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
     assertEquals(reuseCalls, [{
         projectRoot,
         planName: "untargeted-plan",
-        planId: "test-plan:untargeted-plan",
+        planId: "plan-under-test",
         worktreeId: "wt-main",
     }]);
     assertEquals(createCalls, 0);
@@ -456,7 +456,7 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
         () =>
             startActiveExecutionWorkflow({
                 planName: "targeted-plan",
-                triageMeta: { worktreeId: "wt3", worktreeBaseBranch: "feature-base" },
+                triageMeta: { planId: "plan-under-test", worktreeId: "wt3", worktreeBaseBranch: "feature-base" },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -494,7 +494,7 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
     let prepareCalls = 0;
     const result = await startActiveExecutionWorkflow({
         planName: "targeted-plan",
-        triageMeta: { worktreeId: "wt4", worktreeBaseBranch: "origin/feature-base" },
+        triageMeta: { planId: "plan-under-test", worktreeId: "wt4", worktreeBaseBranch: "origin/feature-base" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -534,7 +534,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
     const hostedSession = makeHostedSession("unknown-active-target-workflow");
     hostedSession.setActiveExecutionWorkflow({
         planName: "targeted-plan",
-        triageMeta: {},
+        triageMeta: { planId: "plan-under-test" },
         executionAgent: "engineer",
         baselineTree: "tree4",
         projectRoot: "/repo",
@@ -548,7 +548,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
         () =>
             startActiveExecutionWorkflow({
                 planName: "targeted-plan",
-                triageMeta: { worktreeBaseBranch: "feature-base" },
+                triageMeta: { planId: "plan-under-test", worktreeBaseBranch: "feature-base" },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -581,7 +581,7 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
     const events = [];
     const result = await startActiveExecutionWorkflow({
         planName: "non-git-plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -618,7 +618,7 @@ Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consen
         () =>
             startActiveExecutionWorkflow({
                 planName: "non-git-plan",
-                triageMeta: { classification: "FEATURE" },
+                triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -640,7 +640,11 @@ Deno.test("startActiveExecutionWorkflow does not activate Frontend Engineer befo
         () =>
             startActiveExecutionWorkflow({
                 planName: "visual-plan",
-                triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+                triageMeta: {
+                    planId: "plan-under-test",
+                    classification: "FEATURE",
+                    executionAgent: "frontend-engineer",
+                },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -1399,13 +1403,14 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
     let engineerRequest = "";
     const result = await executePlan({
         planName: "visual-feature",
-        triageMeta: { classification: "FEATURE", executionAgent: "engineer" },
+        triageMeta: { planId: "plan-under-test", classification: "FEATURE", executionAgent: "engineer" },
         hostedSession: makeHostedSession("frontend-execution"),
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
                         attrs: {
+                            planId: "plan-under-test",
                             status: "ready_for_work",
                             routingIntent: "PLANNED_CHANGE",
                             classification: "PLANNED_CHANGE",
@@ -1461,13 +1466,14 @@ Deno.test("executePlan uses the Plan Pair recommendation and injects one workflo
 
     const result = await executePlan({
         planName: "visual-feature",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
         hostedSession,
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
                         attrs: {
+                            planId: "plan-under-test",
                             status: "ready_for_work",
                             classification: "FEATURE",
                             executionAgent: "frontend-engineer",
@@ -1806,13 +1812,13 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
 
     const result = await executePlan({
         planName: "feature-plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
         hostedSession,
         __deps: /** @type {any} */ ({
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        attrs: { planId: "plan-under-test", status: "ready_for_work", classification: "FEATURE" },
                         body: "## Feature",
                         markdown: "## Feature",
                     }),
@@ -2535,7 +2541,7 @@ Deno.test("startActiveExecutionWorkflow records attempt timestamp only after exe
     const hostedSession = makeHostedSession("attempt-clock-workflow");
     const result = await startActiveExecutionWorkflow({
         planName: "clock-plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {

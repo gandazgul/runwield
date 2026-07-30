@@ -75,19 +75,29 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
     assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.");
 });
 
-Deno.test("prepareExecutionPlanFile blocks conflicting Plan IDs and symlinked parents without overwriting", async () => {
+Deno.test("prepareExecutionPlanFile heals a diverged Plan ID toward canonical and blocks symlinked parents", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
     await Deno.writeTextFile(
         join(projectRoot, "plans", "demo.md"),
         injectFrontMatter("# Canonical", { planId: "plan-1" }),
     );
-    const conflicting = injectFrontMatter("# Conflict", { planId: "plan-2" });
-    await Deno.writeTextFile(join(executionRoot, "plans", "demo.md"), conflicting);
+    // The plan name is the store key, so an execution copy at the same path is this
+    // Plan with a twice-minted id, not a different Plan. Blocking here stranded the
+    // Plan over Front Matter RunWield owns, so the canonical id wins.
+    const diverged = injectFrontMatter("# Worktree body\n\nUser-owned prose survives.", { planId: "plan-2" });
+    await Deno.writeTextFile(join(executionRoot, "plans", "demo.md"), diverged);
 
-    const conflict = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
-    assertEquals(conflict.kind, "identity_conflict");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "plans", "demo.md")), conflicting);
+    const healed = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+    assertEquals(healed.kind, "reconciled");
+    assertEquals(healed.healedPlanId, { from: "plan-2", to: "plan-1" });
+    const afterHeal = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "plans", "demo.md")));
+    assertEquals(afterHeal.attrs.planId, "plan-1");
+    assertEquals(afterHeal.body, "# Worktree body\n\nUser-owned prose survives.");
+
+    // Healing is one-directional: the canonical Plan is never rewritten from a copy.
+    const canonicalAfter = parsePlanFrontMatter(await Deno.readTextFile(join(projectRoot, "plans", "demo.md")));
+    assertEquals(canonicalAfter.attrs.planId, "plan-1");
 
     const linkedRoot = await Deno.makeTempDir();
     await Deno.remove(join(executionRoot, "plans", "demo.md"));

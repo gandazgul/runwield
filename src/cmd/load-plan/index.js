@@ -1171,6 +1171,9 @@ async function validateCompletedExecution(
             "RunWield",
         );
     }
+    for (const notice of resolution.selfHealNotices || []) {
+        if (uiAPI) uiAPI.appendSystemMessage(notice, false, "RunWield");
+    }
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
     session.setActiveExecutionWorkflow(workflow);
@@ -1749,6 +1752,9 @@ async function rehydrateActiveRecoveryWorkflow(
                 false,
                 "RunWield",
             );
+        }
+        for (const notice of resolution.selfHealNotices || []) {
+            if (uiAPI) uiAPI.appendSystemMessage(notice, false, "RunWield");
         }
         resolvedContext = resolution.context;
     }
@@ -2626,6 +2632,9 @@ async function handlePlanRecovery({
                     false,
                     "RunWield",
                 );
+            }
+            for (const notice of manualResolution.selfHealNotices || []) {
+                uiAPI.appendSystemMessage(notice, false, "RunWield");
             }
             const manualContext = manualResolution.context;
             if (manualContext.executionMode !== "worktree") {

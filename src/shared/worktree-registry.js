@@ -479,6 +479,55 @@ export async function reconcileEntryIdentity(projectRoot, id, identity) {
 }
 
 /**
+ * @typedef {Object} PlanIdAdoption
+ * @property {boolean} rebound
+ * @property {string} [from] - The superseded planId, when there was one.
+ * @property {string} [reason] - Why the rebind was declined.
+ */
+
+/**
+ * Rebind an entry's `planId` to the canonical Plan's id.
+ *
+ * `reconcileEntryIdentity` refuses any rebind, which is the right guard against a
+ * different Plan claiming an existing attempt. It is the wrong answer when the id
+ * itself was minted twice for one Plan: the entry then carries a value that names
+ * nothing, and lookups by `planId` miss the very attempt they are recovering.
+ *
+ * The rebind is only allowed with the pairing proven by `planName`, which is the
+ * Plan store key. A caller must also have proven that this entry is the attempt the
+ * canonical Plan names, exactly as for `reconcileEntryIdentity`.
+ *
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {{ planName: string, planId: string }} identity
+ * @returns {Promise<PlanIdAdoption>}
+ */
+export async function adoptCanonicalPlanId(projectRoot, id, identity) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const index = entries.findIndex((entry) => entry.id === id);
+        if (index === -1) return { rebound: false, reason: `Worktree registry entry not found: ${id}` };
+        const entry = entries[index];
+        if (entry.planId === identity.planId) return { rebound: false };
+        if (entry.planName && entry.planName !== identity.planName) {
+            return {
+                rebound: false,
+                reason: `Worktree registry entry ${id} belongs to ${entry.planName}, not ${identity.planName}.`,
+            };
+        }
+        const from = entry.planId;
+        entries[index] = {
+            ...entry,
+            planName: identity.planName,
+            planId: identity.planId,
+            updatedAt: new Date().toISOString(),
+        };
+        await writeRegistry(projectRoot, entries);
+        return { rebound: true, ...(from ? { from } : {}) };
+    });
+}
+
+/**
  * @param {string} projectRoot
  * @param {string} id
  */

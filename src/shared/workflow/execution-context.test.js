@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
-import { addEntry } from "../worktree-registry.js";
+import { addEntry, findById } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
@@ -314,7 +314,7 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
     }
 });
 
-Deno.test("resolveValidationExecutionContext blocks worktree Plan ID mismatch", async () => {
+Deno.test("resolveValidationExecutionContext heals a diverged worktree Plan ID instead of stranding the Plan", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
@@ -353,9 +353,24 @@ Deno.test("resolveValidationExecutionContext blocks worktree Plan ID mismatch", 
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
 
+        // Three ids for one Plan: the canonical file, the worktree copy, and the
+        // registry entry. Only the canonical one is authoritative, and none of the
+        // divergence is the user's doing, so validation heals and proceeds.
         const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
-        assertEquals(result.kind, "blocked");
-        if (result.kind === "blocked") assertEquals(result.reason, "execution_plan_id_mismatch");
+        assertEquals(result.kind, "ok");
+        if (result.kind !== "ok") return;
+        const notices = result.selfHealNotices || [];
+        assertEquals(notices.length, 2, "both the worktree copy and the registry entry are reported");
+        for (const notice of notices) assertStringIncludes(notice, "canonical-plan-id");
+
+        // All three converge on the canonical id, so nothing is left to strand a
+        // later recovery that looks the attempt up by planId.
+        const healed = await loadPlan(worktreePath, "p");
+        assertEquals(healed.attrs.planId, "canonical-plan-id");
+        const entry = await findById(projectRoot, "wt-1");
+        assertEquals(entry?.planId, "canonical-plan-id");
+        const canonical = await loadPlan(projectRoot, "p");
+        assertEquals(canonical.attrs.planId, "canonical-plan-id", "the canonical Plan is never rewritten from a copy");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});

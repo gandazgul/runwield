@@ -14,10 +14,11 @@ import {
 
 /**
  * @typedef {Object} ExecutionPlanFileResult
- * @property {"present"|"restored"|"reconciled"|"absent"|"unreadable"|"malformed"|"symlink"|"non_regular"|"identity_conflict"|"restore_failed"} kind
+ * @property {"present"|"restored"|"reconciled"|"absent"|"unreadable"|"malformed"|"symlink"|"non_regular"|"restore_failed"} kind
  * @property {string} relativePath
  * @property {string} [path]
  * @property {string} [reason]
+ * @property {{ from: string|undefined, to: string }} [healedPlanId] - Set when a diverged execution-copy Plan ID was reconciled to the canonical one.
  */
 
 /** @param {unknown} value */
@@ -50,6 +51,16 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
     }
     if (executionAttrs.status !== canonicalAttrs.status) {
         overrides.status = canonicalAttrs.status;
+    }
+    // A diverged planId is reconciled toward the canonical Plan rather than
+    // blocking execution. The execution copy is derived from the canonical Plan by
+    // definition — the plan name is the store key, so a copy at the same path in a
+    // worktree RunWield created for this Plan is this Plan, and a divergence means
+    // identity was minted twice, never that two different Plans met. Healing is
+    // one-directional (canonical wins, never the worktree) and loses nothing: the
+    // superseded id stays in the worktree branch's Git history.
+    if (hasPlanIdConflict(canonicalAttrs.planId, executionAttrs.planId)) {
+        overrides.planId = canonicalAttrs.planId;
     }
     return overrides;
 }
@@ -329,15 +340,6 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
         }
         try {
             const { attrs } = parsePlanFrontMatter(markdown);
-            if (hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)) {
-                return {
-                    kind: "identity_conflict",
-                    path: targetPath,
-                    relativePath,
-                    reason:
-                        `Execution Plan path ${relativePath} has a conflicting Plan ID. Existing evidence was preserved.`,
-                };
-            }
             const overrides = executionMetadataOverrides(canonicalSource.attrs, attrs);
             if (Object.keys(overrides).length > 0) {
                 const reconciledMarkdown = mergeFrontMatterText(markdown, overrides);
@@ -385,7 +387,12 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
                             `Could not verify synchronized execution Plan metadata at ${relativePath}. Existing evidence was preserved.`,
                     };
                 }
-                return { kind: "reconciled", path: targetPath, relativePath };
+                return {
+                    kind: "reconciled",
+                    path: targetPath,
+                    relativePath,
+                    ...(overrides.planId ? { healedPlanId: { from: attrs.planId, to: overrides.planId } } : {}),
+                };
             }
             return { kind: "present", path: targetPath, relativePath };
         } catch (error) {

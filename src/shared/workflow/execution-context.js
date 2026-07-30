@@ -5,6 +5,7 @@
 import { isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import {
+    adoptCanonicalPlanId,
     findById as findWorktreeRegistryEntryById,
     findByPlanId as findWorktreeRegistryEntryByPlanId,
     findByPlanName as findWorktreeRegistryEntryByPlanName,
@@ -53,6 +54,7 @@ const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "v
  * @property {ResolvedValidationContext} context
  * @property {boolean} [persistedLegacyExecutionMode]
  * @property {{ relativePath: string }} [restoredPlanFile]
+ * @property {string[]} [selfHealNotices] - Recoveries applied while resolving; surfaced to the user as info, not errors.
  */
 
 /** @typedef {ValidationContextResolutionOk|BlockedValidationContext} ValidationContextResolution */
@@ -338,8 +340,18 @@ export async function resolveValidationExecutionContext({
     if (candidate.planName && !planIdentityMatches(candidate.planName, planName)) {
         return blocked("plan_name_mismatch", `Execution context belongs to ${candidate.planName}, not ${planName}.`);
     }
+    /** @type {string[]} */
+    const selfHealNotices = [];
     if (attrs.planId && candidate.triageMeta?.planId && attrs.planId !== candidate.triageMeta.planId) {
-        return blocked("plan_id_mismatch", `Execution context Plan ID does not match ${planName}.`);
+        // The Plan name already matched above, which binds this context to this Plan.
+        // A differing id therefore means the id was minted twice, not that two
+        // different Plans met, so the canonical Plan's id wins and validation
+        // continues. `attrs` is what flows downstream, and the session-scoped triage
+        // copy is not durable state, so nothing is written and nothing is lost.
+        // Blocking here stranded Plans at "implemented" over metadata RunWield owns.
+        selfHealNotices.push(
+            `Reconciled a stale in-session Plan ID for ${planName} to the canonical ${attrs.planId}. Continuing Workflow Validation.`,
+        );
     }
     if (candidateWorktreePath && recoveredRegistryEntry?.path) {
         const canonicalCandidatePath = await realPathFn(candidateWorktreePath);
@@ -376,6 +388,26 @@ export async function resolveValidationExecutionContext({
     }
     if (candidate.worktreeBaseBranch && registryEntry.baseBranch !== candidate.worktreeBaseBranch) {
         return blocked("registry_identity_mismatch", `Execution target branch does not match the worktree registry.`);
+    }
+    // Every pairing check above has passed, so this entry is the attempt the
+    // canonical Plan names. A registry planId that disagrees is therefore a
+    // twice-minted id, and leaving it in place would make recovery-by-planId miss
+    // this attempt later.
+    if (asString(attrs.planId) && registryEntry.planId !== attrs.planId) {
+        const adopted = await adoptCanonicalPlanId(projectRoot, worktreeId, {
+            planName,
+            planId: String(attrs.planId),
+        }).catch((/** @type {unknown} */ error) => /** @type {import('../worktree-registry.js').PlanIdAdoption} */ ({
+            rebound: false,
+            reason: error instanceof Error ? error.message : String(error),
+        }));
+        if (adopted.rebound) {
+            selfHealNotices.push(
+                `Reconciled the worktree registry Plan ID for ${planName} to the canonical ${attrs.planId} (was ${
+                    adopted.from ?? "unset"
+                }).`,
+            );
+        }
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
     if (registryEntry.executionBaselineTree && baselineTree && registryEntry.executionBaselineTree !== baselineTree) {
@@ -462,15 +494,19 @@ export async function resolveValidationExecutionContext({
     // verified the bytes on disk. Rejecting it here strands validation at
     // "implemented" even though the execution copy is exactly what was approved.
     if (planFile.kind !== "present" && planFile.kind !== "restored" && planFile.kind !== "reconciled") {
-        const reason = planFile.kind === "identity_conflict"
-            ? "execution_plan_id_mismatch"
-            : `execution_plan_${planFile.kind}`;
         return blocked(
-            reason,
+            `execution_plan_${planFile.kind}`,
             `Execution worktree Plan file ${planFile.relativePath} is not usable: ${planFile.reason || planFile.kind}`,
         );
     }
     const restoredPlanFile = planFile.kind === "restored" ? { relativePath: planFile.relativePath } : undefined;
+    if (planFile.healedPlanId) {
+        selfHealNotices.push(
+            `Reconciled the execution worktree Plan ID for ${planName} to the canonical ${planFile.healedPlanId.to} (was ${
+                planFile.healedPlanId.from ?? "unset"
+            }). The superseded value remains in the worktree branch history. Continuing Workflow Validation.`,
+        );
+    }
 
     let persistedLegacyExecutionMode = false;
     if (plan && !attrs.worktreeId && worktreeId) {
@@ -504,5 +540,6 @@ export async function resolveValidationExecutionContext({
         },
         persistedLegacyExecutionMode,
         restoredPlanFile,
+        ...(selfHealNotices.length > 0 ? { selfHealNotices } : {}),
     };
 }

@@ -812,16 +812,9 @@ export async function executePlan({
         `✅ Plan implementation complete and checkpointed: ${planName}`,
         { header: "RunWield" },
     );
-
-    emitSystemStatus(
-        hostedSession,
-        `✅ Plan implementation complete and checkpointed: ${planName}`,
-        { header: "RunWield" },
-    );
     return {
         repairRequired: false,
         executionComplete: true,
-        ...(executionContext ? { executionContext } : {}),
         ...(executionContext ? { executionContext } : {}),
         ...(result.completionReport ? { completionReport: result.completionReport } : {}),
     };
@@ -1143,19 +1136,16 @@ export async function startActiveExecutionWorkflow(
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
     const now = __deps?.now || (() => Date.now());
-    // `__deps` is an injected-seam bag, and `executePlan` defaults it to `{}` for
-    // production callers. An empty object is truthy, so testing `__deps` itself
-    // routed every real run through the synthetic test identity and left
-    // ensurePlanIdentity() unreachable: Plans without a planId were handed
-    // `test-plan:<name>` as their durable id, and the backfill they still needed
-    // happened later inside the execution transaction — where it rewrote Front
-    // Matter the transaction had already snapshotted and aborted the run. Only an
-    // actually-injected seam may stand in for real Plan identity.
-    const hasInjectedDeps = Boolean(__deps && Object.keys(__deps).length > 0);
+    // Plan identity is durable state, so it is never sourced from an injected seam.
+    // This used to fall back to a synthetic `test-plan:<name>` id whenever `__deps`
+    // was non-empty, which any production caller passing a single real dep tripped:
+    // the Plan got `test-plan:<name>` as its durable id, ensurePlanIdentity() never
+    // ran, and the backfill the Plan still needed happened later inside the
+    // execution transaction — rewriting Front Matter the transaction had already
+    // snapshotted, then aborting the run. Tests that need a fixed id pass
+    // `triageMeta.planId`; everything else gets the real one.
     const planIdentity = typeof triageMeta.planId === "string" && triageMeta.planId
         ? { id: triageMeta.planId }
-        : hasInjectedDeps
-        ? { id: `test-plan:${planName}` }
         : await ensurePlanIdentity(projectRoot, planName);
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;
     const effectiveTriageMeta = { ...triageMeta, planId: stablePlanId };

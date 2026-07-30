@@ -1757,6 +1757,9 @@ export async function runValidationLoop({
             progress,
         );
     }
+    for (const notice of resolution.selfHealNotices || []) {
+        emitRunWieldSystemStatus(hostedSession, notice, false, progress);
+    }
     const resolvedExecutionContext = resolution.context;
     const baselineTree = resolvedExecutionContext.executionMode === "worktree"
         ? resolvedExecutionContext.baselineTree
