@@ -23,6 +23,10 @@
  * Usage:
  *   deno run -A scripts/run-tests.js                    isolated run of every test file
  *   deno run -A scripts/run-tests.js <deno test args>   single sandboxed `deno test` (subsets, filters)
+ *
+ * The passthrough form injects `-A` unless the caller passed their own
+ * permission flags: without env access the sandbox marker in src/constants.js
+ * is unreadable and its guard misfires, blaming a direct `deno test` run.
  */
 import { join, relative } from "@std/path";
 
@@ -127,8 +131,14 @@ try {
     if (Deno.args.length > 0) {
         // Explicit paths or flags: one sandboxed process, arguments passed through.
         const env = await createSandboxEnv(sandboxRoot, "single");
+        // Grant full permissions unless the caller passed their own permission
+        // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
+        // be injected unconditionally. `--deny-*` narrows allow-all safely.
+        const hasPermissionFlags = Deno.args.some((arg) =>
+            arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
+        );
         const child = new Deno.Command(Deno.execPath(), {
-            args: ["test", ...Deno.args],
+            args: hasPermissionFlags ? ["test", ...Deno.args] : ["test", "-A", ...Deno.args],
             env,
             stdin: "inherit",
             stdout: "inherit",
