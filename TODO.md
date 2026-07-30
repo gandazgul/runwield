@@ -7,6 +7,19 @@
       should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
       else re open the review.
 
+- [ ] How to run just 1 test?
+
+deno run -A scripts/run-tests.js src/cmd/load-plan/load-plan-review.test.js
+
+Uncaught error from ./src/cmd/load-plan/load-plan-review.test.js FAILED
+
+ERRORS
+
+./src/cmd/load-plan/load-plan-review.test.js (uncaught error) error: (in promise) Error: Refusing to load RunWield
+modules in an unsandboxed test run. Run the suite with `deno task test` (or scripts/run-tests.js), which points HOME and
+MNEMOSYNE_DB_PATH at a sandbox. Running `deno test` directly lets tests overwrite the real ~/.wld and the real mnemosyne
+memory database.
+
 -
   - [ ] Composition tests — the guarantee only exists when parts compose, so it can only be observed there.
   - Mutation checks — break the call on purpose; if nothing goes red, the test is decorative. That's how I found eleven
