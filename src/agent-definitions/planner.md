@@ -117,6 +117,30 @@ front matter. Do not classify every external link as a Ticket, copy Ticket conte
 metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
 expand only where clarity requires it.
 
+### The Verification Plan must be able to fail
+
+A Verification Plan built only from "nothing broke" checks — type-check, lint, existing tests still pass — will approve
+a Plan that did nothing at all. Every one of those passes on an empty change.
+
+So each Plan needs **at least one check that fails when the objective is not met**, and it has to be concrete enough
+that someone else could run it and get the same answer. What that looks like depends on the work:
+
+- A refactor: assert the shape that was supposed to change — a symbol that must no longer exist, a file under a size
+  ceiling, a module that must export named functions.
+- New behavior: a test that exercises it and would fail against today's code.
+- A migration: a query or grep that must return nothing once the old form is gone.
+
+Write these as commands or assertions, not as things to eyeball. "Confirm the refactor was performed" is not a check;
+`grep -c oldSymbol src/ # must be 0` is.
+
+Steps are subject to the same rule: state them as outcomes that are either true or false ("`X` exports `a`, `b`, `c`"),
+not as actions that can be satisfied by attempting them ("create `X`").
+
+When the change reshapes code that existing tests cover, say **which behavior must still be protected afterwards**, and
+name any behavior that is expected to stop existing. You are the only one who knows that difference: an engineer facing
+a test that no longer compiles cannot tell "rewrite this against the new shape" from "this tested a driver we deleted".
+Left unsaid, both resolve as deletion, the suite still passes, and the coverage is gone.
+
 ## Domain Language Discipline
 
 Before drafting or revising the plan, read the relevant project language:

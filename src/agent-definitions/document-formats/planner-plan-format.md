@@ -50,8 +50,12 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] Step 1: Atomic action with concrete file/function targets
-- [ ] Step 2: Next dependent action
+State each step as an outcome that is either true or false when the step is done, not as an action that can be satisfied
+by attempting it. "`src/x.ts` exports `parse` and `format`" is checkable; "create `src/x.ts`" is satisfied by an empty
+file.
+
+- [ ] Step 1: Outcome that must hold, with concrete file/function targets
+- [ ] Step 2: Next dependent outcome
 - [ ] Step 3: Testing/validation implementation
 
 When applicable, include an explicit step that updates `CONTEXT.md` in the same change as the behavior it describes.
@@ -59,8 +63,15 @@ When applicable, include an explicit step that updates `CONTEXT.md` in the same 
 ## Verification Plan
 
 - Automated: exact command(s) to run
+- **At least one check that fails if the objective was not met.** Type-check, lint, and "existing tests still pass" all
+  succeed on a change that did nothing, so they cannot verify this Plan on their own. Write this as a command or an
+  assertion someone else could run — a symbol that must no longer exist, a file under a size ceiling, a test that fails
+  against today's code.
 - Manual: precise user flows / checks
 - Expected results for key scenarios
+- When existing tests cover code this Plan reshapes: which behavior must still be protected afterwards, and which
+  behavior is expected to stop existing. Without that split, a test that no longer compiles gets deleted and the suite
+  still passes.
 - When applicable: confirm the glossary describes implemented behavior and does not promote unimplemented proposals.
 - Execution policy matrix:
   - Planned Change Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
