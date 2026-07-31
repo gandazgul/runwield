@@ -133,6 +133,14 @@ type ActiveAgentTurnOptions = {
     cwd: string;
 };
 
+type SemanticReviewPort = {
+    runIsolatedAgentSession?: (options: IsolatedAgentSessionOptions) => Promise<AgentMessage[]>;
+    getDiffText?: (baselineTree: string | undefined, cwd: string) => Promise<string>;
+    loadReviewerPrompt?: typeof loadReviewerPrompt;
+    loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef;
+    requestInteraction?: (hostedSession: HostedSession, request: InteractionRequest) => Promise<InteractionResponse>;
+};
+
 type ValidationDeps = {
     runLocalCI?: typeof runLocalCI;
     recordPlanEvent?: typeof recordPlanEvent;
@@ -184,6 +192,7 @@ type ValidationLoopArgs = {
     finalAgentName?: string;
     executionContext?: ActiveExecutionWorkflow;
     git?: GitPort;
+    semanticReviewPort?: SemanticReviewPort;
     __deps?: ValidationDeps;
 };
 
@@ -217,6 +226,17 @@ type HumanReviewMetadata = {
 type PublicationOutcome = {
     result: ValidationPhaseResult;
     recorded: boolean;
+};
+
+type ReviewFeedbackImage = { base64: string; mimeType: string };
+
+type ReviewFeedbackRepairPacket = {
+    diffText: string;
+    findingsSection: string;
+    repairKind: "semantic" | "human_feedback";
+    reason: string;
+    images?: ReviewFeedbackImage[];
+    activeWorkflow?: Partial<ActiveExecutionWorkflow>;
 };
 
 const DISCOVERY_ROUNDS = 2;
@@ -335,6 +355,7 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
     }
     if (ciResult.exitCode === 0) {
         await recordLifecycleEvent(args, phase.context.projectRoot, "mechanical_validation_passed", "implemented");
+        preserveValidationContinuationState(args, phase.context);
         emitStatus(args.hostedSession, "Build and tests passed.", "success");
         return {
             kind: "paused",
@@ -386,7 +407,7 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
         };
     }
 
-    const state = readSemanticRoundState(args);
+    const state = readSemanticRoundState(args, context);
     const nextRound = state.semanticRound + 1;
     const diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
@@ -473,6 +494,20 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
                 humanReviewDecision: null,
                 humanReviewedAt: null,
             });
+            await recordLifecycleEvent(
+                args,
+                context.projectRoot,
+                "semantic_review_passed",
+                "validated_ci",
+                undefined,
+                { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+            );
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+            };
         }
     }
 
@@ -481,6 +516,11 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
         findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
         repairKind: "semantic",
         reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+        activeWorkflow: {
+            semanticRound: nextRound,
+            reviewLedger: review.ledger,
+            repairBaselineTree: state.repairBaselineTree || context.baselineTree || "",
+        },
     });
     if (!repair.completed) {
         const reason = repair.reason ||
@@ -505,10 +545,6 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
 }
 
 async function runValidatedReviewerPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
-    const projectRoot = getProjectRoot(args);
-    if (args.triageMeta.humanReviewDecision === null) {
-        return { kind: "paused", planName: args.planName, projectRoot, reason: "Plan is awaiting human code review." };
-    }
     const phase = await resolvePhaseContext(args);
     if (phase.kind === "blocked") return phase.result;
     if (!hasFinalHumanReviewDecision(args.triageMeta)) {
@@ -519,7 +555,10 @@ async function runValidatedReviewerPhase(args: ValidationLoopArgs): Promise<Vali
 }
 
 async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseContext): Promise<ValidationPhaseResult> {
-    const mode = getCodeReviewMode(context.projectRoot);
+    const persistedMode = args.triageMeta.humanReviewMode;
+    const mode = persistedMode === "always" || persistedMode === "ask" || persistedMode === "none"
+        ? persistedMode
+        : getCodeReviewMode(context.projectRoot);
     if (mode === "none") {
         await persistHumanReviewMetadata(args, context.projectRoot, {
             humanReviewMode: "none",
@@ -835,8 +874,8 @@ async function runReviewerRound(
     | { kind: "paused"; result: ValidationPhaseResult }
     | { kind: "failed"; reason: string }
 > {
-    const runIsolatedAgentSessionImpl = runIsolatedAgentSession;
-    const loadReviewerPromptImpl = loadReviewerPrompt;
+    const runIsolatedAgentSessionImpl = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
+    const loadReviewerPromptImpl = args.semanticReviewPort?.loadReviewerPrompt || loadReviewerPrompt;
     const reviewerSessionManager = SessionManager.inMemory(context.executionCwd);
     let lastReviewerFailure = "Semantic Reviewer did not complete.";
     let nudgeReason: string | undefined;
@@ -994,19 +1033,15 @@ function buildSemanticReviewAttempt(
 async function dispatchReviewFeedbackRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
-    packet: {
-        diffText: string;
-        findingsSection: string;
-        repairKind: "semantic" | "human_feedback";
-        reason: string;
-        images?: Array<{ base64: string; mimeType: string }>;
-    },
+    packet: ReviewFeedbackRepairPacket,
 ): Promise<{ completed: boolean; report: string; reason?: string }> {
     emitStatus(args.hostedSession, packet.reason, "warning");
-    const runIsolatedAgentSessionImpl = runIsolatedAgentSession;
-    const loadReviewerFeedbackEngineerDefImpl = loadReviewerFeedbackEngineerDef;
+    const runIsolatedAgentSessionImpl = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
+    const loadReviewerFeedbackEngineerDefImpl = args.semanticReviewPort?.loadReviewerFeedbackEngineerDef ||
+        loadReviewerFeedbackEngineerDef;
     try {
-        args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
+        const workflowState = { ...context.workflowBase, ...packet.activeWorkflow };
+        args.hostedSession.setActiveExecutionWorkflow?.(workflowState);
         const agentDef = await loadReviewerFeedbackEngineerDefImpl();
         const sessionMessages = await runIsolatedAgentSessionImpl({
             hostedSession: args.hostedSession,
@@ -1034,6 +1069,10 @@ async function dispatchReviewFeedbackRepair(
             customTools: [createReviewDiffTool({ full: packet.diffText })],
         });
         const report: TaskCompletedReport = readLatestTaskCompletedReport(sessionMessages);
+        args.hostedSession.setActiveExecutionWorkflow?.({
+            ...workflowState,
+            lastRepairReport: report.message,
+        });
         return { completed: report.completed, report: report.message };
     } catch (error) {
         return { completed: false, report: "", reason: error instanceof Error ? error.message : String(error) };
@@ -1187,11 +1226,15 @@ function getProjectRoot(args: ValidationLoopArgs): string {
     return projectRoot;
 }
 
-async function getDiffText(_args: ValidationLoopArgs, baselineTree: string | undefined, cwd: string): Promise<string> {
+async function getDiffText(args: ValidationLoopArgs, baselineTree: string | undefined, cwd: string): Promise<string> {
+    const getDiffTextImpl = args.semanticReviewPort?.getDiffText;
+    if (getDiffTextImpl) return await getDiffTextImpl(baselineTree, cwd);
     return await getWorkflowDiff(cwd, baselineTree);
 }
 
 async function requestInteraction(args: ValidationLoopArgs, request: InteractionRequest): Promise<InteractionResponse> {
+    const requestInteractionImpl = args.semanticReviewPort?.requestInteraction;
+    if (requestInteractionImpl) return await requestInteractionImpl(args.hostedSession, request);
     return await requestHostedSessionInteraction(args.hostedSession, request);
 }
 
@@ -1215,21 +1258,31 @@ function readSemanticRound(meta: Partial<PlanFrontMatter>): number {
         : 0;
 }
 
-function readSemanticRoundState(args: ValidationLoopArgs): SemanticRoundState {
-    const activeWorkflow = args.hostedSession.getActiveExecutionWorkflow?.() || null;
+function readSemanticRoundState(args: ValidationLoopArgs, context: PhaseContext): SemanticRoundState {
+    const activeWorkflow = context.workflowBase;
     return {
         semanticRound: readSemanticRound(args.triageMeta),
-        reviewLedger: normalizeLedger(activeWorkflow?.reviewLedger),
-        repairBaselineTree: typeof activeWorkflow?.repairBaselineTree === "string"
+        reviewLedger: normalizeLedger(activeWorkflow.reviewLedger),
+        repairBaselineTree: typeof activeWorkflow.repairBaselineTree === "string"
             ? activeWorkflow.repairBaselineTree
             : "",
-        lastRepairReport: typeof activeWorkflow?.lastRepairReport === "string" ? activeWorkflow.lastRepairReport : "",
+        lastRepairReport: typeof activeWorkflow.lastRepairReport === "string" ? activeWorkflow.lastRepairReport : "",
     };
 }
 
 function hasFinalHumanReviewDecision(meta: Partial<PlanFrontMatter>): boolean {
     return meta.humanReviewDecision === "approved" || meta.humanReviewDecision === "skipped" ||
         meta.humanReviewDecision === "not_required";
+}
+
+function preserveValidationContinuationState(args: ValidationLoopArgs, context: PhaseContext): void {
+    if (
+        context.workflowBase.semanticRound === undefined && !context.workflowBase.reviewLedger &&
+        !context.workflowBase.repairBaselineTree && !context.workflowBase.lastRepairReport
+    ) {
+        return;
+    }
+    args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
 }
 
 function readHumanReviewMetadata(meta: Partial<PlanFrontMatter>): HumanReviewMetadata {

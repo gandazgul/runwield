@@ -48,7 +48,7 @@ Deno.test("validated_ci resumes at semantic review without rerunning CI", async 
     }
 });
 
-Deno.test("validated_reviewer with no human decision waits without CI or semantic review", async () => {
+Deno.test("validated_reviewer with no human decision runs only the human review phase", async () => {
     const projectRoot = await makeValidationProjectRoot("demo", {
         status: "validated_reviewer",
         humanReviewDecision: null,
@@ -65,6 +65,17 @@ Deno.test("validated_reviewer with no human decision waits without CI or semanti
             executionContext:
                 /** @type {import('../session/hosted-session.js').ActiveExecutionWorkflow} */ ({ projectRoot }),
             __deps: {
+                resolveValidationExecutionContext: () =>
+                    Promise.resolve({
+                        kind: "ok",
+                        context: {
+                            executionMode: "non_git_in_place",
+                            projectRoot,
+                            executionCwd: projectRoot,
+                            source: "durable_recovery",
+                            planName: "demo",
+                        },
+                    }),
                 runLocalCI: () => {
                     ciCalls += 1;
                     return Promise.reject(new Error("CI must not run"));
@@ -73,6 +84,7 @@ Deno.test("validated_reviewer with no human decision waits without CI or semanti
         });
 
         assertEquals(result.kind, "paused");
+        assertEquals(result.reason, "Local Human Code Review is not required.");
         assertEquals(ciCalls, 0);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });

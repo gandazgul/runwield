@@ -1,12 +1,30 @@
 import { assert, assertEquals } from "@std/assert";
 
+/**
+ * @param {string} source
+ * @param {string} marker
+ * @returns {string}
+ */
+function extractFunctionSource(source, marker) {
+    const start = source.indexOf(marker);
+    assert(start >= 0, `${marker} must exist`);
+    const openBrace = source.indexOf("{", start);
+    assert(openBrace >= 0, `${marker} must have a body`);
+
+    let depth = 0;
+    for (let index = openBrace; index < source.length; index += 1) {
+        const char = source[index];
+        if (char === "{") depth += 1;
+        if (char === "}") depth -= 1;
+        if (depth === 0) return source.slice(start, index + 1);
+    }
+    throw new Error(`${marker} body was not closed`);
+}
+
 Deno.test("runValidationLoop is a single-phase dispatcher", async () => {
     const source = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
-    const start = source.indexOf("export async function runValidationLoop");
-    const end = source.indexOf("\n}\n\nfunction getValidationPlanStatus", start) + 3;
-    const functionSource = source.slice(start, end);
+    const functionSource = extractFunctionSource(source, "export async function runValidationLoop");
 
-    assert(start >= 0, "runValidationLoop must exist");
     assert(functionSource.split("\n").length < 200, "runValidationLoop should stay under 200 lines");
     assert(!functionSource.includes("while"), "runValidationLoop must not contain while loops");
     assert(!functionSource.includes("for ("), "runValidationLoop must not loop over phases");
