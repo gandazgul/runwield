@@ -17,10 +17,12 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T00:05:05-04:00"
-updatedAt: "2026-07-31T04:12:16.565Z"
-status: "in_progress"
+updatedAt: "2026-07-31T04:24:40.791Z"
+status: "implemented"
 origin: "internal"
+implementedAt: "2026-07-31T04:24:40.791Z"
 userVerifiedAt: null
+executionReport: "- Removed the dead `createExecutionWorktree` seam path from `startActiveExecutionWorkflow`: no `__deps?.createExecutionWorktree` alias remains in `src/` or `scripts/`.\n- Updated workflow/load-plan tests to use `createWorktreeGitArtifacts` instead of the removed zombie seam name, and kept registry settlement identity explicit for injected artifacts.\n- Tightened seam enforcement by removing `createExecutionWorktree` from `MACHINERY_SEAMS` and `scripts/injection-seam-baseline.json`; `deno task seams:check` passes (`150 seam(s) across 13 module(s), 24 machinery`).\n- Verification attempted: `deno task ci` does not pass in the current worktree; failures are in the in-progress validation lifecycle refactor (`plan-lifecycle`/handoff tests rejecting `validation_passed` from `implemented`, plus related golden timeout). Targeted `workflow.test.js` passed once after the fix, but later reruns in this dirty worktree hit leftover duplicate worktree registry entries from failed attempts."
 humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
@@ -29,7 +31,7 @@ worktreeId: "69a8d3ad"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-model-workflow-validation-as-plan-lifecycle-stat-69a8d3ad"
 worktreeBranch: "runwield/worktree/model-workflow-validation-as-plan-lifecycle-stat-69a8d3ad"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
 ---
 
 # Model Workflow Validation as Plan Lifecycle States

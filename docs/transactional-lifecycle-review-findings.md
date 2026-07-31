@@ -192,14 +192,36 @@ widened check is what makes this class visible rather than folklore.
 
 ### A. CAS at several call sites protects a zero-width window
 
-`loadCurrentPlanRevision(projectRoot, planName)` is called inline as the `expectedRevision` argument
-(`validation.js:3397`, `:3621`, `:3871`), i.e. read microseconds before the lock. The real protection is the re-read
-under lock inside the transition; these arguments mostly document intent. Harmless, but do not count them as concurrency
-protection when reasoning about the design.
+`loadCurrentPlanRevision(projectRoot, planName)` is called inline as the `expectedRevision` argument, i.e. read
+microseconds before the lock. The real protection is the re-read under lock inside the transition; these arguments
+mostly document intent. Harmless, but do not count them as concurrency protection when reasoning about the design. (Line
+references predate the `validation.js` split into TypeScript modules in `1846ab2c`.)
 
-### B. Registry read still throws for ordinary callers
+## Closed after the review
 
-`assertRegistryIntegrity` on read is correct for code about to mutate an attempt, and finding #5 removes the way
-RunWield manufactured a violation. But a hand-edited or externally-merged registry can still make every worktree command
-fail with a bare invariant message. Consider routing those callers through a typed result that names `wld plans doctor`
-the way the transition layer now does.
+### B. Registry read threw for ordinary callers — fixed in `3b92a685`
+
+`readRegistry` now returns `{ version, entries, integrityIssues, readError }` instead of throwing a bare invariant, so a
+hand-edited or externally-merged registry no longer makes every worktree command fail with an unactionable message.
+
+### C. Plan identity was assigned late and could diverge — fixed in `56f1010a`
+
+Identity was sourced from an injection seam, so any production caller passing a real dep skipped `ensurePlanIdentity`
+and the Plan never got a durable id. It is now assigned once and diverged copies heal toward canonical.
+
+### D. Listing Plans wrote to them
+
+`listPlanResources` defaulted `backfillMissing` to `true`, so every caller that merely read the catalog minted Plan IDs
+as a side effect. That is not a style complaint: `listEntries` calls it on every registry read, and
+`runSemanticTransition` read the registry between snapshotting `beforePlan` and re-reading the Plan in `prepare`. For a
+Plan without an id the backfill landed exactly in that window, rewriting Front Matter the transaction had already
+snapshotted, and execution aborted with "the Plan changed while preparing execution" on a Plan the user had just created
+and never touched.
+
+`56f1010a` stopped the trigger by assigning identity once, and pinned the transaction's own registry read with
+`migrate: false`. The default is now `backfillMissing: false`, so listing is a read everywhere. Backfill is opt-in and
+belongs to `wld plans doctor --repair`, which heals older Plans deliberately.
+
+The general rule this leaves behind: a function whose name says it reads must not write. Where RunWield needs to mint
+durable state it should be a named, deliberate call — `ensurePlanIdentity` — not a side effect of whoever happens to
+list first.
