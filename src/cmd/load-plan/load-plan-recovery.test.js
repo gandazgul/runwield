@@ -304,7 +304,7 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                 removed = true;
                 return Promise.resolve();
             },
-            createExecutionWorktree: () => {
+            createWorktreeGitArtifacts: () => {
                 recreated = true;
                 return Promise.resolve(/** @type {any} */ ({}));
             },

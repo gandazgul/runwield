@@ -104,7 +104,7 @@ structured agent outcomes, calls Plan and execution services, and decides which 
 | Pi integration              | Build configured `AgentSession` objects, assemble prompts, wire tools, translate Pi events, run prompts, reuse roots | `src/shared/session/session.js`                                                                                                                          |
 | Workflow application logic  | Interpret tool outcomes, route requests, choose post-planning and post-execution actions                             | `src/shared/session/agent-handler.js`, `src/shared/workflow/orchestrator.js`, `src/shared/workflow/decisions.js`                                         |
 | Plan domain                 | Canonical Markdown persistence, identities, hierarchy, lifecycle state machine, collaboration write lock             | `src/plan-store.js`, `src/shared/workflow/plan-lifecycle.js`                                                                                             |
-| Execution domain            | Worktree preparation, Engineer completion gate, local validation, repair, merge-back, recovery metadata              | `src/shared/workflow/workflow.js`, `src/shared/workflow/validation.js`, `src/shared/worktree.js`                                                         |
+| Execution domain            | Worktree preparation, Engineer completion gate, local validation, repair, merge-back, recovery metadata              | `src/shared/workflow/workflow.js`, `src/shared/workflow/validation.ts`, `src/shared/worktree.js`                                                         |
 | Configuration and policy    | Layered agent definitions, settings, model resolution, protected tools, skills/prompts/extensions                    | `src/shared/session/agents.js`, `src/shared/settings.js`, `src/shared/models/`, `src/tools/registry.js`                                                  |
 | Local platform services     | Git probing, worktree registry, metrics, collaboration crypto/protocol/secrets, binary preflight                     | `src/shared/git.js`, `src/shared/worktree-registry.js`, `src/shared/workflow/metrics.js`, `src/shared/collaboration/`, `src/shared/runtime-preflight.js` |
 
@@ -1032,7 +1032,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Routing orchestration                     | `src/shared/workflow/orchestrator.js`                                         |
 | Workflow decisions and outcome parsing    | `src/shared/workflow/decisions.js`, `src/shared/workflow/workflow-results.js` |
 | Plan execution facade                     | `src/shared/workflow/workflow.js`                                             |
-| Validation and repair                     | `src/shared/workflow/validation.js`                                           |
+| Validation and repair                     | `src/shared/workflow/validation.ts`                                           |
 | Plan lifecycle                            | `src/shared/workflow/plan-lifecycle.js`                                       |
 | Plan persistence                          | `src/plan-store.js`, `src/plan-front-matter.js`                               |
 | Worktree operations and registry          | `src/shared/worktree.js`, `src/shared/worktree-registry.js`                   |

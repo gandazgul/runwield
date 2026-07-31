@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { runLocalCI, runMechanicalValidation } from "./validation.js";
+import { runLocalCI, runMechanicalValidation } from "./validation.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 
@@ -298,6 +298,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
     const result = await runMechanicalValidation({
         hostedSession,
         sessionManager: undefined,
+        cwd: "/repo",
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "still broken" }),
@@ -346,6 +347,7 @@ Deno.test("runMechanicalValidation stops on canceled CI and stays with Engineer"
     const result = await runMechanicalValidation({
         hostedSession: session,
         sessionManager: undefined,
+        cwd: "/repo",
         __deps: /** @type {any} */ ({
             runLocalCI: () => Promise.resolve({ exitCode: 130, output: "Validation canceled.", canceled: true }),
             switchActiveAgent: (

@@ -10,7 +10,7 @@ function repoPath(path) {
 
 const HIGH_LEVEL_FILES = [
     "src/shared/workflow/workflow.js",
-    "src/shared/workflow/validation.js",
+    "src/shared/workflow/validation.ts",
     "src/cmd/load-plan/index.js",
     "src/ui/workspace/server/plan-adapter.js",
 ];

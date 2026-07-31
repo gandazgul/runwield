@@ -13,7 +13,7 @@ import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
-import { runValidationLoop } from "./validation.js";
+import { runValidationLoop } from "./validation.ts";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 
 const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
@@ -186,8 +186,8 @@ function buildResumeRequest(planName, attrs) {
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {EpicContinuationResolution} opts.resolution
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} [opts.sessionManager]
- * @param {{ loadPlan?: typeof loadPlan, runPlanningAgent?: typeof runPlanningAgent, executePlan?: typeof executePlan, runValidationLoop?: typeof runValidationLoop, decidePostPlanning?: typeof decidePostPlanning, decidePostExecution?: typeof decidePostExecution }} [opts.__deps]
- * @returns {Promise<import('./validation.js').WorkflowValidationResult | null>}
+ * @param {{ loadPlan?: typeof loadPlan, recordPlanEvent?: typeof recordPlanEvent, runPlanningAgent?: typeof runPlanningAgent, executePlan?: typeof executePlan, runValidationLoop?: typeof runValidationLoop, decidePostPlanning?: typeof decidePostPlanning, decidePostExecution?: typeof decidePostExecution }} [opts.__deps]
+ * @returns {Promise<import('./validation.ts').WorkflowValidationResult | null>}
  */
 export async function runEpicChildContinuation({ hostedSession, resolution, sessionManager, __deps = {} }) {
     if (!["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName) return null;

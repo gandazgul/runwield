@@ -48,9 +48,9 @@ import {
     runSlicerAgent,
 } from "./workflow.js";
 import { readLatestReturnToRouterOutcome } from "./workflow-results.js";
-import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
+import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.ts";
 
-export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
+export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
 
 /**
  * @typedef {Object} TriageOutcome
@@ -620,7 +620,7 @@ export async function dispatchPostTriage(
                     sessionManager,
                     finalAgentName: agentName,
                     executionContext: executionResult.executionContext,
-                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
+                    __deps: /** @type {any} */ ({ recordWorkflowMetric: recordWorkflowMetricImpl }),
                 });
                 await recordWorkflowMetricImpl({
                     category: "execution",

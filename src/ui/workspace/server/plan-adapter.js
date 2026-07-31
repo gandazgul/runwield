@@ -411,7 +411,9 @@ function childHealth(children) {
         held: children.filter((child) => child.status === "on_hold"),
         blocked: children.filter((child) => child.blockedByDependencies),
         missingDependencies: children.filter((child) => child.missingDependencyCount > 0),
-        implemented: children.filter((child) => child.status === "implemented"),
+        implemented: children.filter((child) =>
+            child.status === "implemented" || child.status === "validated_ci" || child.status === "validated_reviewer"
+        ),
     };
 }
 

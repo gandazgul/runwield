@@ -28,6 +28,7 @@ import {
     buildPlanEventUpdates,
     isEpicPlan,
     isExecutablePlanStatus,
+    isInValidation,
     recordPlanEvent as recordPlanEventFn,
     stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
 } from "../../shared/workflow/plan-lifecycle.js";
@@ -531,6 +532,8 @@ function isUserVerifiableStatus(status) {
         "ready_for_work",
         "in_progress",
         "implemented",
+        "validated_ci",
+        "validated_reviewer",
     ].includes(String(status));
 }
 
@@ -1185,6 +1188,18 @@ async function validateCompletedExecution(
         triageMeta: effectiveMeta,
         executionContext: workflow,
     });
+    for (let phase = 0; phase < 2; phase += 1) {
+        const latestPlan = await loadPlan(resolvedContext.projectRoot, planName).catch(() => null);
+        if (!latestPlan) break;
+        const latestStatus = latestPlan.attrs?.status;
+        if (latestStatus !== "validated_ci" && latestStatus !== "validated_reviewer") break;
+        await runValidationLoop({
+            planName,
+            planContent: latestPlan.markdown || latestPlan.body || planContent,
+            triageMeta: { ...effectiveMeta, ...latestPlan.attrs },
+            executionContext: workflow,
+        });
+    }
     return true;
 }
 
@@ -2137,7 +2152,7 @@ async function handlePlanRecovery({
                 } (you confirm the state)`,
             }]
             : [];
-        const options = plan.attrs.status === "implemented"
+        const options = isInValidation(plan.attrs.status)
             ? [
                 ...recordOptions,
                 ...(gitRecoveryBlocked ? [] : [{ value: "validate", label: "Retry Workflow Validation" }]),
@@ -3200,7 +3215,7 @@ function countEpicChildStatuses(children) {
         const status = child.attrs.status;
         if (status === "verified") counts.verified += 1;
         else if (status === "user_verified") counts.userVerified += 1;
-        else if (status === "in_progress" || status === "implemented") counts.active += 1;
+        else if (status === "in_progress" || isInValidation(status)) counts.active += 1;
         else if (status === "failed") counts.failed += 1;
         else if (status === "on_hold") counts.onHold += 1;
         else if (["draft", "approved", "ready_for_work", "ready_for_decomposition", "feedback"].includes(status)) {
@@ -3350,7 +3365,8 @@ async function handleEpicPlan({
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
     const isApprovedEpic = plan.attrs.status === "approved";
-    const hasLegacyExecutableEpicStatus = ["in_progress", "failed", "implemented"].includes(plan.attrs.status);
+    const hasLegacyExecutableEpicStatus = ["in_progress", "failed"].includes(plan.attrs.status) ||
+        isInValidation(plan.attrs.status);
     const canPickChild = hasChildren &&
         (isDecomposedEpicStatus(plan.attrs) || isApprovedEpic || hasLegacyExecutableEpicStatus);
     let epicReadinessRecorded = false;
@@ -3938,7 +3954,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         // from Plan Recovery whatever the Plan's status is. Otherwise a draft or
         // verified Plan is told it is blocked and offered nothing.
         if (
-            ["in_progress", "failed", "implemented"].includes(plan.attrs.status) ||
+            ["in_progress", "failed"].includes(plan.attrs.status) ||
+            isInValidation(plan.attrs.status) ||
             unresolvedLifecycleRecords.length > 0
         ) {
             restoreAgentName = planFlowRestoreAgent;

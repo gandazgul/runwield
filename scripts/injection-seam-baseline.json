@@ -82,57 +82,26 @@
             ],
             "machinery": []
         },
-        "src/shared/workflow/validation.js": {
+        "src/shared/workflow/validation-legacy.ts": {
             "seams": [
-                "assertPreMergeCandidateUnchanged",
-                "autoGenerateWorkRecordForCompletedPlan",
-                "checkpointExecutionWorktree",
-                "findWorktreeRegistryEntryById",
-                "formatWorkRecordAutoGenerationResult",
-                "getCodeReviewMode",
-                "getDiffText",
-                "getGuidedReviewMode",
                 "loadManualQaPrompt",
-                "loadReviewerFeedbackEngineerDef",
-                "loadReviewerPrompt",
-                "mergeExecutionWorktree",
-                "preparePrimaryPlanPathForMerge",
                 "readLatestTaskCompletedOutcome",
-                "recordPlanEvent",
                 "recordWorkflowMetric",
-                "removeWorktreeGitArtifacts",
-                "removeWorktreeRegistryEntry",
-                "requestInteraction",
-                "resolveValidationExecutionContext",
-                "restorePrimaryPlanPathAfterMergeFailure",
                 "runActiveAgentTurn",
                 "runCompletionGatedRepair",
-                "runDirectDeliveryPublicationTransition",
                 "runIsolatedAgentSession",
                 "runLocalCI",
                 "runManualQaChecklistPrompt",
-                "runValidationOutcomeTransition",
-                "shouldCleanupMergedWorktrees",
-                "stageValidationPassedInExecutionWorktree",
-                "switchActiveAgent",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry",
-                "verifyPostMergeCandidatePublished"
+                "switchActiveAgent"
             ],
-            "machinery": [
-                "assertPreMergeCandidateUnchanged",
-                "checkpointExecutionWorktree",
-                "mergeExecutionWorktree",
-                "preparePrimaryPlanPathForMerge",
-                "recordPlanEvent",
-                "removeWorktreeGitArtifacts",
-                "removeWorktreeRegistryEntry",
-                "restorePrimaryPlanPathAfterMergeFailure",
-                "stageValidationPassedInExecutionWorktree",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry",
-                "verifyPostMergeCandidatePublished"
-            ]
+            "machinery": []
+        },
+        "src/shared/workflow/validation.ts": {
+            "seams": [
+                "resolveValidationExecutionContext",
+                "runLocalCI"
+            ],
+            "machinery": []
         },
         "src/shared/workflow/workflow-slicer.js": {
             "seams": [

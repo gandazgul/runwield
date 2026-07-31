@@ -29,8 +29,16 @@ and child FEATURE Plans can be selected; the Epic itself is still a container, n
 `failed`: Execution started from `ready_for_work` but implementation work did not finish. The worktree is left in place
 when one is recorded.
 
-`implemented`: Implementation work finished in the execution worktree, but Workflow Validation has not passed and merged
-back into the primary checkout.
+`implemented`: Implementation work finished in the execution worktree and is ready for the next Mechanical Validation
+phase. CI failure or semantic/human feedback returns here so the next validation call restarts at CI with durable retry
+counters.
+
+`validated_ci`: Mechanical Validation passed for the current implementation. The next Workflow Validation call resumes
+at Semantic Code Review and must not rerun CI first.
+
+`validated_reviewer`: Semantic Code Review passed for the current implementation. The next Workflow Validation call
+handles durable Local Human Code Review metadata and publication/merge-back; only this status may produce
+`validation_passed` or `worktree_merge_failed`.
 
 `verified`: Implementation work passed Workflow Validation and, for worktree-backed executions, the validated worktree
 branch was merged back into the primary checkout. For an Epic PROJECT Plan, `verified` may also mean the user marked the
@@ -87,9 +95,13 @@ changing the Plan state machine.
 | `execution_started`                  | `ready_for_work`                                                                                | `in_progress`                 | Captures `executionBaselineTree` and records active worktree metadata before executable Plan work begins.                                                                                                                      |
 | `execution_failed`                   | `in_progress`                                                                                   | `failed`                      | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.                                                                                                                         |
 | `implementation_finished`            | `in_progress`                                                                                   | `implemented`                 | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                                                                                                                                |
-| `validation_failed`                  | `implemented`                                                                                   | `implemented`                 | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.                                                                                                                                  |
-| `worktree_merge_failed`              | `implemented`                                                                                   | `implemented`                 | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.                                                                                                                                      |
-| `validation_passed`                  | `implemented`                                                                                   | `verified`                    | Staged in the execution branch after validation passes and made canonical by successful merge-back; clears worktree metadata when cleanup is enabled.                                                                          |
+| `mechanical_validation_failed`       | `implemented`                                                                                   | `implemented`                 | Increments `validationCiAttempts`, resets semantic rounds, records CI failure context, and returns for a later validation call.                                                                                                |
+| `mechanical_validation_passed`       | `implemented`                                                                                   | `validated_ci`                | Resets `validationCiAttempts`, clears CI failure state, and returns before Semantic Code Review.                                                                                                                               |
+| `semantic_review_feedback`           | `validated_ci`                                                                                  | `implemented`                 | Increments `validationSemanticRounds`, resets CI attempts, dispatches/records semantic repair context, and returns so fresh CI runs next.                                                                                      |
+| `semantic_review_passed`             | `validated_ci`                                                                                  | `validated_reviewer`          | Records the semantic approval boundary; terminal verification and publication cannot bypass it.                                                                                                                                |
+| `validation_failed`                  | `implemented`, `validated_ci`, `validated_reviewer`                                             | `implemented`                 | Records terminal failed validation-attempt metadata, sets `worktreeStatus: "validation_failed"` where applicable, and resets phase counters on implemented re-entry.                                                           |
+| `worktree_merge_failed`              | `validated_reviewer`                                                                            | `implemented`                 | Publication/merge-back failed/refused after reviewer approval; sets `worktreeStatus: "merge_conflict"` and returns to CI because integration may need repair.                                                                  |
+| `validation_passed`                  | `validated_reviewer`                                                                            | `verified`                    | Recorded only after semantic approval, human-review policy, publication proof, and delivery evidence succeed; clears worktree metadata when cleanup is enabled.                                                                |
 | `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records that recovery will continue from the current worktree.                                                                                                                                                                 |
 | `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
 | `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
@@ -221,10 +233,12 @@ reason so the user can inspect or recover the worktree manually.
 
 ## Workflow Validation and Merge-Back
 
-Workflow Validation applies only to executable Plan work. It promotes `implemented` to `verified` only after local
-validation, semantic review, any configured human code review gate, and delivery evidence all succeed. Worktree-backed
-FEATURE Plans fail closed when the execution mode or worktree publication context is unknown; missing volatile Session
-state is not treated as proof that validation should run in the primary checkout.
+Workflow Validation applies only to executable Plan work. It advances through durable Plan Statuses one phase per call:
+`implemented` runs Mechanical Validation, `validated_ci` runs Semantic Code Review, and `validated_reviewer` handles
+Local Human Code Review plus publication. It promotes to `verified` only after local validation, semantic review, any
+configured human code review gate, and delivery evidence all succeed. Worktree-backed FEATURE Plans fail closed when the
+execution mode or worktree publication context is unknown; missing volatile Session state is not treated as proof that
+validation should run in the primary checkout.
 
 For worktree-backed plans:
 
@@ -236,11 +250,14 @@ For worktree-backed plans:
    checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
    creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
    Completion does not merge into the primary checkout.
-3. Workflow Validation runs local CI, computes the workflow diff, and starts semantic review rounds in the execution
-   worktree. Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and
-   rounds three and above only verify the open findings and check the latest repair for regressions. Two full sweeps
-   give a requirement overlooked in round one a second independent look; narrowing after that is what lets the loop
-   terminate instead of rediscovering the implementation indefinitely.
+3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from Plan Front Matter, runs exactly
+   one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and returns. Repeated
+   calls resume from durable status instead of an in-memory validation loop.
+4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
+   Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
+   three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
+   requirement overlooked in round one a second independent look; narrowing after that is what lets the loop terminate
+   instead of rediscovering the implementation indefinitely.
 
    The Reviewer never receives an inlined diff — it reads changes through the bounded `review_diff` tool in every round,
    so there is one delivery path regardless of size. A decision reached without inspecting the diff is not accepted.
@@ -248,12 +265,12 @@ For worktree-backed plans:
    Findings carry stable identities in a Review Issue Ledger that lives for the attempt. Later rounds resolve items,
    keep them open, and append newly discovered ones; identities are never reused or renumbered. Code smells are reported
    as non-blocking advisories rather than as findings, so an accumulating maintainability backlog cannot stall the loop.
-4. A rejection dispatches the Reviewer-Feedback Engineer, which repairs the open findings in a fresh isolated session
+5. A rejection dispatches the Reviewer-Feedback Engineer, which repairs the open findings in a fresh isolated session
    seeded with the Plan, the findings, and diff access. It does not inherit the execution transcript, and it reports a
    per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution.
-5. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
+6. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
    open human code review now. There is no dead end: the work is never left with nowhere to go.
-6. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
+7. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
    passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
    already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback
    goes to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and
@@ -266,22 +283,22 @@ For worktree-backed plans:
    approval or quitting the review.** Feedback never exhausts a budget, and the three-round semantic cap does not apply
    — it counts automatic rounds, not human ones. Interrupting and resuming mid-cycle returns to code review rather than
    restarting semantic review.
-7. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
+8. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-8. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
+9. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
    pinned candidate commit, captures the target branch head before merge, copies the primary Plan's current implemented
    Front Matter into the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
    `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
-9. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
-   the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
-   target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
-   merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the sealed
-   candidate commit and metadata commit are ancestors of the target branch. By default, RunWield removes the execution
-   checkout only if it is still clean, then deletes its `.wld/worktrees.json` entry; the merged Plan has
-   `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
-   post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
-   `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
-10. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
+10. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
+    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
+    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
+    merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the
+    sealed candidate commit and metadata commit are ancestors of the target branch. By default, RunWield removes the
+    execution checkout only if it is still clean, then deletes its `.wld/worktrees.json` entry; the merged Plan has
+    `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
+    post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
+    `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
+11. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
     `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
     execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
     left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before

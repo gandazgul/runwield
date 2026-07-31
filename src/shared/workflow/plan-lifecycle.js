@@ -36,11 +36,11 @@ export class PlanLifecycleTransitionError extends Error {
 }
 
 /**
- * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
+ * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
  */
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
 
 /**
@@ -59,6 +59,8 @@ export class PlanLifecycleTransitionError extends Error {
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewMode']} [humanReviewMode]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
  * @property {string|null} [humanReviewedAt]
+ * @property {number} [validationCiAttempts]
+ * @property {number} [validationSemanticRounds]
  * @property {string} [epicDoneEnoughSummary]
  * @property {import('../../plan-store.js').ExecutionMode} [executionMode]
  * @property {import('../../plan-store.js').DeliveryEvidence} [deliveryEvidence]
@@ -96,6 +98,8 @@ export const PLAN_STATUSES = [
     "in_progress",
     "failed",
     "implemented",
+    "validated_ci",
+    "validated_reviewer",
     "verified",
     "user_verified",
     "closed_without_verification",
@@ -112,7 +116,17 @@ export const ACTIVE_PLAN_STATUSES = [
     "in_progress",
     "failed",
     "implemented",
+    "validated_ci",
+    "validated_reviewer",
 ];
+
+/** @type {PlanStatus[]} */
+export const VALIDATION_PLAN_STATUSES = ["implemented", "validated_ci", "validated_reviewer"];
+
+/** @param {string | undefined | null} status */
+export function isInValidation(status) {
+    return VALIDATION_PLAN_STATUSES.includes(/** @type {PlanStatus} */ (status));
+}
 
 /** @type {PlanStatus[]} */
 export const CLOSED_PLAN_STATUSES = ["verified", "user_verified", "closed_without_verification"];
@@ -157,9 +171,13 @@ const ALLOWED_FROM = {
     execution_started: ["ready_for_work"],
     execution_failed: ["in_progress"],
     implementation_finished: ["in_progress"],
-    validation_failed: ["implemented"],
-    validation_passed: ["implemented"],
-    worktree_merge_failed: ["implemented"],
+    mechanical_validation_failed: ["implemented"],
+    mechanical_validation_passed: ["implemented"],
+    semantic_review_feedback: ["validated_ci"],
+    semantic_review_passed: ["validated_ci"],
+    validation_failed: ["implemented", "validated_ci", "validated_reviewer"],
+    validation_passed: ["validated_reviewer"],
+    worktree_merge_failed: ["validated_reviewer"],
     recovery_continue: ["in_progress", "failed"],
     recovery_reset: ["in_progress", "failed", "implemented"],
     review_reopened: [
@@ -190,6 +208,10 @@ const EVENT_STATUS = {
     execution_started: "in_progress",
     execution_failed: "failed",
     implementation_finished: "implemented",
+    mechanical_validation_failed: "implemented",
+    mechanical_validation_passed: "validated_ci",
+    semantic_review_feedback: "implemented",
+    semantic_review_passed: "validated_reviewer",
     validation_failed: "implemented",
     validation_passed: "verified",
     worktree_merge_failed: "implemented",
@@ -382,6 +404,43 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         status: targetStatus,
         updatedAt: now,
     };
+
+    if (
+        targetStatus === "implemented" && event !== "mechanical_validation_failed" &&
+        event !== "semantic_review_feedback"
+    ) {
+        updates.validationCiAttempts = 0;
+        updates.validationSemanticRounds = 0;
+    }
+
+    if (event === "mechanical_validation_failed") {
+        const currentAttempts = typeof details.triageMeta?.validationCiAttempts === "number"
+            ? details.triageMeta.validationCiAttempts
+            : 0;
+        updates.validationCiAttempts = currentAttempts + 1;
+        updates.validationSemanticRounds = 0;
+        updates.failureReason = details.failureReason || "Mechanical Validation failed.";
+    }
+
+    if (event === "mechanical_validation_passed") {
+        updates.validationCiAttempts = 0;
+        updates.failureReason = null;
+        updates.failedAt = null;
+    }
+
+    if (event === "semantic_review_feedback") {
+        const currentRounds = typeof details.triageMeta?.validationSemanticRounds === "number"
+            ? details.triageMeta.validationSemanticRounds
+            : 0;
+        updates.validationSemanticRounds = currentRounds + 1;
+        updates.validationCiAttempts = 0;
+        updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
+    }
+
+    if (event === "semantic_review_passed") {
+        updates.failureReason = null;
+        updates.failedAt = null;
+    }
 
     if (event === "manual_closed_without_verification") {
         if (!isManualBoardStatus(currentStatus, details.triageMeta)) {
@@ -1137,13 +1196,17 @@ export async function stageValidationPassedInExecutionWorktree({
             const executionPlanPath = join(executionCwd, planPath);
             await Deno.mkdir(dirname(executionPlanPath), { recursive: true });
             await atomicWriteTextFile(executionPlanPath, canonicalPlan.markdown);
+            const stagedPlan = await loadPlan(executionCwd, planName);
+            await updatePlanFrontMatter(executionCwd, planName, { status: "validated_reviewer" }, canonicalPlan.attrs, {
+                expectedRevision: stagedPlan?.revision,
+            });
 
             attrs = await recordPlanEvent({
                 cwd: executionCwd,
                 planName,
                 event: "validation_passed",
-                currentStatus: "implemented",
-                details: { ...details, triageMeta: canonicalPlan.attrs },
+                currentStatus: "validated_reviewer",
+                details: { ...details, triageMeta: { ...canonicalPlan.attrs, status: "validated_reviewer" } },
             });
         }
         const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
