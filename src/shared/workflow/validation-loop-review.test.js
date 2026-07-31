@@ -9,6 +9,13 @@ function makeValidationUi() {
     return { uiAPI, hostedSession: makeRecordedSession("validation-review-test", uiAPI) };
 }
 
+/**
+ * @typedef {Record<string, string | number> & { executionAgent?: "engineer" | "frontend-engineer" }} ValidatedCiRunAttrs
+ */
+
+/**
+ * @param {ValidatedCiRunAttrs} [attrs]
+ */
 async function makeValidatedCiRun(attrs = {}) {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
@@ -16,10 +23,16 @@ async function makeValidatedCiRun(attrs = {}) {
         ...attrs,
     });
     const { uiAPI, hostedSession } = makeValidationUi();
+    const triageMeta = { classification: "QUICK_FIX", status: "validated_ci", ...attrs };
+    hostedSession.setWorkflowExecutionContext({
+        planName: "p",
+        triageMeta,
+    });
+    const executionAgent = attrs.executionAgent === "frontend-engineer" ? "frontend-engineer" : "engineer";
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", ...attrs },
-        executionAgent: "engineer",
+        triageMeta,
+        executionAgent,
         projectRoot,
         executionCwd: projectRoot,
         baselineTree: "baseline-tree",
@@ -130,15 +143,17 @@ Deno.test("runValidationLoop resumes at validated_ci and skips CI before recordi
 });
 
 Deno.test("runValidationLoop reviews the diff scoped to the active workflow baseline from validated_ci", async () => {
-    const { projectRoot, hostedSession } = await makeValidatedCiRun();
+    const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
     const baselineArgs = /** @type {Array<string | undefined>} */ ([]);
+    assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
 
     await runValidationLoop({
         hostedSession,
         planName: "p",
         planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", complexity: "MEDIUM" },
         semanticReviewPort: reviewPort({
             getDiffText: (/** @type {string | undefined} */ baselineTree) => {
                 baselineArgs.push(baselineTree);
@@ -156,6 +171,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
     assertEquals(reviewPrompts.length, 1);
     assertStringIncludes(reviewPrompts[0], "workflow.js");
     assertEquals(reviewPrompts[0].includes("+scoped workflow change"), false);
+    assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
@@ -330,18 +346,37 @@ Deno.test("runValidationLoop pauses at validated_ci when the reviewer never fini
 });
 
 Deno.test("runValidationLoop dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
-    const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun();
+    const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
+    const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({
+        complexity: "MEDIUM",
+        executionAgent: "frontend-engineer",
+    });
     const sessions = /** @type {any[]} */ ([]);
+    const reviewerWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
+    const repairWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
+    const repairActiveOwners = /** @type {Array<string | undefined>} */ ([]);
+    const repairActivePlanNames = /** @type {Array<string | null>} */ ([]);
 
     await runValidationLoop({
         hostedSession,
         planName: "p",
         planContent: "# p\n\nApproved Plan body",
-        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        triageMeta: {
+            classification: "QUICK_FIX",
+            status: "validated_ci",
+            complexity: "MEDIUM",
+            executionAgent: "frontend-engineer",
+        },
         semanticReviewPort: reviewPort({
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 sessions.push(opts);
-                if (opts.agentName === "reviewer-feedback-engineer") return Promise.resolve(repairMessages());
+                if (opts.agentName === "reviewer-feedback-engineer") {
+                    repairWorkflowContexts.push(hostedSession.getWorkflowContext());
+                    repairActiveOwners.push(hostedSession.getActiveExecutionWorkflow()?.executionAgent);
+                    repairActivePlanNames.push(hostedSession.getActiveExecutionWorkflow()?.planName || null);
+                    return Promise.resolve(repairMessages());
+                }
+                reviewerWorkflowContexts.push(hostedSession.getWorkflowContext());
                 return Promise.resolve(reviewerMessages({
                     approved: false,
                     feedback: "Missing guard",
@@ -353,10 +388,17 @@ Deno.test("runValidationLoop dispatches semantic review feedback to Reviewer-Fee
 
     const plan = await loadPlan(projectRoot, "p");
     const repairSession = sessions.find((opts) => opts.agentName === "reviewer-feedback-engineer");
+    assertEquals(sessions.map((opts) => opts.agentName), ["reviewer", "reviewer-feedback-engineer"]);
     assertEquals(Boolean(repairSession), true);
     assertStringIncludes(repairSession.userRequest, "Missing guard");
     assertStringIncludes(repairSession.userRequest, "R1-1");
     assertStringIncludes(repairSession.userRequest, "validation fixture");
+    assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext]);
+    assertEquals(repairWorkflowContexts, [expectedWorkflowContext]);
+    assertEquals(repairActiveOwners, ["frontend-engineer"]);
+    assertEquals(repairActivePlanNames, ["p"]);
+    assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
     assertStringIncludes(uiAPI.messages.join(" "), "Dispatching repair");

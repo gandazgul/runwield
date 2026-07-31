@@ -6,22 +6,20 @@
 import { extractYaml } from "@std/front-matter";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
+import { runActiveAgentTurn } from "../session/agent-switching.js";
+import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
 import { runIsolatedAgentSession } from "../session/session.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { getCodeReviewMode, getGuidedReviewMode, shouldCleanupMergedWorktrees } from "../settings.js";
 import { createGitPort } from "../git-port.ts";
 import {
-    assertPreMergeCandidateUnchanged,
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
     mergeExecutionWorktree,
-    preparePrimaryPlanPathForMerge,
     removeWorktreeGitArtifacts,
-    restorePrimaryPlanPathAfterMergeFailure,
 } from "../worktree.js";
 import {
     removeEntry as removeWorktreeRegistryEntry,
@@ -40,11 +38,7 @@ import {
     VALIDATION_PLAN_STATUSES,
 } from "./plan-lifecycle.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
-import {
-    runDirectDeliveryPublicationTransition,
-    runPlanFrontMatterTransition,
-    runValidationOutcomeTransition,
-} from "./state-transition.ts";
+import { runDirectDeliveryPublicationTransition, runPlanFrontMatterTransition } from "./state-transition.ts";
 import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
 import {
     applyRoundFindings,
@@ -142,36 +136,18 @@ type SemanticReviewPort = {
 };
 
 type ValidationDeps = {
+    /**
+     * Local validation commands run a real subprocess, so tests supply their own.
+     * A genuine environment boundary.
+     */
     runLocalCI?: typeof runLocalCI;
-    recordPlanEvent?: typeof recordPlanEvent;
+    /**
+     * Fail-closed execution-context resolution. Injected only so tests can exercise a
+     * phase without standing up a worktree; it decides whether validation may run at
+     * all, so faking it skips the fail-closed checks rather than an external boundary.
+     * Track it as machinery and remove it with the worktree capability port.
+     */
     resolveValidationExecutionContext?: typeof resolveValidationExecutionContext;
-    switchActiveAgent?: typeof switchActiveAgent;
-    runIsolatedAgentSession?: (options: IsolatedAgentSessionOptions) => Promise<AgentMessage[]>;
-    runActiveAgentTurn?: (options: ActiveAgentTurnOptions) => Promise<boolean>;
-    getDiffText?: (baselineTree: string | undefined, cwd: string) => Promise<string>;
-    loadReviewerPrompt?: typeof loadReviewerPrompt;
-    loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef;
-    getCodeReviewMode?: typeof getCodeReviewMode;
-    getGuidedReviewMode?: typeof getGuidedReviewMode;
-    requestInteraction?: (hostedSession: HostedSession, request: InteractionRequest) => Promise<InteractionResponse>;
-    updatePlanFrontMatter?: typeof updatePlanFrontMatter;
-    stageValidationPassedInExecutionWorktree?: typeof stageValidationPassedInExecutionWorktree;
-    runValidationOutcomeTransition?: typeof runValidationOutcomeTransition;
-    runDirectDeliveryPublicationTransition?: typeof runDirectDeliveryPublicationTransition;
-    checkpointExecutionWorktree?: typeof checkpointExecutionWorktree;
-    assertPreMergeCandidateUnchanged?: typeof assertPreMergeCandidateUnchanged;
-    mergeExecutionWorktree?: typeof mergeExecutionWorktree;
-    preparePrimaryPlanPathForMerge?: typeof preparePrimaryPlanPathForMerge;
-    restorePrimaryPlanPathAfterMergeFailure?: typeof restorePrimaryPlanPathAfterMergeFailure;
-    removeWorktreeGitArtifacts?: typeof removeWorktreeGitArtifacts;
-    removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry;
-    updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry;
-    shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees;
-    verifyPostMergeCandidatePublished?: typeof verifyPostMergeCandidatePublished;
-    autoGenerateWorkRecordForCompletedPlan?: typeof autoGenerateWorkRecordForCompletedPlan;
-    formatWorkRecordAutoGenerationResult?: typeof formatWorkRecordAutoGenerationResult;
-    runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
 };
 
 type MechanicalValidationArgs = {
@@ -733,31 +709,89 @@ async function runPublicationPhase(
                 ...humanReviewMetadata,
             },
         });
-        const mergeResult = await mergeExecutionWorktree({
+        // The merge is the only irreversible act in the system: a commit that reaches
+        // the target branch cannot be taken back. It therefore runs inside the
+        // publication transaction, which locks the attempt and the target ref, holds
+        // the Plan revision it decided on, and — the part that matters most — journals
+        // `direct_delivery_target_ref_moved` the moment the branch moves. Without that
+        // journal an interrupted publication leaves no evidence the merge happened, so
+        // recovery cannot tell "never merged" from "merged, bookkeeping behind", and
+        // the failure path below would report a merge failure for work already on the
+        // target branch.
+        // Captured before the closure: the guard above narrowed this, but TypeScript
+        // cannot carry that narrowing into a callback that may run later.
+        const worktreeBranch = context.worktreeBranch;
+        const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
+            .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
+        const publication = await runDirectDeliveryPublicationTransition({
             projectRoot: context.projectRoot,
-            branch: context.worktreeBranch,
-            targetBranch: worktreeBaseBranch,
-            worktreePath: context.executionCwd,
-            expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
             planName: args.planName,
-            planDescription: args.triageMeta?.summary,
-            sealedExecutionCommit: deliveryEvidence.executionCommit,
-            allowedDirtyPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
-            preservePlanPaths: staging.planPaths,
+            expectedRevision: hierarchy.revision,
+            worktreeId: context.worktreeId,
+            targetRef: worktreeBaseBranch,
+            parentPlan: hierarchy.parentPlan,
+            siblingPlanNames: hierarchy.siblingPlans.map((sibling) => sibling.name),
+            publicationProof: { deliveryEvidence, cleanupMergedWorktrees, phase: "stage_merge_settle" },
+            publish: async ({ markEffect }) => {
+                await markEffect("direct_delivery_publication_started", {
+                    planName: args.planName,
+                    worktreeId: context.worktreeId,
+                    worktreeBranch: worktreeBranch,
+                    targetBranch: worktreeBaseBranch,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    preservedPlanPaths: staging.planPaths,
+                });
+                const mergeResult = await mergeExecutionWorktree({
+                    projectRoot: context.projectRoot,
+                    branch: worktreeBranch,
+                    targetBranch: worktreeBaseBranch,
+                    worktreePath: context.executionCwd,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                    planName: args.planName,
+                    planDescription: args.triageMeta?.summary,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    allowedDirtyPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
+                    preservePlanPaths: staging.planPaths,
+                });
+                await markEffect("direct_delivery_target_ref_moved", {
+                    planName: args.planName,
+                    worktreeId: context.worktreeId,
+                    worktreeBranch: worktreeBranch,
+                    targetBranch: worktreeBaseBranch,
+                    updatedPrimaryCheckout: mergeResult?.updatedPrimaryCheckout,
+                    executionMetadataCommit: mergeResult?.executionMetadataCommit,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                });
+                const mergeVerification = await verifyPostMergeCandidatePublished({
+                    projectRoot: context.projectRoot,
+                    worktreeBranch: worktreeBranch,
+                    worktreeBaseBranch,
+                    git: gitPort,
+                    executionCommit: deliveryEvidence.executionCommit,
+                    targetBranch: deliveryEvidence.targetBranch,
+                    metadataCommit: mergeResult?.executionMetadataCommit,
+                });
+                if (!mergeVerification.merged) {
+                    throw new Error(
+                        `Direct Delivery publication requires reconciliation: ${mergeVerification.message}`,
+                    );
+                }
+                await settlePublishedWorktree(args, context, cleanupMergedWorktrees);
+                if (context.worktreeId) {
+                    await markEffect("worktree_registry_updated", { worktreeId: context.worktreeId, status: "merged" });
+                }
+                return { mergeResult };
+            },
         });
-        const mergeVerification = await verifyPostMergeCandidatePublished({
-            projectRoot: context.projectRoot,
-            worktreeBranch: context.worktreeBranch,
-            worktreeBaseBranch,
-            git: gitPort,
-            executionCommit: deliveryEvidence.executionCommit,
-            targetBranch: deliveryEvidence.targetBranch,
-            metadataCommit: mergeResult?.executionMetadataCommit,
-        });
-        if (!mergeVerification.merged) {
-            throw new Error(`Direct Delivery publication requires reconciliation: ${mergeVerification.message}`);
+        if (publication.status !== "committed") {
+            // Rethrow the original failure rather than a summary of it: callers
+            // classify typed merge failures to pick the right repair worktree, and
+            // flattening to `message` silently downgrades that to a generic repair.
+            if (publication.cause !== undefined) throw publication.cause;
+            throw new Error(publication.message || `Direct Delivery publication did not commit for ${args.planName}.`);
         }
-        await settlePublishedWorktree(args, context, cleanupMergedWorktrees);
         await recordLifecycleEvent(args, context.projectRoot, "validation_passed", "validated_reviewer", undefined, {
             executionMode: "worktree",
             deliveryEvidence,
