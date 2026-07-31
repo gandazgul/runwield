@@ -23,18 +23,29 @@ affectedPaths:
     - "src/shared/workflow/validation-loop-delivery.test.js"
     - "src/shared/workflow/validation-loop-recovery.test.js"
     - "src/ui/tui/chat-session.test.js"
+    - "docs/architecture.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T23:43:58-04:00"
+updatedAt: "2026-07-31T14:24:48.425Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-31T04:41:51.222Z"
+verifiedAt: "2026-07-31T14:24:48.425Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-worktreeStatus: "abandoned"
+executionReport: "- Implemented workflow footer context derivation/persistence, execution-start seeding, root transcript-segment preservation/re-persistence, and Runtime snapshot fallback from active execution workflow.\n- Updated validation loop active workflow handling so Reviewer/repair cycles keep validation continuation state through pauses and repair dispatch while terminal outcomes explicitly clear active execution ownership.\n- Added regression coverage for legacy FEATURE normalization, duplicate context markers, manager swaps/null manager behavior, snapshot fallback precedence, and Reviewer footer rendering; updated architecture docs for the new source/projection boundaries.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/session/workflow-context-session.test.js src/shared/session/hosted-session.test.js src/shared/session/session-runtime.test.js src/shared/session/agent-handler.test.js src/shared/workflow/workflow.test.js src/shared/workflow/validation-loop-core.test.js src/shared/workflow/validation-loop-review.test.js src/shared/workflow/validation-loop-repair.test.js src/shared/workflow/validation-loop-human-review.test.js src/shared/workflow/validation-loop-delivery.test.js src/shared/workflow/validation-loop-recovery.test.js src/ui/tui/chat-session.test.js` (277 passed).\n- Verification passed: `deno task ci`."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-31T14:24:47.995Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "dbca240dbc126d851d31356b0c6accec51f86b28"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "e5f07f4386b99b6ff48ee34c0d9c8078bb3e3ddf"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "footer workflow context"
-updatedAt: "2026-07-30T15:01:32.004Z"
-status: "implemented"
 ---
 
 # Preserve Footer Context During Validation Loop
@@ -70,6 +81,11 @@ The intended outcome: from initial Plan execution through Semantic Code Review, 
 Code Review feedback repair, CI repair, merge repair, pauses, and re-review, the footer should continue to show the
 currently active Agent plus the same Plan name, Planned Change/Epic/Quick Fix label, and Complexity until a new Triage
 replaces the workflow context or the Session is disposed.
+
+`docs/architecture.md` currently describes footer context as originating from `triage_report` or `plan_written`. This
+bug fix expands the implemented source boundary to include execution-start seeding, segment-swap preservation, and a
+read-only snapshot fallback from active execution workflow state, so the architecture note should be updated in the same
+change to keep future planning and maintenance aligned.
 
 ## Objective
 
@@ -159,6 +175,9 @@ understand validation state.
   active workflow/footer context from durable workflow state.
 - `src/ui/tui/chat-session.test.js` — add a small renderer assertion that `reviewer` is an eligible footer Agent and
   displays `Reviewer - Medium Planned Change - plan-name` when workflow context is present.
+- `docs/architecture.md` — update the Runtime boundary/persisted-state tables so they mention execution-start footer
+  context seeding, segment-swap preservation, and the display-only active execution workflow snapshot fallback without
+  making footer context authoritative for lifecycle decisions.
 
 ## Reuse Opportunities
 
@@ -230,6 +249,12 @@ understand validation state.
     terminal lifecycle policy;
   - never clear `workflowContext` itself except on new Triage, dehydrate/dispose, or another existing explicit Session
     reset path.
+- [ ] Update `docs/architecture.md` where it documents workflow footer context and persisted/transient Session state:
+  - include execution start as a source that seeds `runwield.workflow_context`;
+  - mention that root Session Transcript Segment swaps preserve and re-persist existing footer context when the new
+    segment has no marker;
+  - note that `activeExecutionWorkflow` can supply a display-only `SessionSnapshot.workflowContext` fallback, but
+    remains live workflow authority rather than footer-context persistence.
 - [ ] Add regression coverage before the behavioral fix where practical:
   - `workflow-context-session.test.js`: derivation normalizes legacy `FEATURE`, rejects incomplete routing/complexity
     pairs, preserves Plan-name-only context, and avoids duplicate persisted markers;
@@ -256,6 +281,8 @@ understand validation state.
 - Automated:
   `deno run -A scripts/run-tests.js src/shared/session/workflow-context-session.test.js src/shared/session/hosted-session.test.js src/shared/session/session-runtime.test.js src/shared/session/agent-handler.test.js src/shared/workflow/workflow.test.js src/shared/workflow/validation-loop-core.test.js src/shared/workflow/validation-loop-review.test.js src/shared/workflow/validation-loop-repair.test.js src/shared/workflow/validation-loop-human-review.test.js src/shared/workflow/validation-loop-delivery.test.js src/shared/workflow/validation-loop-recovery.test.js src/ui/tui/chat-session.test.js`
 - Automated: `deno task ci`
+- Documentation: confirm `docs/architecture.md` describes the implemented footer-context sources and still states that
+  display projections do not own lifecycle truth.
 - Manual: start or load a Planned Change Plan that reaches Workflow Validation, force or use a Semantic Review
   rejection, let the Reviewer-Feedback Engineer repair run, then observe the second Semantic Review.
 - Manual expected result: throughout Reviewer, Reviewer-Feedback Engineer, Engineer/Frontend Engineer repair, human Code
@@ -301,4 +328,5 @@ understand validation state.
   JavaScript files or new injection seams. Keep JSDoc typedefs precise in touched JS; if a new helper module is
   extracted, write it in TypeScript.
 - **No glossary change:** this bug fix does not introduce or redefine domain language; `CONTEXT.md` should not be
-  modified for this Plan.
+  modified for this Plan. The only documentation change is an architecture note that keeps existing source-of-truth and
+  projection boundaries accurate.
