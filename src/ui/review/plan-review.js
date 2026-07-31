@@ -149,7 +149,6 @@ function readApprovedExecutionPolicy(decision) {
  *   startPlanReviewSurface?: typeof startPlanReviewSurface,
  *   startPlanReviewServer?: (options: object) => Promise<any>,
  *   openInDefaultBrowser?: typeof import("./review-launcher.js").openInDefaultBrowser,
- *   recordPlanEvent?: typeof recordPlanEvent,
  *   htmlContent?: string,
  * }} [opts.__deps]
  * @returns {Promise<PlanReviewResult>}
@@ -165,7 +164,6 @@ export async function submitPlanForReview({
     __deps,
 }) {
     const startPlanReviewSurfaceImpl = __deps?.startPlanReviewSurface || startPlanReviewSurface;
-    const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
 
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
@@ -335,7 +333,7 @@ export async function submitPlanForReview({
                 attrs.status === "feedback" ||
                 attrs.status === "approved";
             if (!STATUS_ALLOWS_REVIEW) {
-                const reopenedMeta = await recordPlanEventImpl({
+                const reopenedMeta = await recordPlanEvent({
                     cwd,
                     planName,
                     event: "review_reopened",
@@ -347,7 +345,7 @@ export async function submitPlanForReview({
             }
             const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
             if (decision.approved) {
-                const approvedMeta = await recordPlanEventImpl({
+                const approvedMeta = await recordPlanEvent({
                     cwd,
                     planName,
                     event: "review_approved",
@@ -357,7 +355,7 @@ export async function submitPlanForReview({
                 });
                 if (approvedMeta) lifecycleMeta = { ...lifecycleMeta, ...approvedMeta };
             } else {
-                const feedbackMeta = await recordPlanEventImpl({
+                const feedbackMeta = await recordPlanEvent({
                     cwd,
                     planName,
                     event: "review_feedback",

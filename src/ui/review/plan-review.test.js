@@ -1,25 +1,45 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { loadPlan, parsePlanFrontMatter } from "../../plan-store.js";
+import { getStoredPlanPath, loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { submitPlanForReview } from "./plan-review.js";
 
-/** @returns {Promise<{ dir: string, planPath: string }>} */
+/**
+ * A real Plan at its canonical path, so the real Plan Lifecycle records against it.
+ * Review decisions are asserted through the status they persist rather than through a
+ * captured event, which is what the lifecycle actually guarantees.
+ *
+ * @returns {Promise<{ dir: string, planPath: string }>}
+ */
 async function makePlanFile() {
     const dir = await Deno.makeTempDir({ prefix: "runwield-plan-review-" });
-    const planPath = join(dir, "plan.md");
-    await Deno.writeTextFile(planPath, "# Plan\n\nDo the thing.\n");
-    return { dir, planPath };
+    await savePlan(dir, "plan", "# Plan\n\nDo the thing.\n", {
+        classification: "PLANNED_CHANGE",
+        status: "draft",
+        summary: "Do the thing",
+        affectedPaths: [],
+    });
+    return { dir, planPath: getStoredPlanPath(dir, "plan") };
+}
+
+/** @param {string} dir */
+async function planStatus(dir) {
+    return (await loadPlan(dir, "plan"))?.attrs.status;
+}
+
+/** @param {string} dir */
+async function planAttrs(dir) {
+    const plan = await loadPlan(dir, "plan");
+    if (!plan) throw new Error("Plan disappeared");
+    return plan.attrs;
 }
 
 /**
  * @param {any} decision
- * @returns {{ deps: any, events: any[], stops: () => number }}
+ * @returns {{ deps: any, stops: () => number }}
  */
 function makeDeps(decision) {
     let stopCount = 0;
-    const events = /** @type {any[]} */ ([]);
     return {
-        events,
         stops: () => stopCount,
         deps: {
             startPlanReviewSurface: () =>
@@ -30,10 +50,6 @@ function makeDeps(decision) {
                         stopCount++;
                     },
                 }),
-            recordPlanEvent: (/** @type {any} */ event) => {
-                events.push(event);
-                return Promise.resolve();
-            },
         },
     };
 }
@@ -66,7 +82,7 @@ Deno.test("submitPlanForReview updates metadata and records approval", async () 
         assertEquals(result.planAttrs?.classification, "PLANNED_CHANGE");
         assertEquals(result.planAttrs?.workKind, "DOCUMENTATION");
         assertEquals(result.planAttrs?.complexity, "MEDIUM");
-        assertEquals(harness.events.map((event) => event.event), ["review_approved"]);
+        assertEquals(await planStatus(dir), "approved", "review_approved moved the Plan to approved");
         assertEquals(harness.stops(), 1);
     } finally {
         await Deno.remove(dir, { recursive: true });
@@ -131,7 +147,7 @@ customField: keep-me
         assertEquals(parsed.attrs.collaborationRecommendation, "autonomous");
         assertEquals(parsed.attrs.frontend, undefined);
         assertEquals(/** @type {any} */ (parsed.attrs).customField, "keep-me");
-        assertEquals(harness.events[0].details.triageMeta.executionAgent, "engineer");
+        assertEquals((await planAttrs(dir)).executionAgent, "engineer");
         assertEquals(result.planAttrs?.executionAgent, "engineer");
         assertEquals(result.approvalAction, "later");
     } finally {
@@ -172,8 +188,8 @@ collaborationRecommendation: pair
         assertEquals(parsed.attrs.classification, "PROJECT");
         assertEquals(parsed.attrs.executionAgent, undefined);
         assertEquals(parsed.attrs.collaborationRecommendation, undefined);
-        assertEquals(harness.events[0].details.triageMeta.classification, "PROJECT");
-        assertEquals(harness.events[0].details.triageMeta.executionAgent, undefined);
+        assertEquals((await planAttrs(dir)).classification, "PROJECT");
+        assertEquals((await planAttrs(dir)).executionAgent, undefined);
         assertEquals(result.planAttrs?.classification, "PROJECT");
         assertEquals(result.planAttrs?.executionAgent, undefined);
     } finally {
@@ -212,7 +228,7 @@ classification: PROJECT
         assertEquals(parsed.attrs.classification, "PLANNED_CHANGE");
         assertEquals(parsed.attrs.executionAgent, "frontend-engineer");
         assertEquals(parsed.attrs.collaborationRecommendation, "pair");
-        assertEquals(harness.events[0].details.triageMeta.classification, "PLANNED_CHANGE");
+        assertEquals((await planAttrs(dir)).classification, "PLANNED_CHANGE");
         assertEquals(result.planAttrs?.classification, "PLANNED_CHANGE");
         assertEquals(result.planAttrs?.executionAgent, "frontend-engineer");
     } finally {
@@ -247,7 +263,7 @@ collaborationRecommendation: pair
         assertEquals(result.approved, false);
         assertEquals(parsed.attrs.executionAgent, "frontend-engineer");
         assertEquals(parsed.attrs.collaborationRecommendation, "pair");
-        assertEquals(harness.events[0].event, "review_feedback");
+        assertEquals(await planStatus(dir), "feedback", "review_feedback moved the Plan to feedback");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -281,7 +297,7 @@ classification: FEATURE
         assertEquals(errorMessage.includes("pair is only valid"), true);
         assertEquals(parsed.attrs.executionAgent, undefined);
         assertEquals(parsed.attrs.collaborationRecommendation, undefined);
-        assertEquals(harness.events, []);
+        assertEquals(await planStatus(dir), "draft", "no lifecycle event was recorded");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -303,7 +319,7 @@ Deno.test("submitPlanForReview malformed empty feedback decision does not write 
         assertEquals(result.feedback, "");
         assertEquals(result.cancellationReason, "malformed_review_response");
         assertEquals(await Deno.readTextFile(planPath), originalPlan);
-        assertEquals(harness.events, []);
+        assertEquals(await planStatus(dir), "draft", "no lifecycle event was recorded");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -330,7 +346,7 @@ Deno.test("submitPlanForReview records feedback and returns loaded images", asyn
         assertEquals(result.feedback, "change this");
         assertEquals(result.images, [{ base64: "iVBORw==", mimeType: "image/png", name: "reference" }]);
         assertEquals(typeof result.revision, "string");
-        assertEquals(harness.events.map((event) => event.event), ["review_feedback"]);
+        assertEquals(await planStatus(dir), "feedback");
         assertEquals(harness.stops(), 1);
     } finally {
         await Deno.remove(dir, { recursive: true });
@@ -353,7 +369,7 @@ Deno.test("submitPlanForReview timeout or exit does not write Plan or record fee
         assertEquals(result.canceled, true);
         assertEquals(result.cancellationReason, "review_exit");
         assertEquals(await Deno.readTextFile(planPath), originalPlan);
-        assertEquals(harness.events, []);
+        assertEquals(await planStatus(dir), "draft", "no lifecycle event was recorded");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
