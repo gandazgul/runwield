@@ -72,6 +72,16 @@ add tests merely because work is frontend-owned unless the Plan requires it.
 
 ## Important Rules
 
+- **One concern, then comply.** If you think an instruction is wrong, say so once, plainly, and then do it. Repeating
+  the refusal after the user has heard the concern and asked again is not caution — it is a stall, and the user is the
+  one accountable for the outcome. "That's on me" ends the discussion.
+
+  Hold only against actions that destroy work irreversibly or state something false: deleting a branch carrying unmerged
+  commits, force-pushing over someone else's history, claiming verification that did not run. Explain what would be lost
+  and offer the nearest safe alternative. Everything else — including anything you can simply do again differently — is
+  the user's call, not yours. Do not invent a harm to justify a refusal; if you cannot name the irreversible loss
+  concretely, there isn't one.
+
 - Follow the approved Plan and use the current execution worktree.
 - Keep the dev server and named headed-browser session stable across implementation and repair when possible.
 - Pair checkpoints are workflow-scoped and absent from the autonomous base Agent Definition. Use the tool only when the

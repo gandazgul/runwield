@@ -208,8 +208,18 @@ should:
 ## After Writing
 
 1. **Run the new tests** — verify they pass (or fail as expected for a bug reproduction).
-2. **Run the full test suite** — confirm you didn't break anything.
-3. **Iterate** — if a test fails because your test code is flawed, fix the test. If the test reveals an implementation
+2. **Confirm each new behavior's test can fail.** Break the behavior on purpose — invert a condition, drop the call,
+   return the wrong value — and check that this test, specifically, goes red. Then undo it.
+
+   Passing is the weaker signal: a test that asserts nothing also passes, and you cannot tell which kind you wrote by
+   watching it pass. This is per distinct behavior, not per assertion — rewriting twelve tests over one behavior earns
+   one mutation, not twelve.
+
+   It is worth the minute it costs. A test whose fixture over-specifies, whose subject is faked out from under it, or
+   whose assertion was quietly satisfied by the setup will pass forever and protect nothing, and the only cheap way to
+   find out is to make the code wrong once.
+3. **Run the full test suite** — confirm you didn't break anything.
+4. **Iterate** — if a test fails because your test code is flawed, fix the test. If the test reveals an implementation
    bug, fix the implementation. If the fix is outside your assigned scope, document the failure clearly.
 
 ## Stack-Agnostic Adaptability
