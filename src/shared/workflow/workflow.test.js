@@ -20,6 +20,7 @@ import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { findPlansByParent, loadPlan, savePlan } from "../../plan-store.js";
 import { getTransitionJournalDir } from "./state-transition.ts";
+import { loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
 
 /**
  * @param {string} [id]
@@ -29,19 +30,60 @@ function makeHostedSession(id = "workflow-test", cwd = Deno.cwd()) {
     return new HostedSession({ id, cwd, sessionManager: null });
 }
 
+/** @type {string[]} */
+const projectsToRemove = [];
+let projectCleanupRegistered = false;
+
+function registerProjectCleanup() {
+    if (projectCleanupRegistered) return;
+    projectCleanupRegistered = true;
+    globalThis.addEventListener("unload", () => {
+        for (const path of projectsToRemove) {
+            try {
+                Deno.removeSync(path, { recursive: true });
+            } catch {
+                // Best effort; a leftover temp directory must not fail a passing run.
+            }
+        }
+    });
+}
+
 /**
- * @param {string} planName
+ * A real project holding real Plans.
+ *
+ * The Plan Lifecycle is RunWield's own machinery, not an external boundary, so these
+ * tests run it for real against a temp project rather than injecting a stand-in. A
+ * faked lifecycle returns whatever the fake says and hides what the transition
+ * actually wrote — which is how a workflow assertion once passed against state that
+ * only existed because the lifecycle was not running.
+ *
+ * @param {Array<string | { name: string, status?: string, classification?: string, attrs?: Record<string, unknown> }>} plans
+ * @returns {Promise<string>} the project root
  */
-function loadedCanonicalPlanSource(planName) {
-    return Promise.resolve(
-        /** @type {any} */ ({
-            kind: "loaded",
-            path: `/project/plans/${planName}.md`,
-            relativePath: `plans/${planName}.md`,
-            markdown: "---\nstatus: ready_for_work\n---\n# Plan\n",
-            attrs: { status: "ready_for_work" },
-        }),
-    );
+async function makeWorkflowProject(plans) {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-workflow-" });
+    projectsToRemove.push(cwd);
+    registerProjectCleanup();
+    for (const entry of plans) {
+        const plan = typeof entry === "string" ? { name: entry } : entry;
+        await savePlan(
+            cwd,
+            plan.name,
+            `# ${plan.name}`,
+            /** @type {any} */ ({
+                classification: plan.classification || "PLANNED_CHANGE",
+                status: plan.status || "ready_for_work",
+                summary: plan.name,
+                affectedPaths: [],
+                // A Plan that reached execution already has its durable identity. Without
+                // it, ensurePlanIdentity backfills one mid-transaction and the execution
+                // preparation transaction correctly rejects its own snapshot as stale.
+                planId: `plan-${plan.name.replace(/[^a-z0-9]+/gi, "-")}`,
+                ...(plan.attrs || {}),
+            }),
+        );
+    }
+    return cwd;
 }
 
 Deno.test("runPlanningAgent forwards triage metadata into the planning root", async () => {
@@ -104,7 +146,8 @@ Deno.test("HostedSession scopes active execution workflow independently", () => 
 });
 
 Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args", async () => {
-    const hostedSession = makeHostedSession("targeted-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("targeted-workflow", projectRoot);
     /** @type {unknown[]} */
     const createCalls = [];
     /** @type {unknown[]} */
@@ -121,10 +164,11 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
                 prepareCalls.push({ projectRoot, branch });
                 return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
             },
-            createExecutionWorktree: (opts) => {
+            createWorktreeGitArtifacts: (opts) => {
                 createCalls.push(opts);
                 return Promise.resolve(
                     /** @type {any} */ ({
+                        planId: "plan-under-test",
                         id: "wt1",
                         path: "/tmp/wt1",
                         branch: "runwield/worktree/targeted-plan-wt1",
@@ -132,7 +176,6 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
                     }),
                 );
             },
-            loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("targeted-plan"),
             ensureExecutionPlanFile: () =>
                 Promise.resolve({ kind: "restored", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree1"),
@@ -152,7 +195,8 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
 });
 
 Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan preparation and records metric", async () => {
-    const hostedSession = makeHostedSession("baseline-after-plan-restore");
+    const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("baseline-after-plan-restore", projectRoot);
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { planId: "plan-under-test" },
@@ -178,9 +222,11 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
         __deps: {
             probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
-            loadCanonicalExecutionPlanSource: () => {
+            loadCanonicalExecutionPlanSource: (root, name) => {
+                // Observe the ordering, then read the real Plan: a synthetic source
+                // disagrees with the file on disk and trips the front-matter guard.
                 order.push("load-source");
-                return loadedCanonicalPlanSource("p");
+                return loadCanonicalExecutionPlanSource(root, name);
             },
             ensureExecutionPlanFile: () => {
                 order.push("ensure-plan");
@@ -229,7 +275,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
                         reuseLookups++;
                         return Promise.resolve(null);
                     },
-                    createExecutionWorktree: () => {
+                    createWorktreeGitArtifacts: () => {
                         createCalls++;
                         return Promise.reject(new Error("must not create"));
                     },
@@ -249,7 +295,8 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
 });
 
 Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan preparation blocks", async () => {
-    const hostedSession = makeHostedSession("reused-plan-block");
+    const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("reused-plan-block", projectRoot);
     const removed = false;
     let eventRecorded = false;
 
@@ -273,7 +320,6 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
                                 }),
                             ),
                         resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
-                        loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("p"),
                         ensureExecutionPlanFile: () =>
                             Promise.resolve({
                                 kind: "malformed",
@@ -298,7 +344,8 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
 });
 
 Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence and marks registry failed", async () => {
-    const hostedSession = makeHostedSession("fresh-cleanup-failure");
+    const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("fresh-cleanup-failure", projectRoot);
     const worktreePath = await Deno.makeTempDir();
     let registryStatus;
     try {
@@ -312,16 +359,16 @@ Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence an
                     __deps: {
                         probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
                         findReusableWorktree: () => Promise.resolve(null),
-                        createExecutionWorktree: () =>
+                        createWorktreeGitArtifacts: () =>
                             Promise.resolve(
                                 /** @type {any} */ ({
+                                    planId: "plan-under-test",
                                     id: "wt-fresh",
                                     path: worktreePath,
                                     branch: "runwield/worktree/p-wt",
                                     baseBranch: "HEAD",
                                 }),
                             ),
-                        loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("p"),
                         ensureExecutionPlanFile: () =>
                             Promise.resolve({
                                 kind: "restore_failed",
@@ -345,7 +392,8 @@ Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence an
 });
 
 Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans", async () => {
-    const hostedSession = makeHostedSession("untargeted-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "untargeted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("untargeted-workflow", projectRoot);
     /** @type {unknown[]} */
     const createCalls = [];
     let prepareCalls = 0;
@@ -365,10 +413,11 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
                 prepareCalls++;
                 return Promise.resolve({ baseRef: "refs/heads/nope", baseBranch: "nope" });
             },
-            createExecutionWorktree: (opts) => {
+            createWorktreeGitArtifacts: (opts) => {
                 createCalls.push(opts);
                 return Promise.resolve(
                     /** @type {any} */ ({
+                        planId: "plan-under-test",
                         id: "wt2",
                         path: "/tmp/wt2",
                         branch: "runwield/worktree/untargeted-plan-wt2",
@@ -376,7 +425,6 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
                     }),
                 );
             },
-            loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("untargeted-plan"),
             ensureExecutionPlanFile: () =>
                 Promise.resolve({ kind: "restored", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree2"),
@@ -392,7 +440,7 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
 });
 
 Deno.test("startActiveExecutionWorkflow resolves implicit current branch before reusing a recorded worktree", async () => {
-    const projectRoot = Deno.cwd();
+    const projectRoot = await makeWorkflowProject([{ name: "untargeted-plan", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("implicit-target-reuse-workflow", projectRoot);
     /** @type {unknown[]} */
     const reuseCalls = [];
@@ -418,11 +466,10 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
                 );
             },
             resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
-            createExecutionWorktree: () => {
+            createWorktreeGitArtifacts: () => {
                 createCalls++;
                 return Promise.reject(new Error("should reuse recorded worktree"));
             },
-            loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("untargeted-plan"),
             ensureExecutionPlanFile: () =>
                 Promise.resolve({ kind: "present", relativePath: "plans/untargeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree-main"),
@@ -450,7 +497,8 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
 });
 
 Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatches", async () => {
-    const hostedSession = makeHostedSession("mismatched-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("mismatched-workflow", projectRoot);
     let prepareCalls = 0;
     await assertRejects(
         () =>
@@ -475,8 +523,7 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
                         prepareCalls++;
                         return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
                     },
-                    createExecutionWorktree: () => Promise.reject(new Error("should not create")),
-                    loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("targeted-plan"),
+                    createWorktreeGitArtifacts: () => Promise.reject(new Error("should not create")),
                     captureWorktreeTree: () => Promise.resolve("tree3"),
                     updateWorktreeRegistryEntry: () => Promise.resolve(null),
                     recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -489,7 +536,8 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
 });
 
 Deno.test("startActiveExecutionWorkflow matches explicit remote target to recorded local reusable target", async () => {
-    const hostedSession = makeHostedSession("remote-reusable-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("remote-reusable-workflow", projectRoot);
     let createCalls = 0;
     let prepareCalls = 0;
     const result = await startActiveExecutionWorkflow({
@@ -513,11 +561,10 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
                 prepareCalls++;
                 return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
             },
-            createExecutionWorktree: () => {
+            createWorktreeGitArtifacts: () => {
                 createCalls++;
                 return Promise.reject(new Error("should not create"));
             },
-            loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("targeted-plan"),
             ensureExecutionPlanFile: () => Promise.resolve({ kind: "present", relativePath: "plans/targeted-plan.md" }),
             captureWorktreeTree: () => Promise.resolve("tree4"),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
@@ -531,7 +578,8 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
 });
 
 Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unknown active worktree target", async () => {
-    const hostedSession = makeHostedSession("unknown-active-target-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("unknown-active-target-workflow", projectRoot);
     hostedSession.setActiveExecutionWorkflow({
         planName: "targeted-plan",
         triageMeta: { planId: "plan-under-test" },
@@ -559,8 +607,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
                         prepareCalls++;
                         return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
                     },
-                    createExecutionWorktree: () => Promise.reject(new Error("should not create")),
-                    loadCanonicalExecutionPlanSource: () => loadedCanonicalPlanSource("targeted-plan"),
+                    createWorktreeGitArtifacts: () => Promise.reject(new Error("should not create")),
                     captureWorktreeTree: () => Promise.resolve("tree4"),
                     updateWorktreeRegistryEntry: () => Promise.resolve(null),
                     recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
@@ -573,7 +620,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
 });
 
 Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in-place execution", async () => {
-    const projectRoot = Deno.cwd();
+    const projectRoot = await makeWorkflowProject([{ name: "non-git-plan", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("non-git-feature-workflow", projectRoot);
     /** @type {string[]} */
     const prompts = [];
@@ -593,7 +640,7 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
                 return Promise.resolve(true);
             },
             findReusableWorktree: () => Promise.reject(new Error("should not inspect worktrees")),
-            createExecutionWorktree: () => Promise.reject(new Error("should not create worktree")),
+            createWorktreeGitArtifacts: () => Promise.reject(new Error("should not create worktree")),
             captureWorktreeTree: () => Promise.reject(new Error("should not capture git tree")),
             updateWorktreeRegistryEntry: () => Promise.resolve(null),
             recordPlanEvent: (event) => {
@@ -609,7 +656,10 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
     assertEquals(result.worktreeId, undefined);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.nonGitInPlace, true);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, true);
-    assertEquals(/** @type {any} */ (events[0]).details.nonGitInPlace, true);
+    // The non-Git decision is durable Plan state, not just an event payload.
+    const started = await loadPlan(projectRoot, "non-git-plan");
+    assertEquals(started?.attrs.status, "in_progress");
+    assertEquals(started?.attrs.executionMode, "non_git_in_place");
 });
 
 Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consent", async () => {
@@ -873,7 +923,8 @@ Deno.test("executePlan returns to review recovery when approved recovery still c
 });
 
 Deno.test("executePlan routes recovered Approve & Run through readiness before execution", async () => {
-    const hostedSession = makeHostedSession("missing-plan-reapproved");
+    const projectRoot = await makeWorkflowProject([{ name: "missing-plan", status: "approved" }]);
+    const hostedSession = makeHostedSession("missing-plan-reapproved", projectRoot);
     let loadCount = 0;
     let executed = false;
     const events = /** @type {string[]} */ ([]);
@@ -925,13 +976,17 @@ Deno.test("executePlan routes recovered Approve & Run through readiness before e
         },
     });
 
-    assertEquals(events.slice(0, 2), ["readiness_passed", "execute:ready_for_work"]);
+    // Execution saw ready_for_work, which is only reachable from approved via
+    // readiness_passed — and the Plan then ran through to implemented.
+    assertEquals(events.slice(0, 1), ["execute:ready_for_work"]);
+    assertEquals((await loadPlan(projectRoot, "missing-plan"))?.attrs.status, "implemented");
     assertEquals(executed, true);
     assertEquals(result.executionComplete, true);
 });
 
 Deno.test("executePlan forwards recovered approval feedback images to Engineer after load failure", async () => {
-    const hostedSession = makeHostedSession("missing-plan-approved-images");
+    const projectRoot = await makeWorkflowProject([{ name: "missing-plan", status: "approved" }]);
+    const hostedSession = makeHostedSession("missing-plan-approved-images", projectRoot);
     let loadCount = 0;
     const reviewImages = [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }];
     /** @type {any} */
@@ -1046,7 +1101,8 @@ Deno.test("executePlan forwards recovered Feedback images to Planner after load 
 });
 
 Deno.test("executePlan loops through repeated unanswered recovered reviews until answered", async () => {
-    const hostedSession = makeHostedSession("missing-plan-review-loop");
+    const projectRoot = await makeWorkflowProject([{ name: "missing-plan", status: "approved" }]);
+    const hostedSession = makeHostedSession("missing-plan-review-loop", projectRoot);
     let loadCount = 0;
     const reviewResponses = /** @type {any[]} */ ([
         { outcome: "canceled" },
@@ -1087,7 +1143,8 @@ Deno.test("executePlan loops through repeated unanswered recovered reviews until
 });
 
 Deno.test("executePlan treats recovered Approve for Later as session complete", async () => {
-    const hostedSession = makeHostedSession("missing-plan-save-later");
+    const projectRoot = await makeWorkflowProject([{ name: "missing-plan", status: "approved" }]);
+    const hostedSession = makeHostedSession("missing-plan-save-later", projectRoot);
     let loadCount = 0;
     const result = await executePlan({
         planName: "missing-plan",
@@ -1120,14 +1177,17 @@ Deno.test("executePlan treats recovered Approve for Later as session complete", 
 });
 
 Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecycle completion", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "in_progress" }]);
     /** @type {string[]} */
     const order = [];
+    /** @type {string | undefined} */
+    let statusAtCheckpoint;
     const executionContext = /** @type {const} */ ({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
         executionMode: "worktree",
-        projectRoot: "/project",
+        projectRoot,
         executionCwd: "/worktree",
         baselineTree: "attempt-tree",
         worktreeId: "wt-1",
@@ -1135,22 +1195,19 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     });
 
     const result = await finalizePlanImplementation({
-        projectRoot: "/project",
+        projectRoot,
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE", summary: "Preserve completed implementation work." },
         executionContext,
         executionReport: "- Implemented.",
         __deps: {
-            checkpointExecutionWorktree: (options) => {
+            checkpointExecutionWorktree: async (options) => {
+                // Ordering proven through observable state instead of a recorded call:
+                // the Plan must still be unfinished while the work is being committed,
+                // so the commit provably lands before the lifecycle claims it did.
                 order.push(`checkpoint:${options.worktreePath}:${options.branch}`);
-                return Promise.resolve({ executionCommit: "a".repeat(40) });
-            },
-            recordPlanEvent: (event) => {
-                order.push(`event:${event.event}`);
-                assertEquals(/** @type {any} */ (event.details).executionReport, "- Implemented.");
-                assertEquals(/** @type {any} */ (event.details).executionBaselineTree, "attempt-tree");
-                assertEquals(/** @type {any} */ (event.details).worktreeId, "wt-1");
-                return Promise.resolve(/** @type {any} */ ({}));
+                statusAtCheckpoint = (await loadPlan(projectRoot, "feature-plan"))?.attrs.status;
+                return { executionCommit: "a".repeat(40) };
             },
             markActiveWorktreeStatus: (status, /** @type {any} */ options) => {
                 order.push(`registry:${status}:${options.workflow?.worktreeId}`);
@@ -1166,13 +1223,19 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     assertEquals(result, { implementationCommit: "a".repeat(40) });
     assertEquals(order, [
         "checkpoint:/worktree:runwield/worktree/feature-plan",
-        "event:implementation_finished",
         "registry:completed:wt-1",
         "metric:implementation_finished:true",
     ]);
+    assertEquals(statusAtCheckpoint, "in_progress", "the checkpoint commits before the lifecycle completes");
+    const finalized = await loadPlan(projectRoot, "feature-plan");
+    assertEquals(finalized?.attrs.status, "implemented");
+    assertEquals(finalized?.attrs.executionReport, "- Implemented.");
+    assertEquals(finalized?.attrs.worktreeId, "wt-1");
+    assertEquals(finalized?.attrs.executionBaselineTree, "attempt-tree");
 });
 
 Deno.test("finalizePlanImplementation restores missing execution_started before lifecycle completion", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
     /** @type {string[]} */
     const order = [];
     const executionContext = /** @type {const} */ ({
@@ -1180,7 +1243,7 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
         executionMode: "worktree",
-        projectRoot: "/project",
+        projectRoot,
         executionCwd: "/worktree",
         baselineTree: "attempt-tree",
         worktreeId: "wt-1",
@@ -1188,7 +1251,7 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
     });
 
     await finalizePlanImplementation({
-        projectRoot: "/project",
+        projectRoot,
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE", summary: "Recover lifecycle marker order." },
         executionContext,
@@ -1237,11 +1300,15 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
     assertEquals(order, [
         "load",
         "checkpoint:/worktree:runwield/worktree/feature-plan",
-        "event:ready_for_work:execution_started",
-        "event:in_progress:implementation_finished",
         "registry:completed",
         "metric:implementation_finished:true",
     ]);
+    const finalized = await loadPlan(projectRoot, "feature-plan");
+    assertEquals(
+        finalized?.attrs.status,
+        "implemented",
+        "implemented is unreachable from ready_for_work unless execution_started was restored first",
+    );
 });
 
 Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
@@ -1313,6 +1380,7 @@ Deno.test("executePlan does not mark implementation complete when checkpointing 
 });
 
 Deno.test("executePlan still executes ready FEATURE plans", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
     let engineerCalled = false;
     /** @type {string[]} */
     const events = [];
@@ -1332,7 +1400,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     const result = await executePlan({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
-        hostedSession: makeHostedSession("feature-execution"),
+        hostedSession: makeHostedSession("feature-execution", projectRoot),
         reviewFeedback: "Keep the selected command.",
         reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
         __deps: {
@@ -1376,8 +1444,10 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
         completionReport: "- Implemented.\n- Verified.",
     });
     assertEquals(engineerCalled, true);
-    assertEquals(events, ["implementation_finished"]);
-    assertEquals(planEventDetails[0].executionReport, "- Implemented.\n- Verified.");
+    // The lifecycle ran for real, so the Plan itself is the evidence.
+    const finalized = await loadPlan(projectRoot, "feature-plan");
+    assertEquals(finalized?.attrs.status, "implemented");
+    assertEquals(finalized?.attrs.executionReport, "- Implemented.\n- Verified.");
     assertEquals(
         metrics.some((metric) =>
             metric.category === "execution" && metric.event === "plan_execution_started" &&
@@ -1399,12 +1469,13 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
 });
 
 Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan metadata", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "visual-feature", status: "ready_for_work" }]);
     let dispatchedAgent = "";
     let engineerRequest = "";
     const result = await executePlan({
         planName: "visual-feature",
         triageMeta: { planId: "plan-under-test", classification: "FEATURE", executionAgent: "engineer" },
-        hostedSession: makeHostedSession("frontend-execution"),
+        hostedSession: makeHostedSession("frontend-execution", projectRoot),
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
@@ -1454,7 +1525,8 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
 });
 
 Deno.test("executePlan uses the Plan Pair recommendation and injects one workflow checkpoint tool", async () => {
-    const hostedSession = makeHostedSession("pair-execution");
+    const projectRoot = await makeWorkflowProject([{ name: "visual-feature", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("pair-execution", projectRoot);
     /** @type {any} */
     let activeTurn = null;
     hostedSession.setInteractionAdapter({
@@ -1761,6 +1833,7 @@ Deno.test("executePlan rejects invalid loaded policy before dispatch or lifecycl
 });
 
 Deno.test("executePlan treats incomplete Engineer execution as resumable", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
     /** @type {string[]} */
     const events = [];
     /** @type {Array<string | null | undefined>} */
@@ -1768,7 +1841,7 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
     const result = await executePlan({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
-        hostedSession: makeHostedSession("incomplete-feature-execution"),
+        hostedSession: makeHostedSession("incomplete-feature-execution", projectRoot),
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
@@ -1797,12 +1870,18 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
 
     assertEquals(result, { repairRequired: false, executionComplete: false, error: "API failed" });
     assertEquals(events, []);
+    assertEquals(
+        (await loadPlan(projectRoot, "feature-plan"))?.attrs.status,
+        "ready_for_work",
+        "an interrupted turn records no lifecycle completion",
+    );
     assertEquals(worktreeStatuses, []);
 });
 
 Deno.test("executePlan keeps Engineer active when the implementation turn is interrupted", async () => {
-    const executionCwd = Deno.cwd();
-    const hostedSession = makeHostedSession("interrupted-feature-execution", executionCwd);
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
+    const executionCwd = projectRoot;
+    const hostedSession = makeHostedSession("interrupted-feature-execution", projectRoot);
     const plannerHandler = () => Promise.resolve({ kind: "complete" });
     const engineerHandler = () => Promise.resolve({ kind: "complete" });
     const order = /** @type {string[]} */ ([]);
@@ -1866,6 +1945,7 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
 });
 
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "epic-a/01-child-feature", status: "ready_for_work" }]);
     let engineerCalled = false;
     const executionContext = /** @type {const} */ ({
         planName: "epic-a/01-child-feature",
@@ -1879,7 +1959,7 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
     const result = await executePlan({
         planName: "epic-a/01-child-feature",
         triageMeta: { classification: "FEATURE", parentPlan: "epic-a" },
-        hostedSession: makeHostedSession("child-feature-execution"),
+        hostedSession: makeHostedSession("child-feature-execution", projectRoot),
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
@@ -2298,7 +2378,6 @@ Deno.test("createSlicerFinalizeTool rolls back partially written child drafts wh
                     await materializeSlicerDraft(args);
                     throw new Error("later child failed");
                 },
-                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" })),
             },
         });
 
@@ -2533,7 +2612,8 @@ Deno.test("openSlicerDecomposition reports slicer failure when error is missing 
 });
 
 Deno.test("startActiveExecutionWorkflow records attempt timestamp only after execution starts", async () => {
-    const hostedSession = makeHostedSession("attempt-clock-workflow");
+    const projectRoot = await makeWorkflowProject([{ name: "clock-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("attempt-clock-workflow", projectRoot);
     const result = await startActiveExecutionWorkflow({
         planName: "clock-plan",
         triageMeta: { planId: "plan-under-test", classification: "FEATURE" },
@@ -2681,9 +2761,10 @@ Deno.test("execution preparation ignores Plan body edits the user owns", async (
                             attrs: { ...stored?.attrs },
                         }),
                     ),
-                createExecutionWorktree: () =>
+                createWorktreeGitArtifacts: () =>
                     Promise.resolve(
                         /** @type {any} */ ({
+                            planId: "plan-under-test",
                             id: "wt1",
                             path: "/tmp/wt1",
                             branch: "runwield/worktree/body-plan-wt1",
@@ -2744,9 +2825,10 @@ Deno.test("execution preparation still refuses when lifecycle front matter drift
                                     attrs: { ...stored?.attrs, status: "on_hold" },
                                 }),
                             ),
-                        createExecutionWorktree: () =>
+                        createWorktreeGitArtifacts: () =>
                             Promise.resolve(
                                 /** @type {any} */ ({
+                                    planId: "plan-under-test",
                                     id: "wt1",
                                     path: "/tmp/wt1",
                                     branch: "runwield/worktree/fm-plan-wt1",

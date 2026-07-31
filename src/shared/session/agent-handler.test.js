@@ -2,12 +2,13 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 
 /**
  * @param {string} [id]
  */
-function makeHostedSession(id = `agent-handler-test-${crypto.randomUUID()}`) {
-    return new HostedSession({ id, cwd: Deno.cwd() });
+function makeHostedSession(id = `agent-handler-test-${crypto.randomUUID()}`, cwd = Deno.cwd()) {
+    return new HostedSession({ id, cwd });
 }
 
 /**
@@ -683,8 +684,16 @@ Deno.test("agent-handler records delayed implementation finish before continuati
         let workflowDuringValidation = null;
         /** @type {string[]} */
         const events = [];
-        const cwd = Deno.cwd();
-        const hostedSession = makeHostedSession();
+        // A real Plan in a real project: the lifecycle write is not a boundary, so the
+        // test asserts the status it persists instead of the arguments it was handed.
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-agent-handler-" });
+        await savePlan(cwd, "p", "# P", {
+            classification: "PLANNED_CHANGE",
+            status: "in_progress",
+            summary: "P",
+            affectedPaths: [],
+        });
+        const hostedSession = makeHostedSession(undefined, cwd);
         hostedSession.setActiveExecutionWorkflow({
             planName: "p",
             triageMeta: { classification: "FEATURE" },
@@ -708,12 +717,6 @@ Deno.test("agent-handler records delayed implementation finish before continuati
                 ),
             readLatestPlanOutcome: () => null,
             readLatestTaskCompletedOutcome: () => true,
-            recordPlanEvent: (/** @type {any} */ args) => {
-                events.push(args.event);
-                assertEquals(args.currentStatus, "in_progress");
-                assertEquals(args.details.triageMeta, { classification: "FEATURE" });
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             runValidationLoop: () => {
                 events.push("validation_started");
                 workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
@@ -734,7 +737,13 @@ Deno.test("agent-handler records delayed implementation finish before continuati
             executionCwd: cwd,
             nonGitInPlace: true,
         });
-        assertEquals(events, ["implementation_finished", "validation_started"]);
+        assertEquals(events, ["validation_started"]);
+        assertEquals(
+            (await loadPlan(cwd, "p"))?.attrs.status,
+            "implemented",
+            "implementation_finished is recorded before continuation validation runs",
+        );
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
     });
 });
 
@@ -782,7 +791,6 @@ Deno.test("agent-handler preserves workflow and skips validation when delayed ch
 Deno.test("agent-handler resumes validation continuation without recording implementation_finished again", async () => {
     /** @type {unknown} */
     let workflowDuringValidation = null;
-    let recordCount = 0;
     const hostedSession = makeHostedSession();
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
@@ -804,10 +812,6 @@ Deno.test("agent-handler resumes validation continuation without recording imple
             ),
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => true,
-        recordPlanEvent: () => {
-            recordCount++;
-            return Promise.resolve(/** @type {any} */ ({}));
-        },
         runValidationLoop: () => {
             workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
             hostedSession.clearActiveExecutionWorkflow();
@@ -817,7 +821,8 @@ Deno.test("agent-handler resumes validation continuation without recording imple
 
     await handler("continue", [], /** @type {any} */ (undefined));
 
-    assertEquals(recordCount, 0);
+    // No Plan exists for this session, so any lifecycle record would throw rather
+    // than pass silently. Reaching here is the assertion.
     assertEquals(workflowDuringValidation, {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
@@ -829,7 +834,6 @@ Deno.test("agent-handler resumes validation continuation without recording imple
 
 Deno.test("agent-handler ignores stale task_completed outcomes from earlier root turns", async () => {
     let validationCount = 0;
-    let recordCount = 0;
     const staleCompletion = {
         role: "toolResult",
         toolName: "task_completed",
@@ -860,10 +864,6 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
             ),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
-        recordPlanEvent: () => {
-            recordCount++;
-            return Promise.resolve(/** @type {any} */ ({}));
-        },
         runValidationLoop: () => {
             validationCount++;
             return Promise.resolve();
@@ -873,7 +873,8 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
     try {
         await handler("continue", [], /** @type {any} */ (undefined));
 
-        assertEquals(recordCount, 0);
+        // No Plan exists for this session, so any lifecycle record would throw rather
+        // than pass silently. Reaching here is the assertion.
         assertEquals(validationCount, 0);
         assertEquals(hostedSession.getActiveExecutionWorkflow(), {
             planName: "p",
@@ -891,8 +892,14 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
 Deno.test("agent-handler validates task_completed against hosted workflow", async () => {
     /** @type {unknown} */
     let validationWorkflow = null;
-    const cwd = Deno.cwd();
-    const hostedSession = makeHostedSession();
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-agent-handler-" });
+    await savePlan(cwd, "hosted-plan", "# Hosted", {
+        classification: "PLANNED_CHANGE",
+        status: "in_progress",
+        summary: "Hosted",
+        affectedPaths: [],
+    });
+    const hostedSession = makeHostedSession(undefined, cwd);
     hostedSession.setActiveExecutionWorkflow({
         planName: "hosted-plan",
         triageMeta: { classification: "FEATURE" },

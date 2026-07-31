@@ -15,7 +15,6 @@
                 "readLatestPlanOutcome",
                 "readLatestTaskCompletedOutcome",
                 "readLatestTriageOutcome",
-                "recordPlanEvent",
                 "recordWorkflowMetric",
                 "requestAttention",
                 "runMechanicalValidation",
@@ -24,9 +23,7 @@
                 "runValidationLoop",
                 "switchActiveAgent"
             ],
-            "machinery": [
-                "recordPlanEvent"
-            ]
+            "machinery": []
         },
         "src/shared/work-records/auto-generation.js": {
             "seams": [
@@ -155,7 +152,6 @@
                 "captureWorktreeTree",
                 "checkpointExecutionWorktree",
                 "confirmNonGitFeaturePlanExecution",
-                "createExecutionWorktree",
                 "createWorktreeGitArtifacts",
                 "ensureExecutionPlanFile",
                 "executeSingleEngineerPlan",
@@ -168,7 +164,6 @@
                 "now",
                 "prepareTargetBranchRef",
                 "probeGitRepository",
-                "recordPlanEvent",
                 "recordWorkflowMetric",
                 "requestPlanReview",
                 "resolveCurrentCheckoutBranch",
@@ -180,9 +175,7 @@
             ],
             "machinery": [
                 "checkpointExecutionWorktree",
-                "createExecutionWorktree",
                 "createWorktreeGitArtifacts",
-                "recordPlanEvent",
                 "settleWorktreeAttempt",
                 "updateWorktreeRegistryEntry"
             ]
@@ -206,13 +199,10 @@
             "seams": [
                 "htmlContent",
                 "openInDefaultBrowser",
-                "recordPlanEvent",
                 "startPlanReviewServer",
                 "startPlanReviewSurface"
             ],
-            "machinery": [
-                "recordPlanEvent"
-            ]
+            "machinery": []
         },
         "src/ui/tui/boot-banner.js": {
             "seams": [

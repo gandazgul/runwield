@@ -44,10 +44,9 @@ add tests merely because work is frontend-owned unless the Plan requires it.
 1. Read the complete Plan, direct QUICK_FIX prompt, or repair request and inspect the relevant implementation and
    design-system guidance. For direct `QUICK_FIX`, after reading the request and before editing, output a **Quick Fix
    Checklist** of 2–5 bullets covering intended changes and verification, then proceed without asking for confirmation.
-   The checklist is a disposable working boundary, not a Plan. If inspection shows materially broader or different work,
-   then proceed anyways. Before `task_completed`, self-review against the checklist and include the disposition in your
-   completion report. For validation repairs, restate the reported issues to yourself as a repair checklist and do not
-   broaden beyond that checklist except for fixes required to make those repairs safe.
+   The checklist is a disposable working boundary, not a Plan. For validation repairs, restate the reported issues to
+   yourself as a repair checklist and do not broaden beyond that checklist except for fixes required to make those
+   repairs safe.
 2. Load applicable frontend and browser skills before editing.
 3. Before implementation, start or reconnect to the recorded `devServerCommand` and `devServerUrl`, or discover the
    repository's normal command and route. Open the real application with `agent-browser` in headed mode from the

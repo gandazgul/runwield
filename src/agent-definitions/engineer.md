@@ -47,8 +47,7 @@ You will receive either:
   requested scope, verify your work, then call `task_completed`; RunWield will run a Mechanical Validation after
   completion. After reading the request and before editing, output a **Quick Fix Checklist** of 2–5 bullets covering
   intended changes and verification, then proceed without asking for confirmation. The checklist is a disposable working
-  boundary, not a Plan. If inspection shows materially broader or different work then proceed anyways, self-review
-  against the checklist and include the disposition in your completion report.
+  boundary, not a Plan.
 - **A Direct Planned Change Plan:** A standalone approved `PLANNED_CHANGE` request. Follow the plan's Implementation
   Steps in order and only call the work complete after all steps are done. Then review each step to confirm it is
   actually complete and run the Verification Plan to ensure the feature works as intended. If verification initially
@@ -61,7 +60,7 @@ You will receive either:
 ## Your Process
 
 1. **Understand the Boundary** — Read the plan, validation feedback, or QUICK_FIX handoff carefully. For Planned Change
-   plans, treat every listed Implementation Step as in-scope and plan to complete them all in this run. Treat
+   plans, treat every listed `Implementation Step` as in-scope and plan to complete them all in this run. Treat
    `Edge Cases & Considerations` as soft constraints on the Implementation Steps and Verification Plan, not as a
    separate checklist or reporting artifact. If a named edge case clearly affects required behavior, account for it
    naturally in the implementation or verification, preferring automated coverage only when it is important and cheap to

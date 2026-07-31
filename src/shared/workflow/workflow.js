@@ -235,25 +235,16 @@ export async function finalizePlanImplementation({
     }
 
     const checkpointExecutionWorktreeFn = __deps.checkpointExecutionWorktree || checkpointExecutionWorktree;
-    const recordPlanEventImpl = __deps.recordPlanEvent || recordPlanEvent;
     const loadPlanImpl = __deps.loadPlan || loadPlan;
     const markActiveWorktreeStatusImpl = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
+    // The real transaction runs in tests too. This used to swap itself for a fake
+    // "committed" result whenever certain dependencies happened to be injected, which
+    // left the implementation checkpoint — the thing that keeps committed work and the
+    // Plan's claim about it in step — with no coverage at all, and made production
+    // behavior depend on which seams a caller passed.
     const runImplementationCheckpointTransitionImpl = __deps.runImplementationCheckpointTransition ||
-        ((__deps.checkpointExecutionWorktree || __deps.recordPlanEvent || __deps.markActiveWorktreeStatus)
-            ? async (opts) => ({
-                status: /** @type {const} */ ("committed"),
-                transitionId: "test-transition",
-                operation: "implementation_checkpoint",
-                value: {
-                    value: await opts.checkpoint({
-                        transitionId: "test-transition",
-                        beforePlan: null,
-                        markEffect: () => Promise.resolve(),
-                    }),
-                },
-            })
-            : runImplementationCheckpointTransition);
+        runImplementationCheckpointTransition;
     // Older tests and partial recovery paths may not provide a loadable primary
     // Plan; keep the legacy in_progress assumption in that case.
     const currentPlan = await (async () => {
@@ -306,7 +297,7 @@ export async function finalizePlanImplementation({
                 throw new Error(`Cannot complete ${planName}: execution mode is missing or unknown.`);
             }
             if (primaryStatus === "ready_for_work") {
-                await recordPlanEventImpl({
+                await recordPlanEvent({
                     cwd: projectRoot,
                     planName,
                     event: "execution_started",
@@ -324,7 +315,7 @@ export async function finalizePlanImplementation({
                     },
                 });
             }
-            await recordPlanEventImpl({
+            await recordPlanEvent({
                 cwd: projectRoot,
                 planName,
                 event: "implementation_finished",
@@ -440,7 +431,6 @@ export async function executePlan({
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
     const projectRoot = hostedSession.cwd;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
-    const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
     let effectiveReviewFeedback = reviewFeedback;
@@ -607,7 +597,7 @@ export async function executePlan({
                 const readinessEvent = approvedMeta.classification === "PROJECT"
                     ? "epic_readiness_passed"
                     : "readiness_passed";
-                const readinessMeta = await recordPlanEventFn({
+                const readinessMeta = await recordPlanEvent({
                     cwd: projectRoot,
                     planName,
                     event: readinessEvent,
@@ -767,7 +757,7 @@ export async function executePlan({
             hostedSession,
             __deps: {
                 checkpointExecutionWorktree: __deps.checkpointExecutionWorktree,
-                recordPlanEvent: recordPlanEventFn,
+                recordPlanEvent,
                 markActiveWorktreeStatus: markActiveWorktreeStatusFn,
                 recordWorkflowMetric: recordWorkflowMetricFn,
             },
@@ -1083,7 +1073,6 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   collaborationStyle?: "autonomous"|"pair",
  *   collaborationRecommendation?: "autonomous"|"pair",
  *   __deps?: {
- *     createExecutionWorktree?: typeof createWorktreeGitArtifacts,
  *     createWorktreeGitArtifacts?: typeof createWorktreeGitArtifacts,
  *     settleWorktreeAttempt?: typeof settleWorktreeAttempt,
  *     findReusableWorktree?: typeof findReusableWorktree,
@@ -1118,7 +1107,6 @@ export async function startActiveExecutionWorkflow(
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const createWorktree = __deps?.createExecutionWorktree;
     const createGitArtifacts = __deps?.createWorktreeGitArtifacts || createWorktreeGitArtifacts;
     const settleRegistry = __deps?.settleWorktreeAttempt || settleWorktreeAttempt;
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
@@ -1130,7 +1118,6 @@ export async function startActiveExecutionWorkflow(
     const ensurePlanFile = __deps?.ensureExecutionPlanFile || ensureExecutionPlanFile;
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const findRegistryEntryById = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
-    const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const recordWorkflowMetricFn = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
@@ -1183,7 +1170,7 @@ export async function startActiveExecutionWorkflow(
                     executionMode: /** @type {const} */ ("non_git_in_place"),
                     nonGitInPlace: true,
                 };
-                await recordEvent({
+                await recordPlanEvent({
                     cwd: projectRoot,
                     planName,
                     event: "execution_started",
@@ -1318,38 +1305,6 @@ export async function startActiveExecutionWorkflow(
                     path: worktree.path,
                     branch: worktree.branch,
                 });
-            } else if (createWorktree) {
-                const worktreeOptions = {
-                    projectRoot,
-                    planName,
-                    planId: stablePlanId,
-                    attemptId,
-                    ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
-                };
-                worktree = await createWorktree(worktreeOptions);
-                await markEffect("git_worktree_created", {
-                    worktreeId: worktree.id,
-                    path: worktree.path,
-                    branch: worktree.branch,
-                    baseRef: "baseRef" in worktree ? worktree.baseRef : undefined,
-                    baseCommit: "baseCommit" in worktree ? worktree.baseCommit : undefined,
-                    registrySettlement: "legacy_combined_test_helper",
-                });
-                registerRollback("remove_clean_created_worktree", async () => {
-                    await removeWorktreeGitArtifacts({
-                        projectRoot,
-                        path: worktree.path,
-                        force: false,
-                    });
-                    // Deleting the branch is irreversible, so it is its own proven step.
-                    if (worktree.branch) {
-                        await deleteMergedWorktreeBranch({
-                            projectRoot,
-                            branch: worktree.branch,
-                            baseCommit: "baseCommit" in worktree ? worktree.baseCommit : undefined,
-                        });
-                    }
-                });
             } else {
                 const worktreeOptions = {
                     projectRoot,
@@ -1448,13 +1403,8 @@ export async function startActiveExecutionWorkflow(
                     status: "active",
                     executionBaselineTree: baselineTree,
                 });
-                if (!reusable && createWorktree) {
-                    registerRollback("remove_created_registry_entry", async () => {
-                        await removeWorktreeRegistryEntry(projectRoot, worktree.id);
-                    });
-                }
             }
-            await recordEvent({
+            await recordPlanEvent({
                 cwd: projectRoot,
                 planName,
                 event: "execution_started",
@@ -1495,7 +1445,7 @@ export async function startActiveExecutionWorkflow(
                 throw new Error(`Execution preparation returned incompatible workflow evidence for ${planName}.`);
             }
             const usingInjectedWorktreeDeps = Boolean(
-                __deps?.createExecutionWorktree || __deps?.findReusableWorktree ||
+                __deps?.findReusableWorktree ||
                     __deps?.loadCanonicalExecutionPlanSource ||
                     __deps?.ensureExecutionPlanFile || __deps?.captureWorktreeTree ||
                     __deps?.updateWorktreeRegistryEntry,

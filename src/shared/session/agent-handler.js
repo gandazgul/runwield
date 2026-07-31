@@ -83,7 +83,6 @@ function isDeliberateExecutionResume(userRequest) {
  *   runSlicerAgent?: typeof runSlicerAgentFn,
  *   runValidationLoop?: typeof runValidationLoop,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
- *   recordPlanEvent?: typeof recordPlanEventFn,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   switchActiveAgent?: typeof switchActiveAgentFn,
  *   requestAttention?: (hostedSession: import('./hosted-session.js').HostedSession, reason: "agentStopped", agentName: string) => void,
@@ -108,7 +107,6 @@ export function createAgentHandler(agentName, __deps) {
     const runSlicerAgent = __deps?.runSlicerAgent || runSlicerAgentFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
-    const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const switchActiveAgent = __deps?.switchActiveAgent || switchActiveAgentFn;
     const requestAttention = __deps?.requestAttention || ((targetSession, reason, targetAgentName) => {
@@ -470,7 +468,7 @@ export function createAgentHandler(agentName, __deps) {
                                 executionContext: workflow,
                                 hostedSession,
                                 __deps: {
-                                    recordPlanEvent: recordPlanEventImpl,
+                                    recordPlanEvent: recordPlanEventFn,
                                     recordWorkflowMetric: recordWorkflowMetricImpl,
                                 },
                             });
