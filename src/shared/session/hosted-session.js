@@ -6,7 +6,9 @@
 import { isAbsolute } from "@std/path";
 import { MAX_DELEGATED_READERS } from "../../constants.js";
 import {
+    deriveWorkflowContextFromExecutionWorkflow,
     readPersistedWorkflowContext,
+    recordNormalizedWorkflowContext,
     recordWorkflowPlanName,
     recordWorkflowTriageContext,
     workflowContextsEqual,
@@ -333,11 +335,19 @@ export class HostedSession {
     /** @param {MinimalSessionManagerLike | null} sessionManager */
     setRootSessionManager(sessionManager) {
         this.assertActive();
+        const previous = this.workflowContext;
         this.rootSessionManager = sessionManager;
-        if (sessionManager) {
-            this.workflowContext = readPersistedWorkflowContext(
-                /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (sessionManager),
-            );
+        if (!sessionManager) return;
+
+        const persisted = readPersistedWorkflowContext(
+            /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (sessionManager),
+        );
+        if (persisted) {
+            this.replaceWorkflowContext(persisted, { persist: false });
+            return;
+        }
+        if (previous) {
+            this.replaceWorkflowContext(previous, { persist: true });
         }
     }
 
@@ -578,20 +588,26 @@ export class HostedSession {
         return this.workflowContext ? { ...this.workflowContext } : null;
     }
 
-    /** @param {{ routingIntent: unknown, complexity: unknown }} details */
-    setWorkflowTriageContext(details) {
+    /**
+     * @param {import('./workflow-context-session.js').WorkflowContext | null} nextContext
+     * @param {{ persist?: boolean }} options
+     */
+    replaceWorkflowContext(nextContext, options = {}) {
         if (this.disposed) return;
         const previous = this.workflowContext;
+        let normalized = nextContext;
         try {
-            this.workflowContext = recordWorkflowTriageContext(
-                /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
-                    .rootSessionManager),
-                details,
-            );
+            if (options.persist) {
+                normalized = recordNormalizedWorkflowContext(
+                    /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
+                        .rootSessionManager),
+                    nextContext,
+                );
+            }
         } catch (_e) {
-            // Footer-context persistence is fail-open and must not block triage.
-            return;
+            // Footer-context persistence is fail-open; keep normalized in-memory context below.
         }
+        this.workflowContext = normalized ? { ...normalized } : null;
         if (workflowContextsEqual(previous, this.workflowContext) || !this.workflowContext) return;
         emitHostedSessionRuntimeEvent(this, {
             type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
@@ -599,25 +615,42 @@ export class HostedSession {
         });
     }
 
+    /** @param {{ routingIntent: unknown, complexity: unknown }} details */
+    setWorkflowTriageContext(details) {
+        if (this.disposed) return;
+        try {
+            const nextContext = recordWorkflowTriageContext(
+                /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
+                    .rootSessionManager),
+                details,
+            ) || this.workflowContext;
+            this.replaceWorkflowContext(nextContext, { persist: false });
+        } catch (_e) {
+            // Footer-context persistence is fail-open and must not block triage.
+        }
+    }
+
     /** @param {unknown} planName */
     setWorkflowPlanName(planName) {
         if (this.disposed) return;
-        const previous = this.workflowContext;
         try {
-            this.workflowContext = recordWorkflowPlanName(
+            const nextContext = recordWorkflowPlanName(
                 /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
                     .rootSessionManager),
                 planName,
-            );
+            ) || this.workflowContext;
+            this.replaceWorkflowContext(nextContext, { persist: false });
         } catch (_e) {
             // Footer-context persistence is fail-open and must not block planning.
-            return;
         }
-        if (workflowContextsEqual(previous, this.workflowContext) || !this.workflowContext) return;
-        emitHostedSessionRuntimeEvent(this, {
-            type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
-            workflowContext: { ...this.workflowContext },
-        });
+    }
+
+    /** @param {{ planName?: unknown, triageMeta?: Record<string, unknown> | null }} details */
+    setWorkflowExecutionContext(details) {
+        if (this.disposed) return;
+        const nextContext = deriveWorkflowContextFromExecutionWorkflow(details);
+        if (!nextContext) return;
+        this.replaceWorkflowContext(nextContext, { persist: true });
     }
 
     /** @param {ActiveExecutionWorkflow | null} workflow */

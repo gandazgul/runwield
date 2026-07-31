@@ -93,11 +93,54 @@ export function recordWorkflowPlanName(sessionManager, planName) {
     if (!normalizedPlanName) return readPersistedWorkflowContext(sessionManager);
     try {
         const latest = readPersistedWorkflowContext(sessionManager) || {};
-        return recordWorkflowContext(sessionManager, { ...latest, planName: normalizedPlanName });
+        return recordNormalizedWorkflowContext(sessionManager, { ...latest, planName: normalizedPlanName });
     } catch (_e) {
         // Workflow-context persistence should never block planning.
         return { planName: normalizedPlanName };
     }
+}
+
+/**
+ * @param {{ planName?: unknown, triageMeta?: Record<string, unknown> | null } | null | undefined} workflow
+ * @param {unknown} [planName]
+ * @returns {WorkflowContext | null}
+ */
+export function deriveWorkflowContextFromExecutionWorkflow(workflow, planName) {
+    const triageMeta = workflow?.triageMeta && typeof workflow.triageMeta === "object" ? workflow.triageMeta : null;
+    const routingIntent = normalizeWorkflowRoutingIntent(triageMeta?.routingIntent || triageMeta?.classification);
+    const complexity = normalizeWorkflowComplexity(triageMeta?.complexity);
+    const normalizedPlanName = normalizeWorkflowPlanName(workflow?.planName || planName);
+
+    /** @type {WorkflowContext} */
+    const context = {};
+    if (routingIntent && complexity) {
+        context.routingIntent = routingIntent;
+        context.complexity = complexity;
+    }
+    if (normalizedPlanName) context.planName = normalizedPlanName;
+
+    return Object.keys(context).length > 0 ? context : null;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {WorkflowContext | null | undefined} context
+ * @returns {WorkflowContext | null}
+ */
+export function recordNormalizedWorkflowContext(sessionManager, context) {
+    const normalized = normalizeWorkflowContext(context);
+    if (!normalized) return readPersistedWorkflowContext(sessionManager);
+    if (!sessionManager?.appendCustomEntry) return normalized;
+
+    try {
+        const latest = readPersistedWorkflowContext(sessionManager);
+        if (workflowContextsEqual(latest, normalized)) return latest;
+        sessionManager.appendCustomEntry(WORKFLOW_CONTEXT_CUSTOM_TYPE, normalized);
+    } catch (_e) {
+        // Workflow-context persistence should never block routing, planning, or execution.
+    }
+
+    return normalized;
 }
 
 /**
@@ -126,19 +169,7 @@ export function readPersistedWorkflowContext(sessionManager) {
  * @returns {WorkflowContext | null}
  */
 function recordWorkflowContext(sessionManager, context) {
-    const normalized = normalizeWorkflowContext(context);
-    if (!normalized) return readPersistedWorkflowContext(sessionManager);
-    if (!sessionManager?.appendCustomEntry) return normalized;
-
-    try {
-        const latest = readPersistedWorkflowContext(sessionManager);
-        if (workflowContextsEqual(latest, normalized)) return latest;
-        sessionManager.appendCustomEntry(WORKFLOW_CONTEXT_CUSTOM_TYPE, normalized);
-    } catch (_e) {
-        // Workflow-context persistence should never block routing or planning.
-    }
-
-    return normalized;
+    return recordNormalizedWorkflowContext(sessionManager, context);
 }
 
 /**

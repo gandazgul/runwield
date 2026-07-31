@@ -57,6 +57,7 @@ import { getModelRegistry } from "../models/model-registry.js";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
+import { deriveWorkflowContextFromExecutionWorkflow } from "./workflow-context-session.js";
 import { basename, dirname, isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -347,9 +348,9 @@ export class SessionRuntime {
             : typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
             : null;
-        const workflowContext = session.getWorkflowContext() || (managedDormant ? managed?.workflowContext : null) ||
-            null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
+        const workflowContext = session.getWorkflowContext() || (managedDormant ? managed?.workflowContext : null) ||
+            deriveWorkflowContextFromExecutionWorkflow(activeExecutionWorkflow) || null;
         const contextCapacity = getRuntimeContextCapacity(session);
         const activeModelState = session.getActiveModelState();
         const managedModel = managedDormant ? managed?.model || "" : "";

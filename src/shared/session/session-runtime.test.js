@@ -2052,3 +2052,43 @@ Deno.test("SessionRuntime close operations dispose sessions by id", async () => 
     assertEquals(runtime.getSessionSnapshot(second.sessionId), null);
     assertEquals(runtime.listSessions(), []);
 });
+
+Deno.test("SessionRuntime snapshot derives workflow context from active execution workflow fallback", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+        executionAgent: "engineer",
+    });
+
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext, {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    });
+});
+
+Deno.test("SessionRuntime snapshot prefers explicit workflow context over active execution fallback", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.setWorkflowExecutionContext({
+        planName: "explicit-plan",
+        triageMeta: { routingIntent: "PROJECT", complexity: "HIGH" },
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "fallback-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+        executionAgent: "engineer",
+    });
+
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext, {
+        routingIntent: "PROJECT",
+        complexity: "HIGH",
+        planName: "explicit-plan",
+    });
+});

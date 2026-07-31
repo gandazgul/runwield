@@ -1427,6 +1427,7 @@ export async function runValidationLoop({
                 details: { triageMeta, failureReason: resolution.message },
             }).catch(() => {});
         }
+        hostedSession.clearActiveExecutionWorkflow();
         return { kind: "failed", planName, projectRoot: initialProjectRoot, reason: resolution.message };
     }
     if (resolution.restoredPlanFile) {
@@ -1463,30 +1464,43 @@ export async function runValidationLoop({
         ? resolvedExecutionContext.worktreeId
         : undefined;
     const nonGitInPlace = resolvedExecutionContext.executionMode === "non_git_in_place";
-    if (activeWorkflow) {
-        hostedSession?.clearActiveExecutionWorkflow();
-    }
+    /** @type {import('../session/hosted-session.js').ActiveExecutionWorkflow} */
+    const validationWorkflowBase = {
+        ...(activeWorkflow || {}),
+        planName,
+        triageMeta,
+        executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (executionAgent),
+        ...(activeWorkflow?.projectRoot || resolvedExecutionContext.projectRoot !== hostedSession.cwd
+            ? { projectRoot }
+            : {}),
+        executionCwd,
+        validationContinuation: true,
+        ...(resolvedExecutionContext.executionMode === "worktree" && worktreeId && worktreeBranch && baselineTree
+            ? {
+                executionMode: /** @type {const} */ ("worktree"),
+                baselineTree,
+                worktreeId,
+                worktreeBranch,
+                ...(worktreeBaseBranch ? { worktreeBaseBranch } : {}),
+            }
+            : {}),
+        ...(resolvedExecutionContext.executionMode === "non_git_in_place"
+            ? {
+                executionMode: /** @type {const} */ ("non_git_in_place"),
+                nonGitInPlace: true,
+            }
+            : {}),
+    };
     /**
      * @param {Parameters<typeof repair>[0]} args
      * @returns {Promise<boolean>}
      */
     async function runWorkflowRepair(args) {
-        const shouldExposeRepairContext = activeWorkflow?.executionAgent === AGENTS.FRONTEND_ENGINEER;
-        if (shouldExposeRepairContext) {
-            hostedSession.setActiveExecutionWorkflow({
-                ...activeWorkflow,
-                planName,
-                triageMeta,
-                executionAgent: /** @type {"frontend-engineer"} */ (AGENTS.FRONTEND_ENGINEER),
-                executionCwd,
-                validationContinuation: true,
-            });
-        }
-        const completed = await repair(args);
-        if (shouldExposeRepairContext && completed) {
-            hostedSession.clearActiveExecutionWorkflow();
-        }
-        return completed;
+        hostedSession.setActiveExecutionWorkflow({
+            ...validationWorkflowBase,
+            ...roundStateForWorkflowRecord(),
+        });
+        return await repair(args);
     }
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
@@ -1512,7 +1526,7 @@ export async function runValidationLoop({
             const currentWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
             const pausedWorkflow = currentWorkflow?.executionAgent === executionAgent
                 ? currentWorkflow
-                : activeWorkflow || {};
+                : validationWorkflowBase;
             hostedSession.setActiveExecutionWorkflow({
                 ...pausedWorkflow,
                 planName,
@@ -1581,6 +1595,11 @@ export async function runValidationLoop({
         repairBaselineTree,
         lastRepairReport,
         humanReviewCycle,
+    });
+
+    hostedSession.setActiveExecutionWorkflow({
+        ...validationWorkflowBase,
+        ...roundStateForWorkflowRecord(),
     });
 
     progress = createValidationProgress({
@@ -3613,6 +3632,7 @@ export async function runValidationLoop({
         await switchActiveAgentImpl(hostedSession, { agentName: finalAgentName });
     }
 
+    hostedSession.clearActiveExecutionWorkflow();
     if (executionComplete) {
         return /** @type {WorkflowValidationResult} */ ({
             kind: "verified",

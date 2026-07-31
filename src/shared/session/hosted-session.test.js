@@ -540,3 +540,50 @@ Deno.test("HostedSession delegated-agent leases are scoped per session and clear
     releaseB();
     sessionA.dispose();
 });
+
+Deno.test("HostedSession preserves workflow context across empty root manager swap and persists it", () => {
+    const firstEntries = /** @type {Array<Record<string, unknown>>} */ ([]);
+    const secondEntries = /** @type {Array<Record<string, unknown>>} */ ([]);
+    const session = new HostedSession({
+        id: "context-swap",
+        cwd: "/work/context-swap",
+        sessionManager: makeSessionManager("context-swap-a", firstEntries),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+
+    session.setRootSessionManager(makeSessionManager("context-swap-b", secondEntries));
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    });
+    assertEquals(secondEntries, [{
+        type: "custom",
+        customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
+        data: { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
+    }]);
+});
+
+Deno.test("HostedSession null root manager does not clear workflow context", () => {
+    const session = new HostedSession({
+        id: "context-null-manager",
+        cwd: "/work/context-null-manager",
+        sessionManager: makeSessionManager("context-null-manager-a"),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+
+    session.setRootSessionManager(null);
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    });
+});
