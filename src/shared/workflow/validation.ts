@@ -1202,6 +1202,13 @@ async function dispatchMergeRepair(
     error?: unknown,
 ): Promise<boolean> {
     const runActiveAgentTurnImpl = runActiveAgentTurn;
+    const repairCwd = getMergeRepairCwd(error) || context.executionCwd;
+    // Say what happened before the agent starts. An Engineer turn appearing with no
+    // explanation reads as RunWield doing something unprompted: the user sees tool
+    // calls about merge conflicts they were never told about, in a directory they did
+    // not choose.
+    emitStatus(args.hostedSession, `Merge failed while publishing ${args.planName}: ${reason}`, "warning");
+    emitStatus(args.hostedSession, `Dispatching ${context.executionAgent} to resolve the conflict in ${repairCwd}.`);
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
     const messages = await runActiveAgentTurnImpl({
         hostedSession: args.hostedSession,
@@ -1209,7 +1216,7 @@ async function dispatchMergeRepair(
         userRequest:
             `Worktree merge failed while publishing ${args.planName}. Repair the merge/integration failure, then call task_completed. Reason:\n\n${reason}`,
         sessionManager: args.sessionManager,
-        cwd: getMergeRepairCwd(error) || context.executionCwd,
+        cwd: repairCwd,
     });
     return readLatestTaskCompletedReport(messages).completed;
 }
