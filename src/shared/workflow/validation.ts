@@ -10,6 +10,7 @@ import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
+import { appendUnsettledNote } from "./validation-progress.ts";
 import { runIsolatedAgentSession } from "../session/session.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
@@ -803,20 +804,59 @@ async function runPublicationPhase(
         return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        await recordLifecycleEvent(args, context.projectRoot, "worktree_merge_failed", "validated_reviewer", reason, {
-            worktreeId: context.worktreeId,
-            worktreePath: context.executionCwd,
-            worktreeBranch: context.worktreeBranch,
-            worktreeBaseBranch,
-        });
-        await dispatchMergeRepair(args, context, reason);
+        // Bookkeeping must never cancel the recovery. The most common merge failure
+        // leaves conflict markers in the Plan file, which makes this record impossible
+        // — the Plan can no longer be parsed — and that is exactly the moment the
+        // repair is most needed. Recording used to run first and throw, so the repair
+        // dispatch below was unreachable in its main case: RunWield would attempt the
+        // merge, fail, and go quiet.
+        // Repair first, and only record a failure if the repair did not land. A merge
+        // conflict is a normal, fixable event: the Engineer resolves it and publication
+        // retries. Recording `worktree_merge_failed` sends the Plan back to
+        // `implemented`, which throws away the passed CI and approved review and makes
+        // the user sit through the whole pipeline again for a conflict that was already
+        // fixed. Leaving the Plan at `validated_reviewer` lets the next call retry
+        // publication directly — the behavior before validation became phase-driven.
+        const repaired = await dispatchMergeRepair(args, context, reason, error);
+        if (repaired) {
+            return {
+                recorded: false,
+                result: {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: `Merge conflict repaired for ${args.planName}. Publication will retry.`,
+                },
+            };
+        }
+        // The repair did not finish, so the Plan must not be left mid-publication.
+        let unsettledNote = "";
+        try {
+            await recordLifecycleEvent(
+                args,
+                context.projectRoot,
+                "worktree_merge_failed",
+                "validated_reviewer",
+                reason,
+                {
+                    worktreeId: context.worktreeId,
+                    worktreePath: context.executionCwd,
+                    worktreeBranch: context.worktreeBranch,
+                    worktreeBaseBranch,
+                },
+            );
+        } catch (recordError) {
+            unsettledNote = `RunWield could not record the merge failure: ${
+                recordError instanceof Error ? recordError.message : String(recordError)
+            } The Plan's own status may be behind until that is resolved.`;
+        }
         return {
             recorded: true,
             result: {
                 kind: "failed",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: `Worktree merge failed: ${reason}`,
+                reason: appendUnsettledNote(`Worktree merge failed: ${reason}`, unsettledNote),
             },
         };
     }
@@ -1138,17 +1178,40 @@ async function dispatchCiRepair(
     });
 }
 
-async function dispatchMergeRepair(args: ValidationLoopArgs, context: PhaseContext, reason: string): Promise<void> {
+/**
+ * Where a merge failure has to be repaired.
+ *
+ * A merge conflict lands in whichever checkout git was merging into — usually the
+ * primary one, not the execution worktree. The typed merge error carries that path,
+ * so dispatching the repair agent into `executionCwd` unconditionally sends it to a
+ * directory with no conflict in it, where it finds nothing to fix.
+ */
+function getMergeRepairCwd(error: unknown): string | undefined {
+    if (error && typeof error === "object" && "repairCwd" in error) {
+        const repairCwd = (error as { repairCwd?: unknown }).repairCwd;
+        return typeof repairCwd === "string" ? repairCwd : undefined;
+    }
+    return undefined;
+}
+
+/** @returns whether the repair agent reported completion. */
+async function dispatchMergeRepair(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    reason: string,
+    error?: unknown,
+): Promise<boolean> {
     const runActiveAgentTurnImpl = runActiveAgentTurn;
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
-    await runActiveAgentTurnImpl({
+    const messages = await runActiveAgentTurnImpl({
         hostedSession: args.hostedSession,
         agentName: context.executionAgent,
         userRequest:
             `Worktree merge failed while publishing ${args.planName}. Repair the merge/integration failure, then call task_completed. Reason:\n\n${reason}`,
         sessionManager: args.sessionManager,
-        cwd: context.executionCwd,
+        cwd: getMergeRepairCwd(error) || context.executionCwd,
     });
+    return readLatestTaskCompletedReport(messages).completed;
 }
 
 async function promptForSemanticRoundLimit(
