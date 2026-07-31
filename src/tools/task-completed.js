@@ -9,6 +9,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import { AGENTS } from "../constants.js";
 
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summary for the completed task.";
 const ENGINEER_MESSAGE_DESCRIPTION =
@@ -75,8 +76,10 @@ function buildToolDescription() {
         "For QUICK_FIX work, the Engineer must verify before calling this tool; RunWield then runs no-plan Mechanical Validation. " +
         "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible " +
         "evidence; if browser verification was blocked, state the exact blocker and what remains unverified. " +
-        "Call this exactly once when you are completely finished with your assigned work and include a concise " +
+        "Call when your assigned work is complete, and include a concise " +
         "report in the required `message` parameter, following its description for content and format. " +
+        "Normally called once per assignment. Calling it again is harmless — nothing is corrupted by a second " +
+        "report — so if the workflow or the user asks for another, comply instead of refusing. " +
         "If you need to ask the user a clarifying question before finishing, DO NOT call this tool — " +
         "just output the question in text.";
 }
@@ -131,7 +134,18 @@ export function createTaskCompletedTool(
                     terminate: false,
                 };
             }
-            if (activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName) {
+            // Repair agents finish work on behalf of the execution owner. Validation
+            // keeps `executionAgent` pointing at the owner (engineer/frontend-engineer)
+            // while a Reviewer-Feedback Engineer repairs review findings, so comparing
+            // the caller to the owner rejects the very completion the validation loop is
+            // waiting for. The loop then reads `outcome: "rejected"` as "repair did not
+            // finish" and stalls, with the owner unable to help because its own
+            // completion was already spent.
+            const completingOnBehalfOfOwner = normalizedAgentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER;
+            if (
+                activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName &&
+                !completingOnBehalfOfOwner
+            ) {
                 return {
                     content: [{
                         type: "text",

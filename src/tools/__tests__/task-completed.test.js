@@ -267,3 +267,32 @@ Deno.test("task_completed labels validation repair Frontend Engineer completion"
     assertEquals(metrics[1].metric.details.phase, "validation_repair");
     assertEquals(metrics[1].metric.details.elapsedMs, 400);
 });
+
+Deno.test("task_completed accepts the Reviewer-Feedback Engineer completing on the owner's behalf", async () => {
+    // Validation keeps the execution owner on the active workflow while a repair agent
+    // works, so an owner check alone rejects the completion the loop is waiting for and
+    // the repair round can never finish.
+    const events = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({ id: "task-completed-repair-agent", cwd: Deno.cwd() });
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+        validationContinuation: true,
+    });
+    const tool = createTaskCompletedTool({
+        hostedSession,
+        agentName: "reviewer-feedback-engineer",
+        recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
+    });
+
+    const result = await /** @type {any} */ (tool.execute)("call", { message: "- Repaired the finding." });
+
+    assertEquals(result.details.outcome, "task_completed");
+    assertEquals(
+        hostedSession.getActiveExecutionWorkflow()?.executionAgent,
+        "engineer",
+        "the execution owner is unchanged by a repair completion",
+    );
+});
