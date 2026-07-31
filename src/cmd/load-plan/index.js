@@ -49,6 +49,8 @@ import {
 } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
+    closeTransitionRecordByAttestation,
+    getTransitionJournalDir,
     runDirectDeliveryPublicationTransition,
     runPlanFrontMatterTransition,
     runRecoveryTransition,
@@ -2004,6 +2006,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {{ planName: string, path: string, markdown: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {string} opts.agentName
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {Array<{ transitionId?: string, operation?: string, reason?: string }>} [opts.unresolvedRecords] - Lifecycle records RunWield could not prove; they block every other action until closed.
  * @param {PlanSessionSurface["executePlan"]} opts.executePlan
  * @param {PlanSessionSurface["runPlanningAgent"]} opts.runPlanningAgent
  * @param {typeof decidePostPlanningFn} opts.decidePostPlanning
@@ -2045,6 +2048,7 @@ async function handlePlanRecovery({
     plan,
     agentName,
     uiAPI,
+    unresolvedRecords: initialUnresolvedRecords = [],
     executePlan,
     runPlanningAgent,
     decidePostPlanning,
@@ -2093,6 +2097,8 @@ async function handlePlanRecovery({
         return resolved;
     };
     let worktreeContext = await refreshRecoveryWorktree();
+    /** @type {Array<{ transitionId?: string, operation?: string, reason?: string }>} */
+    let unresolvedRecords = initialUnresolvedRecords;
     /**
      * @param {string} action
      * @param {string} result
@@ -2120,8 +2126,20 @@ async function handlePlanRecovery({
             : hasWorktree
             ? "Delete/recreate worktree and start over"
             : "Reset tree and start over";
+        // A Plan whose only problem is an unprovable record must not be offered the
+        // ordinary actions first: every one of them re-hits the same block, so the
+        // user loops. Lead with the thing that clears it.
+        const recordOptions = unresolvedRecords.length > 0
+            ? [{
+                value: "settle_records",
+                label: `Close ${
+                    unresolvedRecords.length === 1 ? "the unfinished lifecycle record" : "unfinished lifecycle records"
+                } (you confirm the state)`,
+            }]
+            : [];
         const options = plan.attrs.status === "implemented"
             ? [
+                ...recordOptions,
                 ...(gitRecoveryBlocked ? [] : [{ value: "validate", label: "Retry Workflow Validation" }]),
                 { value: "inspect", label: "Inspect and report current state" },
                 ...(canMergeWorktree && !gitRecoveryBlocked
@@ -2138,6 +2156,7 @@ async function handlePlanRecovery({
                 { value: "cancel", label: "Cancel" },
             ]
             : [
+                ...recordOptions,
                 { value: "inspect", label: "Inspect and report current state" },
                 ...(gitRecoveryBlocked
                     ? []
@@ -2168,6 +2187,62 @@ async function handlePlanRecovery({
         if (!answer || answer === "cancel") {
             await recordRecoveryResult("cancel", "handled");
             return "handled";
+        }
+
+        if (answer === "settle_records") {
+            // Try proof one more time first: the blocker may have been a worktree that
+            // has since been restored, and RunWield should never ask the user to vouch
+            // for something it can now check itself.
+            const recheck = await healSettledTransitionRecords(projectRoot, { planName: plan.planName, apply: true })
+                .catch(() => null);
+            unresolvedRecords = recheck ? recheck.remaining : unresolvedRecords;
+            if (recheck && recheck.closed.length > 0) {
+                uiAPI.appendSystemMessage(
+                    `Closed ${recheck.closed.length} lifecycle record${
+                        recheck.closed.length === 1 ? "" : "s"
+                    } that the repository now proves are settled.`,
+                    false,
+                    "RunWield",
+                );
+            }
+            if (unresolvedRecords.length === 0) {
+                await recordRecoveryResult("settle_records", "handled", { byProof: true });
+                continue;
+            }
+            for (const record of unresolvedRecords) {
+                uiAPI.appendSystemMessage(
+                    `Unfinished ${record.operation || "lifecycle operation"} on ${plan.planName}: ${record.reason}`,
+                    false,
+                    "RunWield",
+                );
+            }
+            const confirmed = await uiAPI.promptSelect(
+                `Close ${unresolvedRecords.length === 1 ? "this record" : "these records"} on your confirmation?`,
+                [
+                    { value: "no", label: "No, leave them (check the state first)" },
+                    { value: "yes", label: "Yes — I have checked the repository and nothing is unpublished" },
+                ],
+            );
+            if (confirmed !== "yes") {
+                await recordRecoveryResult("settle_records", "declined");
+                continue;
+            }
+            for (const record of unresolvedRecords) {
+                if (!record.transitionId) continue;
+                await closeTransitionRecordByAttestation(projectRoot, record.transitionId, {
+                    note: `Closed from Plan Recovery for ${plan.planName}.`,
+                });
+            }
+            unresolvedRecords = [];
+            uiAPI.appendSystemMessage(
+                `Closed on your confirmation. The records were kept, not deleted — they are under ${
+                    getTransitionJournalDir(projectRoot)
+                }/attested if you need to look back. Lifecycle changes to ${plan.planName} are unblocked.`,
+                false,
+                "RunWield",
+            );
+            await recordRecoveryResult("settle_records", "handled", { byAttestation: true });
+            continue;
         }
 
         if (answer === "hold") {
@@ -3698,6 +3773,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
     /** @type {string | null} */
     let loadedPlanName = null;
+    /** @type {Array<{ transitionId?: string, operation?: string, reason?: string }>} */
+    let unresolvedLifecycleRecords = [];
 
     try {
         const plan = await resolvePlan(projectRoot, planArg);
@@ -3709,6 +3786,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         // needs a decision is surfaced, and then with the command that resolves it.
         try {
             const healed = await healSettledTransitionRecords(projectRoot, { planName: plan.planName });
+            unresolvedLifecycleRecords = healed.remaining;
             if (healed.closed.length > 0) {
                 uiAPI.appendSystemMessage(
                     `Cleared ${healed.closed.length} unfinished lifecycle record${
@@ -3724,8 +3802,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         remaining.operation || "lifecycle operation"
                     } that RunWield cannot confirm on its own: ${remaining.reason}. ` +
                         `Lifecycle changes to this Plan stay blocked until it is resolved. ` +
-                        `Run \`${CLI_BIN} plans doctor\` to see the exact evidence that is missing, then either resolve it ` +
-                        `with a recovery action below or clear the record once you have checked the state yourself.`,
+                        `Plan Recovery opens below with "Close the unfinished lifecycle record" as the first option; ` +
+                        `run \`${CLI_BIN} plans doctor\` first if you want to see the exact evidence that is missing.`,
                     true,
                     "RunWield",
                 );
@@ -3856,13 +3934,20 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
         const forceReview = epicResult === "review";
 
-        if (["in_progress", "failed", "implemented"].includes(plan.attrs.status)) {
+        // An unprovable record blocks every lifecycle change, so it has to be reachable
+        // from Plan Recovery whatever the Plan's status is. Otherwise a draft or
+        // verified Plan is told it is blocked and offered nothing.
+        if (
+            ["in_progress", "failed", "implemented"].includes(plan.attrs.status) ||
+            unresolvedLifecycleRecords.length > 0
+        ) {
             restoreAgentName = planFlowRestoreAgent;
             const result = await handlePlanRecovery({
                 projectRoot,
                 plan,
                 agentName,
                 uiAPI,
+                unresolvedRecords: unresolvedLifecycleRecords,
                 executePlan,
                 runPlanningAgent,
                 decidePostPlanning,

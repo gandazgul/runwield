@@ -2,6 +2,8 @@ import { assert, assertEquals } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import {
+    closeTransitionRecordByAttestation,
+    getTransitionJournalDir,
     getTransitionJournalPath,
     listTransitionRecoveryRecords,
     reconcileTransitionRecoveryRecords,
@@ -789,14 +791,20 @@ Deno.test("a rejected precondition leaves no journal and the Plan stays usable",
             affectedPaths: [],
         });
         // validation_passed is not reachable from draft: a pure rule rejection.
-        await recordPlanEvent({ cwd, planName: "demo", event: "validation_passed" }).catch(() => {});
+        await recordPlanEvent({ cwd, planName: "demo", event: "validation_passed", currentStatus: "draft" })
+            .catch(() => {});
         assertEquals(
             (await listTransitionRecoveryRecords(cwd)).length,
             0,
             "a rejection that changed no bytes must not journal",
         );
         // The Plan must remain operable; a journal here would block it forever.
-        const attrs = await recordPlanEvent({ cwd, planName: "demo", event: "review_approved" });
+        const attrs = await recordPlanEvent({
+            cwd,
+            planName: "demo",
+            event: "review_approved",
+            currentStatus: "draft",
+        });
         assertEquals(attrs.status, "approved");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
@@ -1197,6 +1205,44 @@ Deno.test("a journal keeps its before-facts across state changes", async () => {
             "string",
             "the before-revision recorded at prepare survives later state writes",
         );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("an unprovable record can be closed on user attestation without destroying it", async () => {
+    // The last resort in the never-strand chain. RunWield must not close a record it
+    // cannot prove, but refusing forever leaves `rm` on a JSON file as the only exit.
+    const cwd = await Deno.makeTempDir();
+    try {
+        const path = getTransitionJournalPath(cwd, "stuck-1");
+        await Deno.mkdir(dirname(path), { recursive: true });
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({
+                transitionId: "stuck-1",
+                planName: "demo",
+                operation: "worktree_merge",
+                state: "needs_recovery",
+                effects: [{ effect: "merge_execution_worktree" }],
+            }),
+        );
+        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 1);
+
+        const closed = await closeTransitionRecordByAttestation(cwd, "stuck-1", { note: "checked by hand" });
+        assertEquals(closed.closed, true);
+
+        // Unblocked...
+        assertEquals(await listTransitionRecoveryRecords(cwd), [], "the record no longer blocks the Plan");
+        // ...but not destroyed. An attestation can be wrong, so the evidence survives.
+        const archived = JSON.parse(await Deno.readTextFile(`${getTransitionJournalDir(cwd)}/attested/stuck-1.json`));
+        assertEquals(archived.state, "closed_by_user_attestation");
+        assertEquals(archived.operation, "worktree_merge");
+        assertEquals(archived.attestationNote, "checked by hand");
+        assertEquals(typeof archived.closedByUserAttestationAt, "string");
+
+        const missing = await closeTransitionRecordByAttestation(cwd, "not-there");
+        assertEquals(missing.closed, false);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

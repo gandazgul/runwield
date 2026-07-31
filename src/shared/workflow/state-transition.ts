@@ -1116,6 +1116,58 @@ export async function listTransitionRecoveryRecords(projectRoot: string) {
     return records;
 }
 
+/**
+ * Close a record RunWield cannot prove, on the user's word instead of evidence.
+ *
+ * Some records are genuinely unprovable — the worktree was deleted by hand, a
+ * branch was force-pushed, the machine died mid-merge. RunWield must not close
+ * those on its own, because closing without proof can hide unpublished work. But
+ * refusing forever leaves the Plan permanently stuck, with `rm` on a JSON file as
+ * the only way out. That is the corner this exists to remove: the user can take
+ * responsibility explicitly, and RunWield records that they did.
+ *
+ * The record is moved, never deleted. It stays readable under `attested/` so the
+ * decision is auditable and recoverable if the attestation turns out to be wrong.
+ */
+export async function closeTransitionRecordByAttestation(
+    projectRoot: string,
+    transitionId: string,
+    { note }: { note?: string } = {},
+): Promise<{ closed: boolean; archivedPath?: string; reason?: string }> {
+    const activePath = getTransitionJournalPath(projectRoot, transitionId);
+    let record: Record<string, unknown>;
+    try {
+        record = JSON.parse(await Deno.readTextFile(activePath));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+            return { closed: false, reason: `No lifecycle record ${transitionId} to close.` };
+        }
+        // Unreadable bytes are exactly when the user most needs the escape, so keep
+        // going with what we know rather than making the corner permanent.
+        record = { transitionId, unreadable: compactError(error) };
+    }
+    const archiveDir = join(getTransitionJournalDir(projectRoot), "attested");
+    const archivedPath = join(archiveDir, `${transitionId}.json`);
+    await Deno.mkdir(archiveDir, { recursive: true });
+    await atomicWriteTextFile(
+        archivedPath,
+        `${
+            JSON.stringify(
+                {
+                    ...record,
+                    state: "closed_by_user_attestation",
+                    closedByUserAttestationAt: new Date().toISOString(),
+                    ...(note ? { attestationNote: note } : {}),
+                },
+                null,
+                2,
+            )
+        }\n`,
+    );
+    await removeJournal(projectRoot, transitionId);
+    return { closed: true, archivedPath };
+}
+
 /** A durable effect as read back from a journal, before anything is proven. */
 export interface JournaledEffect {
     effect: string;

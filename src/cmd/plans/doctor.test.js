@@ -195,6 +195,7 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
             affectedPaths: [],
             worktreeId: "wt-b",
         });
+        /** @type {Omit<import('../../shared/worktree-registry.js').WorktreeRegistryEntry, "id"|"planName"|"branch"|"path">} */
         const base = {
             baseBranch: "main",
             baseRef: "HEAD",
@@ -478,6 +479,7 @@ Deno.test("doctor proves publication from real Git ancestry in both directions",
         const publishedCommit = await git(cwd, ["rev-parse", "main"]);
         const unpublishedCommit = await git(cwd, ["rev-parse", "side"]);
 
+        /** @returns {import('../../plan-store.js').WorktreeDeliveryEvidence} */
         const evidenceFor = (/** @type {string} */ commit) => ({
             version: 1,
             mode: "worktree_merge",
