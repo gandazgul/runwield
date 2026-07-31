@@ -619,11 +619,15 @@ export class HostedSession {
     setWorkflowTriageContext(details) {
         if (this.disposed) return;
         try {
-            const nextContext = recordWorkflowTriageContext(
+            const hasWorkflowContextPersistence = typeof this.rootSessionManager?.appendCustomEntry === "function";
+            const recordedContext = recordWorkflowTriageContext(
                 /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
                     .rootSessionManager),
                 details,
-            ) || this.workflowContext;
+            );
+            const nextContext = recordedContext && !hasWorkflowContextPersistence
+                ? { ...this.workflowContext, ...recordedContext }
+                : recordedContext || this.workflowContext;
             this.replaceWorkflowContext(nextContext, { persist: false });
         } catch (_e) {
             // Footer-context persistence is fail-open and must not block triage.
@@ -634,11 +638,15 @@ export class HostedSession {
     setWorkflowPlanName(planName) {
         if (this.disposed) return;
         try {
-            const nextContext = recordWorkflowPlanName(
+            const hasWorkflowContextPersistence = typeof this.rootSessionManager?.appendCustomEntry === "function";
+            const recordedContext = recordWorkflowPlanName(
                 /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
                     .rootSessionManager),
                 planName,
-            ) || this.workflowContext;
+            );
+            const nextContext = recordedContext && !hasWorkflowContextPersistence
+                ? { ...this.workflowContext, ...recordedContext }
+                : recordedContext || this.workflowContext;
             this.replaceWorkflowContext(nextContext, { persist: false });
         } catch (_e) {
             // Footer-context persistence is fail-open and must not block planning.

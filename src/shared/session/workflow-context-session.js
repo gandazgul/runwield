@@ -107,7 +107,8 @@ export function recordWorkflowPlanName(sessionManager, planName) {
  */
 export function deriveWorkflowContextFromExecutionWorkflow(workflow, planName) {
     const triageMeta = workflow?.triageMeta && typeof workflow.triageMeta === "object" ? workflow.triageMeta : null;
-    const routingIntent = normalizeWorkflowRoutingIntent(triageMeta?.routingIntent || triageMeta?.classification);
+    const routingIntent = normalizeWorkflowRoutingIntent(triageMeta?.routingIntent) ||
+        normalizeWorkflowRoutingIntent(triageMeta?.classification);
     const complexity = normalizeWorkflowComplexity(triageMeta?.complexity);
     const normalizedPlanName = normalizeWorkflowPlanName(workflow?.planName || planName);
 

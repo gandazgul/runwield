@@ -109,6 +109,13 @@ Deno.test("workflow context derives execution metadata with legacy feature norma
     );
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({
+            planName: "plans/fallback-plan.md",
+            triageMeta: { routingIntent: "NOPE", classification: "FEATURE", complexity: "medium" },
+        }),
+        { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "fallback-plan" },
+    );
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
             triageMeta: { routingIntent: "NOPE", classification: "bad", complexity: "medium" },
         }, "plans/name-only.md"),
         { planName: "name-only" },
