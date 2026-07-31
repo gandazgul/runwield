@@ -1,15 +1,17 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { savePlan } from "../plan-store.js";
 import {
     addEntry,
     findById,
+    findByPlanId,
     findByPlanName,
     getWorktreeRegistryPath,
     listEntries,
     pruneStaleEntries,
     removeEntry,
     updateEntry,
+    WorktreeRegistryAmbiguityError,
 } from "./worktree-registry.js";
 
 /**
@@ -83,14 +85,74 @@ Deno.test("worktree registry rejects duplicate nonterminal attempts", async () =
     const projectRoot = await Deno.makeTempDir();
     try {
         await addEntry(projectRoot, entry({ id: "first", planId: "plan-1" }));
-        await assertRejects(
+        const refusal = await assertRejects(
             () =>
                 addEntry(
                     projectRoot,
                     entry({ id: "second", planId: "plan-1", branch: "runwield/worktree/demo-plan-wt-2" }),
                 ),
-            Error,
-            "nonterminal attempt",
+            WorktreeRegistryAmbiguityError,
+        );
+        // The write refusal is correct, but a refusal the user cannot act on strands
+        // them: it has to name the colliding attempts and a command that resolves them.
+        assertStringIncludes(refusal.message, "more than one unfinished worktree attempt");
+        assertStringIncludes(refusal.message, "first");
+        assertEquals(refusal.kind, "duplicate_live_attempt");
+        assertEquals(refusal.entryIds.includes("first"), true);
+        assertEquals(
+            refusal.recoveryActions.some((action) => action.command?.includes("plans doctor")),
+            true,
+            "a refusal must carry a copy-ready command",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("a damaged attempt for one Plan does not disable every other Plan", async () => {
+    // One hand-edited or badly-merged registry used to make *every* worktree command
+    // in the project fail with a bare invariant message — including the commands that
+    // diagnose and repair it. Reads are permissive now, so the damage stays scoped to
+    // the question that genuinely cannot be answered.
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            getWorktreeRegistryPath(projectRoot),
+            JSON.stringify({
+                version: 2,
+                entries: [
+                    entry({ id: "dup-a", planName: "broken", planId: "plan-broken" }),
+                    entry({
+                        id: "dup-b",
+                        planName: "broken",
+                        planId: "plan-broken",
+                        branch: "runwield/worktree/broken-b",
+                    }),
+                    entry({ id: "healthy", planName: "healthy", planId: "plan-healthy" }),
+                ],
+            }),
+        );
+
+        const listed = await listEntries(projectRoot, { migrate: false });
+        assertEquals(listed.length, 3, "listing damaged data is how the user sees the damage");
+
+        const healthy = await findByPlanId(projectRoot, "plan-healthy");
+        assertEquals(healthy?.id, "healthy", "an unrelated Plan keeps working");
+        assertEquals((await findById(projectRoot, "dup-a"))?.id, "dup-a", "an exact attempt id is unambiguous");
+
+        const ambiguous = await assertRejects(
+            () => findByPlanId(projectRoot, "plan-broken"),
+            WorktreeRegistryAmbiguityError,
+        );
+        assertStringIncludes(ambiguous.message, "dup-a");
+        assertStringIncludes(ambiguous.message, "dup-b");
+        assertStringIncludes(ambiguous.message, "Nothing has been changed or deleted");
+        assertEquals(ambiguous.planName, "broken");
+        assertEquals(
+            ambiguous.recoveryActions.some((action) => action.command?.includes("load-plan broken")),
+            true,
+            "the Plan-scoped recovery route must be offered by name",
         );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
@@ -119,7 +181,13 @@ Deno.test("worktree registry rejects duplicate durable ids on read", async () =>
             }),
         );
 
-        await assertRejects(() => listEntries(projectRoot), Error, "Duplicate worktree registry id: same");
+        const failure = await assertRejects(() => listEntries(projectRoot), WorktreeRegistryAmbiguityError);
+        assertStringIncludes(failure.message, "appears more than once");
+        assertEquals(failure.kind, "duplicate_worktree_id");
+        assertEquals(
+            failure.recoveryActions.some((action) => action.command?.includes("plans doctor")),
+            true,
+        );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }

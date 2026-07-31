@@ -5,7 +5,7 @@
 
 import { dirname, join } from "@std/path";
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
-import { RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
+import { CLI_BIN, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
 import { listPlanResources } from "../plan-store.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
@@ -28,6 +28,99 @@ const LOCK_RETRY_MS = 50;
  * @property {string} updatedAt
  * @property {{ reason: string, recordedAt: string, candidates?: string[] }} [migrationIssue]
  */
+
+/** @typedef {{ label: string, description: string, command?: string }} RegistryRecoveryAction */
+
+/**
+ * A registry read could not answer the question that was asked.
+ *
+ * The registry is RunWield's own bookkeeping, so "invariant violated" is not an
+ * explanation the user can act on — it reads as RunWield failing at its paperwork
+ * and handing over the bill. Carry the affected attempt ids and the commands that
+ * resolve them so every surface can say what to do next.
+ */
+export class WorktreeRegistryAmbiguityError extends Error {
+    /**
+     * @param {string} message
+     * @param {{ kind: string, entryIds: string[], planName?: string, recoveryActions: RegistryRecoveryAction[] }} details
+     */
+    constructor(message, details) {
+        super(message);
+        this.name = "WorktreeRegistryAmbiguityError";
+        this.kind = details.kind;
+        this.entryIds = details.entryIds;
+        this.planName = details.planName;
+        this.recoveryActions = details.recoveryActions;
+    }
+}
+
+/**
+ * @param {string} [planName]
+ * @returns {RegistryRecoveryAction[]}
+ */
+function registryRecoveryActions(planName) {
+    return [
+        {
+            label: "See every attempt RunWield knows about",
+            description:
+                "Reports the registry as it stands, including which attempts collide, without changing anything.",
+            command: `${CLI_BIN} plans doctor`,
+        },
+        {
+            label: "Let RunWield settle what it can prove",
+            description:
+                "Closes attempts that are provably finished or provably never started. Branches and worktree directories are never deleted.",
+            command: `${CLI_BIN} plans doctor --repair`,
+        },
+        ...(planName
+            ? [{
+                label: "Choose which attempt survives",
+                description:
+                    "Plan Recovery lists the attempts for this Plan so you can continue, retry, merge, or abandon one.",
+                command: `${CLI_BIN} load-plan ${planName}`,
+            }]
+            : []),
+    ];
+}
+
+/**
+ * @param {string} planName
+ * @param {WorktreeRegistryEntry[]} entries
+ */
+function duplicateLiveAttemptError(planName, entries) {
+    const described = entries.map((entry) => `${entry.id} (${entry.status})`).join(", ");
+    return new WorktreeRegistryAmbiguityError(
+        `${planName} has more than one unfinished worktree attempt — ${described} — so RunWield cannot tell which one ` +
+            `holds your work. It is refusing to guess rather than validating or merging the wrong one. Nothing has been ` +
+            `changed or deleted.`,
+        {
+            kind: "duplicate_live_attempt",
+            entryIds: entries.map((entry) => entry.id),
+            planName,
+            recoveryActions: registryRecoveryActions(planName),
+        },
+    );
+}
+
+/**
+ * Render an ambiguity into one block of prose plus copy-ready commands.
+ *
+ * Surfaces that can only carry a string — blocked lifecycle results, CLI stderr —
+ * still have to give the user something to run, so the actions travel inline rather
+ * than being dropped on the way out.
+ *
+ * @param {unknown} error
+ * @returns {string | null} null when this is not a registry ambiguity
+ */
+export function describeRegistryAmbiguity(error) {
+    if (!(error instanceof WorktreeRegistryAmbiguityError)) return null;
+    const lines = [error.message, "", "What you can do:"];
+    for (const action of error.recoveryActions) {
+        lines.push(`- ${action.label}: ${action.description}`);
+        if (action.command) lines.push(`    ${action.command}`);
+    }
+    return lines.join("\n");
+}
 
 /** @param {number} ms */
 function delay(ms) {
@@ -131,15 +224,6 @@ function hasUnresolvedLegacyNonterminalEntries(entries) {
 }
 
 /**
- * @param {WorktreeRegistryEntry[]} entries
- */
-function assertRegistryIntegrity(entries) {
-    for (const entry of entries) {
-        assertNoDuplicateNonterminalAttempt(entries, entry);
-    }
-}
-
-/**
  * @param {string} projectRoot
  * @param {{ migrate?: boolean, planResources?: Array<{ name: string, attrs: { planId?: string, worktreeId?: string|null } }> }} [options]
  * @returns {Promise<WorktreeRegistryEntry[]>}
@@ -153,13 +237,26 @@ async function readRegistry(projectRoot, options = {}) {
         const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
         const ids = new Set();
         for (const entry of entries) {
-            if (ids.has(entry.id)) throw new Error(`Duplicate worktree registry id: ${entry.id}`);
+            if (ids.has(entry.id)) {
+                throw new WorktreeRegistryAmbiguityError(
+                    `Worktree id ${entry.id} appears more than once in the registry, so RunWield cannot tell which ` +
+                        `attempt any command means. Nothing has been changed or deleted.`,
+                    { kind: "duplicate_worktree_id", entryIds: [entry.id], recoveryActions: registryRecoveryActions() },
+                );
+            }
             ids.add(entry.id);
         }
         const migrated = options.migrate === false || !Array.isArray(options.planResources)
             ? false
             : await migrateLegacyRegistryEntries(projectRoot, entries, options.planResources);
-        assertRegistryIntegrity(entries);
+        // Reading is deliberately permissive. Two unfinished attempts for one Plan
+        // make *that Plan's* lookups ambiguous; they say nothing about any other
+        // Plan, and refusing every read over it made one damaged record disable every
+        // worktree command in the project — including the ones that diagnose it. The
+        // guard that matters is on the write side: `addEntry` and `updateEntry` still
+        // refuse to create a second live attempt, so a permissive read cannot let one
+        // in. Lookups below fail only when the entry they were asked for is the
+        // ambiguous one.
         const hasUnresolvedLegacy = hasUnresolvedLegacyNonterminalEntries(entries);
         if (
             options.migrate !== false && ((migrated && !hasUnresolvedLegacy) || (version < 2 && !hasUnresolvedLegacy))
@@ -198,11 +295,7 @@ function assertNoDuplicateNonterminalAttempt(entries, candidate) {
         entry.id !== candidate.id && entry.planId && registryPlanKey(entry) === key &&
         NONTERMINAL_STATUSES.has(entry.status)
     );
-    if (duplicate) {
-        throw new Error(
-            `Worktree registry already has a nonterminal attempt for ${candidate.planName}: ${duplicate.id}`,
-        );
-    }
+    if (duplicate) throw duplicateLiveAttemptError(candidate.planName, [duplicate, candidate]);
 }
 
 /**
@@ -570,9 +663,7 @@ export async function findByPlanName(projectRoot, planName) {
     const legacyMatches = entries.filter((entry) =>
         !entry.planId && entry.planName === planName && NONTERMINAL_STATUSES.has(entry.status)
     );
-    if (legacyMatches.length > 1) {
-        throw new Error(`Ambiguous legacy worktree attempts for Plan ${planName}; use exact worktree id.`);
-    }
+    if (legacyMatches.length > 1) throw duplicateLiveAttemptError(planName, legacyMatches);
     return legacyMatches[0] || null;
 }
 
@@ -582,7 +673,12 @@ export async function findByPlanName(projectRoot, planName) {
  */
 export async function findByPlanId(projectRoot, planId) {
     const entries = await listEntries(projectRoot);
-    return entries.find((entry) => entry.planId === planId && NONTERMINAL_STATUSES.has(entry.status)) || null;
+    const live = entries.filter((entry) => entry.planId === planId && NONTERMINAL_STATUSES.has(entry.status));
+    // Picking the first of several would silently hand back one of two worktrees and
+    // validate or merge whichever happened to be written first. This is the one place
+    // the ambiguity has to surface, because it is the question that cannot be answered.
+    if (live.length > 1) throw duplicateLiveAttemptError(live[0].planName, live);
+    return live[0] || null;
 }
 
 /**

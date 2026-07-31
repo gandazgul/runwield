@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch, assertRejects } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { basename, dirname } from "@std/path";
 import { getHomeDir } from "../constants.js";
 
@@ -196,7 +196,7 @@ Deno.test("createTestWorktreeAttempt rejects duplicate live legacy plan-name att
                 worktreeRoot,
             }),
         );
-        await assertRejects(
+        const refused = await assertRejects(
             () =>
                 createTestWorktreeAttempt({
                     projectRoot,
@@ -205,8 +205,13 @@ Deno.test("createTestWorktreeAttempt rejects duplicate live legacy plan-name att
                     worktreeRoot,
                 }),
             Error,
-            "already has a nonterminal attempt",
+            "more than one unfinished worktree attempt",
         );
+        // The registry refusal is wrapped with the created path and branch. Both halves
+        // have to survive: the path so nothing is silently orphaned, and the registry's
+        // own reassurance that it changed nothing.
+        assertStringIncludes(refused.message, "registry settlement failed");
+        assertStringIncludes(refused.message, "Nothing has been changed or deleted");
 
         const reusable = await findReusableWorktree({
             projectRoot,

@@ -6,6 +6,7 @@ import { isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import {
     adoptCanonicalPlanId,
+    describeRegistryAmbiguity,
     findById as findWorktreeRegistryEntryById,
     findByPlanId as findWorktreeRegistryEntryByPlanId,
     findByPlanName as findWorktreeRegistryEntryByPlanName,
@@ -257,11 +258,22 @@ export async function resolveValidationExecutionContext({
     }
     const candidateWorktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
     const canonicalPlanId = asString(attrs.planId);
-    const recoveredRegistryEntry = candidateWorktreeId
-        ? await findByIdFn(projectRoot, candidateWorktreeId)
-        : canonicalPlanId
-        ? await findByPlanIdFn(projectRoot, canonicalPlanId)
-        : await findByPlanNameFn(projectRoot, planName);
+    /** @type {Awaited<ReturnType<typeof findWorktreeRegistryEntryById>>} */
+    let recoveredRegistryEntry;
+    try {
+        recoveredRegistryEntry = candidateWorktreeId
+            ? await findByIdFn(projectRoot, candidateWorktreeId)
+            : canonicalPlanId
+            ? await findByPlanIdFn(projectRoot, canonicalPlanId)
+            : await findByPlanNameFn(projectRoot, planName);
+    } catch (error) {
+        // A damaged registry is RunWield's bookkeeping, not the user's mistake. Let it
+        // block the operation, but as a blocked result carrying the commands that fix
+        // it — an escaping exception here reached the user as a bare stack trace.
+        const described = describeRegistryAmbiguity(error);
+        if (!described) throw error;
+        return blocked("worktree_registry_ambiguous", described);
+    }
     const executionMode = normalizedCandidateMode || durableMode || (recoveredRegistryEntry ? "worktree" : undefined);
     if (!executionMode) {
         const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;

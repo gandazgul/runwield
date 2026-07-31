@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { dirname } from "@std/path";
 import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
-import { addEntry, findById } from "../worktree-registry.js";
+import { addEntry, findById, getWorktreeRegistryPath } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
@@ -366,14 +367,65 @@ Deno.test("resolveValidationExecutionContext heals a diverged worktree Plan ID i
         // All three converge on the canonical id, so nothing is left to strand a
         // later recovery that looks the attempt up by planId.
         const healed = await loadPlan(worktreePath, "p");
-        assertEquals(healed.attrs.planId, "canonical-plan-id");
+        assertEquals(healed?.attrs.planId, "canonical-plan-id");
         const entry = await findById(projectRoot, "wt-1");
         assertEquals(entry?.planId, "canonical-plan-id");
         const canonical = await loadPlan(projectRoot, "p");
-        assertEquals(canonical.attrs.planId, "canonical-plan-id", "the canonical Plan is never rewritten from a copy");
+        assertEquals(
+            canonical?.attrs.planId,
+            "canonical-plan-id",
+            "the canonical Plan is never rewritten from a copy",
+        );
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a damaged worktree registry blocks with commands instead of a stack trace", async () => {
+    const projectRoot = await baseRepo.checkout();
+    try {
+        await savePlan(projectRoot, "p", "# Plan", {
+            planId: "plan-ambiguous",
+            classification: "FEATURE",
+            status: "implemented",
+            executionMode: "worktree",
+        });
+        // addEntry refuses to create a second live attempt, which is the guard working.
+        // The damage this covers arrives the other way: a hand-edited file or a branch
+        // merge that concatenated two registries.
+        const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        const attempt = (/** @type {string} */ id, /** @type {string} */ status) => ({
+            id,
+            planName: "p",
+            planId: "plan-ambiguous",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit,
+            branch: `runwield/worktree/p-${id}`,
+            path: `${projectRoot}/${id}`,
+            status,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const registryPath = getWorktreeRegistryPath(projectRoot);
+        await Deno.mkdir(dirname(registryPath), { recursive: true });
+        await Deno.writeTextFile(
+            registryPath,
+            JSON.stringify({ version: 2, entries: [attempt("wt-x", "active"), attempt("wt-y", "completed")] }),
+        );
+
+        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
+        assertEquals(result.kind, "blocked");
+        if (result.kind !== "blocked") return;
+        assertEquals(result.reason, "worktree_registry_ambiguous");
+        assertStringIncludes(result.message, "wt-x");
+        assertStringIncludes(result.message, "wt-y");
+        assertStringIncludes(result.message, "What you can do:");
+        assertStringIncludes(result.message, "plans doctor");
+        assertStringIncludes(result.message, "load-plan p");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
 });
 
