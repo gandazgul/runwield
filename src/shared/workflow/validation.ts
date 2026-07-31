@@ -141,6 +141,10 @@ type SemanticReviewPort = {
     requestInteraction?: (hostedSession: HostedSession, request: InteractionRequest) => Promise<InteractionResponse>;
 };
 
+type AgentTurnPort = {
+    runActiveAgentTurn?: (options: ActiveAgentTurnOptions) => Promise<boolean>;
+};
+
 type ValidationDeps = {
     runLocalCI?: typeof runLocalCI;
     recordPlanEvent?: typeof recordPlanEvent;
@@ -193,6 +197,7 @@ type ValidationLoopArgs = {
     executionContext?: ActiveExecutionWorkflow;
     git?: GitPort;
     semanticReviewPort?: SemanticReviewPort;
+    agentTurnPort?: AgentTurnPort;
     __deps?: ValidationDeps;
 };
 
@@ -1084,7 +1089,7 @@ async function dispatchCiRepair(
     context: PhaseContext,
     ciResult: LocalCIResult,
 ): Promise<void> {
-    const runActiveAgentTurnImpl = runActiveAgentTurn;
+    const runActiveAgentTurnImpl = args.agentTurnPort?.runActiveAgentTurn || runActiveAgentTurn;
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
     emitStatus(
         args.hostedSession,
