@@ -455,7 +455,10 @@ testWithFs(
             await savePlan(cwd, "archived/hidden", "# Hidden");
             const ids = ["existing-id", "new-id"];
 
-            const resources = await listPlanResources(cwd, { idGenerator: () => ids.shift() || "fallback-id" });
+            const resources = await listPlanResources(cwd, {
+                backfillMissing: true,
+                idGenerator: () => ids.shift() || "fallback-id",
+            });
 
             assertEquals(resources.map((resource) => resource.planName), ["existing", "missing"]);
             assertEquals(resources.map((resource) => resource.planId), ["existing-id", "new-id"]);
@@ -1911,7 +1914,10 @@ testWithFs(
             await savePlan(cwd, "archived/old", "# Old");
             const ids = ["existing", "generated"];
 
-            const resources = await listPlanResources(cwd, { __testGenerateId: () => ids.shift() || "unused" });
+            const resources = await listPlanResources(cwd, {
+                backfillMissing: true,
+                __testGenerateId: () => ids.shift() || "unused",
+            });
 
             assertEquals(resources.map((resource) => resource.name), ["a", "b"]);
             assertEquals(resources.map((resource) => resource.planId), ["existing", "generated"]);
@@ -2620,6 +2626,33 @@ Deno.test("a Plan lock left by a dead process is reclaimed immediately", async (
             true,
             "a dead holder must be reclaimed at once, not waited out",
         );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+testWithFs("listPlanResources does not write Plan files unless backfill is requested", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plan-resources-readonly-" });
+    try {
+        await savePlan(cwd, "no-id", "# No Id\n", {
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "s",
+            affectedPaths: [],
+        });
+        const before = await loadPlan(cwd, "no-id");
+
+        // A read must stay a read: registry reads and Workspace listings run this
+        // from inside lifecycle transactions, and a silent Front Matter write there
+        // rewrites bytes the transaction already snapshotted.
+        const listed = await listPlanResources(cwd);
+        assertEquals(listed.length, 1);
+        assertEquals(listed[0].planId, "");
+        assertEquals((await loadPlan(cwd, "no-id"))?.revision, before?.revision);
+
+        const healed = await listPlanResources(cwd, { backfillMissing: true, __testGenerateId: () => "minted-id" });
+        assertEquals(healed[0].planId, "minted-id");
+        assertEquals((await loadPlan(cwd, "no-id"))?.attrs.planId, "minted-id");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

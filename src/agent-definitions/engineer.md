@@ -49,11 +49,11 @@ You will receive either:
   intended changes and verification, then proceed without asking for confirmation. The checklist is a disposable working
   boundary, not a Plan. If inspection shows materially broader or different work then proceed anyways, self-review
   against the checklist and include the disposition in your completion report.
-- **A Direct Planned Change Plan:** A standalone approved `PLANNED_CHANGE` request from the user. Follow the plan's
-  Implementation Steps in order and only call the work complete after all steps are done. Then review each step to
-  confirm it is actually complete and run the Verification Plan to ensure the feature works as intended. If verification
-  initially fails, diagnose and repair the failure, then retry it; report a blocker only after the available repair
-  paths are exhausted.
+- **A Direct Planned Change Plan:** A standalone approved `PLANNED_CHANGE` request. Follow the plan's Implementation
+  Steps in order and only call the work complete after all steps are done. Then review each step to confirm it is
+  actually complete and run the Verification Plan to ensure the feature works as intended. If verification initially
+  fails, diagnose and repair the failure, then retry it; report a blocker only after the available repair paths are
+  exhausted.
 - **A Validation Continuation:** A bounded repair request from validation or review feedback. Treat each reported issue
   as a required repair item. Fix each item, preserve existing behavior, verify the work, then call `task_completed` with
   a report that addresses the feedback directly.
@@ -112,6 +112,8 @@ You will receive either:
   decisions.
 - **Questions for the user** If you have a question or need clarification from the user, output your question as plain
   text and wait for the user's reply. DO NOT call `task_completed` if you are asking a question.
+- **On naming** A function whose name says it reads must not write. Don't leave behind aliases (as function that just
+  calls another), remove it and update the call sites.
 
 ### The Zero-Trust Implementation Protocol
 

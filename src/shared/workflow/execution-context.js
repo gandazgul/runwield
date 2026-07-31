@@ -143,7 +143,7 @@ async function recordResolutionMetric({
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, findWorktreeRegistryEntryByPlanId?: typeof findWorktreeRegistryEntryByPlanId, findWorktreeRegistryEntryByPlanName?: typeof findWorktreeRegistryEntryByPlanName, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
+ * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, findWorktreeRegistryEntryByPlanId?: typeof findWorktreeRegistryEntryByPlanId, findWorktreeRegistryEntryByPlanName?: typeof findWorktreeRegistryEntryByPlanName, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
  * @returns {Promise<ValidationContextResolution>}
  */
 export async function resolveValidationExecutionContext({
@@ -160,7 +160,6 @@ export async function resolveValidationExecutionContext({
     const findByIdFn = __deps.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
     const findByPlanIdFn = __deps.findWorktreeRegistryEntryByPlanId || findWorktreeRegistryEntryByPlanId;
     const findByPlanNameFn = __deps.findWorktreeRegistryEntryByPlanName || findWorktreeRegistryEntryByPlanName;
-    const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
     const runGitFn = __deps.runGit || runGit;
     const realPathFn = __deps.realPath || realPath;
     const plan = await loadPlanFn(projectRoot, planName);
@@ -293,7 +292,7 @@ export async function resolveValidationExecutionContext({
 
     if (executionMode === "non_git_in_place") {
         if (plan && attrs.executionMode !== "non_git_in_place" && selected.source !== "durable_recovery") {
-            await updatePlanFrontMatterFn(
+            await updatePlanFrontMatter(
                 projectRoot,
                 planName,
                 {
@@ -522,7 +521,7 @@ export async function resolveValidationExecutionContext({
 
     let persistedLegacyExecutionMode = false;
     if (plan && !attrs.worktreeId && worktreeId) {
-        await updatePlanFrontMatterFn(projectRoot, planName, { worktreeId }, attrs, {
+        await updatePlanFrontMatter(projectRoot, planName, { worktreeId }, attrs, {
             expectedRevision: plan.revision,
         });
         persistedLegacyExecutionMode = attrs.executionMode !== "worktree";

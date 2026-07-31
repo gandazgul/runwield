@@ -101,7 +101,7 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
             status: "implemented",
             failureReason: "CI validation failed.",
         });
-        const [plan] = await listPlanResources(projectRoot);
+        const [plan] = await listPlanResources(projectRoot, { backfillMissing: true });
         if (!plan?.planId) throw new Error("Expected Plan ID");
         await addEntry(projectRoot, {
             id: "wt-1",
@@ -262,7 +262,7 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
             worktreeBaseBranch: "main",
             worktreeStatus: "completed",
         });
-        const [plan] = await listPlanResources(projectRoot);
+        const [plan] = await listPlanResources(projectRoot, { backfillMissing: true });
         if (!plan?.planId) throw new Error("Expected Plan ID");
         await addEntry(projectRoot, {
             id: "wt-1",

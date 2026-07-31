@@ -145,13 +145,11 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
  * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
  * @param {string} [opts.parentWorktreeBaseBranch]
  * @param {import('../../plan-store.js').PlanWriteOptions} [opts.writeOptions]
- * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
 export async function materializeSlicerDraft(
-    { cwd, epicPlanName, children, parentWorktreeBaseBranch, writeOptions, __deps },
+    { cwd, epicPlanName, children, parentWorktreeBaseBranch, writeOptions },
 ) {
-    const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
     const inheritedChildren = parentWorktreeBaseBranch
         ? children.map((child) =>
             Object.hasOwn(child, "worktreeBaseBranch")
@@ -159,7 +157,7 @@ export async function materializeSlicerDraft(
                 : { ...child, worktreeBaseBranch: parentWorktreeBaseBranch }
         )
         : children;
-    return await saveChildren(cwd, epicPlanName, inheritedChildren, writeOptions);
+    return await saveChildFeaturePlans(cwd, epicPlanName, inheritedChildren, writeOptions);
 }
 
 /**
@@ -199,21 +197,14 @@ function slicerChildPlanName(epicPlanName, child) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} [opts.cwd]
- * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, recordPlanEvent?: typeof recordPlanEvent, materializeSlicerDraft?: typeof materializeSlicerDraft, withPlanCatalogLock?: typeof withPlanCatalogLock }} [opts.__deps]
+ * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, materializeSlicerDraft?: typeof materializeSlicerDraft }} [opts.__deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
     if (!cwd) throw new Error("createSlicerFinalizeTool: cwd is required");
     const loadPlanImpl = __deps?.loadPlan || loadPlan;
     const findChildren = __deps?.findPlansByParent || findPlansByParent;
-    const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const materialize = __deps?.materializeSlicerDraft || materializeSlicerDraft;
-    // The real catalog lock and the real decomposition transaction run in tests too.
-    // Disabling them whenever any dependency was injected left the composite Epic
-    // transaction — the thing that keeps a half-written child set from finalizing —
-    // with no coverage at all. A test that needs to observe either one injects it by
-    // name.
-    const lockCatalog = __deps?.withPlanCatalogLock || withPlanCatalogLock;
     return defineTool({
         name: "slicer_finalize_decomposition",
         label: "Finalize Epic Decomposition",
@@ -349,7 +340,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                                 };
                             }
 
-                            const updated = await recordEvent({
+                            const updated = await recordPlanEvent({
                                 cwd,
                                 planName,
                                 event: "decomposition_finalized",
@@ -382,7 +373,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                         throw error;
                     }
                 };
-                const result = /** @type {any} */ (await (lockCatalog(cwd, async () => {
+                const result = /** @type {any} */ (await (withPlanCatalogLock(cwd, async () => {
                     const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
                         (params.children || []);
                     const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));

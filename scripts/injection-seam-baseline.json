@@ -42,14 +42,11 @@
                 "executePlan",
                 "findPlansByParent",
                 "loadPlan",
-                "recordPlanEvent",
                 "resolveSiblingChildPlanDependencies",
                 "runPlanningAgent",
                 "runValidationLoop"
             ],
-            "machinery": [
-                "recordPlanEvent"
-            ]
+            "machinery": []
         },
         "src/shared/workflow/execution-context.js": {
             "seams": [
@@ -61,12 +58,9 @@
                 "prepareExecutionPlanFile",
                 "realPath",
                 "recordWorkflowMetric",
-                "runGit",
-                "updatePlanFrontMatter"
+                "runGit"
             ],
-            "machinery": [
-                "updatePlanFrontMatter"
-            ]
+            "machinery": []
         },
         "src/shared/workflow/orchestrator.js": {
             "seams": [
@@ -150,18 +144,11 @@
                 "materializeSlicerDraft",
                 "parsePlanFrontMatter",
                 "readTextFile",
-                "recordPlanEvent",
                 "runActiveAgentTurn",
                 "runSlicerAgent",
-                "saveChildFeaturePlans",
-                "switchActiveAgent",
-                "withPlanCatalogLock"
+                "switchActiveAgent"
             ],
-            "machinery": [
-                "recordPlanEvent",
-                "saveChildFeaturePlans",
-                "withPlanCatalogLock"
-            ]
+            "machinery": []
         },
         "src/shared/workflow/workflow.js": {
             "seams": [

@@ -82,6 +82,8 @@ add tests merely because work is frontend-owned unless the Plan requires it.
   decisions.
 - **Questions for the user** If you have a question or need clarification from the user, output your question as plain
   text and wait for the user's reply. DO NOT call `task_completed` if you are asking a question.
+- **On naming** A function whose name says it reads must not write. Don't leave behind aliases (as function that just
+  calls another), remove it and update the call sites.
 
 ### The Zero-Trust Implementation Protocol
 

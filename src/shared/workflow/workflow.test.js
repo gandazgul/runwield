@@ -18,7 +18,7 @@ import { SESSION_COMPLETE_GUIDANCE } from "./plan-review-recovery.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { findPlansByParent, loadPlan, savePlan, withPlanCatalogLock } from "../../plan-store.js";
+import { findPlansByParent, loadPlan, savePlan } from "../../plan-store.js";
 import { getTransitionJournalDir } from "./state-transition.ts";
 
 /**
@@ -2294,7 +2294,6 @@ Deno.test("createSlicerFinalizeTool rolls back partially written child drafts wh
             __deps: {
                 loadPlan,
                 findPlansByParent,
-                withPlanCatalogLock,
                 materializeSlicerDraft: async (args) => {
                     await materializeSlicerDraft(args);
                     throw new Error("later child failed");
@@ -2381,61 +2380,57 @@ Deno.test("createSlicerFinalizeTool leaves already finalized Epics ready without
     }
 });
 
-Deno.test("materializeSlicerDraft delegates child Planned Change draft writes without forcing parent Work Kind", async () => {
-    /** @type {Array<{ cwd: string, epicPlanName: string, descriptors: unknown[] }>} */
-    const calls = [];
-    const children = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */ ([{
-        sequence: 1,
-        title: "Draft child",
-        summary: "Draft summary",
-        affectedPaths: ["src/plan-store.js"],
-        dependencies: [],
-        content: "# Draft child",
-    }, {
-        sequence: 2,
-        title: "Explicit Work Kind child",
-        summary: "Explicit summary",
-        affectedPaths: ["src/constants.js"],
-        dependencies: ["01-draft-child"],
-        workKind: "DOCUMENTATION",
-        content: "# Explicit child",
-    }]);
-    const result = await materializeSlicerDraft({
-        cwd: "/repo",
-        epicPlanName: "epic-a",
-        children,
-        parentWorktreeBaseBranch: "feature-base",
-        // Regression: an omitted child workKind must remain omitted so saveChildFeaturePlans
-        // can preserve an existing child value or keep a new child neutral.
-        __deps: {
-            saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
-                calls.push({ cwd, epicPlanName, descriptors });
-                return Promise.resolve([{
-                    name: "epic-a/01-draft-child",
-                    path: "/repo/plans/epic-a/01-draft-child.md",
-                    title: "Draft child",
-                    action: "created",
-                    dependencies: [],
-                    metadata: {
-                        classification: "PLANNED_CHANGE",
-                        status: "draft",
-                        parentPlan: "epic-a",
-                        affectedPaths: ["src/plan-store.js"],
-                    },
-                }]);
-            },
-        },
-    });
+Deno.test("materializeSlicerDraft writes child drafts without forcing a parent Work Kind", async () => {
+    // Asserts the Plan files that land on disk rather than the arguments handed to
+    // saveChildFeaturePlans: an omitted child workKind has to stay omitted in the
+    // written Front Matter, which is the thing that actually matters.
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-a", "# Epic", {
+            classification: "PROJECT",
+            status: "approved",
+            workKind: "FEATURE",
+            summary: "Epic",
+            affectedPaths: [],
+        });
+        const children = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */ ([{
+            sequence: 1,
+            title: "Draft child",
+            summary: "Draft summary",
+            affectedPaths: ["src/plan-store.js"],
+            dependencies: [],
+            content: "# Draft child",
+        }, {
+            sequence: 2,
+            title: "Explicit Work Kind child",
+            summary: "Explicit summary",
+            affectedPaths: ["src/constants.js"],
+            dependencies: ["01-draft-child"],
+            workKind: "DOCUMENTATION",
+            content: "# Explicit child",
+        }]);
 
-    assertEquals(calls, [{
-        cwd: "/repo",
-        epicPlanName: "epic-a",
-        descriptors: [
-            { ...children[0], worktreeBaseBranch: "feature-base" },
-            { ...children[1], worktreeBaseBranch: "feature-base" },
-        ],
-    }]);
-    assertEquals(result[0].name, "epic-a/01-draft-child");
+        const result = await materializeSlicerDraft({
+            cwd,
+            epicPlanName: "epic-a",
+            children,
+            parentWorktreeBaseBranch: "feature-base",
+        });
+
+        assertEquals(result[0].name, "epic-a/01-draft-child");
+        const draftChild = await loadPlan(cwd, "epic-a/01-draft-child");
+        const explicitChild = await loadPlan(cwd, "epic-a/02-explicit-work-kind-child");
+        assertEquals(
+            draftChild?.attrs.workKind,
+            undefined,
+            "an omitted child Work Kind is not inherited from the Epic",
+        );
+        assertEquals(explicitChild?.attrs.workKind, "DOCUMENTATION");
+        assertEquals(draftChild?.attrs.parentPlan, "epic-a");
+        assertEquals(draftChild?.attrs.worktreeBaseBranch, "feature-base", "the parent target branch is inherited");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 // ── openSlicerDecomposition ──────────────────────────────────────────────

@@ -3079,7 +3079,15 @@ export async function onboardExternalPlan(cwd, planName, options = {}) {
 }
 
 /**
- * List non-archived Plans as durable resources, optionally backfilling missing IDs.
+ * List non-archived Plans as durable resources.
+ *
+ * Listing does not write. `backfillMissing` used to default to `true`, which
+ * made every caller that merely read the catalog mint Plan IDs as a side
+ * effect — including registry reads taken from inside a lifecycle transaction,
+ * which rewrote Front Matter the transaction had already snapshotted and made
+ * execution abort with "the Plan changed". Plan identity is assigned once, by
+ * the creation and execution paths that call `ensurePlanIdentity` deliberately;
+ * healing older Plans is `wld plans doctor --repair`'s job. Opt in explicitly.
  *
  * @param {string} cwd
  * @param {{ backfillMissing?: boolean, idGenerator?: () => string, __testGenerateId?: () => string }} [options]
@@ -3087,7 +3095,7 @@ export async function onboardExternalPlan(cwd, planName, options = {}) {
  */
 export async function listPlanResources(cwd, options = {}) {
     return await withPlanCatalogLock(cwd, async () => {
-        const backfillMissing = options.backfillMissing !== false;
+        const backfillMissing = options.backfillMissing === true;
         const plans = await listPlans(cwd);
         const byId = groupExistingPlanIds(plans);
         assertNoDuplicatePlanIds(byId);
