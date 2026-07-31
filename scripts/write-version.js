@@ -143,12 +143,12 @@ export const VERSION = ${JSON.stringify(version)};
     }
 
     if (existingContent === content) {
-        console.log(`[wld] ${filePath} already has version ${version}`);
+        console.log("ok");
         return;
     }
 
     await Deno.writeTextFile(filePath, content);
-    console.log(`[wld] wrote ${filePath} with version ${version}`);
+    console.log(`[wld] updated ${filePath} to version ${version}`);
 }
 
 if (import.meta.main) {
