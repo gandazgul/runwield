@@ -20,11 +20,16 @@ affectedPaths:
     - ".github/workflows/release.yml"
     - "docs/contributing.md"
 createdAt: "2026-07-26T19:06:06-04:00"
-updatedAt: "2026-07-30T15:34:54.611Z"
+updatedAt: "2026-07-31T04:10:39.553Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-30T15:34:54.611Z"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "82c9e719-4289-47ff-813c-32f5c8d4bbe2"
+    path: "docs/work-records/2026-07-31-golden-tui-scenario-testing-completed-enough.md"
+    lastAttemptAt: "2026-07-31T04:10:31.481Z"
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-07-30T15:34:54.611Z"
 epicDoneEnoughSummary: "All 2 child plans are completed after golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio."

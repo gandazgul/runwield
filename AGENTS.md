@@ -1,3 +1,5 @@
+FEATURE is a legacy alias for PLANNED_CHANGE
+
 The main codebase is JS with JSDoc, but we are migrating to TypeScript. Write new files in TypeScript, and migrate
 existing JS files when you touch them for other reasons.
 

@@ -1,6 +1,7 @@
 ---
 planId: "6aa3e38e-de12-47d4-a584-926d24061f79"
 classification: "PLANNED_CHANGE"
+workKind: "MAINTENANCE"
 complexity: "MEDIUM"
 summary: "Adopt a Deno-native TypeScript ratchet policy for the main RunWield codebase, enforce no new production JS files, and migrate a few low-risk leaf modules as proof of the migration path."
 affectedPaths:
@@ -18,18 +19,21 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T14:53:57-04:00"
-updatedAt: "2026-07-27T20:25:09.804Z"
+updatedAt: "2026-07-31T04:10:19.656Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T19:41:37.919Z"
 verifiedAt: "2026-07-27T20:25:09.804Z"
 userVerifiedAt: null
-userVerificationNote: null
 executionReport: "- Implemented TypeScript ratchet policy docs: added accepted ADR-013 and amended ADR-000 to supersede only the old JS+JSDoc language decision.\n- Added `scripts/check-language-policy.js` and sorted `scripts/language-policy-baseline.json`; guard reports new production JS/JSX and stale baseline entries separately, supports `--update`, excludes tests/fixtures/generated/dependency artifacts, and is wired into `deno task -q ci`.\n- Updated `deno task -q check` to check non-Workspace `.ts`/`.tsx` directly while preserving separate `workspace:check` for Astro-owned Workspace TS/TSX.\n- Kept `boot-logo.ts` / `chat-session.js` import pattern unchanged and migrated `src/shared/collaboration/base64url` plus its focused test to `.ts`; updated all repository imports to real `./base64url.ts` extensions and removed the old JS path from the baseline.\n- Did not migrate optional `package-resources.js`; the required base64url canary and policy guard were clean, and the optional second canary was left for a separate low-risk migration.\n- Verification passed: `deno task -q check`, `deno task -q lint`, `deno test -A src/shared/collaboration/base64url.test.ts`, `deno run -A scripts/check-language-policy.js`, throwaway new/stale baseline failure checks, `deno task -q ci` (1878 passed), and `deno task -q compile` (completed with existing Vite warnings only)."
+workRecord:
+    status: "generated"
+    recordId: "ad7a0b9b-b855-499c-87d9-d373ee31c00b"
+    path: "docs/work-records/2026-07-31-typescript-ratchet-policy-enforced.md"
+    lastAttemptAt: "2026-07-31T04:10:08.017Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
-workKind: "MAINTENANCE"
 ---
 
 # TypeScript Ratchet Policy
