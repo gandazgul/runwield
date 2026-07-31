@@ -9,6 +9,17 @@
 
 - [ ] P0 break up this file! src/shared/workflow/validation.js and convert it to TS
 
+- [ ] we need to examine ALL of the lifecycle error messages and revise them:
+
+  the message needs to speak the product language not the tech jargon, lifecycle operation what?
+
+  the product language is "workflow", "loop", "agent", "worktree merge or any other git terms that are widely
+  understood" - reassure and provide next steps. In plain language. From my experience with user facing UX the language
+  has to be short shorter than you think and written at a 4th grader reading level. For runWield that's a bit different
+  as out userbase is expected to be Software Engineers, PMs and Engineer managers, but still.
+
+- [ ] LLMs are completly ignoring ! bash commands, ensure they are being seen
+
 - [ ] P0
 
   Because nothing in the system could tell the difference between doing it and not doing it. Four causes, in order of
@@ -202,13 +213,8 @@ the single assigner so there's still exactly one place that mints ids.
 additions although I would remove the one from listPlanResources, a read function has no business having write side
 effects, make sure this doesnt now break something downstream that required plan id
 
-- [ ] P0 Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s ·
-      tokens unavailable · cost unavailable"
-- [ ] wld plans doctor is usless it just vomits all plans again, make this actually give actionable feedback about
-      broken plans and what to do.
 - [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
-- [ ] Implement auto update and wld update
 - [ ] During init guess the probable ci command, maybe more than 1 choice, when asking the user that the ci command is
       offer the ones found by init plus None which will not do mechanical validation (with a warning) and Other to let
       the user type a command. Then store the choice.
@@ -234,10 +240,12 @@ effects, make sure this doesnt now break something downstream that required plan
   - [ ] We should eventually have session share support in the self hosted plan sharing server.
   - [ ] the shared session html should be friendlier and only contain the messages and hide more of the cruft in
         collapsible sections.
-- [x] After hitting other on a user-interview question, there's no way to go back to the multiple choice options. The
-      user has to cancel the interview and the model gets nothing. Esc should go back to the multiple choice options, a
-      second Esc then cancels the interview.
 - [ ] Implement this from claude: `Resume this session with:\nclaude --resume eee7ef72-6d78-4961-bcfa-668dc80b3122`
+- [ ] Move the plan name from the footer right to the input field top line
+      `-----–------------plan-name-here-with-a-color-from-theme-background--
+      |
+      ---------------------------------------------------------------------`
+      How does this interact with the "Image in clipboard..." message
 
 ## Backlog
 

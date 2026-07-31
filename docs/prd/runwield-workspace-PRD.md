@@ -2,13 +2,13 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-07-27T15:30:00-04:00"
+updatedAt: "2026-07-31T13:09:56-04:00"
 ---
 
 # RunWield Workspace PRD
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-07-31
 
 ## 1. Objective
 
@@ -183,15 +183,32 @@ This is a durable personal self-hosted mode, not merely a development demonstrat
 
 ### 6.2 Attention Dashboard
 
-The default Workspace home aggregates only actionable or recent information across Projects:
+The default Workspace home is an attention-first queue across registered Projects. Its primary question is:
 
-- **Needs You:** pending interviews, approvals, recovery choices, failed work, and other required judgment;
-- **Running:** Sessions and Plan workflows currently progressing;
-- **Ready:** Plans that are Ready For Work but not executing;
-- **Recently Finished:** recent verified, closed, failed, or otherwise completed outcomes.
+> What do I need to work on next?
 
-Project navigation remains available, but users should not have to inspect every Project to discover blocked or finished
-work.
+The dashboard should not list every active Session with equal weight or reward multitasking. It ranks attention by
+workflow consequence while preserving exploration paths for users who want the broader state.
+
+Default ordering:
+
+1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning changes attention priority only; it
+   does not grant writable activation, take over a Session, or bypass a Plan Workflow Lease.
+2. **Needs You:** blocking human gates such as approval, feedback, retry, recovery, human review, Pair checkpoint,
+   repair-exhausted, failed validation, or unsafe/ambiguous workflow state.
+3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
+   other safe next actions.
+4. **Recently Finished:** recent verified, user-verified, closed, failed, or otherwise completed outcomes that may need
+   review or follow-up.
+5. **Running Quietly:** Sessions and Plan workflows currently progressing without a required human decision.
+
+The first screen should emphasize the top actionable queue and keep Running Quietly secondary. Project navigation,
+filters, all-active views, Session transcripts, Plan details, validation evidence, Work Records, and Project health
+remain explorable, but users should not have to inspect every Project to discover blocked or finished work.
+
+The dashboard may observe multiple Sessions and workflow checkpoints read-only. Mutating a Session still requires the
+owning process to acquire the required Session Activation Lease at a safe boundary; observing or pinning a Session is
+not writable activation.
 
 Browser and system notifications should point back to the stable Session or Plan workflow checkpoint that needs
 attention. Notifications are attention signals, not an alternate workflow state store.
@@ -450,7 +467,8 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
 
 1. Reach Workspace over a private network, pair a browser deliberately, list paired devices, and revoke one.
 2. Register at least two local Projects and verify Workspace cannot browse or search unregistered roots.
-3. See Needs You, Running, Ready, and Recently Finished work across those Projects on the Attention Dashboard.
+3. See an attention-first Dashboard across those Projects that ranks Pinned, Needs You, Ready to Continue, Recently
+   Finished, and Running Quietly work without requiring Project-by-Project inspection.
 4. Create a standalone Session in Workspace, resume it later, and retain one durable identity across Agent handoffs.
 5. Run live Sessions in at least two Projects concurrently without Session, tool, interaction, or workflow state bleed.
 6. Disconnect the browser during active work, let the activation owner continue to completion or its next durable human
@@ -470,8 +488,8 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
 14. Confirm that another Session's Transcript is absent from Agent retrieval and Workspace Intelligence while remaining
     searchable by the owner for navigation.
 15. Open a Project's main checkout in code-server without granting it ownership of RunWield Plan worktrees.
-16. Receive an actionable attention signal for a required human interaction and return to the correct Session or Plan
-    workflow.
+16. Receive an actionable attention signal for a required human interaction, return to the correct Session or Plan
+    workflow, and confirm that pinning changes attention priority without granting writable activation.
 
 ## 9. Success Measures
 
@@ -498,7 +516,7 @@ The first version succeeds when:
 | Global search conflates incompatible symbol versions.                    | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                                                                                        |
 | code-server becomes an unbounded filesystem or terminal backdoor.        | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                                                                              |
 | Session history becomes accidental shared memory.                        | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                                                                                  |
-| Workspace drifts into generic Agent management.                          | Organize around attention, Projects, Sessions, and Plan workflows; do not add generic Tasks or Work Items.                                                                                                            |
+| Workspace drifts into generic Agent management or noisy multitasking.    | Organize around an attention-first queue, Projects, Sessions, and Plan workflows; keep Running Quietly secondary; do not add generic Tasks or Work Items.                                                             |
 | Personal architecture cannot evolve to SaaS.                             | Keep Project Runtime, Session identity, authorization, and storage boundaries compatible with later per-Project isolated containers and organization policy.                                                          |
 
 ## 11. Out of Scope for Personal Remote Workspace v1
