@@ -34,6 +34,50 @@ const TEST_DELIVERY_DETAILS = {
     },
 };
 
+Deno.test("validation lifecycle phase transitions are ordered", () => {
+    const ciPassed = buildPlanEventUpdates("mechanical_validation_passed", "implemented");
+    assertEquals(ciPassed.status, "validated_ci");
+
+    const reviewerPassed = buildPlanEventUpdates("semantic_review_passed", "validated_ci");
+    assertEquals(reviewerPassed.status, "validated_reviewer");
+
+    const verified = buildPlanEventUpdates("validation_passed", "validated_reviewer", TEST_DELIVERY_DETAILS);
+    assertEquals(verified.status, "verified");
+
+    assertThrows(
+        () => buildPlanEventUpdates("semantic_review_passed", "implemented"),
+        Error,
+        'semantic_review_passed cannot apply to status "implemented"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("semantic_review_passed", "verified"),
+        Error,
+        'semantic_review_passed cannot apply to status "verified"',
+    );
+});
+
+Deno.test("validation retry counters increment and reset on implemented re-entry", () => {
+    const failedCi = buildPlanEventUpdates("mechanical_validation_failed", "implemented", {
+        triageMeta: { validationCiAttempts: 2 },
+    });
+    assertEquals(failedCi.status, "implemented");
+    assertEquals(failedCi.validationCiAttempts, 3);
+
+    const failedValidation = buildPlanEventUpdates("validation_failed", "validated_ci", {
+        triageMeta: { validationCiAttempts: 3, validationSemanticRounds: 2 },
+    });
+    assertEquals(failedValidation.status, "implemented");
+    assertEquals(failedValidation.validationCiAttempts, 0);
+    assertEquals(failedValidation.validationSemanticRounds, 0);
+
+    const mergeFailed = buildPlanEventUpdates("worktree_merge_failed", "validated_reviewer", {
+        triageMeta: { validationCiAttempts: 1, validationSemanticRounds: 1 },
+    });
+    assertEquals(mergeFailed.status, "implemented");
+    assertEquals(mergeFailed.validationCiAttempts, 0);
+    assertEquals(mergeFailed.validationSemanticRounds, 0);
+});
+
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),
@@ -126,7 +170,7 @@ Deno.test("buildPlanEventUpdates keeps implemented status when validation fails"
 });
 
 Deno.test("buildPlanEventUpdates retains recovered worktree branches when merge-back fails", () => {
-    const updates = buildPlanEventUpdates("worktree_merge_failed", "implemented", {
+    const updates = buildPlanEventUpdates("worktree_merge_failed", "validated_reviewer", {
         triageMeta: { worktreeId: "wt-1" },
         failureReason: "conflict",
         worktreePath: "/tmp/repo-runwield-plan-wt-1",
@@ -152,14 +196,15 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
         "execution_failed",
     );
     assertEquals(
-        buildPlanEventUpdates("worktree_merge_failed", "implemented").worktreeStatus,
+        buildPlanEventUpdates("worktree_merge_failed", "validated_reviewer").worktreeStatus,
         "merge_conflict",
     );
     assertEquals(
-        buildPlanEventUpdates("validation_passed", "implemented", { cleanupMergedWorktrees: false }).worktreeStatus,
+        buildPlanEventUpdates("validation_passed", "validated_reviewer", { cleanupMergedWorktrees: false })
+            .worktreeStatus,
         "merged",
     );
-    const passed = buildPlanEventUpdates("validation_passed", "implemented");
+    const passed = buildPlanEventUpdates("validation_passed", "validated_reviewer");
     assertEquals(passed.executionBaselineTree, null);
     assertEquals(passed.worktreeId, null);
     assertEquals(passed.worktreePath, null);
@@ -167,7 +212,7 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
     assertEquals(passed.worktreeBaseBranch, null);
     assertEquals(passed.worktreeStatus, null);
 
-    const retained = buildPlanEventUpdates("validation_passed", "implemented", {
+    const retained = buildPlanEventUpdates("validation_passed", "validated_reviewer", {
         cleanupMergedWorktrees: false,
     });
     assertEquals(retained.executionBaselineTree, undefined);
@@ -179,7 +224,7 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
 });
 
 Deno.test("buildPlanEventUpdates records and clears human review metadata", () => {
-    const passed = buildPlanEventUpdates("validation_passed", "implemented", {
+    const passed = buildPlanEventUpdates("validation_passed", "validated_reviewer", {
         humanReviewMode: "always",
         humanReviewDecision: "approved",
         humanReviewedAt: "2026-06-23T12:00:00.000Z",
@@ -578,7 +623,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
             complexity: "MEDIUM",
             summary: "Last",
             affectedPaths: [],
-            status: "implemented",
+            status: "validated_reviewer",
             parentPlan: "epic",
             order: 2,
         });
@@ -587,7 +632,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
             cwd,
             planName: "epic/02-last",
             event: "validation_passed",
-            currentStatus: "implemented",
+            currentStatus: "validated_reviewer",
             details: {
                 ...TEST_DELIVERY_DETAILS,
                 triageMeta: { classification: "FEATURE", parentPlan: "epic" },
@@ -634,7 +679,7 @@ Deno.test("recordPlanEvent keeps parent Epic open while child features remain un
             complexity: "MEDIUM",
             summary: "Last",
             affectedPaths: [],
-            status: "implemented",
+            status: "validated_reviewer",
             parentPlan: "epic",
             order: 2,
         });
@@ -643,7 +688,7 @@ Deno.test("recordPlanEvent keeps parent Epic open while child features remain un
             cwd,
             planName: "epic/02-last",
             event: "validation_passed",
-            currentStatus: "implemented",
+            currentStatus: "validated_reviewer",
             details: { ...TEST_DELIVERY_DETAILS, triageMeta: { classification: "FEATURE", parentPlan: "epic" } },
         });
 
@@ -1097,19 +1142,22 @@ Deno.test("stageValidationPassedInExecutionWorktree rejects a non-implemented ca
 Deno.test("recordPlanEvent enforces FEATURE Delivery Evidence without supplied triage metadata", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {
-        await savePlan(projectRoot, "feature", "# Feature", { status: "implemented", classification: "FEATURE" });
+        await savePlan(projectRoot, "feature", "# Feature", {
+            status: "validated_reviewer",
+            classification: "FEATURE",
+        });
         await assertRejects(
             () =>
                 recordPlanEvent({
                     cwd: projectRoot,
                     planName: "feature",
                     event: "validation_passed",
-                    currentStatus: "implemented",
+                    currentStatus: "validated_reviewer",
                 }),
             Error,
             "planned change validation_passed requires executionMode",
         );
-        assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
+        assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "validated_reviewer");
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }

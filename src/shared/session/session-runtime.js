@@ -1139,8 +1139,25 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
-            const { runValidationLoop } = await import("../workflow/validation.js");
-            return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
+            const { runValidationLoop } = await import("../workflow/validation.ts");
+            const { loadPlan } = await import("../../plan-store.js");
+            let latestResult = await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
+            for (let phase = 0; phase < 2; phase += 1) {
+                if (latestResult?.kind !== "paused") break;
+                const plan = await loadPlan(session.cwd, options.planName).catch(() => null);
+                if (!plan) break;
+                const status = plan.attrs?.status;
+                if (status !== "validated_ci" && status !== "validated_reviewer") break;
+                latestResult = await runValidationLoop(
+                    /** @type {any} */ ({
+                        ...options,
+                        hostedSession: session,
+                        planContent: plan.markdown || plan.body || options.planContent,
+                        triageMeta: { ...options.triageMeta, ...plan.attrs },
+                    }),
+                );
+            }
+            return latestResult;
         });
         await this.#continueEpicAfterValidation(session, /** @type {any} */ (result));
         return result;
@@ -2606,7 +2623,7 @@ export class SessionRuntime {
 
     /**
      * @param {import('./hosted-session.js').HostedSession} oldSession
-     * @param {import('../workflow/validation.js').WorkflowValidationResult | undefined | null} validationResult
+     * @param {import('../workflow/validation.ts').WorkflowValidationResult | undefined | null} validationResult
      * @returns {Promise<{ replaced: boolean, sessionId?: string }>}
      */
     async #continueEpicAfterValidation(oldSession, validationResult) {
@@ -2754,7 +2771,7 @@ export class SessionRuntime {
         let handoffs = 0;
         let ok = false;
         let busyStarted = false;
-        /** @type {import('../workflow/validation.js').WorkflowValidationResult | null} */
+        /** @type {import('../workflow/validation.ts').WorkflowValidationResult | null} */
         let validationResult = null;
         let result =
             /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string } | null} */ (null);

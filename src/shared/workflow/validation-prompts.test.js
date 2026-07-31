@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadManualQaPrompt, loadReviewerPrompt, runManualQaChecklistPrompt } from "./validation.js";
+import { loadManualQaPrompt, loadReviewerPrompt, runManualQaChecklistPrompt } from "./validation.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { makeRecordedSession, makeUi } from "./validation-test-helpers.js";
 
@@ -11,7 +11,7 @@ Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
     const readPaths = [];
     const promptDef = await loadManualQaPrompt(
         (path) => {
-            readPaths.push(path);
+            readPaths.push(String(path));
             return Promise.resolve([
                 "---",
                 "name: Manual QA",

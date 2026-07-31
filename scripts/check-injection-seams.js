@@ -89,7 +89,6 @@ const MACHINERY_SEAMS = [
     // (src/shared/git-port.ts); everything here is ours.
     "mergeExecutionWorktree",
     "checkpointExecutionWorktree",
-    "createExecutionWorktree",
     "createWorktreeGitArtifacts",
     "settleWorktreeAttempt",
     "removeWorktreeGitArtifacts",

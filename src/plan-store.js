@@ -155,7 +155,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
  * @property {string} [planId] - Durable project-scoped resource identity for Workspace URLs
- * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} status
+ * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} status
  * @property {"internal"|"external"} [origin] - "internal" = created by a RunWield agent; "external" = a pre-existing markdown file loaded from an arbitrary path and resumed with RunWield
  * @property {string} [parentPlan] - Canonical parent plan name for child FEATURE plans
  * @property {number} [order] - Epic child FEATURE execution order.
@@ -172,6 +172,8 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {HumanReviewMode} [humanReviewMode] - Human code review mode used for final validation; cleared when execution restarts or review reopens
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
+ * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
+ * @property {number} [validationSemanticRounds] - Semantic Code Review repair rounds spent for the current implementation.
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
@@ -482,6 +484,8 @@ const PLAN_STATUSES = new Set([
     "in_progress",
     "failed",
     "implemented",
+    "validated_ci",
+    "validated_reviewer",
     "verified",
     "user_verified",
     "closed_without_verification",
@@ -491,6 +495,8 @@ const PLAN_STATUSES = new Set([
 const PLAN_LIST_STATUS_ORDER = new Map([
     ["failed", 0],
     ["implemented", 1],
+    ["validated_ci", 1],
+    ["validated_reviewer", 1],
     ["ready_for_work", 2],
     ["ready_for_decomposition", 3],
     ["draft", 4],

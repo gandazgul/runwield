@@ -232,8 +232,14 @@ Resume, restart
 
 **Failure Detail**: A durable explanation of why a Failed Plan could not complete work. _Avoid_: Error log, crash dump
 
-**Implemented Plan**: A Plan whose execution work finished but whose Workflow Validation has not yet passed. _Avoid_:
-Completed plan, done plan
+**Implemented Plan**: A Plan whose execution work finished and is ready for the Mechanical Validation phase of Workflow
+Validation; CI or review repairs return here for fresh CI. _Avoid_: Completed plan, done plan
+
+**CI-Validated Plan**: A Plan at `validated_ci`, meaning Mechanical Validation passed and the next validation call
+resumes at Semantic Code Review. _Avoid_: Verified plan, implemented plan
+
+**Reviewer-Validated Plan**: A Plan at `validated_reviewer`, meaning Semantic Code Review passed and the next validation
+call handles Local Human Code Review and publication. _Avoid_: Verified plan, human-review status
 
 **Verified Plan**: A Plan whose execution and Workflow Validation both finished successfully. _Avoid_: Completed plan,
 done plan

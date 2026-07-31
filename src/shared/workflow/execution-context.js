@@ -13,6 +13,7 @@ import {
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { isInValidation } from "./plan-lifecycle.js";
 
 const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "validation_failed", "merge_conflict"]);
 
@@ -194,10 +195,12 @@ export async function resolveValidationExecutionContext({
             },
         };
     }
-    if (plan && attrs.status !== "implemented") {
+    if (plan && !isInValidation(typeof attrs.status === "string" ? attrs.status : undefined)) {
         return blocked(
             "plan_not_implemented",
-            `Plan ${planName} is ${attrs.status || "unknown"}; Workflow Validation requires implemented.`,
+            `Plan ${planName} is ${
+                attrs.status || "unknown"
+            }; Workflow Validation requires a validation lifecycle status.`,
         );
     }
 

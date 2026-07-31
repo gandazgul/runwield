@@ -24,7 +24,7 @@ import {
     summarizeWorkflowDecision,
 } from "../workflow/decisions.js";
 import { recordWorkflowMetric } from "../workflow/metrics.js";
-import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
+import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.ts";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
@@ -355,7 +355,6 @@ export function createAgentHandler(agentName, __deps) {
                     sessionManager,
                     executionContext: executionResult.executionContext,
                     finalAgentName: agentName,
-                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
                 if (/** @type {any} */ (validationResult)?.epicContinuation) {
                     return { kind: "complete", validationResult };
@@ -501,7 +500,6 @@ export function createAgentHandler(agentName, __deps) {
                     triageMeta: workflow.triageMeta,
                     sessionManager,
                     finalAgentName: agentName,
-                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
                 if (/** @type {any} */ (validationResult)?.epicContinuation) {
                     return { kind: "complete", validationResult };

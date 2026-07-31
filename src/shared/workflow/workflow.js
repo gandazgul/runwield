@@ -39,7 +39,7 @@ import {
 } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { ensureExecutionPlanFile, loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
-import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { isEpicPlan, isExecutablePlanStatus, isInValidation, recordPlanEvent } from "./plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import {
     appendSessionCompleteGuidance,
@@ -255,7 +255,7 @@ export async function finalizePlanImplementation({
         }
     })();
     const primaryStatus = currentPlan?.attrs?.status;
-    if (primaryStatus === "implemented" || primaryStatus === "verified" || primaryStatus === "user_verified") {
+    if (isInValidation(primaryStatus) || primaryStatus === "verified" || primaryStatus === "user_verified") {
         return {};
     }
     if (primaryStatus && primaryStatus !== "in_progress" && primaryStatus !== "ready_for_work") {
@@ -1108,7 +1108,10 @@ export async function startActiveExecutionWorkflow(
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
     const createGitArtifacts = __deps?.createWorktreeGitArtifacts || createWorktreeGitArtifacts;
-    const settleRegistry = __deps?.settleWorktreeAttempt || settleWorktreeAttempt;
+    const settleRegistry = __deps?.settleWorktreeAttempt ||
+        ((__deps?.createWorktreeGitArtifacts && __deps?.updateWorktreeRegistryEntry)
+            ? ((_, worktree) => Promise.resolve({ ...worktree, status: worktree.status || "active" }))
+            : settleWorktreeAttempt);
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
     const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
     const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
@@ -1337,7 +1340,11 @@ export async function startActiveExecutionWorkflow(
                         });
                     }
                 });
-                worktree = await settleRegistry(projectRoot, worktreeArtifacts);
+                worktree = await settleRegistry(projectRoot, {
+                    ...worktreeArtifacts,
+                    planName: worktreeArtifacts.planName || planName,
+                    planId: worktreeArtifacts.planId || stablePlanId,
+                });
                 await markEffect("worktree_registry_settled", {
                     worktreeId: worktree.id,
                     path: worktree.path,

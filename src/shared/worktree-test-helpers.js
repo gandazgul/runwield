@@ -38,7 +38,7 @@ export async function makeRepo() {
 /**
  * Create a worktree attempt the way production does: Git artifacts, then the registry row.
  *
- * Replaces the quarantined `createExecutionWorktree()`, which existed only so old tests
+ * Replaces the old combined worktree helper, which existed only so old tests
  * could do both in one call while production had already split them. A test convenience
  * belongs in a test helper, not behind a production function that throws unless you pass
  * `allowRegistryMutation: "legacy-test-only"` — that flag was a standing invitation to
