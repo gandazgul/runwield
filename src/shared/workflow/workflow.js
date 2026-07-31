@@ -1136,6 +1136,7 @@ export async function startActiveExecutionWorkflow(
         : await ensurePlanIdentity(projectRoot, planName);
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;
     const effectiveTriageMeta = { ...triageMeta, planId: stablePlanId };
+    hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
     const executionAgent = resolveExecutionOwner(effectiveTriageMeta);
     const collaborationState = {
         collaborationStyle,

@@ -1,8 +1,10 @@
 import { assertEquals } from "@std/assert";
 import {
+    deriveWorkflowContextFromExecutionWorkflow,
     normalizeWorkflowContext,
     normalizeWorkflowPlanName,
     readPersistedWorkflowContext,
+    recordNormalizedWorkflowContext,
     recordWorkflowPlanName,
     recordWorkflowTriageContext,
     WORKFLOW_CONTEXT_CUSTOM_TYPE,
@@ -94,5 +96,50 @@ Deno.test("workflow context normalization accepts canonical intents and sanitize
     });
     assertEquals(normalizeWorkflowContext({ routingIntent: "PLANNED_CHANGE", complexity: "bad", planName: "p.md" }), {
         planName: "p",
+    });
+});
+
+Deno.test("workflow context derives execution metadata with legacy feature normalization", () => {
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
+            planName: "plans/footer-plan.md",
+            triageMeta: { classification: "FEATURE", complexity: "medium" },
+        }),
+        { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
+    );
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
+            planName: "plans/fallback-plan.md",
+            triageMeta: { routingIntent: "NOPE", classification: "FEATURE", complexity: "medium" },
+        }),
+        { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "fallback-plan" },
+    );
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
+            triageMeta: { routingIntent: "NOPE", classification: "bad", complexity: "medium" },
+        }, "plans/name-only.md"),
+        { planName: "name-only" },
+    );
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
+            planName: "",
+            triageMeta: { routingIntent: "PLANNED_CHANGE", complexity: "bad" },
+        }),
+        null,
+    );
+});
+
+Deno.test("workflow context records normalized execution context without duplicate markers", () => {
+    const sessionManager = makeSessionManager();
+    const context = { routingIntent: "FEATURE", complexity: "medium", planName: "plans/footer-plan.md" };
+
+    recordNormalizedWorkflowContext(sessionManager, context);
+    recordNormalizedWorkflowContext(sessionManager, context);
+
+    assertEquals(sessionManager.getBranch().length, 1);
+    assertEquals(readPersistedWorkflowContext(sessionManager), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
     });
 });

@@ -426,15 +426,38 @@ Deno.test("runValidationLoop retries the reviewer after invocation errors", asyn
 Deno.test("runValidationLoop dispatches rejections to the Reviewer-Feedback Engineer in fresh context", async () => {
     const { uiAPI, hostedSession } = makeValidationUi();
     const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
+    const expectedWorkflowContext = {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    };
+    hostedSession.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+        executionAgent: "engineer",
+        baselineTree: "baseline-tree",
+    });
     /** @type {any[]} */
     const sessions = [];
+    /** @type {Array<import("../session/workflow-context-session.js").WorkflowContext | null>} */
+    const reviewerWorkflowContexts = [];
+    /** @type {Array<string | null>} */
+    const reviewerActivePlanNames = [];
+    /** @type {Array<import("../session/workflow-context-session.js").WorkflowContext | null>} */
+    const repairWorkflowContexts = [];
+    /** @type {Array<string | null>} */
+    const repairActivePlanNames = [];
     let reviewCalls = 0;
 
     await runValidationLoop({
         hostedSession,
-        planName: "p",
+        planName: "footer-plan",
         planContent: "plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
         sessionManager: rootSessionManager,
         git: makeStubGitPort({
             captureTree: () => Promise.resolve("tree-before-repair"),
@@ -457,8 +480,12 @@ Deno.test("runValidationLoop dispatches rejections to the Reviewer-Feedback Engi
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 sessions.push(opts);
                 if (opts.agentName === "reviewer-feedback-engineer") {
+                    repairWorkflowContexts.push(hostedSession.getWorkflowContext());
+                    repairActivePlanNames.push(hostedSession.getActiveExecutionWorkflow()?.planName || null);
                     return Promise.resolve(repairMessages());
                 }
+                reviewerWorkflowContexts.push(hostedSession.getWorkflowContext());
+                reviewerActivePlanNames.push(hostedSession.getActiveExecutionWorkflow()?.planName || null);
                 reviewCalls++;
                 if (reviewCalls === 1) {
                     return Promise.resolve(reviewerMessages({
@@ -485,6 +512,10 @@ Deno.test("runValidationLoop dispatches rejections to the Reviewer-Feedback Engi
     assertStringIncludes(repairSession.userRequest, "Missing guard");
     assertStringIncludes(repairSession.userRequest, "R1-1");
     assertStringIncludes(repairSession.userRequest, "Approved Plan");
+    assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext, expectedWorkflowContext]);
+    assertEquals(reviewerActivePlanNames, ["footer-plan", "footer-plan"]);
+    assertEquals(repairWorkflowContexts, [expectedWorkflowContext]);
+    assertEquals(repairActivePlanNames, ["footer-plan"]);
     assertStringIncludes(uiAPI.messages.join(" "), "Semantic Code Review Approved");
 });
 

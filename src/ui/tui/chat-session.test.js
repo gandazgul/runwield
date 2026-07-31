@@ -240,6 +240,14 @@ Deno.test("footer workflow label maps intent wording and hides ineligible agents
     );
     assertEquals(
         getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Reviewer", agentName: "reviewer" },
+            { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "plan-name" },
+            80,
+        )),
+        "Reviewer - Medium Planned Change - plan-name",
+    );
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
             { displayName: "Operator", agentName: "operator" },
             { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "p" },
             80,

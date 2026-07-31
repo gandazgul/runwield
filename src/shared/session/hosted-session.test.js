@@ -540,3 +540,92 @@ Deno.test("HostedSession delegated-agent leases are scoped per session and clear
     releaseB();
     sessionA.dispose();
 });
+
+Deno.test("HostedSession preserves workflow context across empty root manager swap and persists it", () => {
+    const firstEntries = /** @type {Array<Record<string, unknown>>} */ ([]);
+    const secondEntries = /** @type {Array<Record<string, unknown>>} */ ([]);
+    const session = new HostedSession({
+        id: "context-swap",
+        cwd: "/work/context-swap",
+        sessionManager: makeSessionManager("context-swap-a", firstEntries),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+
+    session.setRootSessionManager(makeSessionManager("context-swap-b", secondEntries));
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    });
+    assertEquals(secondEntries, [{
+        type: "custom",
+        customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
+        data: { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
+    }]);
+});
+
+Deno.test("HostedSession null root manager does not clear workflow context", () => {
+    const session = new HostedSession({
+        id: "context-null-manager",
+        cwd: "/work/context-null-manager",
+        sessionManager: makeSessionManager("context-null-manager-a"),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+
+    session.setRootSessionManager(null);
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "footer-plan",
+    });
+});
+
+Deno.test("HostedSession triage setter preserves plan name without persistence", () => {
+    const session = new HostedSession({
+        id: "context-triage-no-manager",
+        cwd: "/work/context-triage-no-manager",
+        sessionManager: makeSessionManager("context-triage-no-manager-a"),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+    session.setRootSessionManager(null);
+
+    session.setWorkflowTriageContext({ routingIntent: "QUICK_FIX", complexity: "LOW" });
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        planName: "footer-plan",
+    });
+});
+
+Deno.test("HostedSession plan setter preserves triage fields without persistence", () => {
+    const session = new HostedSession({
+        id: "context-plan-no-manager",
+        cwd: "/work/context-plan-no-manager",
+        sessionManager: makeSessionManager("context-plan-no-manager-a"),
+    });
+    session.setWorkflowExecutionContext({
+        planName: "footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+    });
+    session.setRootSessionManager(null);
+
+    session.setWorkflowPlanName("plans/updated-plan.md");
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "updated-plan",
+    });
+});

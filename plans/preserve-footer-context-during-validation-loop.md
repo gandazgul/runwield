@@ -27,21 +27,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T23:43:58-04:00"
-updatedAt: "2026-07-31T04:41:51.222Z"
-status: "implemented"
+updatedAt: "2026-07-31T14:24:48.425Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-31T04:41:51.222Z"
+verifiedAt: "2026-07-31T14:24:48.425Z"
 userVerifiedAt: null
 executionReport: "- Implemented workflow footer context derivation/persistence, execution-start seeding, root transcript-segment preservation/re-persistence, and Runtime snapshot fallback from active execution workflow.\n- Updated validation loop active workflow handling so Reviewer/repair cycles keep validation continuation state through pauses and repair dispatch while terminal outcomes explicitly clear active execution ownership.\n- Added regression coverage for legacy FEATURE normalization, duplicate context markers, manager swaps/null manager behavior, snapshot fallback precedence, and Reviewer footer rendering; updated architecture docs for the new source/projection boundaries.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/session/workflow-context-session.test.js src/shared/session/hosted-session.test.js src/shared/session/session-runtime.test.js src/shared/session/agent-handler.test.js src/shared/workflow/workflow.test.js src/shared/workflow/validation-loop-core.test.js src/shared/workflow/validation-loop-review.test.js src/shared/workflow/validation-loop-repair.test.js src/shared/workflow/validation-loop-human-review.test.js src/shared/workflow/validation-loop-delivery.test.js src/shared/workflow/validation-loop-recovery.test.js src/ui/tui/chat-session.test.js` (277 passed).\n- Verification passed: `deno task ci`."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-31T14:24:47.995Z"
 executionMode: "worktree"
-executionBaselineTree: "69d380cc1bea5653c91141d77c5c819c606934c5"
-worktreeId: "7c99c0a3"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-preserve-footer-context-during-validation-loop-7c99c0a3"
-worktreeBranch: "runwield/worktree/preserve-footer-context-during-validation-loop-7c99c0a3"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "dbca240dbc126d851d31356b0c6accec51f86b28"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "e5f07f4386b99b6ff48ee34c0d9c8078bb3e3ddf"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "footer workflow context"
 ---
