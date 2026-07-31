@@ -8,6 +8,7 @@ import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-r
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
+/** @typedef {import('../testing/scenario-runner.js').GoldenScenario} GoldenScenario */
 
 /** @param {string} routingIntent */
 function triageTurn(routingIntent) {
@@ -30,6 +31,7 @@ function triageTurn(routingIntent) {
     };
 }
 
+/** @type {GoldenScenario} */
 export const guideInquiryRoleJourneyScenario = {
     name: "role-guide-inquiry-readonly",
     composedTui: true,
@@ -84,6 +86,7 @@ export const guideInquiryRoleJourneyScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const ideationInterviewPrdScenario = {
     name: "role-ideator-interview-prd-synthesis",
     composedTui: true,
@@ -178,6 +181,7 @@ export const ideationInterviewPrdScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const operatorOperationScenario = {
     name: "role-operator-operation-self-verified",
     composedTui: true,
@@ -214,6 +218,7 @@ export const operatorOperationScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const engineerQuickFixMechanicalValidationScenario = {
     name: "role-engineer-quick-fix-mechanical-validation",
     composedTui: true,
@@ -251,6 +256,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
     ],
 };
 
+/** @type {GoldenScenario[]} */
 export const roleJourneyScenarios = [
     guideInquiryRoleJourneyScenario,
     ideationInterviewPrdScenario,

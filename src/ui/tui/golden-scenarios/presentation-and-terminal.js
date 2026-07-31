@@ -7,6 +7,9 @@ import { assert } from "@std/assert";
 import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
+/** @typedef {import('../testing/scenario-runner.js').GoldenScenario} GoldenScenario */
+
+/** @type {GoldenScenario} */
 export const managedSyncQueueImageScenario = {
     name: "presentation-runtime-prompts-and-queued-state",
     composedTui: true,
@@ -56,6 +59,7 @@ export const managedSyncQueueImageScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const terminalControlsScenario = {
     name: "terminal-controls-autocomplete-resize-ctrlc-focus",
     composedTui: true,
@@ -92,6 +96,7 @@ export const terminalControlsScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const replayHydrationScenario = {
     name: "terminal-session-replay-hydration",
     composedTui: true,
@@ -130,6 +135,7 @@ export const replayHydrationScenario = {
     ],
 };
 
+/** @type {GoldenScenario} */
 export const toolFailureRecoveryScenario = {
     name: "presentation-tool-failure-and-recovery",
     composedTui: true,
@@ -168,6 +174,7 @@ export const toolFailureRecoveryScenario = {
     ],
 };
 
+/** @type {GoldenScenario[]} */
 export const presentationAndTerminalScenarios = [
     managedSyncQueueImageScenario,
     terminalControlsScenario,

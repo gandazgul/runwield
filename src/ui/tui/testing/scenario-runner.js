@@ -68,6 +68,25 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * @property {string} [hash]
  */
 
+/**
+ * Evidence a composed scenario accumulates for its golden snapshot.
+ *
+ * The fields below are read back during the run, so they are typed. The rest are
+ * written once by whichever scenario action produced them and then serialized —
+ * which is what `GoldenScenarioResult.state` already declares as an opaque record,
+ * and what the golden files, not the type system, assert.
+ *
+ * @typedef {Record<string, unknown> & {
+ *     canceled: boolean,
+ *     editorUsable: boolean,
+ *     cleanupSucceeded: boolean,
+ *     priorSession: Awaited<ReturnType<typeof seedGoldenPriorSession>> | null,
+ *     turnSequence: string[],
+ *     screen?: string,
+ *     activeAgent?: string,
+ * }} ComposedScenarioState
+ */
+
 /** @param {Uint8Array} bytes */
 async function sha256Hex(bytes) {
     const copy = new Uint8Array(bytes);
@@ -480,11 +499,11 @@ async function runComposedTuiScenario(scenario, options) {
         let composition = null;
         /** @type {string[]} */
         const events = [];
-        /** @type {Record<string, unknown>} */
         /** @type {string[]} */
         const turnSequence = [];
         /** @type {string} */
         let lastWorkflowPlanName = "";
+        /** @type {ComposedScenarioState} */
         const state = {
             canceled: false,
             editorUsable: true,
@@ -656,7 +675,12 @@ async function runComposedTuiScenario(scenario, options) {
                 configureUiAPI: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? (uiAPI) => {
                         uiAPI.promptSelect = (prompt) => {
-                            events.push(`startup:prompt-select:${String(prompt).split("\n", 1)[0]}`);
+                            // An event names what was asked, not how it was painted. Screen
+                            // text is already normalized on the way out; leaving styling in
+                            // the event made a pure color change break this assertion.
+                            events.push(
+                                `startup:prompt-select:${normalizeScreenText(String(prompt)).split("\n", 1)[0]}`,
+                            );
                             return Promise.resolve(null);
                         };
                         uiAPI.showModelSelector = () => {
@@ -988,6 +1012,7 @@ async function runComposedTuiScenario(scenario, options) {
                     };
                     const registryPath = join(Deno.cwd(), ".wld", "worktrees.json");
                     const registryText = await Deno.readTextFile(registryPath).catch(() => "");
+                    /** @type {import('../../../shared/worktree-registry.js').WorktreeRegistryEntry[]} */
                     const registryEntries = registryText ? (JSON.parse(registryText).entries || []) : [];
                     state.projectDurability = {
                         branch: await runGoldenGit(["rev-parse", "--abbrev-ref", "HEAD"], Deno.cwd()),
