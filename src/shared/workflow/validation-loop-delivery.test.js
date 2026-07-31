@@ -620,6 +620,7 @@ async function runEpicChildDelivery(sibling) {
     const { uiAPI, hostedSession } = makeValidationUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {import('../../tools/plan-written.js').TriageMeta} */
     const triageMeta = { classification: "PLANNED_CHANGE", summary: "Child A", parentPlan: "epic" };
 
     hostedSession.setActiveExecutionWorkflow({

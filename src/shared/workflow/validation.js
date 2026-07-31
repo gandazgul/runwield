@@ -9,7 +9,6 @@ import { AGENT_DEFS_DIR, AGENTS, isPlannedChangeClassification, normalizePlanCla
 import {
     findPlansByParent,
     getPlanRevisionForText,
-    loadPlan,
     resolvePlanExecutionPolicy,
     updatePlanFrontMatter,
 } from "../../plan-store.js";
@@ -44,6 +43,35 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import {
+    captureProcessStreamTail,
+    formatCapturedProcessOutput,
+    PROCESS_STREAM_OUTPUT_LIMIT_BYTES,
+} from "./process-output.ts";
+import {
+    hasDirectDeliveryEvidence,
+    loadCurrentPlanRevision,
+    loadDirectDeliveryHierarchySnapshot,
+} from "./validation-delivery-hierarchy.ts";
+import {
+    appendUnsettledNote,
+    completeValidationProgress,
+    createValidationProgress,
+    describeUnsettledTransition,
+    emitRunWieldSystemStatus,
+    formatCodeReviewAnnotations,
+    updateValidationProgress,
+} from "./validation-progress.ts";
+import {
+    hasImplementationDiff,
+    requiresImplementationDiff,
+    shouldContinueParentEpicAfterValidation,
+    shouldRunWorkflowValidation,
+} from "./validation-scope.ts";
+
+// Re-exported so existing importers keep one entry point while the split proceeds.
+export { shouldContinueParentEpicAfterValidation, shouldRunWorkflowValidation };
+/** @typedef {import('./process-output.ts').CapturedProcessStream} CapturedProcessStream */
 import { runDirectDeliveryPublicationTransition, runValidationOutcomeTransition } from "./state-transition.ts";
 import { createGitPort } from "../git-port.ts";
 import { resolveValidationExecutionContext } from "./execution-context.js";
@@ -83,7 +111,7 @@ const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 const REVIEWER_VERIFY_PROMPT_FILE = "reviewer-verify-prompt.md";
 const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
 const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
-const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = PROCESS_STREAM_OUTPUT_LIMIT_BYTES;
 
 /**
  * @type {number} Diff size above which RunWield recommends guided human review.
@@ -145,53 +173,6 @@ async function readBundledPromptFrontMatter(relativePath, readTextFile, ensurePr
         extractYaml(await Deno.readTextFile(join(AGENT_DEFS_DIR, relativePath))),
     );
 }
-/** @param {import('../../plan-store.js').PlanFrontMatter} attrs */
-function hasDirectDeliveryEvidence(attrs) {
-    if (attrs.status !== "verified") return true;
-    const evidence = attrs.deliveryEvidence;
-    return Boolean(
-        evidence && typeof evidence === "object" &&
-            (evidence.mode === "worktree_merge" || evidence.mode === "non_git_in_place"),
-    );
-}
-
-/** @param {string} projectRoot @param {string} planName */
-async function loadCurrentPlanRevision(projectRoot, planName) {
-    const plan = await loadPlan(projectRoot, planName).catch(() => null);
-    return plan?.revision;
-}
-
-/**
- * @param {string} projectRoot
- * @param {string} planName
- */
-async function loadDirectDeliveryHierarchySnapshot(projectRoot, planName) {
-    const plan = await loadPlan(projectRoot, planName);
-    if (!plan) throw new Error(`Plan not found: ${planName}`);
-    const parentValue = /** @type {{ parentPlan?: unknown }} */ (plan.attrs || {}).parentPlan;
-    const parentPlan = typeof parentValue === "string" && parentValue.trim() ? parentValue : undefined;
-    /** @type {Array<{ name: string, revision: string, status: string | undefined, deliveryEvidence: unknown }>} */
-    const siblingPlans = [];
-    if (parentPlan) {
-        for (const sibling of await findPlansByParent(projectRoot, parentPlan).catch(() => [])) {
-            siblingPlans.push({
-                name: sibling.name,
-                revision: await getPlanRevisionForText(await Deno.readTextFile(sibling.path)),
-                status: sibling.attrs.status,
-                deliveryEvidence: sibling.attrs.deliveryEvidence,
-            });
-        }
-        siblingPlans.sort((a, b) => a.name.localeCompare(b.name));
-    }
-    return { revision: plan.revision, parentPlan, siblingPlans };
-}
-
-/**
- * @typedef {Object} CapturedProcessStream
- * @property {string} text
- * @property {number} totalBytes
- * @property {boolean} truncated
- */
 
 /**
  * @typedef {Object} WorkflowValidationResult
@@ -202,83 +183,6 @@ async function loadDirectDeliveryHierarchySnapshot(projectRoot, planName) {
  * @property {string} [reason]
  * @property {{ completedPlanName: string, projectRoot: string }} [epicContinuation]
  */
-
-/**
- * @param {Uint8Array<ArrayBufferLike>} left
- * @param {Uint8Array<ArrayBufferLike>} right
- * @returns {Uint8Array<ArrayBufferLike>}
- */
-function concatBytes(left, right) {
-    const combined = new Uint8Array(left.byteLength + right.byteLength);
-    combined.set(left, 0);
-    combined.set(right, left.byteLength);
-    return combined;
-}
-
-/**
- * Read a process stream without using Deno.Command.output(), whose internal
- * buffer can throw before large-but-successful validation commands finish.
- * Retain the tail because build/test failures are usually reported last.
- *
- * @param {ReadableStream<Uint8Array>} stream
- * @param {number} limitBytes
- * @returns {Promise<CapturedProcessStream>}
- */
-async function captureProcessStreamTail(stream, limitBytes) {
-    const reader = stream.getReader();
-    /** @type {Uint8Array<ArrayBufferLike>} */
-    let retained = /** @type {Uint8Array<ArrayBufferLike>} */ (new Uint8Array(0));
-    let totalBytes = 0;
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            totalBytes += value.byteLength;
-
-            if (value.byteLength >= limitBytes) {
-                retained = value.slice(value.byteLength - limitBytes);
-                continue;
-            }
-
-            retained = concatBytes(retained, value);
-            if (retained.byteLength > limitBytes) {
-                retained = retained.slice(retained.byteLength - limitBytes);
-            }
-        }
-    } finally {
-        reader.releaseLock();
-    }
-
-    return {
-        text: new TextDecoder().decode(retained),
-        totalBytes,
-        truncated: totalBytes > retained.byteLength,
-    };
-}
-
-/**
- * @param {CapturedProcessStream} stdout
- * @param {CapturedProcessStream} stderr
- * @returns {string}
- */
-function formatCapturedProcessOutput(stdout, stderr) {
-    const output = `${stdout.text}\n${stderr.text}`;
-    if (!stdout.truncated && !stderr.truncated) return output;
-
-    const notices = [];
-    if (stdout.truncated) {
-        notices.push(
-            `[RunWield] stdout truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stdout.totalBytes} bytes.`,
-        );
-    }
-    if (stderr.truncated) {
-        notices.push(
-            `[RunWield] stderr truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stderr.totalBytes} bytes.`,
-        );
-    }
-    return `${output}\n${notices.join("\n")}\n`;
-}
 
 /**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
@@ -1082,230 +986,6 @@ ${diffContext}`
         "- Run appropriate verification for the repair.",
         "- Call task_completed when the merge repair is ready for RunWield to retry merge-back.",
     ].join("\n");
-}
-
-/** @type {WeakMap<object, import('../session/session-runtime-events.js').RuntimeValidationProgress>} */
-const CURRENT_VALIDATION_PROGRESS = new WeakMap();
-
-/**
- * Attach an unrecorded-outcome note to a halt reason.
- *
- * A halt reason is what the user reads and what the Plan's failure reason keeps.
- * If RunWield also failed to write that outcome down, saying only why the work
- * stopped would imply the Plan reflects it.
- *
- * @param {string} reason
- * @param {string} unsettledNote
- * @returns {string}
- */
-function appendUnsettledNote(reason, unsettledNote) {
-    return unsettledNote ? `${reason} ${unsettledNote}` : reason;
-}
-
-/**
- * Explain a lifecycle settlement that did not commit.
- *
- * When recording an outcome fails, the Plan's metadata is behind what actually
- * happened in the repository — the merge really did fail, but the Plan may still
- * read `implemented` with no reason attached. That gap is RunWield's own
- * bookkeeping, so it must be stated plainly with the commands that resolve it,
- * never left as a one-line warning the user is expected to decode.
- *
- * @param {import('./state-transition.ts').TransitionResult} transition
- * @param {string} intent What RunWield was trying to record.
- * @returns {string}
- */
-function describeUnsettledTransition(transition, intent) {
-    const commands = (transition.recoveryActions || [])
-        .map((action) => action.command)
-        .filter((command, index, all) => command && all.indexOf(command) === index);
-    return [
-        `RunWield could not record ${intent}: ${transition.message}`,
-        "The repository change already happened; only RunWield's record of it is behind, so the Plan may still show " +
-        "its previous status until this is resolved.",
-        ...(commands.length > 0 ? [`Resolve it with: ${commands.join("  or  ")}`] : []),
-    ].join(" ");
-}
-
-/**
- * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
- * @param {string} text
- * @param {"info" | "success" | "warning" | "error" | boolean} [level]
- * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} [validationProgress]
- */
-function emitRunWieldSystemStatus(hostedSession, text, level = "info", validationProgress) {
-    const resolvedLevel = level === true ? "error" : level === false ? "info" : level;
-    if (hostedSession && validationProgress) CURRENT_VALIDATION_PROGRESS.set(hostedSession, validationProgress);
-    const currentProgress = validationProgress ||
-        (hostedSession ? CURRENT_VALIDATION_PROGRESS.get(hostedSession) : undefined);
-    emitSystemStatus(hostedSession, text, {
-        level: resolvedLevel,
-        header: "RunWield",
-        ...(currentProgress ? { validationProgress: structuredClone(currentProgress) } : {}),
-    });
-}
-
-/**
- * @param {Omit<Partial<import('../session/session-runtime-events.js').RuntimeValidationProgress>, 'checks'> & { checks?: Partial<import('../session/session-runtime-events.js').RuntimeValidationCheckResults> }} values
- * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
- */
-function createValidationProgress(values) {
-    return {
-        kind: values.kind || "workflow",
-        outcome: values.outcome || "running",
-        stage: values.stage || "cycle",
-        checks: {
-            ci: values.checks?.ci || "pending",
-            semanticReview: values.checks?.semanticReview || "pending",
-            humanReview: values.checks?.humanReview || "pending",
-            merge: values.checks?.merge || "pending",
-        },
-        ...(values.cycle ? { cycle: values.cycle } : {}),
-        ...(values.maxCycles ? { maxCycles: values.maxCycles } : {}),
-        ...(values.totalCycle ? { totalCycle: values.totalCycle } : {}),
-        ...(values.repairAttempt ? { repairAttempt: values.repairAttempt } : {}),
-        ...(values.maxRepairAttempts ? { maxRepairAttempts: values.maxRepairAttempts } : {}),
-        ...(values.message ? { message: values.message } : {}),
-    };
-}
-
-/**
- * @typedef {Omit<Partial<import('../session/session-runtime-events.js').RuntimeValidationProgress>, 'checks' | 'cycle' | 'maxCycles' | 'totalCycle' | 'repairAttempt' | 'maxRepairAttempts' | 'message'> & { checks?: Partial<import('../session/session-runtime-events.js').RuntimeValidationCheckResults>, cycle?: number | null, maxCycles?: number | null, totalCycle?: number | null, repairAttempt?: number | null, maxRepairAttempts?: number | null, message?: string | null }} RuntimeValidationProgressPatch
- */
-
-/**
- * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} progress
- * @param {RuntimeValidationProgressPatch} patch
- * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
- */
-function updateValidationProgress(progress, patch) {
-    const next = createValidationProgress(
-        /** @type {any} */ ({
-            ...progress,
-            ...patch,
-            checks: { ...progress.checks, ...(patch.checks || {}) },
-        }),
-    );
-    for (const field of ["cycle", "maxCycles", "totalCycle", "repairAttempt", "maxRepairAttempts"]) {
-        if (/** @type {Record<string, unknown>} */ (patch)[field] === null) {
-            delete /** @type {Record<string, unknown>} */ (next)[field];
-        }
-    }
-    if (!Object.hasOwn(patch, "message") || patch.message === null) {
-        delete next.message;
-    }
-    return next;
-}
-
-/**
- * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} progress
- * @param {boolean} passed
- * @param {string} message
- * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
- */
-function completeValidationProgress(progress, passed, message) {
-    const terminalChecks =
-        /** @type {Record<string, import('../session/session-runtime-events.js').RuntimeValidationCheckResult>} */ ({
-            ...progress.checks,
-        });
-    for (const key of ["ci", "semanticReview", "humanReview", "merge"]) {
-        if (terminalChecks[key] === "pending") {
-            terminalChecks[key] = "skipped";
-        } else if (terminalChecks[key] === "running") {
-            terminalChecks[key] = passed ? "skipped" : "failed";
-        }
-    }
-    return updateValidationProgress(progress, {
-        outcome: passed ? "verified" : "failed",
-        stage: "terminal",
-        checks: terminalChecks,
-        message,
-        repairAttempt: progress.repairAttempt || null,
-        maxRepairAttempts: progress.maxRepairAttempts || null,
-    });
-}
-
-/**
- * @param {Array<{file?: string, path?: string, filePath?: string, line?: number, text?: string, comment?: string}>} annotations
- */
-function formatCodeReviewAnnotations(annotations) {
-    return annotations.map((annotation, index) => {
-        const file = annotation.file || annotation.path || annotation.filePath || "unknown file";
-        const line = typeof annotation.line === "number" ? `:${annotation.line}` : "";
-        const text = annotation.text || annotation.comment || "";
-        return `${index + 1}. ${file}${line}${text ? `\n${text}` : ""}`;
-    }).join("\n\n");
-}
-
-/**
- * @param {string} path
- * @param {string} planName
- * @returns {boolean}
- */
-function isPlanDocumentPath(path, planName) {
-    return path === `plans/${planName}.md` || /^plans\/[^/]+\.md$/.test(path);
-}
-
-/**
- * @param {string} diffText
- * @returns {string[]}
- */
-function extractDiffPaths(diffText) {
-    /** @type {string[]} */
-    const paths = [];
-    const diffHeaderPattern = /^diff --git a\/(.+?) b\/(.+)$/gm;
-    let match;
-
-    while ((match = diffHeaderPattern.exec(diffText)) !== null) {
-        paths.push(match[1], match[2]);
-    }
-
-    return paths;
-}
-
-/**
- * @param {string} diffText
- * @param {string} planName
- * @returns {boolean}
- */
-function hasImplementationDiff(diffText, planName) {
-    if (!diffText.trim()) {
-        return false;
-    }
-
-    const diffPaths = extractDiffPaths(diffText);
-    if (diffPaths.length === 0) {
-        return true;
-    }
-
-    return diffPaths.some((path) => !isPlanDocumentPath(path, planName));
-}
-
-/**
- * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
- * @returns {boolean}
- */
-function requiresImplementationDiff(triageMeta) {
-    return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
-}
-
-/**
- * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
- * @returns {boolean}
- */
-export function shouldRunWorkflowValidation(triageMeta) {
-    return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
-}
-
-/**
- * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
- * @returns {boolean}
- */
-export function shouldContinueParentEpicAfterValidation(triageMeta) {
-    const parentPlan = /** @type {{ parentPlan?: unknown }} */ (triageMeta || {}).parentPlan;
-    return isPlannedChangeClassification(triageMeta?.classification) &&
-        typeof parentPlan === "string" &&
-        parentPlan.trim().length > 0;
 }
 
 /** @param {unknown} classification */

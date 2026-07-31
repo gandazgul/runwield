@@ -47,6 +47,7 @@ import {
  *   executionAgent?: unknown,
  *   collaborationRecommendation?: unknown,
  *   frontend?: boolean,
+ *   parentPlan?: string,
  * }} TriageMeta
  */
 
