@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop, shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { runValidationLoop } from "./validation.ts";
 import {
     makeRecordedSession,
     makeUi,
@@ -36,16 +36,44 @@ async function makeLifecycleRun(status, attrs = {}) {
     return { projectRoot, hostedSession };
 }
 
-Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE plans", () => {
-    assertEquals(shouldContinueParentEpicAfterValidation({ classification: "FEATURE" }), false);
-    assertEquals(
-        shouldContinueParentEpicAfterValidation({ classification: "FEATURE", parentPlan: "" }),
-        false,
-    );
-    assertEquals(
-        shouldContinueParentEpicAfterValidation({ classification: "FEATURE", parentPlan: "epic" }),
-        true,
-    );
+Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE plans", async () => {
+    const { projectRoot, hostedSession } = await makeLifecycleRun("validated_reviewer", {
+        classification: "FEATURE",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: {
+            classification: "FEATURE",
+            status: "validated_reviewer",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: {
+            classification: "FEATURE",
+            status: "validated_reviewer",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "verified");
+    assertEquals(result.epicContinuation, undefined);
+    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.deliveryEvidence, { version: 1, mode: "non_git_in_place" });
 });
 
 Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empty", async () => {
