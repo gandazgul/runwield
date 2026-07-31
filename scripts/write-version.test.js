@@ -26,7 +26,7 @@ function git(values) {
  * @returns {Promise<string[]>}
  */
 async function captureConsoleLogs(action) {
-    const logs = [];
+    const logs = /** @type {string[]} */ ([]);
     const originalLog = console.log;
     console.log = (...args) => logs.push(args.join(" "));
     try {
@@ -138,7 +138,7 @@ export const VERSION = "abc1234";
 
         const logs = await captureConsoleLogs(() => writeVersionFile(filePath, "abc1234"));
 
-        assertEquals(logs, ["ok"]);
+        assertEquals(logs, ["[wld] version - ok"]);
         assertEquals(await Deno.readTextFile(filePath), content);
     } finally {
         await Deno.chmod(filePath, 0o644).catch(() => {});
@@ -152,7 +152,7 @@ Deno.test("writeVersionFile reports when files are updated", async () => {
     try {
         const logs = await captureConsoleLogs(() => writeVersionFile(filePath, "abc1234"));
 
-        assertEquals(logs, [`[wld] updated ${filePath} to version abc1234`]);
+        assertEquals(logs, [`[wld] version - updated ${filePath} to version abc1234`]);
         assertEquals(
             await Deno.readTextFile(filePath),
             `/**
