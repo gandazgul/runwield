@@ -382,14 +382,55 @@ function planFileActions(planName: string, path: string): TransitionRecoveryActi
  * paperwork and handing the bill to the user. Say what is being protected, and
  * point at the command that resolves it.
  */
+/**
+ * Plain-language names for what RunWield was doing. The internal operation id is
+ * meaningful to this module and to nobody else: a user in an unrelated project
+ * reading "direct_delivery_publication" learns only that something inside RunWield
+ * has a name.
+ */
+const OPERATION_DESCRIPTIONS: Record<string, string> = {
+    direct_delivery_publication: "merging this Plan's finished work into the target branch",
+    implementation_checkpoint: "saving a checkpoint of the implementation work",
+    execution_preparation: "setting up the execution worktree",
+    epic_decomposition_finalize: "writing this Epic's child Plans",
+    plan_review_write: "saving the Plan review decision",
+    review_reopened: "reopening this Plan for review",
+};
+
+function describeOperation(operation: unknown): string {
+    if (typeof operation !== "string") return "an operation on this Plan";
+    return OPERATION_DESCRIPTIONS[operation] || "an operation on this Plan";
+}
+
 function unresolvedTransitionMessage(
     record: Record<string, unknown>,
-    operation: string,
+    _operation: string,
     planName: string,
 ): string {
-    const previous = typeof record.operation === "string" ? record.operation : "a lifecycle operation";
-    return `${planName} has an unfinished lifecycle operation (${previous}) that RunWield could not confirm, so it is ` +
-        `holding off on ${operation} rather than stacking a second change on uncertain state.`;
+    const completed = Array.isArray(record.completedEffects) ? record.completedEffects : [];
+    const cause = typeof record.error === "string" && record.error.trim() ? record.error.trim() : "";
+
+    const lines = [
+        `RunWield stopped part-way through ${describeOperation(record.operation)} for ${planName}, ` +
+        `and cannot tell by itself whether that finished.`,
+    ];
+    if (completed.length === 0) {
+        lines.push("Nothing was changed: no work was merged and no files were moved.");
+    } else {
+        lines.push(
+            `Some of it did complete, so the repository may already be partly updated. ` +
+                `Do not repeat the step by hand until this is settled.`,
+        );
+    }
+    // The reason lives in the record and is usually the whole answer — an overlapping
+    // uncommitted file, a moved branch. Printing RunWield's caution while withholding
+    // the cause leaves the user with a problem statement and no problem.
+    if (cause) lines.push(`Why it stopped: ${cause}`);
+    lines.push(
+        `Until this is settled, RunWield will not make further changes to ${planName}, ` +
+            `because a second change on top of an uncertain one is how work gets lost.`,
+    );
+    return lines.join("\n");
 }
 
 function unresolvedTransitionActions(planName: string): TransitionRecoveryAction[] {
