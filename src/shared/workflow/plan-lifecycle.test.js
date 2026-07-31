@@ -1122,15 +1122,19 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
     }
 });
 
-Deno.test("stageValidationPassedInExecutionWorktree rejects a non-implemented canonical Plan", async () => {
+Deno.test("stageValidationPassedInExecutionWorktree rejects a Plan outside Workflow Validation", async () => {
     const projectRoot = await Deno.makeTempDir();
     const executionCwd = await Deno.makeTempDir();
     try {
+        // Publishing is legal from any status validation actually runs from, so the
+        // guard rejects statuses outside validation rather than one exact status. It
+        // used to demand `implemented`, which refused every publication once the Plan
+        // reached `validated_reviewer` before merge.
         await savePlan(projectRoot, "feature", "# Feature", { status: "in_progress" });
         await assertRejects(
             () => stageValidationPassedInExecutionWorktree({ projectRoot, executionCwd, planName: "feature" }),
             Error,
-            'expected "implemented"',
+            "expected one of implemented, validated_ci, validated_reviewer",
         );
         assertEquals(await loadPlan(executionCwd, "feature"), null);
     } finally {

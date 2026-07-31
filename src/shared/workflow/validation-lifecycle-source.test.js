@@ -42,3 +42,29 @@ Deno.test("legacy validation drivers are not reachable", async () => {
     assertEquals(legacySource.includes("while (!executionComplete"), false);
     assertEquals(legacySource.includes("pauseForExecutionContinuation"), false);
 });
+
+Deno.test("the irreversible merge runs inside the publication transaction", async () => {
+    const source = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
+    const publication = extractFunctionSource(source, "async function runPublicationPhase");
+
+    // The merge is the only act RunWield cannot undo. It must run inside the
+    // transaction so `direct_delivery_target_ref_moved` is journaled the moment the
+    // branch moves; without that record an interrupted publication cannot be told
+    // apart from one that never merged, and recovery reports a merge failure for work
+    // already on the target branch.
+    assert(
+        publication.includes("runDirectDeliveryPublicationTransition"),
+        "runPublicationPhase must publish inside runDirectDeliveryPublicationTransition",
+    );
+    const transactionStart = publication.indexOf("runDirectDeliveryPublicationTransition");
+    const mergeCall = publication.indexOf("await mergeExecutionWorktree(");
+    assert(mergeCall > transactionStart, "mergeExecutionWorktree must run inside the transaction, not before it");
+    assert(
+        publication.includes('markEffect("direct_delivery_target_ref_moved"'),
+        "the target-ref move must be journaled as a durable effect",
+    );
+    assert(
+        publication.includes("publication.cause"),
+        "a failed publication must rethrow its typed cause so merge repair targets the right worktree",
+    );
+});

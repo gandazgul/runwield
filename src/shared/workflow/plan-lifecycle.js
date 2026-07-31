@@ -1042,10 +1042,17 @@ export async function stageValidationPassedInExecutionWorktree({
 }) {
     const canonicalPlan = await loadPlan(projectRoot, planName);
     if (!canonicalPlan) throw new Error(`Plan not found in primary checkout: ${planName}`);
-    if (canonicalPlan.attrs.status !== "implemented") {
+    // Any status Workflow Validation legitimately runs from is publishable. This used
+    // to demand `implemented`, which was correct when validation occupied a single
+    // status; once validation gained `validated_ci` and `validated_reviewer`, the Plan
+    // always sits at `validated_reviewer` by the time publication stages
+    // `validation_passed`, so the check rejected every worktree publication. Keep it a
+    // guard against publishing from outside validation entirely — draft, verified, or
+    // abandoned Plans must still be refused — rather than a check for one exact status.
+    if (!isInValidation(canonicalPlan.attrs.status)) {
         throw new Error(
             `Cannot stage validation_passed for ${planName}: primary Plan status is ` +
-                `"${canonicalPlan.attrs.status}", expected "implemented".`,
+                `"${canonicalPlan.attrs.status}", expected one of ${VALIDATION_PLAN_STATUSES.join(", ")}.`,
         );
     }
 
