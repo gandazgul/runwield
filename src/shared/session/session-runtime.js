@@ -1300,7 +1300,10 @@ export class SessionRuntime {
         const userRequest = options.userRequest || `!${command}`;
         const toolCallId = `bash-${crypto.randomUUID()}`;
         const startedAt = Date.now();
-        const runtimeTool = describeRuntimeTool("bash", { command });
+        const runtimeTool = {
+            ...describeRuntimeTool("bash", { command }),
+            title: `${userRequest.startsWith("!!") ? "!!" : "!"} ${command}`,
+        };
         const interactionId = `local-shell:${toolCallId}`;
         const abortController = new AbortController();
         /** @type {Deno.ChildProcess | null} */
@@ -1402,6 +1405,7 @@ export class SessionRuntime {
                 toolCallId,
                 command,
                 output,
+                exitCode,
                 isError: exitCode !== 0,
             });
         }
@@ -1411,31 +1415,43 @@ export class SessionRuntime {
 
     /**
      * @param {import('./hosted-session.js').HostedSession} session
-     * @param {{ userRequest: string, toolCallId: string, command: string, output: string, isError: boolean }} exchange
+     * @param {{ userRequest: string, toolCallId: string, command: string, output: string, exitCode: number, isError: boolean }} exchange
      */
     #recordLocalToolExchange(session, exchange) {
-        const manager = /** @type {any} */ (session.getRootSessionManager());
-        if (!manager?.addMessage) return { ok: false, error: "not_found" };
-        manager.addMessage({ role: "user", content: [{ type: "text", text: exchange.userRequest }] });
-        manager.addMessage({
-            role: "assistant",
-            content: [{
-                type: "tool_use",
-                id: exchange.toolCallId,
-                name: "bash",
-                input: { command: exchange.command },
-            }],
-        });
-        manager.addMessage({
-            role: "user",
-            content: [{
-                type: "tool_result",
-                tool_use_id: exchange.toolCallId,
-                is_error: exchange.isError,
-                content: exchange.output,
-            }],
-        });
-        return { ok: true };
+        const manager = session.getRootSessionManager();
+        const bashResult = {
+            output: exchange.output,
+            exitCode: exchange.exitCode,
+            cancelled: false,
+            truncated: false,
+        };
+        const agentSession =
+            /** @type {{ recordBashResult?: (command: string, result: typeof bashResult, options?: { excludeFromContext?: boolean }) => void } | null} */ (
+                session.getRootAgentSession()
+            );
+        if (agentSession?.recordBashResult) {
+            agentSession.recordBashResult(exchange.command, bashResult, { excludeFromContext: false });
+            return { ok: true };
+        }
+        const bashMessage = {
+            role: "bashExecution",
+            command: exchange.command,
+            output: bashResult.output,
+            exitCode: bashResult.exitCode,
+            cancelled: bashResult.cancelled,
+            truncated: bashResult.truncated,
+            timestamp: Date.now(),
+            excludeFromContext: false,
+        };
+        if (manager?.appendMessage) {
+            manager.appendMessage(bashMessage);
+            return { ok: true };
+        }
+        if (manager?.addMessage) {
+            manager.addMessage(bashMessage);
+            return { ok: true };
+        }
+        return { ok: false, error: "not_found" };
     }
 
     /** @param {string} sessionId @param {string} [instructions] */

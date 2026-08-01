@@ -36,8 +36,23 @@
  */
 
 /**
+ * @typedef {{
+ *   role: "bashExecution",
+ *   command: string,
+ *   output: string,
+ *   exitCode: number | undefined,
+ *   cancelled: boolean,
+ *   truncated: boolean,
+ *   fullOutputPath?: string,
+ *   timestamp: number,
+ *   excludeFromContext?: boolean,
+ * }} BashExecutionMessageLike
+ */
+
+/**
  * @typedef {import('@earendil-works/pi-coding-agent').SessionManager & {
- *   addMessage?: (message: SessionMessageLike) => void,
+ *   addMessage?: (message: SessionMessageLike | BashExecutionMessageLike) => void,
+ *   appendMessage?: (message: SessionMessageLike | BashExecutionMessageLike) => string,
  *   appendCustomMessageEntry?: (role: string, text: string, visible: boolean, persisted?: string) => void,
  *   getHeader?: () => ({ timestamp?: string } | null),
  * }} SessionManagerLike

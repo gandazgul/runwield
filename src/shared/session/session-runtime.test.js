@@ -64,6 +64,10 @@ function makeSessionManager(id, cwd, branch = []) {
         addMessage(/** @type {unknown} */ message) {
             this.messages.push(message);
         },
+        appendMessage(/** @type {unknown} */ message) {
+            this.messages.push(message);
+            return `message-${this.messages.length}`;
+        },
         dispose() {
             this.disposed = true;
         },
@@ -1326,9 +1330,61 @@ Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async (
     assertEquals(result.ok, true);
     assertEquals(result.output, "runtime-shell");
     assertEquals(events[0].type, RuntimeEventTypes.USER_MESSAGE);
+    assertEquals(events.find((event) => event.type === RuntimeEventTypes.TOOL_START)?.title, "! printf runtime-shell");
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_START).length, 1);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_END).length, 1);
     assertEquals(events.find((event) => event.type === RuntimeEventTypes.TOOL_END)?.output, "runtime-shell");
+});
+
+Deno.test("SessionRuntime persists local shell commands as bash execution messages visible to LLM context", async () => {
+    /** @type {unknown[]} */
+    const agentMessages = [];
+    /** @type {unknown[]} */
+    let messagesSeenByNextTurn = [];
+    const agentSession = {
+        agent: { state: { messages: agentMessages } },
+        recordBashResult(/** @type {string} */ command, /** @type {any} */ result) {
+            agentMessages.push({
+                role: "bashExecution",
+                command,
+                output: result.output,
+                exitCode: result.exitCode,
+                cancelled: result.cancelled,
+                truncated: result.truncated,
+                timestamp: Date.now(),
+                excludeFromContext: false,
+            });
+        },
+        dispose() {},
+    };
+    const runtime = makeRuntime({
+        agentSession,
+        handler: () => {
+            messagesSeenByNextTurn = [...agentMessages];
+            return Promise.resolve({ kind: "complete" });
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: STABLE_TEST_CWD });
+    await runtime.promptSession(sessionId, { initialRequest: "start", initialImages: [] });
+    messagesSeenByNextTurn = [];
+
+    await runtime.runLocalShellCommand(sessionId, {
+        command: "printf visible-shell",
+        userRequest: "!printf visible-shell",
+        persist: true,
+    });
+    await runtime.promptSession(sessionId, { initialRequest: "what happened?", initialImages: [] });
+
+    assertEquals(messagesSeenByNextTurn, [{
+        role: "bashExecution",
+        command: "printf visible-shell",
+        output: "visible-shell",
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+        timestamp: /** @type {{ timestamp?: number }} */ (messagesSeenByNextTurn[0] || {}).timestamp,
+        excludeFromContext: false,
+    }]);
 });
 
 Deno.test("SessionRuntime cancellation terminates an active local shell command", async () => {

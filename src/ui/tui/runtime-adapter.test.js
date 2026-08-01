@@ -124,6 +124,25 @@ Deno.test("TUI adapter advertises Pair checkpoints only while attached", () => {
     assertEquals(interactionAdapters, [interactionAdapters[0], null]);
 });
 
+Deno.test("attachTuiRuntimeAdapter suppresses local shell user echo and keeps shell tool title", () => {
+    const sessionId = "runtime-session";
+    const { runtime } = makeRuntimeHarness(sessionId);
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.USER_MESSAGE, text: "!git st", images: [] });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "local-shell",
+        toolName: "bash",
+        title: "! git st",
+        kind: "execute",
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, ["tool:start:local-shell:bash:! git st"]);
+});
+
 Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-parity");
     const { transcript, uiAPI } = makeUi();

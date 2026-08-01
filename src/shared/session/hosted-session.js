@@ -88,6 +88,8 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {(name: string) => void} [appendSessionInfo]
  * @property {() => unknown[]} [getBranch]
  * @property {() => unknown[]} [getEntries]
+ * @property {(message: unknown) => string} [appendMessage]
+ * @property {(message: unknown) => void} [addMessage]
  * @property {(customType: string, data: unknown) => void} [appendCustomEntry]
  * @property {() => void | Promise<void>} [dispose]
  */

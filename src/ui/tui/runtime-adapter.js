@@ -108,8 +108,10 @@ export function attachTuiRuntimeAdapter({
                     uiAPI.clearValidationPanel?.();
                     hiddenValidationReportCached = false;
                 }
-                uiAPI.appendUserMessage?.(value.text);
-                for (const image of value.images) uiAPI.appendImage?.(image.base64, image.mimeType);
+                if (!(typeof value.text === "string" && value.text.startsWith("!") && value.images.length === 0)) {
+                    uiAPI.appendUserMessage?.(value.text);
+                    for (const image of value.images) uiAPI.appendImage?.(image.base64, image.mimeType);
+                }
                 break;
             case RuntimeEventTypes.QUEUED_MESSAGE_CHANGED: {
                 const message =
