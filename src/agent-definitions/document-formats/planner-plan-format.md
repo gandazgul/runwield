@@ -50,45 +50,54 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-State each step as an outcome that is either true or false when the step is done, not as an action that can be satisfied
-by attempting it. "`src/x.ts` exports `parse` and `format`" is checkable; "create `src/x.ts`" is satisfied by an empty
-file.
+State each step as an outcome that is either true or false when the step is done, never as an action that is satisfied
+by attempting it. An empty file, a placeholder module, an alias, or a pass-through wrapper must not be able to satisfy
+any step.
 
-- [ ] Step 1: Outcome that must hold, with concrete file/function targets
-- [ ] Step 2: Next dependent outcome
-- [ ] Step 3: Testing/validation implementation
+- [ ] `src/parser/tokens.ts` owns and exports `tokenize` and `TokenKind`; those declarations no longer exist in
+      `src/parser/index.ts`, which imports them from `tokens.ts`.
+- [ ] `src/parser/index.ts` is under 400 lines and contains no `@ts-nocheck`.
+- [ ] `src/parser/tokens.test.ts` covers <named behavior> against the real tokenizer and fails if `tokenize` returns a
+      pass-through result.
 
 When applicable, include an explicit step that updates `CONTEXT.md` in the same change as the behavior it describes.
 
 ## Verification Plan
 
 - Automated: exact command(s) to run
-- **At least one check that fails if the objective was not met.** Type-check, lint, and "existing tests still pass" all
-  succeed on a change that did nothing, so they cannot verify this Plan on their own. Write this as a command or an
-  assertion someone else could run — a symbol that must no longer exist, a file under a size ceiling, a test that fails
-  against today's code.
 - Manual: precise user flows / checks
 - Expected results for key scenarios
 - When existing tests cover code this Plan reshapes: which behavior must still be protected afterwards, and which
   behavior is expected to stop existing. Without that split, a test that no longer compiles gets deleted and the suite
   still passes.
 - When applicable: confirm the glossary describes implemented behavior and does not promote unimplemented proposals.
-- Execution policy matrix:
-  - Planned Change Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
-  - Planned Change Plans may set `executionAgent: "engineer"` with `collaborationRecommendation: "autonomous"` or
-    omitted. `pair` is invalid for Engineer-owned execution.
-  - Planned Change Plans may set `executionAgent: "frontend-engineer"` with `collaborationRecommendation: "autonomous"`
-    or `"pair"`.
-  - Use `frontend-engineer` for browser-rendered UI work whose primary outcome is materially visual or interactive;
-    otherwise use `engineer` (including TUI work and incidental frontend-file edits).
-  - Recommend `pair` only when live visual judgment is valuable; use `autonomous` otherwise. Include known dev-server
-    hints and exact headed-browser checks. Real-browser verification is mandatory for Frontend Engineer unless
-    externally blocked.
-  - PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
-    execution policy belongs only on child Plans.
-  - Legacy `frontend: true` on legacy Planned Change Plans is still accepted as Frontend Engineer/autonomous
-    compatibility metadata, but new Plans should use canonical `executionAgent` / `collaborationRecommendation` instead.
-    Legacy `frontend: false` remains Engineer compatibility metadata and is distinct from an absent canonical owner.
+
+### Objective-Failing Checks
+
+Type-check, lint, and "existing tests still pass" all succeed on a change that did nothing, so they cannot verify this
+Plan on their own. List **at least one** check that is red today and can only go green when the objective is actually
+met.
+
+Each check is a shell command with one uniform contract: **exit 0 means the objective was met.** RunWield runs these
+commands, so they must be literal and runnable from the repository root — not instructions to eyeball something.
+
+- `OC1` — `! grep -rq "renderLegacy" src/` — the legacy renderer no longer exists anywhere.
+- `OC2` — `test "$(wc -l < src/parser/index.ts)" -lt 400` — the monolith was actually split, not renamed.
+- `OC3` — `deno test src/parser/tokens.test.ts` — the new behavior exists and is exercised.
+
+## Execution Policy
+
+- Planned Change Plans may omit `executionAgent`; omission defaults to `engineer`.
+- `executionAgent: "engineer"` takes `collaborationRecommendation: "autonomous"` or omits it. `pair` is invalid for
+  Engineer-owned execution.
+- `executionAgent: "frontend-engineer"` takes `collaborationRecommendation: "autonomous"` or `"pair"`.
+- Use `frontend-engineer` for browser-rendered UI work whose primary outcome is materially visual or interactive;
+  otherwise use `engineer` (including TUI work and incidental frontend-file edits).
+- Recommend `pair` only when live visual judgment is valuable; use `autonomous` otherwise. Include known dev-server
+  hints and exact headed-browser checks. Real-browser verification is mandatory for Frontend Engineer unless externally
+  blocked.
+- PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
+  execution policy belongs only on child Plans.
 
 ## Edge Cases & Considerations
 

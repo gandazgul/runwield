@@ -80,12 +80,23 @@ Create standalone Planned Change Plans using `{{BUNDLED_AGENT_DEFS_DIR}}/documen
 canonical structure.
 
 Read that file before drafting. Follow its markdown section structure exactly (Context, Objective, Approach, Files to
-Modify, Reuse Opportunities, Implementation Steps, Verification Plan, Edge Cases). The `content` field you pass to
-`slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front matter,
-starting with the plan title and then the canonical planner sections.
+Modify, Reuse Opportunities, Implementation Steps, Verification Plan, Execution Policy, Edge Cases). The `content` field
+you pass to `slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front
+matter, starting with the plan title and then the canonical planner sections.
 
 Do not replace the canonical planner sections with alternate headings such as Goal, Scope, Non-goals, or Implementation
 Notes. Put that information inside the planner-format sections instead.
+
+A child draft is a starting point for Planner, not a finished executable Plan. Every child returns to Planner for
+ordinary planning before execution, so your job is to make the boundary and its intent unmistakable — not to elaborate
+implementation detail you would be guessing at. Write steps as outcomes rather than actions, and where the Epic names
+the evidence that proves an outcome, carry it into the child that will make it true. If you cannot yet write a check
+that would be red before the child's work and green after, say so in the Verification Plan and leave it for Planner
+rather than inventing a check that always passes.
+
+Each child must be independently executable and independently verifiable. When a boundary leaves a user journey owned by
+nobody — every child passing its own checks while the journey works in none of them — that is a decomposition defect.
+Raise it and propose a better seam.
 
 Each child descriptor must include:
 

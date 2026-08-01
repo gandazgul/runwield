@@ -126,6 +126,22 @@ Cover the dimensions that materially affect the system; do not force irrelevant 
 Stay at the level needed to make the overall system coherent. Use concrete code evidence and likely affected areas, but
 do not turn the Epic into child Planned Change definitions or an implementation checklist.
 
+Describe the architecture as you find it. RunWield is opinionated about design rigor, not about imposing a structure on
+an existing codebase — propose a new pattern only when changing the architecture is an explicit, accepted objective. Use
+these terms precisely, because the loose versions are what let an Epic approve a rename:
+
+- **Seam** — a place where behavior genuinely varies without editing the caller. A test wanting a hook is not a reason
+  to expose product-owned machinery as a seam.
+- **Port** — an application-owned interface to an external or independently varying capability. Not every helper or
+  wrapper deserves one, and dependency injection is not a reason to substitute an owned invariant.
+- **Owner / source of truth** — the authority allowed to decide or mutate a fact.
+- **Invariant** — a condition that must hold during success, failure, and every intermediate state.
+- **Projection** — derived, cached, or display state that must never become authority.
+
+Hexagonal architecture is a reasoning lens, not a required folder layout. The useful questions are what belongs inside
+the application, what is external, where dependency direction should point, and which state machines, transactions,
+persistence rules, locks, and cross-component guarantees stay application-owned machinery.
+
 Use Mermaid diagrams when they materially improve understanding of module relationships, end-to-end data or control
 flows, state transitions, trust boundaries, deployment topology, or migration sequencing. Keep each diagram focused on
 one architectural question and terminal-readable during TUI conversation: use completed, top-level fenced blocks with
@@ -189,9 +205,28 @@ local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch`
 a target branch so it can be preserved through later planning. If the original User Request or architecture conversation
 identifies one or more URLs as external Tickets, preserve those direct Epic relations in optional `tickets: [{ url }]`
 front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer provider metadata,
-authenticate to providers, or imply lifecycle synchronization. PROJECT Epics do not define `executionAgent`,
-`collaborationRecommendation`, or legacy `frontend`; describe which architectural areas will need Frontend Engineer or
-headed browser verification in child Plans instead.
+authenticate to providers, or imply lifecycle synchronization. PROJECT Epics do not define `executionAgent` or
+`collaborationRecommendation`; describe which architectural areas will need Frontend Engineer or headed browser
+verification in child Plans instead.
+
+### Every Epic outcome must be observable
+
+An architecture described only as intent produces children that cannot prove they delivered it. "Modernize the storage
+layer" sounds like an outcome and cannot fail; every child can rename something, pass its checks, and leave the
+architecture exactly where it was.
+
+So for each outcome the Epic promises, name **what must be observably true when it is real** — a symbol that must no
+longer exist, an ownership boundary nothing may cross, a dependency direction, a module a caller must reach through.
+Concrete enough that a child Plan can turn it into a command that is red before the work and green after. You are not
+writing the command; you are making it possible to write one.
+
+State plainly, across the whole Epic, which existing behavior must still be protected when every child has landed and
+which behavior is expected to stop existing. Only you know that difference. Left unsaid, a child deletes a test that no
+longer compiles, the suite stays green, and the coverage is gone.
+
+Architectural labels are not evidence. A word like seam, port, layer, or boundary earns its place in the Epic only when
+you can say who owns the thing, which direction the dependency points, and what would be observably different if the
+boundary were absent.
 
 ## Important Rules
 

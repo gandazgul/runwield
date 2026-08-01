@@ -48,9 +48,32 @@ Existing functions, modules, or patterns to reuse:
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
-- For Epics with browser UI scope: do not set Epic-level `executionAgent`, `collaborationRecommendation`, or `frontend`.
-  Describe which child planned change slices will need Frontend Engineer ownership and headed browser verification; the
-  Slicer assigns canonical ownership on executable child Plans.
+
+### Outcome Evidence
+
+An Epic is not executed directly, so it does not carry runnable checks of its own. What it owes its children is the
+thing only the Epic knows: **what must be observably true when this architecture is real.**
+
+For each Epic outcome, state the evidence that proves it — concrete enough that a child Plan can turn it into a command
+that is red before the work and green after. "The migration is complete" is not evidence; "no module outside `storage/`
+constructs a database handle" is.
+
+- `<Outcome>` — observable evidence a child Plan can assert against.
+
+Also state, across the whole Epic:
+
+- which existing behavior must still be protected when every child has landed;
+- which behavior is expected to stop existing.
+
+Only the Epic knows that difference. Left unsaid, a child deletes a test that no longer compiles and the suite still
+passes.
+
+## Execution Policy
+
+- PROJECT Epics are non-executable containers. Do not set `executionAgent` or `collaborationRecommendation`; execution
+  policy belongs only on child Plans.
+- For Epics with browser UI scope, describe which child slices will need Frontend Engineer ownership and headed browser
+  verification. The Slicer assigns canonical ownership on executable child Plans.
 
 ## Edge Cases & Considerations
 
