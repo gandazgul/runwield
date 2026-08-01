@@ -24,6 +24,7 @@ import {
 import { git, makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
+import { addEntry } from "../../shared/worktree-registry.js";
 
 Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without transient Pair style", async () => {
     const { uiAPI, selections } = makeUi();
@@ -1570,4 +1571,73 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
     } finally {
         await Deno.remove(worktreePath, { recursive: true });
     }
+});
+
+Deno.test("runLoadPlanCommand shows abandon progress before slow worktree removal finishes", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const worktreePath = await Deno.makeTempDir();
+    await savePlanForTest(projectRoot, "recover-progress", "# recover progress", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "recover progress",
+        affectedPaths: [],
+        status: "in_progress",
+        planId: "recover-progress-plan",
+        worktreeId: "recover-progress-wt",
+        worktreePath,
+        worktreeBranch: null,
+        worktreeStatus: "active",
+    });
+    await addEntry(projectRoot, {
+        id: "recover-progress-wt",
+        planName: "recover-progress",
+        planId: "recover-progress-plan",
+        baseBranch: "main",
+        baseRef: "HEAD",
+        baseCommit: "baseline",
+        branch: "",
+        path: worktreePath,
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("abandon", "confirm");
+    let releaseRemoval = () => {};
+    let removalStarted = false;
+    const removalReleased = new Promise((resolve) => {
+        releaseRemoval = () => resolve(undefined);
+    });
+
+    const run = runLoadPlanCommand(["recover-progress"], {
+        ...makeRuntimeContext({ cwd: projectRoot }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["recover-progress"] }),
+            removeWorktreeGitArtifacts: async () => {
+                removalStarted = true;
+                await removalReleased;
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    for (let attempt = 0; attempt < 100 && !removalStarted; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assertEquals(removalStarted, true);
+    const progressIndex = messages.findIndex((message) =>
+        message.includes('Deleting recorded worktree for "recover-progress"')
+    );
+    const finalIndexBeforeRelease = messages.findIndex((message) =>
+        message.includes("Worktree abandoned and removed.")
+    );
+    assertEquals(progressIndex >= 0, true);
+    assertEquals(finalIndexBeforeRelease, -1);
+
+    releaseRemoval();
+    await run;
+    const finalIndex = messages.findIndex((message) => message.includes("Worktree abandoned and removed."));
+    assertEquals(finalIndex > progressIndex, true);
 });

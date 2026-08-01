@@ -3,7 +3,9 @@
  * Central catalog for Golden TUI scenario portfolio metadata.
  */
 
+import { concurrentWorkflowScenarios } from "./concurrent-workflow.ts";
 import { initialGoldenScenarios } from "./initial-scenarios.js";
+import { loadPlanWorkflowScenarios } from "./load-plan-workflow.ts";
 import { plannedChangeWorkflowScenarios } from "./planned-change-workflow.js";
 import { presentationAndTerminalScenarios } from "./presentation-and-terminal.js";
 import { projectWorkflowScenarios } from "./project-workflow.js";
@@ -14,6 +16,8 @@ export const goldenTuiPortfolioScenarios = [
     ...roleJourneyScenarios,
     ...plannedChangeWorkflowScenarios,
     ...projectWorkflowScenarios,
+    ...loadPlanWorkflowScenarios,
+    ...concurrentWorkflowScenarios,
     ...presentationAndTerminalScenarios,
 ];
 

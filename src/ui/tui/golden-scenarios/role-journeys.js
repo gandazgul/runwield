@@ -223,7 +223,13 @@ export const engineerQuickFixMechanicalValidationScenario = {
     name: "role-engineer-quick-fix-mechanical-validation",
     composedTui: true,
     terminal: { columns: 100, rows: 30 },
-    coverage: ["role:engineer", "intent:QUICK_FIX", "recovery:workflow-validation", "block:validation-handoff"],
+    coverage: [
+        "role:engineer",
+        "intent:QUICK_FIX",
+        "recovery:workflow-validation",
+        "block:validation-handoff",
+        "durable:quick-fix-delivery",
+    ],
     scriptedInteractions: [
         { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
     ],
@@ -234,15 +240,29 @@ export const engineerQuickFixMechanicalValidationScenario = {
             agent: "engineer",
             phase: "engineer",
             ordinal: 1,
-            requiredTools: ["task_completed"],
+            requiredTools: ["bash", "task_completed"],
             text: "Mechanical Validation passed after QUICK_FIX.",
-            toolCalls: [{ name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } }],
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf quick > golden-quick-fix.txt" } },
+                { name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } },
+            ],
         },
     ],
-    actions: [{ type: "type", text: "make a tiny quick fix" }, { type: "enter" }, {
-        type: "waitForIdle",
-        timeoutMs: 10000,
-    }],
+    actions: [
+        { type: "type", text: "make a tiny quick fix" },
+        { type: "enter" },
+        {
+            type: "waitForIdle",
+            timeoutMs: 15000,
+        },
+        {
+            type: "assertProjectFile",
+            path: "golden-quick-fix.txt",
+            exists: true,
+        },
+        { type: "assertNoPlanFile", planName: "quick-fix" },
+        { type: "captureProjectState", planNames: [] },
+    ],
     assertions: [
         assertRuntimeEvent("role:engineer", "runtime:agent:engineer"),
         assertsGoldenCoverage("intent:QUICK_FIX", (result) => {
@@ -253,6 +273,16 @@ export const engineerQuickFixMechanicalValidationScenario = {
             assertScreenIncludes(result, "Saved validation command: 'true'");
         }),
         assertRuntimeEvent("block:validation-handoff", "runtime:tool:start:task_completed"),
+        assertsGoldenCoverage("durable:quick-fix-delivery", (result) => {
+            assertEventIncludes(result, "project:file-checked");
+            const projectState = /** @type {{ registryEntries?: unknown[] } | undefined} */ (result.state.projectState);
+            assert(
+                (projectState?.registryEntries || []).length === 0,
+                `Expected QUICK_FIX to leave no worktree registry entries; got ${
+                    JSON.stringify(projectState?.registryEntries)
+                }`,
+            );
+        }),
     ],
 };
 

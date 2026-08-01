@@ -343,7 +343,97 @@ export const plannedChangeBlockedMergePauseScenario = {
     ],
 };
 
+/** @type {import('../testing/scenario-runner.js').GoldenScenario} */
+export const plannedChangeNonGitInPlaceScenario = {
+    name: "planned-change-non-git-in-place-delivery",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 90000,
+    nonGitProject: true,
+    coverage: ["durable:non-git-in-place"],
+    reviewDecisions: [{ approved: true, feedback: "Approved for non-Git execution.", approvalAction: "run" }],
+    reviewedPlan: "# Non-Git PLANNED_CHANGE\n\nGolden non-Git content.\n",
+    initialProjectFiles: [
+        { path: "deno.json", text: '{"tasks":{"test":"deno eval \\"true\\""}}\n' },
+    ],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "Git is not available for this project", value: "proceed" },
+        { type: "text", promptIncludes: "Enter the command to validate this project", value: "deno task test" },
+    ],
+    script: [
+        {
+            id: "planner-submit-non-git-plan",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            thinking: "Submit non-Git Plan for approval.",
+            toolCalls: [{ name: "plan_written", arguments: { planName: "non-git-plan" } }],
+        },
+        {
+            id: "engineer-implements-non-git-plan",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            thinking: "Implement directly in the non-Git project root.",
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf non-git > golden-non-git.txt" } },
+                { name: "task_completed", arguments: { message: "- Implemented non-Git Golden change." } },
+            ],
+        },
+        {
+            id: "engineer-closes-non-git-plan",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 2,
+            text: "Non-Git implementation awaits validation.",
+        },
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/non-git-plan.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden non-Git PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Non-Git PLANNED_CHANGE\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit the non-git planned change for review" },
+        { type: "enter" },
+        {
+            type: "waitForPlanStatus",
+            planName: "non-git-plan",
+            statuses: ["verified", "user_verified"],
+            timeoutMs: 70000,
+        },
+        { type: "assertProjectFile", path: "golden-non-git.txt", exists: true },
+        { type: "captureProjectState", planNames: ["non-git-plan"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("durable:non-git-in-place", (result) => {
+            const interactions = /** @type {Array<{ interaction?: { value?: string } }> | undefined} */ (result.state
+                .scriptedInteractions);
+            assert(
+                interactions?.some((entry) => entry.interaction?.value === "proceed"),
+                "Expected non-Git execution prompt to be handled through production interaction.",
+            );
+            const projectState =
+                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[] } | undefined} */ (result
+                    .state.projectState);
+            const attrs = projectState?.plans?.[0]?.attrs;
+            assert(
+                attrs?.executionMode === "non_git_in_place",
+                `Expected non_git_in_place; got ${attrs?.executionMode}`,
+            );
+            const deliveryEvidence = /** @type {{ mode?: string } | undefined} */ (attrs?.deliveryEvidence);
+            assert(deliveryEvidence?.mode === "non_git_in_place", "Expected non-Git Delivery Evidence.");
+            assert((projectState?.registryEntries || []).length === 0, "Expected no worktree registry entries.");
+        }),
+    ],
+};
+
 export const plannedChangeWorkflowScenarios = [
     plannedChangeReviewRepairValidationScenario,
     plannedChangeBlockedMergePauseScenario,
+    plannedChangeNonGitInPlaceScenario,
 ];

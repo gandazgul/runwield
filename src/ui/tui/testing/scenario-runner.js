@@ -43,6 +43,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * @property {unknown} [reviewedPlan]
  * @property {Array<{ path: string, text: string }>} [initialProjectFiles]
  * @property {Array<{ path: string, text: string }>} [committedProjectFiles]
+ * @property {boolean} [nonGitProject]
  * @property {Array<((result: GoldenScenarioResult) => void | Promise<void>) & { goldenCoverage?: string[] }>} [assertions]
  * @property {string[]} [coverage]
  * @property {number} [timeoutMs]
@@ -467,6 +468,9 @@ async function runComposedTuiScenario(scenario, options) {
             await runGoldenGit(["add", "-A"], Deno.cwd());
             await runGoldenGit(["commit", "-m", "Golden fixture baseline"], Deno.cwd());
         }
+        if (scenario.nonGitProject) {
+            await Deno.remove(join(Deno.cwd(), ".git"), { recursive: true }).catch(() => {});
+        }
         if (runwieldDir && scenario.modelSetup === "none") {
             await Deno.remove(join(runwieldDir, "models.json")).catch(() => {});
             await Deno.writeTextFile(
@@ -856,6 +860,8 @@ async function runComposedTuiScenario(scenario, options) {
                     } catch (error) {
                         if (!(error instanceof Deno.errors.NotFound)) throw error;
                     }
+                    const { inspectWorktreeRegistry } = await import("../../../shared/worktree-registry.js");
+                    const projectWorktreeRegistry = await inspectWorktreeRegistry(Deno.cwd());
                     const goldenFilePath = join(Deno.cwd(), "golden-planned-change.txt");
                     const goldenFileExists = await Deno.stat(goldenFilePath).then(() => true).catch(() => false);
                     const branch = await runGoldenGit(["branch", "--show-current"], Deno.cwd());
@@ -899,6 +905,7 @@ async function runComposedTuiScenario(scenario, options) {
                         planStatus,
                         goldenFileExists,
                         registryEntries,
+                        projectWorktreeRegistryEntries: projectWorktreeRegistry.entries,
                         branch,
                         status,
                         trackedFiles,
@@ -953,6 +960,16 @@ async function runComposedTuiScenario(scenario, options) {
                     }
                     if (registryEntries.length) {
                         throw new Error(`Expected clean worktree registry; got ${registryEntries.join(", ")}`);
+                    }
+                    const liveProjectEntries = projectWorktreeRegistry.entries.filter((entry) =>
+                        ["active", "execution_failed", "validation_failed", "merge_conflict"].includes(
+                            String(entry.status || ""),
+                        )
+                    );
+                    if (liveProjectEntries.length) {
+                        throw new Error(
+                            `Expected clean project worktree registry; got ${JSON.stringify(liveProjectEntries)}`,
+                        );
                     }
                     if (!editorUsable) {
                         throw new Error("Expected terminal/editor to be usable after Workflow Validation delivery.");
@@ -1029,13 +1046,10 @@ async function runComposedTuiScenario(scenario, options) {
                         deliveryLog: await runGoldenGit(["log", "--oneline", "-12"], Deno.cwd()),
                         trackedFiles: await runGoldenGit(["ls-files"], Deno.cwd()),
                         status: await runGoldenGit(["status", "--porcelain"], Deno.cwd()),
-                        // Attempts still mid-flight after the Epic finished. `completed`
-                        // is excluded deliberately: the registry counts it as
-                        // non-terminal, and the last child of an Epic is still sitting
-                        // in it once continuation ends — worth a look, but not a leak
-                        // this scenario can call.
                         liveRegistryEntries: registryEntries.filter((entry) =>
-                            ["active", "execution_failed", "validation_failed"].includes(String(entry.status || ""))
+                            ["active", "execution_failed", "validation_failed", "merge_conflict"].includes(
+                                String(entry.status || ""),
+                            )
                         ).map((entry) => `${entry.planName || "?"}:${entry.status || "?"}`),
                         registryStatuses: registryEntries.map((entry) =>
                             `${entry.planName || "?"}:${entry.status || "?"}`
@@ -1066,6 +1080,62 @@ async function runComposedTuiScenario(scenario, options) {
                     };
                     events.push(`project:epic:work-record:${generated.status}`);
                     await writeHeartbeat();
+                } else if (typed.type === "seedActiveWorktree") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot seed worktree for missing Plan ${planName}`);
+                    const { createTestWorktreeAttempt } = await import("../../../shared/worktree-test-helpers.js");
+                    const { updatePlanFrontMatter } = await import("../../../plan-store.js");
+                    const entry = await createTestWorktreeAttempt({
+                        projectRoot: Deno.cwd(),
+                        planName,
+                        planId: String(loaded.attrs.planId || `golden:${planName}`),
+                    });
+                    await updatePlanFrontMatter(
+                        Deno.cwd(),
+                        planName,
+                        {
+                            status: "in_progress",
+                            worktreeId: entry.id,
+                            worktreePath: entry.path,
+                            worktreeBranch: entry.branch,
+                            worktreeBaseBranch: entry.baseBranch,
+                            worktreeStatus: "active",
+                        },
+                        loaded.attrs,
+                        { expectedRevision: loaded.revision },
+                    );
+                    events.push(`project:worktree-seeded:${planName}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "captureProjectState") {
+                    const planNames = Array.isArray(typed.planNames) ? typed.planNames.map(String) : [];
+                    const plans = [];
+                    for (const planName of planNames) {
+                        const loaded = await loadPlan(Deno.cwd(), planName).catch(() => null);
+                        plans.push({ name: planName, attrs: loaded?.attrs || null });
+                    }
+                    const { inspectWorktreeRegistry } = await import("../../../shared/worktree-registry.js");
+                    const registry = await inspectWorktreeRegistry(Deno.cwd());
+                    const { listWorkRecords } = await import("../../../shared/work-records/store.js");
+                    const records = await listWorkRecords(Deno.cwd(), { createDir: false }).catch(() => []);
+                    state.projectState = {
+                        plans,
+                        registryEntries: registry.entries,
+                        nonTerminalRegistryEntries: registry.entries.filter((entry) =>
+                            ["active", "execution_failed", "validation_failed", "merge_conflict"].includes(
+                                String(entry.status || ""),
+                            )
+                        ),
+                        registryIntegrityIssues: registry.integrityIssues,
+                        workRecordNames: records.map((record) => record.relativePath),
+                    };
+                    events.push("project:state:captured");
+                    await writeHeartbeat();
+                } else if (typed.type === "assertNoPlanFile") {
+                    const planPath = join(Deno.cwd(), "plans", `${String(typed.planName || "")}.md`);
+                    const exists = await Deno.stat(planPath).then(() => true).catch(() => false);
+                    if (exists) throw new Error(`Expected no Plan file at ${planPath}`);
+                    events.push("project:plan-file-absent");
                 } else if (typed.type === "uiPresentationState") {
                     composition.uiAPI.setBusy?.(true);
                     events.push("ui:spinner:busy");
@@ -1172,8 +1242,16 @@ async function runComposedTuiScenario(scenario, options) {
             }
             if (reviewSurface) {
                 reviewSurface.assertComplete();
-                const parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"))
-                    .catch(() => Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md")));
+                let parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"))
+                    .catch(() => Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md"))).catch(() => "");
+                if (!parsedPlan) {
+                    for await (const entry of Deno.readDir(join(Deno.cwd(), "plans"))) {
+                        if (entry.isFile && entry.name.endsWith(".md")) {
+                            parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", entry.name));
+                            break;
+                        }
+                    }
+                }
                 state.planReview = {
                     attrs: parsePlanFrontMatter(parsedPlan).attrs,
                     lifecycleEvents: persistedLifecycleEvents,

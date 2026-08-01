@@ -3029,6 +3029,11 @@ async function handlePlanRecovery({
 
         if (answer === "abandon") {
             if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/abandon"))) continue;
+            uiAPI.appendSystemMessage(
+                `Deleting recorded worktree for "${plan.planName}"...`,
+                false,
+                "RunWield",
+            );
             let removedWorktree = true;
             const transition = await runRecoveryTransition({
                 projectRoot,

@@ -10,7 +10,12 @@ import { assert } from "@std/assert";
 export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
     roles: ["role:guide", "role:ideator", "role:operator", "role:engineer"],
     routingIntents: ["intent:INQUIRY", "intent:IDEATION", "intent:OPERATION", "intent:QUICK_FIX"],
-    workflows: ["workflow:PLANNED_CHANGE", "workflow:PROJECT"],
+    workflows: [
+        "workflow:PLANNED_CHANGE",
+        "workflow:PROJECT",
+        "workflow:load-plan",
+        "workflow:concurrent-plans",
+    ],
     presentation: [
         "block:user",
         "block:thinking",
@@ -26,6 +31,7 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "block:managed-sync",
         "block:queued-steering",
         "block:image",
+        "block:abandon-progress",
     ],
     terminal: [
         "terminal:ctrl-c",
@@ -44,6 +50,11 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         // promise is only kept if the menu actually reaches the screen and the
         // answer actually resumes the run, which only an end-to-end scenario shows.
         "recovery:user-pause",
+        "recovery:interrupted-execution",
+        "recovery:load-plan-worktree",
+        "recovery:validation-failure-retry",
+        "recovery:validation-exhausted",
+        "recovery:malformed-plan-front-matter",
     ],
     durableOutcomes: [
         "durable:plan-lifecycle",
@@ -53,6 +64,9 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "durable:epic-evidence",
         "durable:work-record",
         "durable:mutation-policy",
+        "durable:epic-completion",
+        "durable:quick-fix-delivery",
+        "durable:non-git-in-place",
     ],
 });
 
