@@ -531,7 +531,9 @@ command definition, prompt command
 - An **Epic** contains decomposition context; its **Child PLANNED_CHANGE Plans** are the independently executable units.
 - An **Implemented Plan** must pass **Workflow Validation** before becoming a **Verified Plan**.
 - An **In-Progress Plan** or **Failed Plan** may require **Plan Recovery** before workflow can continue safely.
-- A **Verified Plan** or **Closed Without Verification Plan** may produce one **Work Record**.
+- A **Verified Plan** or **Closed Without Verification Plan** may produce a **Work Record**. A Plan accumulates zero or
+  more Work Records over its lifetime, of which at most one is the current retrievable record; the rest are **Superseded
+  Work Records** or **Archived Work Records**.
 - Every **Work Record** has **Work Record Provenance**.
 - A **Draft Work Record** requires human approval before default Agent retrieval.
 - A **Pending Verification Work Record** requires a terminal Plan outcome before default Agent retrieval.

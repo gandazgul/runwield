@@ -1,159 +1,215 @@
 ---
+planId: "21bd9fe8-84b7-4b23-80cf-9f9fbf22f303"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
 summary: "Carry the merge repair worktree across validation calls so a repaired merge is published instead of restarted, restoring repair-then-finish behavior lost when validation became phase-driven."
 affectedPaths:
+    - "src/plan-front-matter.js"
     - "src/plan-store.js"
     - "src/shared/workflow/plan-lifecycle.js"
+    - "src/shared/workflow/state-transition.ts"
     - "src/shared/workflow/validation.ts"
+    - "src/shared/workflow/validation-publication-pause.test.js"
     - "src/shared/workflow/validation-loop-delivery.test.js"
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "docs/plan-lifecycle.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-31T13:58:11-04:00"
+updatedAt: "2026-08-01T04:10:38.171Z"
 status: "ready_for_work"
-planId: "21bd9fe8-84b7-4b23-80cf-9f9fbf22f303"
+origin: "internal"
+userVerifiedAt: null
+humanReviewMode: null
+humanReviewDecision: null
+worktreeStatus: "abandoned"
 ---
 
 # Finish a Repaired Merge Instead of Restarting It
 
 ## Context
 
-Publishing a Plan can fail on a merge conflict. RunWield handles that by creating a **merge worktree**, dispatching the
-execution Agent to resolve the conflict there, and then publishing that already-merged tree — it does not re-run the
-merge from scratch.
+Publishing a Plan can fail on a Git merge conflict. RunWield's intended behavior is to create a detached **merge
+worktree**, dispatch the execution Agent to resolve the conflict there, and then publish that already-resolved tree. It
+must not restart the merge from scratch after the repair, because restarting walks back into the same conflict.
 
-`mergeExecutionWorktree` still supports this: given `repairMergeWorktreePath` it calls `publishRepairedMergeWorktree`
-instead of starting a new merge (`src/shared/worktree.js:950` and `:979`). Merge failures still carry the path on the
-typed error, readable with the `getMergeWorktreePath(error)` helper that the pre-refactor driver used.
+The publishing half already exists. `mergeExecutionWorktree` accepts `repairMergeWorktreePath` and, when present, calls
+`publishRepairedMergeWorktree` before attempting a fresh merge (`src/shared/worktree.js:927` and
+`src/shared/worktree.js:1132`). Typed merge errors also already expose both `repairCwd` and `mergeWorktreePath`, and
+`validation.ts` now has `getMergeWorktreePath(error)` beside `getMergeRepairCwd(error)`.
 
-What is missing is the connection between the two. The old driver held the path in a loop-local variable:
+The remaining gap is durability across validation calls. Current `runPublicationPhase` stores a repaired merge path only
+in a local variable:
 
-```js
-let pendingRepairMergeWorktreePath;                                  // validation.js:2578
-pendingRepairMergeWorktreePath = getMergeWorktreePath(error) || …;   // on failure
-repairMergeWorktreePath: pendingRepairMergeWorktreePath,             // on the retry merge
-pendingRepairMergeWorktreePath = undefined;                          // on success
+```ts
+let repairMergeWorktreePath: string | undefined;
+repairMergeWorktreePath = getMergeWorktreePath(error) || repairMergeWorktreePath;
+// later: mergeExecutionWorktree({ ..., repairMergeWorktreePath })
 ```
 
-When validation became phase-driven, that variable died with the loop. The retry is now a **separate**
-`runValidationLoop` call, so nothing survives between the failure and the retry. `validation.ts` neither captures the
-path nor passes it, so a repaired merge worktree is abandoned and the next publication attempt starts a fresh merge into
-the same conflict.
+That fixes retries that happen inside the same `runValidationLoop` call, but not the product case this Plan is for: a
+merge repair can outlive the call that discovered it. The execution Agent may finish in a later Session turn, the
+process may exit, or the user may resume the Plan after an interruption. The next phase-driven `runValidationLoop` call
+reloads canonical Plan Front Matter, has no local variable, and starts a fresh merge instead of finishing the repaired
+merge worktree.
 
-Recent fixes restored the rest of the sequence — repair is dispatched, it goes to `error.repairCwd`, the failure is
-announced before the Agent starts, and a completed repair leaves the Plan at `validated_reviewer` so publication retries
-directly. This Plan supplies the one remaining piece: the retry must finish the repaired merge.
+This cannot be solved by recording the existing `worktree_merge_failed` Plan Event. That event intentionally transitions
+`validated_reviewer -> implemented`, which means fresh Mechanical Validation and Semantic Code Review. The desired
+behavior keeps the Plan at `validated_reviewer`: tests and review have already passed; only Direct Delivery publication
+is outstanding.
 
 ## Objective
 
 A merge conflict repaired by the execution Agent is published, not merged again.
 
-After this change, when publication fails with a merge worktree and the Agent repairs it, the next `runValidationLoop`
-call passes that worktree to `mergeExecutionWorktree` as `repairMergeWorktreePath`, so publication completes the
-repaired tree. The path is durable Plan state, so it survives the process ending between the repair and the retry.
+After this change, when publication creates a detached merge worktree and dispatches a repair, RunWield stores that
+merge worktree path as durable validation-continuation Front Matter while the Plan remains `validated_reviewer`. A later
+`runValidationLoop` call reads the path from the canonical Plan and passes it to `mergeExecutionWorktree` as
+`repairMergeWorktreePath`, so Direct Delivery finishes the repaired tree.
 
-A stale path must never be used: any event that returns the Plan to `implemented` invalidates the repaired merge,
-because the code changed underneath it.
+A stale path must never be used. Any lifecycle event that invalidates the current implementation or current validation
+proof clears the stored merge repair path before the publication phase can see it.
 
 ## Approach
 
-Store the path in Plan Front Matter rather than in session state. The session already lost this once by holding it in
-memory, and a merge repair can outlive the process that started it. Front Matter is RunWield-owned, already carries
-`validationCiAttempts` and `validationSemanticRounds`, and is read back through the same canonical load the phase
-dispatcher uses.
+Add `validationMergeRepairWorktree` to Plan Front Matter as nullable validation-continuation state. It is not a new Plan
+Status and not a user-facing workflow mode; it is the durable equivalent of the local `repairMergeWorktreePath` variable
+that phase-driven validation can reload.
 
-Add `validationMergeRepairWorktree` to Plan Front Matter, written only through `recordPlanEvent`:
+Persist the field with a small validation helper built on `runPlanFrontMatterTransition`, using an operation name such
+as `validation_merge_repair_worktree`. This follows the existing Local Human Code Review metadata pattern: it updates
+RunWield-owned Front Matter transactionally without forcing a lifecycle status change. The helper must check the
+transition result and fail closed if the write is blocked or needs recovery; do not dispatch an Agent to repair a merge
+whose repair worktree path was not durably recorded.
 
-| event                           | effect on the field                                               |
-| ------------------------------- | ----------------------------------------------------------------- |
-| `worktree_merge_failed`         | set to the merge worktree path from the typed error, when present |
-| `validation_passed`             | cleared — the merge published, the worktree is spent              |
-| any transition to `implemented` | cleared — repair edited code, so the merged tree is stale         |
+Do not use `recordPlanEvent("worktree_merge_failed")` for the normal Agent-repair path. That event remains the lifecycle
+path for an actual merge-failure state that returns to `implemented`; using it here would recreate the bug by sending
+the Plan back through validation instead of directly retrying publication.
 
-In `runPublicationPhase`, read the field from the canonical Plan attributes already loaded by the phase dispatcher and
-pass it to `mergeExecutionWorktree` as `repairMergeWorktreePath`. Capture `getMergeWorktreePath(error)` on failure and
-include it in the details recorded with `worktree_merge_failed`.
+Field behavior:
 
-The successful-repair path currently returns without recording an event, which keeps the Plan at `validated_reviewer`.
-That path must still persist the worktree path, or the retry has nothing to read. Record it through the existing Front
-Matter transition rather than writing the Plan directly.
+| workflow fact                                            | effect on `validationMergeRepairWorktree`                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| publication error exposes `mergeWorktreePath`            | persist the path before Agent repair or user pause while status stays as-is   |
+| next `validated_reviewer` publication call sees the path | pass it to `mergeExecutionWorktree` as `repairMergeWorktreePath`              |
+| stored path is missing before retry                      | clear the field and attempt a fresh merge rather than failing on stale state  |
+| `validation_passed`                                      | clear the field; the repaired merge worktree has been published/spent         |
+| any transition to `implemented`                          | clear the field; code or validation proof changed, so the merge tree is stale |
+| execution/recovery/review-reopen transitions             | clear the field when they discard or replace the current validation lineage   |
+
+In `runPublicationPhase`, seed the local `repairMergeWorktreePath` from `args.triageMeta.validationMergeRepairWorktree`
+(the canonical Plan attributes loaded by `runValidationPhase`) and keep the existing same-call local retry behavior.
+When a new typed merge failure supplies a path, persist it immediately and update the local variable. On successful
+publication, rely on `validation_passed` lifecycle updates to clear the field.
 
 ## Files to Modify
 
-- `src/plan-store.js` — add `validationMergeRepairWorktree` to the Plan Front Matter typedef and any list that preserves
-  known metadata.
-- `src/shared/workflow/plan-lifecycle.js` — set the field on `worktree_merge_failed`, clear it on `validation_passed`
-  and on every transition into `implemented`, alongside the existing counter resets.
-- `src/shared/workflow/validation.ts` — add a local `getMergeWorktreePath(error)` beside `getMergeRepairCwd`; pass the
-  stored path into `mergeExecutionWorktree`; persist it when a repair completes.
-- `src/shared/workflow/validation-loop-delivery.test.js` — cover the retry passing the stored path, and clearing.
-- `src/shared/workflow/plan-lifecycle.test.js` — cover set/clear across the three events.
-- `docs/plan-lifecycle.md` — document the field with the counters it sits beside.
+- `src/plan-front-matter.js` — add `validationMergeRepairWorktree` to the canonical Front Matter key map/order near the
+  other validation-continuation metadata.
+- `src/plan-store.js` — add `validationMergeRepairWorktree?: string|null` to the `PlanFrontMatter` typedef and normalize
+  it as an optional Front Matter string so `savePlan`/`loadPlan` round trips are typed and deterministic.
+- `src/shared/workflow/plan-lifecycle.js` — clear the field on `validation_passed`, every transition whose target status
+  is `implemented`, and validation-lineage reset/abandon events such as `execution_started`, `recovery_reset`,
+  `recovery_continue`, `review_reopened`, and `hold_reset_to_draft`.
+- `src/shared/workflow/state-transition.ts` — add a plain-language description for the
+  `validation_merge_repair_worktree` Front Matter transition so recovery/blocking messages are understandable.
+- `src/shared/workflow/validation.ts` — add helpers to read, validate, persist, and clear the stored merge repair
+  worktree path; seed/pass `repairMergeWorktreePath`; persist typed merge paths before repair dispatch; clear missing
+  stored paths before falling back to a fresh merge.
+- `src/shared/workflow/validation-publication-pause.test.js` — add real-Git coverage for resuming publication from a
+  stored repaired merge worktree in a fresh validation call.
+- `src/shared/workflow/validation-loop-delivery.test.js` — add focused Plan Front Matter delivery-state coverage where a
+  lightweight fixture is sufficient, without adding a new machinery seam.
+- `src/shared/workflow/plan-lifecycle.test.js` — cover lifecycle clearing behavior for `validationMergeRepairWorktree`.
+- `docs/plan-lifecycle.md` — document `validationMergeRepairWorktree` as transient validation continuation metadata and
+  distinguish it from the `worktree_merge_failed` lifecycle event.
 
-`CONTEXT.md` needs no change: merge worktree and Direct Delivery are already defined terms.
+`CONTEXT.md` needs no change: merge worktree, Direct Delivery, Front Matter, Workflow Validation, and Plan Lifecycle are
+already canonical terms, and this field is implementation metadata rather than new domain language.
 
 ## Reuse Opportunities
 
-- `src/shared/worktree.js` `publishRepairedMergeWorktree` and the `repairMergeWorktreePath` parameter — the publishing
-  half already exists and is unchanged by this Plan.
-- `getMergeWorktreePath(error)` at `932ed610:src/shared/workflow/validation.js:764` — the extraction helper to port.
-- `src/shared/workflow/plan-lifecycle.js` `buildPlanEventUpdates` — the one place Front Matter changes on an event; the
-  counter resets there are the pattern to follow.
-- `validationCiAttempts` / `validationSemanticRounds` — precedent for durable per-phase validation state.
-- `getMergeRepairCwd` in `validation.ts` — the sibling helper this one sits next to.
+- `src/shared/worktree.js` `mergeExecutionWorktree` / `publishRepairedMergeWorktree` — the publishing behavior for a
+  repaired merge worktree already exists; this Plan only ensures validation passes it the stored path.
+- `getMergeWorktreePath(error)` and `getMergeRepairCwd(error)` in `validation.ts` — existing typed merge-error helpers.
+- `persistHumanReviewMetadata` in `validation.ts` — precedent for transactional, status-preserving validation metadata
+  writes through `runPlanFrontMatterTransition`.
+- `runPlanFrontMatterTransition` in `src/shared/workflow/state-transition.ts` — the protected Front Matter write
+  boundary for non-status validation metadata.
+- `buildPlanEventUpdates` in `src/shared/workflow/plan-lifecycle.js` — central lifecycle clearing point for stale
+  validation metadata.
+- Existing real-Git publication tests in `validation-publication-pause.test.js` and repaired-merge coverage in
+  `src/shared/worktree-merge.test.js`.
 
 ## Implementation Steps
 
-- [ ] `validationMergeRepairWorktree` exists in the Plan Front Matter typedef and survives a `savePlan`/`loadPlan` round
-      trip.
-- [ ] `recordPlanEvent` with `worktree_merge_failed` and a merge worktree path in details persists that path.
-- [ ] `recordPlanEvent` with `validation_passed` clears the field.
-- [ ] Every transition that produces `implemented` clears the field, including `validation_failed` and
-      `semantic_review_feedback`.
-- [ ] `runPublicationPhase` passes the stored path to `mergeExecutionWorktree` as `repairMergeWorktreePath` when the
-      canonical Plan carries one, and omits it otherwise.
-- [ ] A completed merge repair persists the merge worktree path before returning, so the next call can read it.
-- [ ] `getMergeWorktreePath` exists in `validation.ts` beside `getMergeRepairCwd` and reads `mergeWorktreePath` off the
-      typed merge error.
+- [ ] `PlanFrontMatter` and `PLAN_FRONT_MATTER_KEYS` include `validationMergeRepairWorktree`, and a saved Plan with that
+      field reloads it as the same string value.
+- [ ] A validation helper persists `{ validationMergeRepairWorktree: <path> }` through `runPlanFrontMatterTransition`
+      with operation `validation_merge_repair_worktree` and treats any non-committed transition result as a blocking
+      validation outcome, not as a best-effort warning.
+- [ ] The same helper clears the field with `null` when the stored path is spent, missing, or invalidated.
+- [ ] `runPublicationPhase` seeds `repairMergeWorktreePath` from canonical Plan Front Matter before the first
+      publication attempt, after verifying the stored path still exists.
+- [ ] When a publication error exposes `mergeWorktreePath`, `runPublicationPhase` persists that path before dispatching
+      merge repair or pausing for user action, then uses the path for same-call retries as it does today.
+- [ ] `runPublicationPhase` passes `repairMergeWorktreePath` to `mergeExecutionWorktree` only when it has a current,
+      existing stored path; otherwise the argument is omitted/`undefined` and a normal fresh merge is attempted.
+- [ ] `buildPlanEventUpdates` clears `validationMergeRepairWorktree` on `validation_passed`, on every transition to
+      `implemented` (including `validation_failed`, `semantic_review_feedback`, `mechanical_validation_failed`, and
+      `worktree_merge_failed`), and on execution/recovery/review-reopen reset events that abandon the current validation
+      lineage.
+- [ ] Documentation states that `validationMergeRepairWorktree` keeps a `validated_reviewer` Plan publishable after an
+      interrupted merge repair, while `worktree_merge_failed` still means the lifecycle returned to `implemented`.
 
 ## Verification Plan
 
 - Automated:
+  - `deno task test src/shared/workflow/plan-lifecycle.test.js src/shared/workflow/validation-loop-delivery.test.js src/shared/workflow/validation-publication-pause.test.js`
   - `deno task test src/shared/workflow`
-  - `deno task ci`
   - `deno task seams:check` — must not increase.
+  - `deno task ci`
 - **Checks that fail if the objective was not met:**
-  - Seed a Plan at `validated_reviewer` with `validationMergeRepairWorktree` set, run `runValidationLoop` with a
-    `mergeExecutionWorktree` fake that records its arguments, and assert `repairMergeWorktreePath` was passed. This
-    fails today.
-  - Seed the same Plan without the field and assert `repairMergeWorktreePath` is absent, so the field is not invented.
-  - Record `validation_passed`, then assert `validationMergeRepairWorktree` is absent from the Plan.
-  - Record `semantic_review_feedback` from `validated_ci`, then assert the field is cleared, proving a stale repaired
-    merge cannot be published after code changed.
-  - Break each on purpose once and confirm it goes red.
+  - Add a real-Git test that creates a detached merge conflict, resolves it in the merge worktree, saves a Plan at
+    `validated_reviewer` with `validationMergeRepairWorktree` set to that path, starts a fresh `runValidationLoop`, and
+    asserts the target branch contains the repaired merge result and the Plan is `verified`. This fails today because
+    the stored path is ignored and validation starts a fresh conflicting merge.
+  - Add a focused test that saves `validationMergeRepairWorktree: "/tmp/missing-runwield-merge"`, runs publication with
+    a non-conflicting worktree, and asserts the missing path is cleared and `repairMergeWorktreePath` is not used; the
+    Plan should still publish through a fresh merge.
+  - Add lifecycle tests asserting `buildPlanEventUpdates("validation_passed", "validated_reviewer", ...)` and
+    `buildPlanEventUpdates("semantic_review_feedback", "validated_ci", { triageMeta: { validationMergeRepairWorktree:
+    "/tmp/m" } })`
+    both produce `validationMergeRepairWorktree: null`.
+  - Add a persistence test asserting `savePlan`/`loadPlan` preserves a string `validationMergeRepairWorktree` and that
+    the validation metadata helper clears it to `null`.
 - Manual:
-  - Force a merge conflict on a Planned Change, let the Agent repair it, and confirm the retry publishes the repaired
-    tree rather than reporting the same conflict again.
-  - Confirm the transition journal for the successful retry records `direct_delivery_target_ref_moved`.
+  - Force a Direct Delivery merge conflict for a Planned Change, let the execution Agent resolve the merge worktree,
+    stop or restart before publication retries, then run the Plan again and confirm RunWield publishes the repaired tree
+    rather than reporting the same conflict again.
+  - Confirm the successful retry records `direct_delivery_target_ref_moved` in the Direct Delivery publication
+    transition journal/metrics path and leaves no `validationMergeRepairWorktree` in the verified Plan.
 - Expected results:
-  - A repaired merge publishes on the next validation call without a second conflict.
-  - A Plan returned to `implemented` carries no merge worktree path.
+  - Same-call merge repair still publishes as before.
+  - Interrupted or later-resumed merge repair publishes on the next validation call without re-running CI/review and
+    without a second conflict.
+  - A Plan returned to `implemented` or reset for new execution carries no usable merge repair worktree path.
+- Existing behavior that must remain protected:
+  - Primary-checkout dirty failures still pause for user action and must not dispatch an Agent.
+  - `worktree_merge_failed` remains the lifecycle event for returning to `implemented`; this Plan must not repurpose it
+    for the status-preserving repair continuation path.
+  - No new `__deps` / `__testDeps` machinery seams are added; use real Git fixtures or existing environment fakes.
 
 ## Edge Cases & Considerations
 
-- **A stale path is worse than no path.** Publishing a merge worktree built before a repair edited the code would ship
-  the wrong tree. Clearing on every entry to `implemented` is the guard; do not narrow it to specific events.
-- The merge worktree may no longer exist when the retry runs — the user may have removed it. Treat a missing path as "no
-  repaired merge available" and fall back to a fresh merge rather than failing.
-- Do not write the field outside `recordPlanEvent`. Direct Front Matter writes are how protected lifecycle state has
-  been corrupted before.
-- This Plan does not change `mergeExecutionWorktree`, `publishRepairedMergeWorktree`, or the repair dispatch. If the
-  repaired merge still fails to publish, report it rather than widening scope into the merge implementation.
-- Do not add `__deps` seams. The delivery tests already fake the environment; extend that rather than injecting
-  RunWield's own merge machinery.
+- **A stale path is worse than no path.** Publishing a merge worktree built before an implementation or repair changed
+  code could ship the wrong tree. Clear broadly when validation lineage changes rather than trying to enumerate only the
+  common stale cases.
+- The merge worktree may no longer exist when the retry runs. Treat that as "no repaired merge is available": clear the
+  field and try a fresh merge instead of failing on a recorded path that the user or cleanup removed.
+- If persisting the merge repair path is blocked by a Plan Front Matter transition problem, stop before dispatching
+  merge repair. A repair that cannot be rediscovered after interruption recreates the current bug.
+- Do not change `mergeExecutionWorktree`, `publishRepairedMergeWorktree`, or merge repair dispatch unless a test proves
+  the existing repaired-merge contract is insufficient. The planned fix is to carry the path into the existing contract.
+- Keep the field out of `CONTEXT.md`; it is not domain language and should be documented in Plan Lifecycle docs instead.

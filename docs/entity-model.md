@@ -1,6 +1,6 @@
 # RunWield Entity Model
 
-This document is the entity-model companion to [`architecture.md`](../architecture.md). The architecture document maps
+This document is the entity-model companion to [`architecture.md`](architecture.md). The architecture document maps
 control flow, dependency direction, runtime boundaries, and source guides; this document maps durable entities,
 transient workflow objects, adapter projections, and storage authorities.
 
@@ -41,6 +41,10 @@ erDiagram
   planning and navigation but do not participate in Plan Lifecycle. Every project `Memory` is either a `Local Memory` or
   a `Team Memory`; the diagram uses two optional subtype edges because Mermaid ER diagrams cannot express that either/or
   constraint directly.
+- **Work Record cardinality:** A `Plan` accumulates zero or more `Work Records` over its lifetime, which is why this
+  diagram shows `summarized_by` as one-to-many. At most one of them is the current retrievable record; the rest are
+  superseded or archived. The execution diagram below shows that single current record as `produces_current`. The two
+  edges describe the same relation at different points in time, not a contradiction.
 - **Source-of-truth caveats:** A `Team Memory` is a project `Memory` whose canonical human-readable text is versioned in
   the repository and whose local Mnemosyne copies are derived from that trusted text; it is not a container that
   includes other Memories. A `Ticket Reference` is a structured URL relation only. RunWield does not copy, own, or
@@ -116,7 +120,7 @@ erDiagram
     WORKFLOW_VALIDATION ||--o| DIRECT_DELIVERY : publishes
     WORKFLOW_VALIDATION ||--o| CHANGE_REQUEST_DELIVERY : publishes
     CHANGE_REQUEST_DELIVERY ||--o| FORGE_CHANGE_REQUEST : opens
-    PLAN ||--o| WORK_RECORD : produces
+    PLAN ||--o| WORK_RECORD : produces_current
 ```
 
 - **Identity:** An Execution Worktree has local filesystem, branch, baseline, and registry identity, but the Plan

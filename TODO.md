@@ -2,13 +2,6 @@
 
 ## Bugs
 
-- [ ] P0 "RunWield Workflow halted: User code review exited without approval or feedback." Workflow halt is meaningless,
-      unless the user explicitly said stop runwield should never end the workflow early. In that example a qustion
-      should oppear, Re-open review or Stop, stop IS the user deciding to stop then halt just because the user asked,
-      else re open the review.
-
-- [ ] P0 break up this file! src/shared/workflow/validation.js and convert it to TS
-
 - [ ] we need to examine ALL of the lifecycle error messages and revise them:
 
   the message needs to speak the product language not the tech jargon, lifecycle operation what?
@@ -256,12 +249,18 @@ effects, make sure this doesnt now break something downstream that required plan
   - Keep Guided Review v1 independent from Work Records.
   - Later: share review-analysis machinery with Recorder.
 
-- [ ] Build Plan Finalizer for FEATURE Plans:
-      [docs/prd/feature-plan-finalization-prd.md](docs/prd/feature-plan-finalization-prd.md).
-  - Run a clean-context Finalizer after Planner and before the one user-facing Plan review.
-  - Preserve Planner-owned design decisions, derive executable steps/verification, and return insufficiency to Planner
-    instead of inventing missing decisions.
-  - Update Slicer child-draft behavior so Planner, not Slicer, owns final executable FEATURE detail.
+- [ ] Make Plan Objective-Failing Checks executable:
+      [plans/run-objective-checks-in-mechanical-validation.md](plans/run-objective-checks-in-mechanical-validation.md).
+  - Planner submits checks through `plan_written`; RunWield baselines them red against the pre-change tree and requires
+    them green in Mechanical Validation.
+  - Replaces the rejected Plan Finalizer / blocking Plan Quality Gate direction: the defect those were aimed at was
+    unfalsifiable acceptance criteria, not insufficient planning process.
+
+- [ ] Update Slicer child-draft behavior so Planner, not Slicer, owns final executable child Plan detail.
+  - Slicer prompt already says a child draft is a starting point and to leave un-writable checks for Planner. The
+    remaining work is the `slicer_finalize_decomposition` content contract, which still demands a complete
+    planner-format body including implementation steps and verification.
+  - Independent of the rejected Finalizer phase; the ownership problem is real on its own.
 
 - [ ] Implement Semantic Code Review convergence:
       [docs/prd/semantic-code-review-convergence-prd.md](docs/prd/semantic-code-review-convergence-prd.md).
@@ -289,11 +288,12 @@ effects, make sure this doesnt now break something downstream that required plan
   - Current memory says SessionRuntime/ACP event contract is largely consumer-ready; backlog should now focus on
     remaining external UX/integration gaps, not redoing completed runtime boundaries.
 
-- [ ] Build FEATURE Plan Finalizer recovery hooks for long Planner sessions:
-      [docs/prd/feature-plan-finalization-prd.md](docs/prd/feature-plan-finalization-prd.md),
+- [ ] Make Planner survive compaction in long planning sessions:
       [docs/prd/session-context-resilience-prd.md](docs/prd/session-context-resilience-prd.md).
-  - Ensure Planner rereads current drafts after compaction/continuation and Finalizer handoffs do not depend on raw
-    planning transcripts.
+  - Persist design progress to the draft Plan at coherent milestones, not only when a token threshold is crossed, and
+    reread the draft after compaction or Session continuation before resuming.
+  - The draft Plan is the artifact Planner can reread; the compaction summary is continuity context. Neither should
+    become a second planning-memory system.
 
 ### P4 - Evaluation, Metrics, and Model Capability
 
@@ -373,6 +373,16 @@ effects, make sure this doesnt now break something downstream that required plan
       [plans/deep-semantic-source-modules.md](plans/deep-semantic-source-modules.md).
   - Decide whether this is still worth doing now, or defer until after Work Records / Frontend Engineer / Workspace
     surfaces stabilize.
+
+- [ ] Add a docs model-consistency check to the house ratchet.
+  - Two defects found by hand and since fixed: `docs/entity-model.md` and `docs/architecture.md` cross-linked each other
+    with relative paths that resolved nowhere, and Plan-to-Work-Record cardinality read as contradictory across the two
+    diagrams and `CONTEXT.md`.
+  - Neither was caught by CI because nothing validates relative links or checks diagram claims against `CONTEXT.md`.
+    Link resolution is mechanical and cheap; cardinality agreement is the harder half.
+  - Decided against a Slicer boundary gate: the "every child passes, the journey works in none of them" risk is now
+    prompt guidance in `slicer-prompt.md` rather than a mechanical check, on the same avoid-ceremony reasoning that
+    rejected the blocking Plan Quality Gate.
 
 ### P8 - Security and Hardening
 

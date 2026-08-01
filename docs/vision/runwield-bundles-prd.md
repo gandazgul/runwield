@@ -89,7 +89,7 @@ Potential bundle components:
 - skill recommendations or installed skills
 - prompt templates and slash-command templates
 - PRD, Plan, ADR, Work Record, or review templates
-- Plan Quality Gate rubrics
+- domain-specific Objective-Failing Check patterns
 - Reviewer guidance or domain-specific review checklists
 - Workspace view presets or board filters
 - settings defaults that are safe to apply locally

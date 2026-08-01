@@ -21,7 +21,7 @@ when appropriate, a durable Plan workflow. The central design goals are:
 - allow UIs and external protocols to translate core events and interactions without owning core state.
 
 For entity relationships, durable identities, transient workflow objects, adapter projections, and storage authorities,
-see the companion [RunWield Entity Model](docs/entity-model.md). This architecture map stays focused on control flow,
+see the companion [RunWield Entity Model](entity-model.md). This architecture map stays focused on control flow,
 dependency direction, runtime boundaries, and source guides.
 
 ## System at a glance
@@ -348,7 +348,7 @@ event-publisher method.
 
 For the conceptual relationship between Sessions, Session Transcripts, Agent Sessions, Agent Definitions, Skills,
 Toolsets, Delegated Agent Sessions, and Session Control, see the
-[Session and Agent model](docs/entity-model.md#session-and-agent-model).
+[Session and Agent model](entity-model.md#session-and-agent-model).
 
 ### Ownership hierarchy
 
@@ -585,7 +585,7 @@ apply its own explicit precedence and policy.
 
 ## Workflow orchestration
 
-The [Plan workflow model](docs/entity-model.md#plan-workflow-model) summarizes the entities behind Router Triage, Review
+The [Plan workflow model](entity-model.md#plan-workflow-model) summarizes the entities behind Router Triage, Review
 Loops, Readiness Gates, Plan Workflow Leases, Plan Events, and Workflow Decisions.
 
 RunWield does not infer workflow progress from assistant prose. Protected tools write structured results into the agent
@@ -635,10 +635,9 @@ mutation, user interaction, recovery, and agent switching.
 
 ## Plan domain
 
-The [Project and artifact model](docs/entity-model.md#project-and-artifact-model) and
-[Plan workflow model](docs/entity-model.md#plan-workflow-model) describe Plan, Epic, child PLANNED_CHANGE Plan, Work
-Record, Ticket Reference, and lifecycle relationships without duplicating this section's persistence and state machine
-details.
+The [Project and artifact model](entity-model.md#project-and-artifact-model) and
+[Plan workflow model](entity-model.md#plan-workflow-model) describe Plan, Epic, child PLANNED_CHANGE Plan, Work Record,
+Ticket Reference, and lifecycle relationships without duplicating this section's persistence and state machine details.
 
 ### Canonical Plan representation
 
@@ -719,7 +718,7 @@ repair error.
 
 For entity ownership across execution worktrees, registries, validation attempts, review ledgers, publication
 candidates, delivery modes, Forge Change Requests, and Work Records, see the
-[Execution, validation, and delivery model](docs/entity-model.md#execution-validation-and-delivery-model).
+[Execution, validation, and delivery model](entity-model.md#execution-validation-and-delivery-model).
 
 ```mermaid
 flowchart TD
@@ -827,8 +826,8 @@ Cymbal is a hard agent-construction failure, and invalid lifecycle/worktree gate
 ## Persistence map
 
 For a broader entity-by-entity authority table, see
-[Persistence and authority](docs/entity-model.md#persistence-and-authority). This table remains the implementation
-location map for Core persistence.
+[Persistence and authority](entity-model.md#persistence-and-authority). This table remains the implementation location
+map for Core persistence.
 
 | Data                                      | Location                                                          | Authority and write behavior                         |
 | ----------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
