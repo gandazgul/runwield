@@ -3,7 +3,7 @@
  * Composed Golden PLANNED_CHANGE workflow scenarios.
  */
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
@@ -275,4 +275,75 @@ export const plannedChangeReviewRepairValidationScenario = {
     ],
 };
 
-export const plannedChangeWorkflowScenarios = [plannedChangeReviewRepairValidationScenario];
+/**
+ * The same journey, interrupted by the one thing RunWield cannot decide: the user's
+ * own uncommitted work sitting in the files this change touches.
+ *
+ * This is the failure people actually hit, and until now it existed only in unit
+ * tests. What those cannot show is the part that matters — that the pause reaches the
+ * screen as a real menu, that answering it resumes the same run, and that the merge
+ * completes afterwards rather than starting the Plan over.
+ */
+export const plannedChangeBlockedMergePauseScenario = {
+    ...plannedChangeReviewRepairValidationScenario,
+    name: "planned-change-uncommitted-work-blocks-merge",
+    coverage: ["recovery:user-pause", "block:select"],
+    committedProjectFiles: [
+        ...plannedChangeReviewRepairValidationScenario.committedProjectFiles,
+        { path: "golden-planned-change.txt", text: "committed baseline\n" },
+    ],
+    scriptedInteractions: [
+        {
+            type: "select",
+            promptIncludes: "have not saved to git yet",
+            // The user reads the message, clears what it named, and picks Retry —
+            // restoring the committed content is what `git checkout --` would do.
+            userFixesFirst: { path: "golden-planned-change.txt", text: "committed baseline\n" },
+            value: "retry",
+        },
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/plan.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Golden PLANNED_CHANGE\n\nDraft content.\n",
+        },
+        // Left dirty on purpose, in the same file the Agent is about to change. Git
+        // refuses to merge over it, which is correct: it is the user's work.
+        { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
+        { type: "type", text: "submit the planned change for review" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "assertWorkflowDurability" },
+    ],
+    assertions: [
+        assertsGoldenCoverage("recovery:user-pause", (result) => {
+            // The pause reached the screen in words a person can act on, naming the
+            // file and what to do about it — not a status name or a git error.
+            assertScreenIncludes(result, "have not saved to git yet");
+            assertScreenIncludes(result, "golden-planned-change.txt");
+            const durability =
+                /** @type {{ worktreeBranchPublished?: boolean } | undefined} */ (result.state.workflowDurability);
+            // And Retry finished the job in the same run: no second attempt from the
+            // user, no Plan sent back to the beginning.
+            assert(
+                durability?.worktreeBranchPublished === true,
+                "Expected Retry to publish after the user cleared the way.",
+            );
+        }),
+        assertsGoldenCoverage("block:select", (result) => {
+            const interactions = /** @type {Array<{ interaction?: { value?: string } }> | undefined} */ (result.state
+                .scriptedInteractions);
+            assertEquals(interactions?.length, 1, "Expected exactly one pause: RunWield asks once, then carries on.");
+            assertEquals(interactions?.[0]?.interaction?.value, "retry");
+        }),
+    ],
+};
+
+export const plannedChangeWorkflowScenarios = [
+    plannedChangeReviewRepairValidationScenario,
+    plannedChangeBlockedMergePauseScenario,
+];

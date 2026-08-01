@@ -36,7 +36,15 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "terminal:queueing",
         "terminal:replay-hydration",
     ],
-    recovery: ["recovery:tool-failure", "recovery:workflow-validation", "recovery:reviewer-rejection"],
+    recovery: [
+        "recovery:tool-failure",
+        "recovery:workflow-validation",
+        "recovery:reviewer-rejection",
+        // RunWield pauses rather than halting whenever it needs a person. That
+        // promise is only kept if the menu actually reaches the screen and the
+        // answer actually resumes the run, which only an end-to-end scenario shows.
+        "recovery:user-pause",
+    ],
     durableOutcomes: [
         "durable:plan-lifecycle",
         "durable:worktree-publication",

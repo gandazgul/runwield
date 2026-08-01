@@ -1,11 +1,13 @@
 import { assertEquals } from "@std/assert";
 import {
+    plannedChangeBlockedMergePauseScenario,
     plannedChangeReviewRepairValidationScenario,
     plannedChangeWorkflowScenarios,
 } from "./planned-change-workflow.js";
 
 const scenarioExportNames = new Map([
     [plannedChangeReviewRepairValidationScenario, "plannedChangeReviewRepairValidationScenario"],
+    [plannedChangeBlockedMergePauseScenario, "plannedChangeBlockedMergePauseScenario"],
 ]);
 
 for (const scenario of plannedChangeWorkflowScenarios) {

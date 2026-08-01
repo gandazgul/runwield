@@ -17,6 +17,10 @@
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
  * @property {string|null} [value]
+ * @property {{ path: string, text: string }} [userFixesFirst] what the user does in the
+ * project before answering. RunWield pauses precisely when it needs a person to change
+ * something, so a scenario that cannot model the person changing it can only ever test
+ * giving up — never the Retry that follows.
  */
 
 export class ScriptedReviewSurface {
@@ -78,6 +82,10 @@ export class ScriptedInteractionSurface {
             );
         }
         this.consumed.push({ request, interaction });
+        if (interaction.userFixesFirst) {
+            const target = `${Deno.cwd()}/${interaction.userFixesFirst.path}`;
+            Deno.writeTextFileSync(target, interaction.userFixesFirst.text);
+        }
         return interaction.value ?? null;
     }
 
