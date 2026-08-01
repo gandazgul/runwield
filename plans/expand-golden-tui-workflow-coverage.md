@@ -21,9 +21,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:00:50-04:00"
-updatedAt: "2026-08-01T04:10:44.153Z"
-status: "in_progress"
+updatedAt: "2026-08-01T05:38:16.361Z"
+status: "validated_ci"
 origin: "internal"
+implementedAt: "2026-08-01T05:36:07.961Z"
 userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
@@ -33,9 +34,11 @@ worktreeId: "949adc32"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-expand-golden-tui-workflow-coverage-949adc32"
 worktreeBranch: "runwield/worktree/expand-golden-tui-workflow-coverage-949adc32"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "golden tui coverage plan"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Expand Golden TUI Workflow Coverage

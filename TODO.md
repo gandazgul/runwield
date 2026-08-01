@@ -11,7 +11,16 @@
   has to be short shorter than you think and written at a 4th grader reading level. For runWield that's a bit different
   as out userbase is expected to be Software Engineers, PMs and Engineer managers, but still.
 
-- [ ] LLMs are completly ignoring ! bash commands, ensure they are being seen
+- [x] LLMs are completly ignoring ! bash commands, ensure they are being seen - verified
+
+- [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
+
+- [ ] 5 plans to execute next, in series:
+  1. run-objective-checks-in-mechanical-validation
+  2. baseline-objective-checks-before-execution (depends on 1)
+  3. formalize-subagent-definitions
+  4. delegate-agent-roles (depends on 3)
+  5. re-anchor-agents-after-compaction (independent)
 
 - [ ] P0
 
@@ -256,11 +265,14 @@ effects, make sure this doesnt now break something downstream that required plan
   - Replaces the rejected Plan Finalizer / blocking Plan Quality Gate direction: the defect those were aimed at was
     unfalsifiable acceptance criteria, not insufficient planning process.
 
-- [ ] Update Slicer child-draft behavior so Planner, not Slicer, owns final executable child Plan detail.
-  - Slicer prompt already says a child draft is a starting point and to leave un-writable checks for Planner. The
-    remaining work is the `slicer_finalize_decomposition` content contract, which still demands a complete
-    planner-format body including implementation steps and verification.
-  - Independent of the rejected Finalizer phase; the ownership problem is real on its own.
+- [x] Slicer child drafts are seeds; Planner owns final executable child Plan detail.
+  - Slicer prompt and the `slicer_finalize_decomposition` `content` description both say a child draft is a seed shaped
+    like a Plan, with un-writable checks left for Planner. There was never any structural validation of child content to
+    loosen — the contract was prompt text in those two places.
+  - No lifecycle risk from loose seeds: children materialize as `draft`, and `actionForStatus` routes `draft` to
+    Planner. `approved`/`ready_for_work` are the only execution entry points, and neither is reachable without Planner
+    calling `plan_written`. The Objective-Failing Check requirement therefore lands on Planner, not Slicer.
+  - Independent of the rejected Finalizer phase; the ownership question was real on its own.
 
 - [ ] Implement Semantic Code Review convergence:
       [docs/prd/semantic-code-review-convergence-prd.md](docs/prd/semantic-code-review-convergence-prd.md).
@@ -272,7 +284,7 @@ effects, make sure this doesnt now break something downstream that required plan
 
 - [ ] Build Frontend Engineer + Pair Execution:
       [docs/prd/frontend-engineer-pair-execution-prd.md](docs/prd/frontend-engineer-pair-execution-prd.md),
-      [plans/frontend-engineer-pair-execution.md](plans/frontend-engineer-pair-execution.md).
+      [plans/frontend-engineer-pair-execution.md](plans/archived/frontend-engineer-pair-execution.md).
   - Goal: route visual/interactive frontend FEATURE Plans to Frontend Engineer.
   - Include headed browser loop, user checkpoints, and switch-to-AFK.
 
@@ -288,12 +300,14 @@ effects, make sure this doesnt now break something downstream that required plan
   - Current memory says SessionRuntime/ACP event contract is largely consumer-ready; backlog should now focus on
     remaining external UX/integration gaps, not redoing completed runtime boundaries.
 
-- [ ] Make Planner survive compaction in long planning sessions:
+- [ ] Re-anchor agents after compaction:
+      [plans/re-anchor-agents-after-compaction.md](plans/re-anchor-agents-after-compaction.md),
       [docs/prd/session-context-resilience-prd.md](docs/prd/session-context-resilience-prd.md).
-  - Persist design progress to the draft Plan at coherent milestones, not only when a token threshold is crossed, and
-    reread the draft after compaction or Session continuation before resuming.
-  - The draft Plan is the artifact Planner can reread; the compaction summary is continuity context. Neither should
-    become a second planning-memory system.
+  - pi already emits `session_compact`; RunWield registers no extension and nothing listens. One mechanism serves
+    Planner (reread the draft), Engineer (reread the Plan and Verification Plan), and Architect (reread the Epic).
+  - Prompts already say to reread — the missing piece is the trigger, since that instruction is read by the context
+    compaction just discarded.
+  - Still open separately: persisting design progress at coherent milestones rather than at a token threshold.
 
 ### P4 - Evaluation, Metrics, and Model Capability
 
@@ -318,7 +332,7 @@ effects, make sure this doesnt now break something downstream that required plan
 - [ ] Continue self-hosted Shared Plan Spaces / collaboration:
       [docs/prd/collaborative-planning-PRD.md](docs/prd/collaborative-planning-PRD.md),
       [docs/prd/runwield-workspace-PRD.md](docs/prd/runwield-workspace-PRD.md),
-      [plans/collaborative-planning-remote-shared-spaces.md](plans/collaborative-planning-remote-shared-spaces.md).
+      [plans/collaborative-planning-remote-shared-spaces.md](plans/archived/collaborative-planning-remote-shared-spaces.md).
   - Current Core already has share/pull/push/unshare direction; next grooming should identify remaining Phase 2 gaps:
     docs, hardening, retention, closed-plan UX, diff viewer, notifications, hosted follow-up.
 
@@ -374,12 +388,12 @@ effects, make sure this doesnt now break something downstream that required plan
   - Decide whether this is still worth doing now, or defer until after Work Records / Frontend Engineer / Workspace
     surfaces stabilize.
 
-- [ ] Add a docs model-consistency check to the house ratchet.
-  - Two defects found by hand and since fixed: `docs/entity-model.md` and `docs/architecture.md` cross-linked each other
-    with relative paths that resolved nowhere, and Plan-to-Work-Record cardinality read as contradictory across the two
-    diagrams and `CONTEXT.md`.
-  - Neither was caught by CI because nothing validates relative links or checks diagram claims against `CONTEXT.md`.
-    Link resolution is mechanical and cheap; cardinality agreement is the harder half.
+- [x] Relative Markdown links are ratcheted: `deno task doc-links:check`, wired into `deno task ci`.
+  - Resolves every relative link against the file it appears in and every `#fragment` against the target's headings.
+    Found 5 broken links beyond the 2 fixed by hand, all since repaired.
+  - Still open: cardinality agreement between the entity-model diagrams and `CONTEXT.md`, which resisted mechanization.
+    The two Plan-to-Work-Record edges looked contradictory but describe the same relation at different points in time,
+    and only reading the generation code settled it.
   - Decided against a Slicer boundary gate: the "every child passes, the journey works in none of them" risk is now
     prompt guidance in `slicer-prompt.md` rather than a mechanical check, on the same avoid-ceremony reasoning that
     rejected the blocking Plan Quality Gate.
