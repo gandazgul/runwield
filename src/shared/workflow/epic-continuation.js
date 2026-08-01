@@ -13,6 +13,7 @@ import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
+import { buildTriageReport } from "./workflow-prompts.js";
 import { runValidationLoop } from "./validation.ts";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 
@@ -165,17 +166,9 @@ function buildResumeRequest(planName, attrs) {
     return [
         `## Resuming Epic Child Plan: ${planName}`,
         "",
-        `This child Planned Change was automatically selected from its parent Epic with status: ${attrs.status}.`,
-        `Continue working on it. The plan is at plans/${planName}.md.`,
+        `RunWield automatically selected plans/${planName}.md from its parent Epic. Status: ${attrs.status}.`,
         "",
-        "## Triage Report",
-        `- Classification: ${attrs.classification}`,
-        `- Complexity: ${attrs.complexity}`,
-        `- Summary: ${attrs.summary}`,
-        `- Affected paths: ${(attrs.affectedPaths || []).join(", ")}`,
-        "",
-        "Review the current plan, make any needed updates, and finalize it.",
-        "When the plan is ready, call plan_written to submit it for review.",
+        buildTriageReport(attrs),
     ].join("\n");
 }
 

@@ -69,14 +69,9 @@ function buildFeedbackRequestText({ round, planName, feedback }) {
     return [
         `## Plan Review Feedback (Round ${round})`,
         "",
-        "The user provided feedback on the plan:",
+        `The user provided feedback on plans/${planName}.md:`,
         "",
         feedback || "(no specific feedback provided)",
-        "",
-        `Please revise plans/${planName}.md based on this feedback.`,
-        "Use the `edit` tool to make targeted revisions — do NOT rewrite the entire plan.",
-        "Address each piece of feedback specifically.",
-        "After saving revisions, call plan_written again with the same plan name.",
     ].join("\n");
 }
 

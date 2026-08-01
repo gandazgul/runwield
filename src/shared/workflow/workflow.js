@@ -529,11 +529,10 @@ export async function executePlan({
                     initialRequest: [
                         `## Plan Review Re-opened: ${planName}`,
                         "",
-                        "The user provided feedback while recovering a Plan that could not be loaded for execution:",
+                        `plans/${planName}.md could not be loaded for execution. The user provided this feedback while`,
+                        "recovering it:",
                         "",
                         reviewMeta.feedback || "(no specific feedback provided)",
-                        "",
-                        `Revise plans/${planName}.md based on this feedback, then call plan_written again.`,
                     ].join("\n"),
                     triageMeta: _triageMeta,
                     images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,

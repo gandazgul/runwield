@@ -23,6 +23,7 @@ import {
     decidePostPlanning as decidePostPlanningFn,
 } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
+import { buildTriageReport } from "../../shared/workflow/workflow-prompts.js";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
 import {
     buildPlanEventUpdates,
@@ -372,18 +373,9 @@ function buildResumeRequest(planName, attrs) {
     return [
         `## Resuming Plan: ${planName}`,
         "",
-        `This plan was previously saved with status: ${attrs.status}.`,
-        `Continue working on it. The plan is at plans/${planName}.md.`,
+        `The user re-opened plans/${planName}.md, last saved with status: ${attrs.status}.`,
         "",
-        "## Triage Report",
-        `- Classification: ${attrs.classification}`,
-        `- Complexity: ${attrs.complexity}`,
-        `- Summary: ${attrs.summary}`,
-        `- Affected paths: ${(attrs.affectedPaths || []).join(", ")}`,
-        "",
-        "Review the current plan, make any needed updates, and finalize it.",
-        "If requirements are unclear, ask clarification questions via user_interview before locking changes.",
-        "When the plan is ready, call plan_written to submit it for review.",
+        buildTriageReport(attrs),
     ].join("\n");
 }
 
@@ -399,12 +391,9 @@ function buildReReviewRevisionRequest(planName, feedback) {
     return [
         `## Plan Review Re-opened: ${planName}`,
         "",
-        "The user provided feedback on the previously approved plan:",
+        `The user provided feedback on the previously approved plans/${planName}.md:`,
         "",
         feedback || "(no specific feedback provided)",
-        "",
-        `Revise plans/${planName}.md based on this feedback using the edit tool.`,
-        "Then call plan_written again to submit the revision for review.",
     ].join("\n");
 }
 
@@ -419,9 +408,8 @@ function buildPlannerReReviewRequest(planName) {
     return [
         `## Plan Re-review Requested: ${planName}`,
         "",
-        `The user wants plans/${planName}.md to go back through Planner re-review before execution.`,
-        "Review the current Plan, revise it with the edit tool if changes are needed, and keep the existing user request in scope.",
-        "When the Plan is ready, call plan_written again to submit it for review.",
+        `The user wants plans/${planName}.md to go back through Planner re-review before execution, without opening the`,
+        "local review UI first. No feedback was submitted with the request.",
     ].join("\n");
 }
 
