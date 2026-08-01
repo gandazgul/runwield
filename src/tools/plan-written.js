@@ -16,7 +16,12 @@ import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, normalizePlanClassification, normalizeWorkKind, PLANS_DIR_NAME } from "../constants.js";
-import { loadPlan, resolvePlanExecutionPolicy } from "../plan-store.js";
+import {
+    loadPlan,
+    normalizeObjectiveChecks,
+    resolvePlanExecutionPolicy,
+    updatePlanFrontMatter,
+} from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
@@ -44,6 +49,7 @@ import {
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
  *   affectedPaths?: string[],
+ *   objectiveChecks?: import('../plan-store.js').PlanFrontMatter['objectiveChecks'],
  *   executionAgent?: unknown,
  *   collaborationRecommendation?: unknown,
  *   frontend?: boolean,
@@ -51,11 +57,35 @@ import {
  * }} TriageMeta
  */
 
+const OBJECTIVE_CHECK_PARAMS = Type.Object({
+    id: Type.String({ minLength: 1, maxLength: 64, description: "Stable check id, e.g. OC1." }),
+    command: Type.String({
+        minLength: 1,
+        maxLength: 1000,
+        description: "Literal shell command RunWield executes from the repository root; exit 0 means objective met.",
+    }),
+    rationale: Type.Optional(Type.String({
+        minLength: 1,
+        maxLength: 500,
+        description: "Why this command can only pass once the objective is met.",
+    })),
+}, { additionalProperties: false });
+
 const TOOL_PARAMS = Type.Object({
     planName: Type.String({
         description: "Plan filename without extension (kebab-case preferred), e.g. implement-memory-system",
     }),
+    objectiveChecks: Type.Optional(Type.Array(OBJECTIVE_CHECK_PARAMS, {
+        maxItems: 12,
+        description:
+            "Objective-Failing Checks for PLANNED_CHANGE Plans. Each command exits 0 only when the objective is met.",
+    })),
 });
+
+const MAX_OBJECTIVE_CHECKS = 12;
+const MAX_OBJECTIVE_CHECK_ID_LENGTH = 64;
+const MAX_OBJECTIVE_CHECK_COMMAND_LENGTH = 1000;
+const MAX_OBJECTIVE_CHECK_RATIONALE_LENGTH = 500;
 
 /**
  * Build the planner/architect revision request after the user submits feedback
@@ -139,6 +169,54 @@ function toToolImageContent(image) {
  * @param {{feedback?: string, images?: Array<{base64: string, mimeType: string}>}} reviewResult
  * @returns {{feedback?: string, imageCount: number}}
  */
+/**
+ * @param {unknown} value
+ * @returns {{ ok: true, checks: NonNullable<import('../plan-store.js').PlanFrontMatter['objectiveChecks']> } | { ok: false, error: string }}
+ */
+function validateObjectiveChecksParam(value) {
+    if (!Array.isArray(value)) return { ok: false, error: "objectiveChecks must be an array." };
+    if (value.length > MAX_OBJECTIVE_CHECKS) {
+        return { ok: false, error: `objectiveChecks must contain at most ${MAX_OBJECTIVE_CHECKS} checks.` };
+    }
+    for (const item of value) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            return { ok: false, error: "Each objectiveChecks entry must be an object." };
+        }
+        const source = /** @type {Record<string, unknown>} */ (item);
+        if (typeof source.id !== "string" || !source.id.trim()) {
+            return { ok: false, error: "Each objectiveChecks entry needs a non-empty id." };
+        }
+        if (source.id.trim().length > MAX_OBJECTIVE_CHECK_ID_LENGTH) {
+            return { ok: false, error: `Objective check id '${source.id.trim()}' is too long.` };
+        }
+        if (typeof source.command !== "string" || !source.command.trim()) {
+            return { ok: false, error: "Each objectiveChecks entry needs a non-empty command." };
+        }
+        if (source.command.trim().length > MAX_OBJECTIVE_CHECK_COMMAND_LENGTH) {
+            return { ok: false, error: `Objective check '${source.id.trim()}' command is too long.` };
+        }
+        if (source.rationale !== undefined) {
+            if (typeof source.rationale !== "string" || !source.rationale.trim()) {
+                return {
+                    ok: false,
+                    error: `Objective check '${source.id.trim()}' rationale must be a non-empty string.`,
+                };
+            }
+            if (source.rationale.trim().length > MAX_OBJECTIVE_CHECK_RATIONALE_LENGTH) {
+                return { ok: false, error: `Objective check '${source.id.trim()}' rationale is too long.` };
+            }
+        }
+    }
+    const checks = normalizeObjectiveChecks(value);
+    if (!checks) return { ok: false, error: "objectiveChecks ids must be unique." };
+    return { ok: true, checks };
+}
+
+function objectiveChecksFormatReference() {
+    return "See src/agent-definitions/document-formats/planner-plan-format.md#objective-failing-checks.";
+}
+
+/** @param {{ feedback?: string, images?: Array<{ base64: string, mimeType: string }> }} reviewResult */
 function reviewContextDetails(reviewResult) {
     return {
         ...(reviewResult.feedback && { feedback: reviewResult.feedback }),
@@ -241,7 +319,52 @@ export function createPlanWrittenTool(
                 // Footer-context persistence is fail-open and must not block Plan review.
             }
 
-            const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            let effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            const normalizedClassification = normalizePlanClassification(effectiveMeta.classification);
+            if (normalizedClassification !== "PROJECT") {
+                if (!Object.hasOwn(params, "objectiveChecks") || params.objectiveChecks === undefined) {
+                    return textResult(
+                        `plan_written: PLANNED_CHANGE Plans must provide at least one objectiveChecks entry. ${objectiveChecksFormatReference()}`,
+                        {
+                            ...params,
+                            outcome: "repair_required",
+                            planName,
+                            triageMeta: effectiveMeta,
+                            reason: "missing_objective_checks",
+                        },
+                        false,
+                    );
+                }
+                const checkValidation = validateObjectiveChecksParam(params.objectiveChecks);
+                if (!checkValidation.ok || checkValidation.checks.length === 0) {
+                    return textResult(
+                        `plan_written: PLANNED_CHANGE Plans must provide valid objectiveChecks. ${
+                            checkValidation.ok ? "At least one check is required." : checkValidation.error
+                        } ${objectiveChecksFormatReference()}`,
+                        {
+                            ...params,
+                            outcome: "repair_required",
+                            planName,
+                            triageMeta: effectiveMeta,
+                            reason: "invalid_objective_checks",
+                        },
+                        false,
+                    );
+                }
+                const loadedPlan = await loadPlan(cwd, planName);
+                if (!loadedPlan?.revision) {
+                    return textResult(
+                        `plan_written: could not load plans/${planName}.md for objectiveChecks persistence. Call plan_written again after saving the Plan.`,
+                        { ...params, outcome: "repair_required", planName, reason: "plan_load_failed" },
+                        false,
+                    );
+                }
+                await updatePlanFrontMatter(cwd, planName, { objectiveChecks: checkValidation.checks }, {}, {
+                    expectedRevision: loadedPlan.revision,
+                });
+                effectiveMeta =
+                    /** @type {TriageMeta} */ ({ ...effectiveMeta, objectiveChecks: checkValidation.checks });
+            }
             const policy = resolvePlanExecutionPolicy(effectiveMeta);
             if (!policy.ok && policy.reason !== "project_epic") {
                 emitSystemStatus(hostedSession, `Plan policy invalid: ${policy.error}`, {

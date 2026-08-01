@@ -417,8 +417,15 @@ return to Router with context before continuing. _Avoid_: Surprise return, silen
 **Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. _Avoid_: Agent
 self-check, final summary
 
-**Mechanical Validation**: RunWield's automated local validation command loop without semantic review or Plan status
-transitions. _Avoid_: Workflow Validation, Reviewer review, agent self-check
+**Mechanical Validation**: RunWield's automated command validation loop. In no-plan QUICK_FIX work it runs local CI only
+without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs local CI
+plus that Plan's Objective-Failing Checks before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent
+self-check
+
+**Objective-Failing Check**: A Plan-owned shell command with one contract: exit 0 means the Plan objective is met. It
+must be red before implementation and green after implementation; RunWield stores the executable copy in Plan Front
+Matter as `objectiveChecks` and runs it during Workflow Validation's Mechanical Validation phase. _Avoid_: Manual check,
+verification note, lint/type-check only
 
 **Pair Execution**: A user-steered frontend execution style where the Frontend Engineer delivers coherent visible
 increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-design, frontend mode, Manual QA

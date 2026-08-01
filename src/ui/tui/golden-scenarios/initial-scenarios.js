@@ -244,7 +244,10 @@ export const planReviewTransactionContractScenario = {
             ordinal: 1,
             requiredTools: ["plan_written"],
             thinking: "Submit the Plan for browser review through Runtime interaction.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: { planName: "plan", objectiveChecks: [{ id: "OC1", command: "true" }] },
+            }],
         },
         {
             id: "planner-submit-approval-round",
@@ -253,7 +256,10 @@ export const planReviewTransactionContractScenario = {
             ordinal: 2,
             requiredTools: ["plan_written"],
             thinking: "Resubmit the reviewed Plan for approval through the same interaction seam.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: { planName: "plan", objectiveChecks: [{ id: "OC1", command: "true" }] },
+            }],
         },
     ],
     actions: [

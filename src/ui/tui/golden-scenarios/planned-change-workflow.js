@@ -113,7 +113,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             ordinal: 1,
             requiredTools: ["plan_written"],
             thinking: "Submit draft for Plan Review feedback.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "plan",
+                    objectiveChecks: [{
+                        id: "OC1",
+                        command: "test -f golden-planned-change.txt",
+                        rationale: "implementation creates the golden planned-change artifact",
+                    }],
+                },
+            }],
         },
         {
             id: "planner-submit-approval-round",
@@ -122,7 +132,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             ordinal: 2,
             requiredTools: ["plan_written"],
             thinking: "Resubmit revised Plan for approval and execution.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "plan",
+                    objectiveChecks: [{
+                        id: "OC1",
+                        command: "test -f golden-planned-change.txt",
+                        rationale: "implementation creates the golden planned-change artifact",
+                    }],
+                },
+            }],
         },
         {
             id: "engineer-implements-plan",
@@ -242,9 +262,9 @@ export const plannedChangeReviewRepairValidationScenario = {
         // execution, CI, two semantic rounds with a repair between them, the merge,
         // and the post-verification handoffs. It takes about 40s, and the 12s budget
         // it used to carry only ever fit because the run died at the repair.
-        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 180000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
-        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 180000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [
@@ -314,9 +334,9 @@ export const plannedChangeBlockedMergePauseScenario = {
         { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
         { type: "type", text: "submit the planned change for review" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 180000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
-        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 180000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [

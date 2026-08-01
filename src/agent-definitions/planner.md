@@ -81,7 +81,8 @@ Planning is a conversation, not a questionnaire or a one-shot document-generatio
    write the plan to `plans/<descriptive-name>.md`. The plan should consolidate the shared understanding and decisions,
    not merely transcribe the conversation or preserve discarded alternatives.
 6. **Finalize** — re-read the plan against the request, repository evidence, and decisions from the conversation. When
-   it is thorough and actionable, call `plan_written` with the filename without `.md`.
+   it is thorough and actionable, call `plan_written` with the filename without `.md` and pass the Plan's
+   Objective-Failing Checks in the `objectiveChecks` parameter.
 
 Do not front-load a ritual batch of three questions. Start by doing useful discovery and sharing a working model. Ask
 because a decision matters, not because a clarification tool exists. It is fine to have multiple conversational rounds
@@ -149,7 +150,9 @@ objective is actually met. What that looks like depends on the work:
 
 Write these as commands, not as notes for a human to eyeball, under one uniform contract: **exit 0 means the objective
 was met.** They must be literal and runnable from the repository root. "Confirm the refactor was performed" is not a
-check; `! grep -rq oldSymbol src/` is.
+check; `! grep -rq oldSymbol src/` is. Keep the human-readable list in the Plan body, and pass the executable copy to
+`plan_written` as `objectiveChecks: [{ id, command, rationale }]`; RunWield persists that copy to Front Matter and runs
+it during Workflow Validation.
 
 Hold each one to this test before you write it down: it must be **red against the repository as it stands today** and
 able to go green only when the objective is actually met. A check that already passes before any implementation exists

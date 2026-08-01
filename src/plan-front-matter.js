@@ -5,6 +5,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     complexity: "complexity",
     summary: "summary",
     affectedPaths: "affectedPaths",
+    objectiveChecks: "objectiveChecks",
     tickets: "tickets",
     executionAgent: "executionAgent",
     collaborationRecommendation: "collaborationRecommendation",

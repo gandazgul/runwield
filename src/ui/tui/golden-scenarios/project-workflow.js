@@ -236,7 +236,13 @@ export const twoChildProjectContinuationScenario = {
             ordinal: 2,
             requiredTools: ["plan_written"],
             thinking: "Finalize the first child Planned Change and submit it for review.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "epic/01-child-one" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "epic/01-child-one",
+                    objectiveChecks: [{ id: "OC1", command: "test -f golden-child-one.txt" }],
+                },
+            }],
         },
         {
             id: "engineer-implements-first-child",
@@ -290,7 +296,13 @@ export const twoChildProjectContinuationScenario = {
             ordinal: 3,
             requiredTools: ["plan_written"],
             thinking: "Finalize the second child Planned Change and submit it for review.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "epic/02-child-two" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "epic/02-child-two",
+                    objectiveChecks: [{ id: "OC1", command: "test -f golden-child-two.txt" }],
+                },
+            }],
         },
         {
             id: "engineer-implements-second-child",

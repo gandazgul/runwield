@@ -614,7 +614,7 @@ async function runComposedTuiScenario(scenario, options) {
                 events.push(`model:faux-provider:${agent}:${phase}`);
                 return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
             });
-            const fallbackResponseFactories = Array.from({ length: 4 }, () => (/** @type {unknown} */ context) => {
+            const fallbackResponseFactories = Array.from({ length: 8 }, () => (/** @type {unknown} */ context) => {
                 const availableTools = getContextToolNames(context);
                 const fallbackSystemPrompt = String(
                     /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})

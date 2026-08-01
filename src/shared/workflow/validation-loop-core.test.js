@@ -197,6 +197,33 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
     assertEquals(plan?.attrs.status, "implemented");
 });
 
+Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mechanical pass", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "true", rationale: "already satisfied for test" }];
+    const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", {
+        objectiveChecks: /** @type {any} */ (objectiveChecks),
+    });
+    let ciCalls = 0;
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => {
+                ciCalls += 1;
+                return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+            },
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(ciCalls, 1);
+    assertEquals(result.kind, "paused");
+    assertEquals(plan?.attrs.status, "validated_ci");
+});
+
 Deno.test("runValidationLoop starts at implemented and records only the mechanical pass boundary", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", { complexity: "MEDIUM" });

@@ -18,7 +18,7 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-01T01:39:35-04:00"
-status: "draft"
+status: "ready_for_work"
 ---
 
 # Run Objective-Failing Checks in Mechanical Validation

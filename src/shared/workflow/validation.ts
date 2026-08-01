@@ -32,6 +32,7 @@ import {
 } from "../work-records/auto-generation.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
 import {
     PLAN_STATUSES,
     recordPlanEvent,
@@ -95,6 +96,7 @@ type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
 type AgentDefinition = import("../session/types.js").AgentDefinition;
 type GitPort = import("../git-port.ts").GitPort;
 type LocalCIResult = Awaited<ReturnType<typeof runLocalCI>>;
+type ObjectiveCheckResult = Awaited<ReturnType<typeof runObjectiveChecks>>[number];
 type RecordPlanEventArgs = Parameters<typeof recordPlanEvent>[0];
 type RecordPlanEventResult = Awaited<ReturnType<typeof recordPlanEvent>>;
 type ValidationExecutionResolution = Awaited<ReturnType<typeof resolveValidationExecutionContext>>;
@@ -399,14 +401,97 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
             };
         }
         if (ciResult.exitCode === 0) {
-            await recordLifecycleEvent(args, phase.context.projectRoot, "mechanical_validation_passed", "implemented");
-            preserveValidationContinuationState(args, phase.context);
-            emitStatus(args.hostedSession, "Build and tests passed.", "success");
+            const objectiveCheckOutcome = await runPlanObjectiveChecks(args, phase.context, attempts);
+            if (objectiveCheckOutcome.kind === "passed") {
+                await recordLifecycleEvent(
+                    args,
+                    phase.context.projectRoot,
+                    "mechanical_validation_passed",
+                    "implemented",
+                );
+                preserveValidationContinuationState(args, phase.context);
+                emitStatus(args.hostedSession, "Build, tests, and Objective-Failing Checks passed.", "success");
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: "Mechanical Validation passed.",
+                };
+            }
+            if (objectiveCheckOutcome.kind === "skipped") {
+                await recordLifecycleEvent(
+                    args,
+                    phase.context.projectRoot,
+                    "mechanical_validation_passed",
+                    "implemented",
+                );
+                preserveValidationContinuationState(args, phase.context);
+                emitStatus(args.hostedSession, "Build and tests passed.", "success");
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: "Mechanical Validation passed.",
+                };
+            }
+            if (objectiveCheckOutcome.kind === "broken") {
+                await recordLifecycleEvent(
+                    args,
+                    phase.context.projectRoot,
+                    "validation_failed",
+                    "implemented",
+                    objectiveCheckOutcome.reason,
+                );
+                return {
+                    kind: "failed",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: objectiveCheckOutcome.reason,
+                };
+            }
+
+            attempts += 1;
+            if (attempts >= AUTOMATIC_ROUNDS) {
+                await recordLifecycleEvent(
+                    args,
+                    phase.context.projectRoot,
+                    "validation_failed",
+                    "implemented",
+                    objectiveCheckOutcome.reason,
+                );
+                const pause: UserActionPause = {
+                    whatHappened: `The Objective-Failing Checks for "${args.planName}" are still unmet. ${
+                        getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                    } tried ${AUTOMATIC_ROUNDS} times and could not satisfy them.`,
+                    doThis:
+                        `Take a look yourself in ${phase.context.executionCwd}. When you think it is fixed, pick Retry and RunWield will run validation again and carry on from there.`,
+                    details: [objectiveCheckOutcome.reason],
+                };
+                if (await pauseForUserAction(args, pause) === "retry") {
+                    attempts = 0;
+                    continue;
+                }
+                return {
+                    kind: "failed",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: `${pause.whatHappened} ${pause.doThis}`,
+                };
+            }
+
+            await dispatchObjectiveCheckRepair(args, phase.context, objectiveCheckOutcome.results);
+            await recordLifecycleEvent(
+                args,
+                phase.context.projectRoot,
+                "mechanical_validation_failed",
+                "implemented",
+                objectiveCheckOutcome.reason,
+            );
             return {
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: phase.context.projectRoot,
-                reason: "Mechanical Validation passed.",
+                reason: "Mechanical Validation failed; Objective-Failing Check repair required.",
             };
         }
 
@@ -1405,6 +1490,75 @@ async function dispatchReviewFeedbackRepair(
     } catch (error) {
         return { completed: false, report: "", reason: error instanceof Error ? error.message : String(error) };
     }
+}
+
+type ObjectiveCheckPhaseOutcome =
+    | { kind: "passed" }
+    | { kind: "skipped" }
+    | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
+    | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
+
+async function runPlanObjectiveChecks(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    attempts: number,
+): Promise<ObjectiveCheckPhaseOutcome> {
+    const checks = args.triageMeta.objectiveChecks || [];
+    if (!checks.length) return { kind: "skipped" };
+
+    emitStatus(
+        args.hostedSession,
+        `Running Objective-Failing Checks for ${args.planName}: ${checks.map((check) => check.id).join(", ")}.`,
+    );
+    const results = await runObjectiveChecks({ checks, cwd: context.executionCwd });
+    const summary = summarizeObjectiveChecks(results);
+    await recordMetric(args, context.projectRoot, {
+        category: "validation",
+        event: "objective_checks_attempt",
+        planName: args.planName,
+        details: {
+            mechanicalAttempt: attempts + 1,
+            total: summary.total,
+            met: summary.met,
+            unmet: summary.unmet,
+            broken: summary.broken,
+            checks: results.map((result) => ({ id: result.id, status: result.status, exitCode: result.exitCode })),
+        },
+    });
+    emitStatus(args.hostedSession, summary.block, summary.broken || summary.unmet ? "warning" : "success");
+    if (summary.broken > 0) {
+        return { kind: "broken", reason: `Objective-Failing Check defect.\n\n${summary.block}`, results };
+    }
+    if (summary.unmet > 0) {
+        return { kind: "unmet", reason: `Objective-Failing Checks unmet.\n\n${summary.block}`, results };
+    }
+    return { kind: "passed" };
+}
+
+async function dispatchObjectiveCheckRepair(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    results: ObjectiveCheckResult[],
+): Promise<void> {
+    const runActiveAgentTurnImpl = runActiveAgentTurn;
+    const summary = summarizeObjectiveChecks(results);
+    args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
+    emitStatus(
+        args.hostedSession,
+        `Objective-Failing Checks are unmet. Dispatching ${
+            getAgentDisplayName(context.executionAgent, context.projectRoot)
+        } to satisfy them...`,
+        "warning",
+    );
+    await runActiveAgentTurnImpl({
+        hostedSession: args.hostedSession,
+        agentName: context.executionAgent,
+        userRequest:
+            "The Plan failed Objective-Failing Checks during Mechanical Validation. Fix the implementation so these checks exit 0, then call task_completed when the repair is complete. Do not edit the Plan checks unless the user explicitly asks for a new Plan review. If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
+            summary.block,
+        sessionManager: args.sessionManager,
+        cwd: context.executionCwd,
+    });
 }
 
 async function dispatchCiRepair(

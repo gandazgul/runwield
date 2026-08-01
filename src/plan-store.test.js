@@ -170,6 +170,48 @@ Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
     assertStringIncludes(withFm, "workRecord:\n    status:");
 });
 
+Deno.test("Objective-Failing Checks front matter round trips as ordered known metadata", () => {
+    const markdown = injectFrontMatter("## Plan\n\nBody", {
+        affectedPaths: ["src/example.ts"],
+        objectiveChecks: [
+            { id: "OC1", command: "test -f src/example.ts", rationale: "file exists" },
+            { id: "OC2", command: "grep -q symbol src/example.ts" },
+        ],
+    });
+
+    const { attrs } = parsePlanFrontMatter(markdown);
+
+    assertEquals(attrs.objectiveChecks, [
+        { id: "OC1", command: "test -f src/example.ts", rationale: "file exists" },
+        { id: "OC2", command: "grep -q symbol src/example.ts" },
+    ]);
+    assertEquals(markdown.indexOf("affectedPaths:") < markdown.indexOf("objectiveChecks:"), true);
+    assertEquals(markdown.indexOf("objectiveChecks:") < markdown.indexOf("createdAt:"), true);
+});
+
+Deno.test("Objective-Failing Checks invalid entries normalize away while legacy Plans load", () => {
+    const legacy = parsePlanFrontMatter("# Legacy Plan");
+    assertEquals(legacy.attrs.objectiveChecks, undefined);
+
+    const duplicated = parsePlanFrontMatter(`---
+classification: PLANNED_CHANGE
+objectiveChecks:
+    - id: "OC1"
+      command: "true"
+    - id: "OC1"
+      command: "false"
+---
+# Plan
+`);
+    assertEquals(duplicated.attrs.objectiveChecks, undefined);
+
+    const blank = injectFrontMatter("## Plan", {
+        objectiveChecks: /** @type {any} */ ([{ id: " ", command: "true" }]),
+    });
+    assertEquals(parsePlanFrontMatter(blank).attrs.objectiveChecks, undefined);
+    assertEquals(blank.includes("objectiveChecks:"), false);
+});
+
 Deno.test("frontend verification front matter round trips as legacy source metadata", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {
