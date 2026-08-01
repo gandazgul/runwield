@@ -15,7 +15,6 @@ const scenarioExportNames = new Map(
 for (const scenario of projectWorkflowScenarios) {
     Deno.test({
         name: `golden PROJECT workflow: ${scenario.name}`,
-        ignore: scenario.name === "project-two-child-continuation-epic-evidence",
         fn: async () => {
             const { runGoldenScenarioChildProcess } = await import("../testing/child-protocol.js");
             const result = await runGoldenScenarioChildProcess({

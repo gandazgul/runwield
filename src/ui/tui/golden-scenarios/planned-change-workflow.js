@@ -66,7 +66,12 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     );
     const statusLines = String(durability?.status || "").split("\n").filter(Boolean);
     assert(
-        statusLines.every((line) => line.endsWith("plans/plan.md") || line.endsWith(".wld/worktrees.json")),
+        // Plus the Work Record the post-verification handoff writes under docs/, which
+        // is a product output the user keeps or discards, not publication residue.
+        statusLines.every((line) =>
+            line.endsWith("plans/plan.md") || line.endsWith(".wld/worktrees.json") || line.endsWith("docs/") ||
+            line.includes("docs/work-records/")
+        ),
         `Expected only lifecycle/registry status after Direct Delivery publication; got ${statusLines.join("; ")}`,
     );
     assert(durability?.editorUsable === true, "Expected terminal/editor ready after verification.");
@@ -233,9 +238,13 @@ export const plannedChangeReviewRepairValidationScenario = {
         },
         { type: "type", text: "submit the planned change for review" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 12000 },
-        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 12000 },
-        { type: "waitForIdle", timeoutMs: 20000 },
+        // The whole PLANNED_CHANGE journey runs inside these waits: plan review,
+        // execution, CI, two semantic rounds with a repair between them, the merge,
+        // and the post-verification handoffs. It takes about 40s, and the 12s budget
+        // it used to carry only ever fit because the run died at the repair.
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [

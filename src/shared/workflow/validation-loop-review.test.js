@@ -1,7 +1,7 @@
-import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop } from "./validation.ts";
+import { runValidationLoop, runValidationPhase } from "./validation.ts";
 import { makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
@@ -103,6 +103,35 @@ function reviewPort(overrides = {}) {
     });
 }
 
+/**
+ * One isolated-session stand-in for both roles at the round limit: the Reviewer
+ * reports findings, the Reviewer-Feedback Engineer reports the repair done. Only the
+ * model is faked; the round loop, the repair dispatch and the lifecycle writes are real.
+ *
+ * @param {{ approved?: boolean }} [reviewer]
+ */
+function roundLimitPort(reviewer = {}) {
+    return reviewPort({
+        runIsolatedAgentSession: (/** @type {any} */ options) =>
+            Promise.resolve(
+                options?.agentName === "reviewer-feedback-engineer"
+                    ? /** @type {any[]} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        toolCallId: "repair-1",
+                        content: [],
+                        isError: false,
+                        timestamp: new Date().toISOString(),
+                        details: { outcome: "task_completed", message: "- Addressed the finding." },
+                    }])
+                    : reviewerMessages({
+                        approved: reviewer.approved === true,
+                        findings: [{ title: "Issue from round 1" }],
+                    }),
+            ),
+    });
+}
+
 Deno.test("runValidationLoop resumes at validated_ci and skips CI before recording semantic approval for non-Git validation", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
@@ -120,7 +149,7 @@ Deno.test("runValidationLoop resumes at validated_ci and skips CI before recordi
     });
     let ciCalls = 0;
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -357,7 +386,7 @@ Deno.test("runValidationLoop dispatches semantic review feedback to Reviewer-Fee
     const repairActiveOwners = /** @type {Array<string | undefined>} */ ([]);
     const repairActivePlanNames = /** @type {Array<string | null>} */ ([]);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p\n\nApproved Plan body",
@@ -563,27 +592,146 @@ Deno.test("runValidationLoop offers Local Human Code Review after automatic sema
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
-        semanticReviewPort: reviewPort({
-            runIsolatedAgentSession: () =>
-                Promise.resolve(reviewerMessages({
-                    approved: false,
-                    findings: [{ title: "Issue from round 1" }],
-                })),
+        semanticReviewPort: {
+            ...roundLimitPort(),
             requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) => {
                 interactions.push(request);
                 return Promise.resolve({ outcome: "selected", value: "code_review" });
             },
+        },
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
         }),
     });
 
     const plan = await loadPlan(projectRoot, "p");
     const choice = interactions.find((request) => request.type === "select");
-    assertStringIncludes(choice.prompt, "has not approved after 3 rounds");
+    assertStringIncludes(choice.prompt, 'looked at "p" 3 times');
+    // Three ways forward, and Stop is one of them: a menu with no exit is not the
+    // same thing as never stranding someone.
     assertEquals(choice.options.map((/** @type {{ value: string }} */ option) => option.value), [
         "continue",
         "code_review",
+        "stop",
     ]);
     assertEquals(plan?.attrs.status, "validated_reviewer");
     assertEquals(plan?.attrs.humanReviewMode, "always");
     assertEquals(plan?.attrs.humanReviewDecision, null);
+});
+
+Deno.test("Stop at the review round limit keeps the passing tests and the open findings", async () => {
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        semanticReviewPort: {
+            ...roundLimitPort(),
+            requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) =>
+                Promise.resolve(
+                    request.type === "select" ? { outcome: "selected", value: "stop" } : { outcome: "canceled" },
+                ),
+        },
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
+        }),
+    });
+
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "Run this Plan again");
+    // Still at validated_ci, so running it again reopens the review rather than
+    // starting the pipeline over. No repair was dispatched on the way out.
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+});
+
+Deno.test("look again re-enters at the focused reviewer, after the repair and its tests", async () => {
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
+    /** @type {Array<"discovery" | "verify">} */
+    const modes = [];
+    let ciRuns = 0;
+    let round = 0;
+    let asks = 0;
+    const answers = ["continue"];
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        semanticReviewPort: {
+            ...roundLimitPort(),
+            loadReviewerPrompt: (/** @type {"discovery" | "verify"} */ mode) => {
+                modes.push(mode);
+                return Promise.resolve({
+                    name: "reviewer",
+                    displayName: "Reviewer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: `${mode} prompt`,
+                });
+            },
+            runIsolatedAgentSession: (/** @type {any} */ options) => {
+                if (options?.agentName === "reviewer-feedback-engineer") {
+                    return Promise.resolve(
+                        /** @type {any[]} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            toolCallId: `repair-${round}`,
+                            content: [],
+                            isError: false,
+                            timestamp: new Date().toISOString(),
+                            details: { outcome: "task_completed", message: "- Addressed the finding." },
+                        }]),
+                    );
+                }
+                round += 1;
+                return Promise.resolve(
+                    reviewerMessages({ approved: false, findings: [{ title: "Issue from round 1" }] }),
+                );
+            },
+            requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) => {
+                if (request.type !== "select") return Promise.resolve({ outcome: "canceled" });
+                // Only the round-limit question counts here. The round bought by "look
+                // again" ends at its own pause — the canned reviewer never accounts for
+                // the open finding it was handed, so it runs out of nudges — and that
+                // menu is a different question.
+                if (!String(request.prompt).includes("looked at")) {
+                    return Promise.resolve({ outcome: "selected", value: "stop" });
+                }
+                asks += 1;
+                return Promise.resolve({ outcome: "selected", value: answers.shift() || "stop" });
+            },
+        },
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => {
+                ciRuns += 1;
+                return Promise.resolve({ exitCode: 0, output: "", canceled: false });
+            },
+        }),
+    });
+
+    // Round three, repair, tests, ask. "Look again" re-enters at the reviewer for
+    // round four — not back through the mechanical phase, and never a fresh sweep.
+    // Every reviewer prompt loaded was the focused one — rounds three and four never
+    // sweep the whole Plan again. (One round can load its prompt more than once when
+    // the reviewer needs a nudge, so this asserts the mode, not the count.)
+    assert(modes.length >= 2 && modes.every((mode) => mode === "verify"), `Expected focused rounds, got ${modes}`);
+    // Two rounds at the limit: round three, then the one "look again" bought.
+    // The ordering claim: the repair ran, the tests ran over it, and only then was
+    // the user asked — one ask, one CI, in that order.
+    // The ordering claim: the repair ran, the tests ran over it, and only then was
+    // the user asked — one ask, one CI, in that order.
+    assertEquals(asks, 1);
+    assertEquals(ciRuns, 1, "the tests run over the repair before the user is asked about it");
+    // And "look again" re-entered at the reviewer: another round started without the
+    // Plan ever going back to `implemented` for a mechanical pass.
+    assert(round > 2, `Expected a further reviewer round after "look again", saw ${round} reviewer turns`);
+    assertEquals(result.kind, "paused");
+    assertEquals(result.kind, "paused");
+    // Untouched at validated_ci throughout: the in-memory rounds never send the Plan
+    // back to implemented, so returning later resumes at the review.
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 });

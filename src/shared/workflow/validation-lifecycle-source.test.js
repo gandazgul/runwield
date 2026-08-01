@@ -23,11 +23,11 @@ function extractFunctionSource(source, marker) {
 
 Deno.test("runValidationLoop is a single-phase dispatcher", async () => {
     const source = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
-    const functionSource = extractFunctionSource(source, "export async function runValidationLoop");
+    const functionSource = extractFunctionSource(source, "async function runValidationPhase");
 
-    assert(functionSource.split("\n").length < 200, "runValidationLoop should stay under 200 lines");
-    assert(!functionSource.includes("while"), "runValidationLoop must not contain while loops");
-    assert(!functionSource.includes("for ("), "runValidationLoop must not loop over phases");
+    assert(functionSource.split("\n").length < 200, "the phase dispatcher should stay under 200 lines");
+    assert(!functionSource.includes("while"), "the phase dispatcher must not contain while loops");
+    assert(!functionSource.includes("for ("), "the phase dispatcher must not loop over phases");
 });
 
 Deno.test("legacy validation drivers are not reachable", async () => {

@@ -1,8 +1,11 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop } from "./validation.ts";
+import { runValidationLoop, runValidationPhase } from "./validation.ts";
+import { HostedSession } from "../session/hosted-session.js";
 import {
+    attachRecorder,
+    git,
     makeRecordedSession,
     makeUi,
     makeValidationProjectRoot,
@@ -32,7 +35,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
     });
     const requests = /** @type {string[]} */ ([]);
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -71,7 +74,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         nonGitInPlace: true,
     });
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -106,7 +109,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
     });
     let calls = 0;
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -150,7 +153,7 @@ Deno.test("runValidationLoop resumes at validated_reviewer and records durable h
         nonGitInPlace: true,
     });
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -168,4 +171,204 @@ Deno.test("runValidationLoop resumes at validated_reviewer and records durable h
     assertEquals(plan?.attrs.status, "validated_reviewer");
     assertEquals(plan?.attrs.humanReviewMode, "none");
     assertEquals(plan?.attrs.humanReviewDecision, "not_required");
+});
+
+/** @param {Record<string, unknown>} [extra] */
+async function makeAwaitingReview(extra = {}) {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+        humanReviewMode: "always",
+        humanReviewDecision: null,
+        ...extra,
+    });
+    // A real repository, because the review phase computes a real diff. Faking that
+    // would fake the thing the user is being shown.
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "plan"]);
+    // The session's own cwd is the project, not the repository this suite runs in:
+    // once a phase clears the active workflow, later phases fall back to it, and a
+    // multi-phase run would otherwise start reading the developer's own checkout.
+    const uiAPI = makeUi();
+    const hostedSession = attachRecorder(
+        new HostedSession({ id: "validation-human-review-test", cwd: projectRoot }),
+        uiAPI,
+    );
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    return { projectRoot, hostedSession, uiAPI };
+}
+
+/** A Reviewer-Feedback Engineer that reports the repair done. The model is the only
+ * faked part; the dispatch, the completion read, and the lifecycle write are real. */
+function completedRepairMessages() {
+    return /** @type {any[]} */ ([{
+        role: "toolResult",
+        toolName: "task_completed",
+        toolCallId: "repair-1",
+        content: [],
+        isError: false,
+        timestamp: new Date().toISOString(),
+        details: { outcome: "task_completed", message: "- Renamed the helper." },
+    }]);
+}
+
+Deno.test("a code review closed with no answer asks instead of throwing the work back to the start", async () => {
+    const { projectRoot, hostedSession, uiAPI } = await makeAwaitingReview();
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: {
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                if (request.type === "select") {
+                    uiAPI.promptSelections.push(String(request.prompt));
+                    return Promise.resolve({ outcome: "selected", value: "stop" });
+                }
+                return Promise.resolve({ outcome: "canceled" });
+            },
+        },
+        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
+    });
+
+    assertEquals(uiAPI.promptSelections.length, 1);
+    assertStringIncludes(uiAPI.promptSelections[0], "without approving it");
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "without approving it");
+    // The approved semantic review and passing tests survive: the Plan is still one
+    // approval away from publishing, not back at the beginning.
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("Retry reopens the code review that was closed without an answer", async () => {
+    const { projectRoot, hostedSession, uiAPI } = await makeAwaitingReview();
+    let opened = 0;
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: {
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                if (request.type === "select") {
+                    uiAPI.promptSelections.push(String(request.prompt));
+                    return Promise.resolve({ outcome: "selected", value: "retry" });
+                }
+                opened += 1;
+                return Promise.resolve(
+                    opened === 1
+                        ? { outcome: "canceled" }
+                        : { outcome: "selected", _meta: { approved: true, feedback: "" } },
+                );
+            },
+        },
+        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
+    });
+
+    assertEquals(opened, 2, "Retry must open the same review again in this run");
+    assertEquals(uiAPI.promptSelections.length, 1);
+    assertEquals(result.kind, "paused");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
+});
+
+Deno.test("your feedback goes to the engineer, then the tests, then straight back to you", async () => {
+    const { projectRoot, hostedSession } = await makeAwaitingReview();
+    /** @type {string[]} */
+    const opened = [];
+    let reviews = 0;
+    let isolatedRuns = 0;
+
+    // Round one: read the diff, ask for a change. Round two: approve the repair.
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: {
+            runIsolatedAgentSession: () => {
+                isolatedRuns += 1;
+                return Promise.resolve(completedRepairMessages());
+            },
+            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
+                opened.push(String(request.type));
+                if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
+                reviews += 1;
+                return Promise.resolve(
+                    reviews === 1
+                        ? { outcome: "selected", _meta: { approved: false, feedback: "rename the helper" } }
+                        : { outcome: "selected", _meta: { approved: true, feedback: "" } },
+                );
+            },
+        },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        }),
+    });
+
+    // Two code reviews and nothing else: the Semantic Code Reviewer never ran a
+    // second time, and the "ask" gate never reappeared between rounds.
+    assertEquals(opened, ["code_review", "code_review"]);
+    // Exactly one isolated Agent run: the repair. A second would be the Semantic Code
+    // Reviewer sweeping a diff the user had already taken ownership of.
+    assertEquals(isolatedRuns, 1);
+    assertEquals(result.kind, "verified");
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.humanReviewDecision, "approved");
+});
+
+Deno.test("asking for changes makes you the reviewer, so the reviewer agent stands down", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "QUICK_FIX",
+        status: "validated_ci",
+        humanReviewMode: "always",
+        humanReviewDecision: "changes_requested",
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", humanReviewMode: "always" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: false,
+    });
+    let reviewerRuns = 0;
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: {
+            classification: "QUICK_FIX",
+            status: "validated_ci",
+            humanReviewMode: "always",
+            humanReviewDecision: "changes_requested",
+        },
+        semanticReviewPort: {
+            runIsolatedAgentSession: () => {
+                reviewerRuns += 1;
+                return Promise.resolve([]);
+            },
+        },
+        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
+    });
+
+    assertEquals(reviewerRuns, 0, "the Semantic Code Reviewer must not sweep a diff the user already owns");
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "Reopening your code review");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
 });

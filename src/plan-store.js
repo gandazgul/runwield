@@ -112,7 +112,7 @@ export function getStoredPlanPath(cwd, planName) {
  */
 
 /**
- * @typedef {"not_required"|"skipped"|"approved"|null} HumanReviewDecision
+ * @typedef {"not_required"|"skipped"|"approved"|"changes_requested"|null} HumanReviewDecision
  */
 
 /**
@@ -865,6 +865,10 @@ function normalizeHumanReviewMode(mode) {
 function normalizeHumanReviewDecision(decision) {
     if (decision === null) return null;
     if (decision === "not_required" || decision === "skipped" || decision === "approved") return decision;
+    // Not a final decision: the user read the diff and asked for changes, so they own
+    // this Plan's review from here. It survives the repair round so the Semantic Code
+    // Reviewer knows to stand down and hand the diff straight back to them.
+    if (decision === "changes_requested") return decision;
     return undefined;
 }
 

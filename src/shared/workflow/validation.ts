@@ -10,7 +10,7 @@ import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
-import { appendUnsettledNote } from "./validation-progress.ts";
+import { preparePrimaryPlanPathForMerge, restorePrimaryPlanPathAfterMergeFailure } from "../worktree.js";
 import { runIsolatedAgentSession } from "../session/session.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
@@ -224,7 +224,13 @@ export const runMechanicalValidation = runQuickFixMechanicalValidation as (
     args: MechanicalValidationArgs,
 ) => Promise<{ passed: boolean; attempts: number; reason?: string }>;
 
-export async function runValidationLoop(args: ValidationLoopArgs): Promise<WorkflowValidationResult> {
+/**
+ * One phase for the Plan's current status. Reads canonical state; holds none.
+ *
+ * Exported for tests that assert a single phase boundary. Production callers use
+ * {@link runValidationLoop}, which drives phases until the Plan stops moving.
+ */
+export async function runValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const canonicalPlan = await loadCanonicalValidationPlan(args);
     if (canonicalPlan.kind === "blocked") return canonicalPlan.result;
     const canonicalArgs: ValidationLoopArgs = {
@@ -240,6 +246,51 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         case "validated_reviewer":
             return await runValidatedReviewerPhase(canonicalArgs);
     }
+}
+
+/**
+ * How many phases one call may drive. Validation has three, and a repair can send
+ * the Plan back to the start, so this bounds a pathological ping-pong without
+ * capping any real run.
+ */
+const MAX_PHASES_PER_CALL = 12;
+
+/**
+ * Run validation until it needs something it cannot supply.
+ *
+ * Each phase advances the Plan by one status and returns. Something has to run the
+ * next one, and that is this: it keeps going while the Plan's status is still
+ * moving, and stops the moment a phase parks without moving it — human review
+ * awaiting a decision, a dispatched repair, a terminal outcome.
+ *
+ * Status is the only continuation signal, deliberately. It is durable, it is what
+ * `recordPlanEvent` already guards, and re-reading it each turn means this loop
+ * carries no state of its own — the thing that made the previous driver
+ * untestable. A phase that parks is simply a phase that did not move the Plan.
+ */
+export async function runValidationLoop(args: ValidationLoopArgs): Promise<WorkflowValidationResult> {
+    const projectRoot = getProjectRoot(args);
+    let result: ValidationPhaseResult | undefined;
+    let phaseArgs = args;
+    for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
+        const before = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
+        result = await runValidationPhase(phaseArgs);
+        if (result.kind !== "paused") return result;
+        const after = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
+        // Front Matter revision, not status: human review reaches a decision without
+        // changing status, and publication is what runs next. Comparing status alone
+        // parked every Plan at `validated_reviewer` with its review already decided.
+        if (after === before) return result;
+        // The caller's execution context described the world before validation began.
+        // It is worth checking against once — a caller pointing at the wrong worktree
+        // must not be humoured — but every phase after the first runs in the workflow
+        // validation itself established, and a repair legitimately rebuilds that. Held
+        // any longer, the snapshot goes stale and its contradiction check ends the run:
+        // a semantic repair would land, round two would never open, and the workflow
+        // stopped without a word.
+        phaseArgs = { ...phaseArgs, executionContext: undefined };
+    }
+    return result!;
 }
 
 async function loadCanonicalValidationPlan(
@@ -309,65 +360,103 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
     if (phase.kind === "blocked") return phase.result;
 
     const runLocalCIImpl = args.__deps?.runLocalCI || runLocalCI;
-    const ciResult = await runLocalCIImpl({ hostedSession: args.hostedSession, cwd: phase.context.executionCwd });
-    await recordMetric(args, phase.context.projectRoot, {
-        category: "validation",
-        event: "ci_attempt",
-        planName: args.planName,
-        details: {
-            semanticRound: readSemanticRound(args.triageMeta) + 1,
-            mechanicalAttempt: readCiAttempts(args.triageMeta) + 1,
-            exitCode: ciResult.exitCode,
-            passed: ciResult.exitCode === 0,
-            canceled: ciResult.canceled === true,
-        },
-    });
-    if (ciResult.canceled) {
+    // Counted here rather than re-read from `args` each pass, because a user Retry
+    // buys a fresh set of rounds: the `validation_failed` recorded below resets the
+    // durable counter, and this has to follow it or the very next run would report
+    // the limit again without running anything.
+    let attempts = readCiAttempts(args.triageMeta);
+
+    for (;;) {
+        // A test suite can run for minutes. Saying so beforehand is the difference
+        // between "it is working" and "it has hung" — publication had gone quiet here
+        // too, leaving the longest wait in the workflow completely unannounced.
+        emitStatus(args.hostedSession, `Running CI Validation in ${phase.context.executionCwd}.`);
+        const ciResult = await runLocalCIImpl({ hostedSession: args.hostedSession, cwd: phase.context.executionCwd });
+        await recordMetric(args, phase.context.projectRoot, {
+            category: "validation",
+            event: "ci_attempt",
+            planName: args.planName,
+            details: {
+                semanticRound: readSemanticRound(args.triageMeta) + 1,
+                mechanicalAttempt: attempts + 1,
+                exitCode: ciResult.exitCode,
+                passed: ciResult.exitCode === 0,
+                canceled: ciResult.canceled === true,
+            },
+        });
+        if (ciResult.canceled) {
+            const pause: UserActionPause = {
+                whatHappened:
+                    `The tests for "${args.planName}" were stopped before they finished, so RunWield cannot tell yet whether the work is good.`,
+                doThis: "Pick Retry to run them again, or Stop to come back to this later.",
+            };
+            if (await pauseForUserAction(args, pause) === "retry") continue;
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: phase.context.projectRoot,
+                reason: `${pause.whatHappened} Run this Plan again when you are ready.`,
+            };
+        }
+        if (ciResult.exitCode === 0) {
+            await recordLifecycleEvent(args, phase.context.projectRoot, "mechanical_validation_passed", "implemented");
+            preserveValidationContinuationState(args, phase.context);
+            emitStatus(args.hostedSession, "Build and tests passed.", "success");
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: phase.context.projectRoot,
+                reason: "Mechanical Validation passed.",
+            };
+        }
+
+        const failureReason = getCiFailureReason(ciResult);
+        attempts += 1;
+        if (attempts >= AUTOMATIC_ROUNDS) {
+            // Clears the durable attempt count, so a Retry gets a full set of rounds
+            // rather than landing straight back on this limit.
+            await recordLifecycleEvent(
+                args,
+                phase.context.projectRoot,
+                "validation_failed",
+                "implemented",
+                failureReason,
+            );
+            const pause: UserActionPause = {
+                whatHappened: `The tests for "${args.planName}" are still failing. ${
+                    getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                } tried ${AUTOMATIC_ROUNDS} times and could not get them passing.`,
+                doThis:
+                    `Take a look yourself in ${phase.context.executionCwd}. When you think it is fixed, pick Retry and RunWield will run the tests again and carry on from there.`,
+                details: failureReason ? [failureReason] : undefined,
+            };
+            if (await pauseForUserAction(args, pause) === "retry") {
+                attempts = 0;
+                continue;
+            }
+            return {
+                kind: "failed",
+                planName: args.planName,
+                projectRoot: phase.context.projectRoot,
+                reason: `${pause.whatHappened} ${pause.doThis}`,
+            };
+        }
+
+        await dispatchCiRepair(args, phase.context, ciResult);
+        await recordLifecycleEvent(
+            args,
+            phase.context.projectRoot,
+            "mechanical_validation_failed",
+            "implemented",
+            failureReason,
+        );
         return {
             kind: "paused",
             planName: args.planName,
             projectRoot: phase.context.projectRoot,
-            reason: "CI validation canceled.",
+            reason: "Mechanical Validation failed; repair required.",
         };
     }
-    if (ciResult.exitCode === 0) {
-        await recordLifecycleEvent(args, phase.context.projectRoot, "mechanical_validation_passed", "implemented");
-        preserveValidationContinuationState(args, phase.context);
-        emitStatus(args.hostedSession, "Build and tests passed.", "success");
-        return {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: phase.context.projectRoot,
-            reason: "Mechanical Validation passed.",
-        };
-    }
-
-    const failureReason = getCiFailureReason(ciResult);
-    const currentAttempts = readCiAttempts(args.triageMeta);
-    if (currentAttempts + 1 >= AUTOMATIC_ROUNDS) {
-        await recordLifecycleEvent(args, phase.context.projectRoot, "validation_failed", "implemented", failureReason);
-        return {
-            kind: "failed",
-            planName: args.planName,
-            projectRoot: phase.context.projectRoot,
-            reason: "CI validation failed after 3 repair attempts.",
-        };
-    }
-
-    await dispatchCiRepair(args, phase.context, ciResult);
-    await recordLifecycleEvent(
-        args,
-        phase.context.projectRoot,
-        "mechanical_validation_failed",
-        "implemented",
-        failureReason,
-    );
-    return {
-        kind: "paused",
-        planName: args.planName,
-        projectRoot: phase.context.projectRoot,
-        reason: "Mechanical Validation failed; repair required.",
-    };
 }
 
 async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
@@ -383,10 +472,25 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
             reason: "Semantic Code Review skipped for non-Git execution.",
         };
     }
+    // The user asked for these changes themselves, so they are the reviewer now — they
+    // took over either because the Semantic Code Reviewer found nothing or because it
+    // kept finding things round after round. Sweeping the diff again would hand back
+    // objections the user has already moved past, and cost a full review cycle for
+    // every note they write. Run the tests, then give them the diff back.
+    if (args.triageMeta.humanReviewDecision === "changes_requested") {
+        await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Reopening your code review with the repair.",
+        };
+    }
 
     const state = readSemanticRoundState(args, context);
-    const nextRound = state.semanticRound + 1;
-    const diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
+    let round = state.semanticRound;
+    let ledger = state.reviewLedger;
+    let diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const reason = diffText.trim()
             ? "No implementation changes detected in workflow diff; only plan document changes were found."
@@ -404,24 +508,58 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
         };
     }
 
-    const reviewMode = nextRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
-    const review = await runReviewerRound(
-        args,
-        context,
-        {
-            ...state,
-            semanticRound: nextRound,
-        },
-        reviewMode,
-        diffText,
-    );
-    if (review.kind === "paused") return review.result;
-    if (review.kind === "failed") {
-        await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", review.reason);
-        return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason: review.reason };
-    }
+    // Rounds one and two sweep the whole Plan; from three on the reviewer only
+    // verifies what is still open. Each round below the limit ends by handing the
+    // Plan back to `implemented`, so the tests run over the repair before the next
+    // review. At the limit the user takes the wheel, and their "look again" re-enters
+    // right here — another focused round on the repaired diff, no detour.
+    for (;;) {
+        const nextRound = round + 1;
+        const reviewMode = nextRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
+        const review = await runReviewerRound(
+            args,
+            context,
+            { ...state, semanticRound: nextRound, reviewLedger: ledger },
+            reviewMode,
+            diffText,
+        );
+        if (review.kind === "paused") return review.result;
+        if (review.kind === "failed") {
+            await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", review.reason);
+            return {
+                kind: "failed",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: review.reason,
+            };
+        }
 
-    if (review.outcome.approved) {
+        if (review.outcome.approved) {
+            await recordMetric(args, context.projectRoot, {
+                category: "validation",
+                event: "semantic_review_result",
+                planName: args.planName,
+                details: {
+                    semanticRound: nextRound,
+                    reviewMode,
+                    approved: true,
+                    hasDiff: true,
+                    approvedByRoundTwo: nextRound <= 2,
+                    resolvedThisRound: review.resolvedCount,
+                    advisoryCount: review.outcome.advisories.length,
+                },
+            });
+            emitStatus(args.hostedSession, `Semantic Code Review Approved (round ${nextRound}).`, "success");
+            await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: "Semantic Code Review passed.",
+            };
+        }
+
+        const openCount = openItems(review.ledger).length;
         await recordMetric(args, context.projectRoot, {
             category: "validation",
             event: "semantic_review_result",
@@ -429,96 +567,107 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
             details: {
                 semanticRound: nextRound,
                 reviewMode,
-                approved: true,
-                hasDiff: true,
-                approvedByRoundTwo: nextRound <= 2,
+                approved: false,
+                hasReviewerOutput: Boolean(review.outcome.feedback),
+                openFindingCount: openCount,
                 resolvedThisRound: review.resolvedCount,
+                appendedThisRound: review.appendedCount,
                 advisoryCount: review.outcome.advisories.length,
             },
         });
-        emitStatus(args.hostedSession, `Semantic Code Review Approved (round ${nextRound}).`, "success");
-        await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+
+        const repair = await dispatchReviewFeedbackRepair(args, context, {
+            diffText,
+            findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
+            repairKind: "semantic",
+            reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+            activeWorkflow: {
+                semanticRound: nextRound,
+                reviewLedger: review.ledger,
+                repairBaselineTree: state.repairBaselineTree || context.baselineTree || "",
+            },
+        });
+        if (!repair.completed) {
+            const reason = repair.reason ||
+                "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
+            await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
+            return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+        }
+
+        // Asked after the repair and after the tests run over it, not before: the
+        // choice is about the repaired code, and the user needs to know whether it
+        // still builds before deciding to ship it or look at it themselves. Running
+        // the tests here is also what keeps a repair from reaching publication
+        // unbuilt, now that a Retry re-enters at the reviewer rather than going back
+        // around through the mechanical phase.
+        if (nextRound >= AUTOMATIC_ROUNDS) {
+            const runLocalCIImpl = args.__deps?.runLocalCI || runLocalCI;
+            emitStatus(args.hostedSession, `Running CI Validation in ${context.executionCwd}.`);
+            const ciResult = await runLocalCIImpl({
+                hostedSession: args.hostedSession,
+                cwd: context.executionCwd,
+            });
+            const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
+            emitStatus(
+                args.hostedSession,
+                testsPass ? "Build and tests passed." : "Build and tests are failing after the repair.",
+                testsPass ? "success" : "warning",
+            );
+            const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
+            if (action === "code_review") {
+                await persistHumanReviewMetadata(args, context.projectRoot, {
+                    humanReviewMode: "always",
+                    humanReviewDecision: null,
+                    humanReviewedAt: null,
+                });
+                await recordLifecycleEvent(
+                    args,
+                    context.projectRoot,
+                    "semantic_review_passed",
+                    "validated_ci",
+                    undefined,
+                    { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+                );
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                };
+            }
+            if (action === "stop") {
+                // Nothing is recorded, so the Plan stays at `validated_ci` with its
+                // passing tests and its open findings intact. Running it again reopens
+                // the review exactly here rather than starting the pipeline over.
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ${
+                        testsPass ? "The tests still pass and the findings are saved." : "The tests are failing too."
+                    } Run this Plan again when you want to pick it back up.`,
+                };
+            }
+            round = nextRound;
+            ledger = review.ledger;
+            diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
+            continue;
+        }
+
+        await recordLifecycleEvent(
+            args,
+            context.projectRoot,
+            "semantic_review_feedback",
+            "validated_ci",
+            review.outcome.feedback || "Semantic Code Review requested changes.",
+        );
         return {
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review passed.",
+            reason: "Semantic Code Review requested changes; repair dispatched.",
         };
     }
-
-    const openCount = openItems(review.ledger).length;
-    await recordMetric(args, context.projectRoot, {
-        category: "validation",
-        event: "semantic_review_result",
-        planName: args.planName,
-        details: {
-            semanticRound: nextRound,
-            reviewMode,
-            approved: false,
-            hasReviewerOutput: Boolean(review.outcome.feedback),
-            openFindingCount: openCount,
-            resolvedThisRound: review.resolvedCount,
-            appendedThisRound: review.appendedCount,
-            advisoryCount: review.outcome.advisories.length,
-        },
-    });
-
-    if (nextRound >= AUTOMATIC_ROUNDS) {
-        const action = await promptForSemanticRoundLimit(args, nextRound, openCount);
-        if (action === "code_review") {
-            await persistHumanReviewMetadata(args, context.projectRoot, {
-                humanReviewMode: "always",
-                humanReviewDecision: null,
-                humanReviewedAt: null,
-            });
-            await recordLifecycleEvent(
-                args,
-                context.projectRoot,
-                "semantic_review_passed",
-                "validated_ci",
-                undefined,
-                { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
-            );
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: context.projectRoot,
-                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
-            };
-        }
-    }
-
-    const repair = await dispatchReviewFeedbackRepair(args, context, {
-        diffText,
-        findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
-        repairKind: "semantic",
-        reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
-        activeWorkflow: {
-            semanticRound: nextRound,
-            reviewLedger: review.ledger,
-            repairBaselineTree: state.repairBaselineTree || context.baselineTree || "",
-        },
-    });
-    if (!repair.completed) {
-        const reason = repair.reason ||
-            "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
-        await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
-        return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
-    }
-
-    await recordLifecycleEvent(
-        args,
-        context.projectRoot,
-        "semantic_review_feedback",
-        "validated_ci",
-        review.outcome.feedback || "Semantic Code Review requested changes.",
-    );
-    return {
-        kind: "paused",
-        planName: args.planName,
-        projectRoot: context.projectRoot,
-        reason: "Semantic Code Review requested changes; repair dispatched.",
-    };
 }
 
 async function runValidatedReviewerPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
@@ -550,7 +699,9 @@ async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseConte
         };
     }
 
-    if (mode === "ask") {
+    // Asked once, not once per round. Someone who has already written feedback on this
+    // diff does not need to be asked whether they want to see it again.
+    if (mode === "ask" && args.triageMeta.humanReviewDecision !== "changes_requested") {
         const response = await requestInteraction(args, {
             type: RuntimeInteractionTypes.SELECT,
             prompt: "Semantic review passed. Open code review before merge-back?",
@@ -583,70 +734,109 @@ async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseConte
         score: 0,
         stats: {},
     };
-    emitStatus(args.hostedSession, "Waiting for User Code Review...", "info");
-    const humanReviewResponse = await requestInteraction(args, {
-        type: RuntimeInteractionTypes.CODE_REVIEW,
-        prompt: `Review implementation diff for "${args.planName}"`,
-        _meta: {
-            planName: args.planName,
-            planContent: args.planContent,
-            planAttrs,
-            diffText,
-            executionCwd: context.executionCwd,
-            guidedReview,
-        },
-    });
-    const humanReview = normalizeHumanReview(humanReviewResponse);
-    if (humanReview.approved) {
-        await persistHumanReviewMetadata(args, context.projectRoot, {
-            humanReviewMode: mode,
-            humanReviewDecision: "approved",
-            humanReviewedAt: new Date().toISOString(),
-        });
-        emitStatus(args.hostedSession, "User Code Review Approved.", "success");
+    for (;;) {
+        emitStatus(args.hostedSession, "Waiting for User Code Review...", "info");
+        const outcome = await requestHumanReviewDecision();
+        if (outcome.kind === "decided") return outcome.result;
+        // The review window closed with no answer in it. That is not a rejection, so
+        // it must not throw the work back to the start — ask what the user meant.
+        // Retry opens the same review again; Stop leaves the Plan ready to publish
+        // whenever they come back, with the review still outstanding.
+        if (await pauseForUserAction(args, outcome.pause) === "retry") continue;
         return {
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Local Human Code Review approved.",
+            reason:
+                `${outcome.pause.whatHappened} Run this Plan again when you are ready and RunWield will pick up at the review.`,
         };
     }
-    if (humanReview.feedback || humanReview.annotations.length || humanReview.images.length) {
-        const annotationText = formatCodeReviewAnnotations(humanReview.annotations);
-        const feedbackText = [
-            humanReview.feedback || "(no free-text feedback provided)",
-            annotationText ? `Annotations:\n${annotationText}` : "",
-        ].filter(Boolean).join("\n\n");
-        const repair = await dispatchReviewFeedbackRepair(args, context, {
-            diffText,
-            findingsSection: feedbackText,
-            repairKind: "human_feedback",
-            images: humanReview.images,
-            reason:
-                `User code review returned feedback. Dispatching repair...\nUser Code Review Feedback:\n${feedbackText}`,
-        });
-        if (repair.completed) {
-            await recordLifecycleEvent(
-                args,
-                context.projectRoot,
-                "validation_failed",
-                "validated_reviewer",
-                feedbackText,
-            );
-            return {
-                kind: "paused",
+
+    async function requestHumanReviewDecision(): Promise<
+        { kind: "decided"; result: ValidationPhaseResult } | { kind: "no_answer"; pause: UserActionPause }
+    > {
+        const humanReviewResponse = await requestInteraction(args, {
+            type: RuntimeInteractionTypes.CODE_REVIEW,
+            prompt: `Review implementation diff for "${args.planName}"`,
+            _meta: {
                 planName: args.planName,
-                projectRoot: context.projectRoot,
-                reason: "Human review feedback repair dispatched.",
+                planContent: args.planContent,
+                planAttrs,
+                diffText,
+                executionCwd: context.executionCwd,
+                guidedReview,
+            },
+        });
+        const humanReview = normalizeHumanReview(humanReviewResponse);
+        if (humanReview.approved) {
+            await persistHumanReviewMetadata(args, context.projectRoot, {
+                humanReviewMode: mode,
+                humanReviewDecision: "approved",
+                humanReviewedAt: new Date().toISOString(),
+            });
+            emitStatus(args.hostedSession, "User Code Review Approved.", "success");
+            return {
+                kind: "decided",
+                result: {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: "Local Human Code Review approved.",
+                },
             };
         }
-    }
+        if (humanReview.feedback || humanReview.annotations.length || humanReview.images.length) {
+            const annotationText = formatCodeReviewAnnotations(humanReview.annotations);
+            const feedbackText = [
+                humanReview.feedback || "(no free-text feedback provided)",
+                annotationText ? `Annotations:\n${annotationText}` : "",
+            ].filter(Boolean).join("\n\n");
+            const repair = await dispatchReviewFeedbackRepair(args, context, {
+                diffText,
+                findingsSection: feedbackText,
+                repairKind: "human_feedback",
+                images: humanReview.images,
+                reason:
+                    `User code review returned feedback. Dispatching repair...\nUser Code Review Feedback:\n${feedbackText}`,
+            });
+            if (repair.completed) {
+                // The user owns this review from here. Recorded before the status
+                // moves, so the phase that picks the Plan up next can see it and hand
+                // the diff straight back rather than starting another sweep.
+                await persistHumanReviewMetadata(args, context.projectRoot, {
+                    humanReviewMode: mode,
+                    humanReviewDecision: "changes_requested",
+                    humanReviewedAt: null,
+                });
+                await recordLifecycleEvent(
+                    args,
+                    context.projectRoot,
+                    "validation_failed",
+                    "validated_reviewer",
+                    feedbackText,
+                );
+                return {
+                    kind: "decided",
+                    result: {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: context.projectRoot,
+                        reason: "Human review feedback repair dispatched.",
+                    },
+                };
+            }
+        }
 
-    const reason = humanReview.canceled
-        ? "User code review canceled."
-        : "User code review exited without approval or feedback.";
-    await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_reviewer", reason);
-    return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+        return {
+            kind: "no_answer",
+            pause: {
+                whatHappened: humanReview.canceled
+                    ? `You closed the code review for "${args.planName}" without approving it or leaving notes.`
+                    : `The code review for "${args.planName}" ended without an approval or any notes.`,
+                doThis: "Pick Retry to open it again, or Stop to come back to it later. Nothing has been thrown away.",
+            },
+        };
+    }
 }
 
 async function runPublicationPhase(
@@ -681,20 +871,83 @@ async function runPublicationPhase(
     const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(context.projectRoot);
     const gitPort = args.git || createGitPort();
     const planPath = `plans/${args.planName}.md`;
+    // Held for this call only, deliberately. When a merge conflict is repaired in a
+    // detached merge worktree, publishing means finishing *that* tree — starting a
+    // fresh merge walks straight back into the same conflict. Completion is the goal,
+    // not durability: the retry happens right here, a few lines down, so the path has
+    // nowhere to get lost between the repair and the publish.
+    let repairMergeWorktreePath: string | undefined;
+    let agentRepairs = 0;
+    // Captured once, as plain strings: the guards above narrowed both, but TypeScript
+    // drops that narrowing inside the hoisted helpers below.
+    const targetBranch: string = worktreeBaseBranch;
+    const executionBranch: string = context.worktreeBranch;
 
-    try {
+    for (;;) {
+        const attempt = await attemptPublication();
+        if (attempt.kind === "published") return attempt.outcome;
+
+        const { error, reason } = attempt;
+        // Publication may have already succeeded. The merge is irreversible, so an
+        // error after the target ref moved is bookkeeping noise over finished work —
+        // finish rather than dispatching an Agent to repair a conflict that is gone.
+        if (await isPlanAlreadyPublished(context.projectRoot, args.planName)) {
+            await runPostVerificationHandoffs(args, context.projectRoot);
+            return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
+        }
+        repairMergeWorktreePath = getMergeWorktreePath(error) || repairMergeWorktreePath;
+        const failureKind = getMergeFailureKind(error);
+
+        // A merge conflict is normal and fixable, so try the Agent first and retry
+        // publication in the same call — the user should not be asked about something
+        // RunWield can resolve. Uncommitted work in the project folder is the
+        // exception: only the user can decide what happens to it.
+        if (failureKind !== "primary_checkout_dirty" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
+            agentRepairs += 1;
+            if (await dispatchMergeRepair(args, context, reason, error)) continue;
+        }
+
+        const pause = describeMergePause(args.planName, worktreeBaseBranch, error, reason, context);
+        if (await pauseForUserAction(args, pause) === "retry") continue;
+        return {
+            recorded: false,
+            result: {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                // The Plan stays at `validated_reviewer`: tests passed and the review
+                // approved, so publication is all that is left. Recording a merge
+                // failure would reset it to `implemented` and make the user sit through
+                // the whole pipeline again for a merge they can finish in a minute.
+                reason:
+                    `${pause.whatHappened} ${pause.doThis} Run this Plan again when you are ready and RunWield will pick up at the merge.`,
+            },
+        };
+    }
+
+    async function attemptPublication(): Promise<
+        { kind: "published"; outcome: PublicationOutcome } | { kind: "failed"; error: unknown; reason: string }
+    > {
+        try {
+            return { kind: "published", outcome: await publishOnce() };
+        } catch (error) {
+            return { kind: "failed", error, reason: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    async function publishOnce(): Promise<PublicationOutcome> {
         const checkpoint = await checkpointExecutionWorktree({
             worktreePath: context.executionCwd,
-            branch: context.worktreeBranch,
+            branch: executionBranch,
             planName: args.planName,
             planDescription: args.triageMeta?.summary,
         });
-        const targetHeadBeforeMerge = await gitPort.branchHead(context.projectRoot, worktreeBaseBranch);
+        const targetHeadBeforeMerge = await gitPort.branchHead(context.projectRoot, targetBranch);
         const deliveryEvidence: WorktreeDeliveryEvidence = {
             version: 1,
             mode: "worktree_merge",
             executionCommit: checkpoint.executionCommit,
-            targetBranch: worktreeBaseBranch,
+            targetBranch,
             targetHeadBeforeMerge,
         };
         const staging = await stageValidationPassedInExecutionWorktree({
@@ -719,9 +972,6 @@ async function runPublicationPhase(
         // recovery cannot tell "never merged" from "merged, bookkeeping behind", and
         // the failure path below would report a merge failure for work already on the
         // target branch.
-        // Captured before the closure: the guard above narrowed this, but TypeScript
-        // cannot carry that narrowing into a callback that may run later.
-        const worktreeBranch = context.worktreeBranch;
         const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
             .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
         const publication = await runDirectDeliveryPublicationTransition({
@@ -733,20 +983,49 @@ async function runPublicationPhase(
             parentPlan: hierarchy.parentPlan,
             siblingPlanNames: hierarchy.siblingPlans.map((sibling) => sibling.name),
             publicationProof: { deliveryEvidence, cleanupMergedWorktrees, phase: "stage_merge_settle" },
-            publish: async ({ markEffect }) => {
+            publish: async ({ markEffect, registerRollback }) => {
+                // Git refuses to merge over untracked or modified files in the primary
+                // checkout, and the Plan file is always one of those: the planner wrote
+                // it here, and the worktree is about to bring its own copy. Snapshot
+                // and lift each preserved Plan path out of the way first, then let the
+                // merge deliver the staged version. Without this every publication ends
+                // in "please move or remove them before you merge".
+                const primaryPlanSnapshots: Awaited<ReturnType<typeof preparePrimaryPlanPathForMerge>>[] = [];
+                for (const relativePath of staging.planPaths) {
+                    primaryPlanSnapshots.push(
+                        await preparePrimaryPlanPathForMerge({
+                            projectRoot: context.projectRoot,
+                            relativePath,
+                        }),
+                    );
+                }
+                if (primaryPlanSnapshots.length > 0) {
+                    registerRollback("restore_primary_plan_snapshots", async () => {
+                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                        }
+                    });
+                }
                 await markEffect("direct_delivery_publication_started", {
                     planName: args.planName,
                     worktreeId: context.worktreeId,
-                    worktreeBranch: worktreeBranch,
+                    worktreeBranch: executionBranch,
                     targetBranch: worktreeBaseBranch,
                     expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
                     sealedExecutionCommit: deliveryEvidence.executionCommit,
                     preservedPlanPaths: staging.planPaths,
                 });
+                // Say what is about to happen to the user's branch. The merge is the
+                // one irreversible act in the system, and publication had gone silent
+                // about it: the branch moved with nothing in the transcript saying so.
+                emitStatus(
+                    args.hostedSession,
+                    `Merging validated worktree branch ${executionBranch} into target branch ${targetBranch}.`,
+                );
                 const mergeResult = await mergeExecutionWorktree({
                     projectRoot: context.projectRoot,
-                    branch: worktreeBranch,
-                    targetBranch: worktreeBaseBranch,
+                    branch: executionBranch,
+                    targetBranch,
                     worktreePath: context.executionCwd,
                     expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
                     planName: args.planName,
@@ -754,11 +1033,15 @@ async function runPublicationPhase(
                     sealedExecutionCommit: deliveryEvidence.executionCommit,
                     allowedDirtyPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
                     preservePlanPaths: staging.planPaths,
+                    // Set only after a conflict was repaired in a detached merge
+                    // worktree. Publishing that tree is what finishes the repair;
+                    // merging again from scratch would recreate the same conflict.
+                    repairMergeWorktreePath,
                 });
                 await markEffect("direct_delivery_target_ref_moved", {
                     planName: args.planName,
                     worktreeId: context.worktreeId,
-                    worktreeBranch: worktreeBranch,
+                    worktreeBranch: executionBranch,
                     targetBranch: worktreeBaseBranch,
                     updatedPrimaryCheckout: mergeResult?.updatedPrimaryCheckout,
                     executionMetadataCommit: mergeResult?.executionMetadataCommit,
@@ -767,7 +1050,7 @@ async function runPublicationPhase(
                 });
                 const mergeVerification = await verifyPostMergeCandidatePublished({
                     projectRoot: context.projectRoot,
-                    worktreeBranch: worktreeBranch,
+                    worktreeBranch: executionBranch,
                     worktreeBaseBranch,
                     git: gitPort,
                     executionCommit: deliveryEvidence.executionCommit,
@@ -793,7 +1076,14 @@ async function runPublicationPhase(
             if (publication.cause !== undefined) throw publication.cause;
             throw new Error(publication.message || `Direct Delivery publication did not commit for ${args.planName}.`);
         }
-        await recordLifecycleEvent(args, context.projectRoot, "validation_passed", "validated_reviewer", undefined, {
+        // `validation_passed` was already recorded — in the execution worktree, by
+        // `stageValidationPassedInExecutionWorktree`, before the merge ran. The merge
+        // is what delivers it, along with the parent Epic and sibling Plans that the
+        // same staging advanced. Recording it a second time here fails its own
+        // compare-and-set ("caller saw validated_reviewer, canonical status is
+        // verified") and the failure path then reported a merge conflict for a merge
+        // that had just succeeded. Confirm the merge landed instead of re-recording.
+        await confirmPublishedPlanVerified(args, context, {
             executionMode: "worktree",
             deliveryEvidence,
             worktreeStatus: "merged",
@@ -802,63 +1092,6 @@ async function runPublicationPhase(
         });
         await runPostVerificationHandoffs(args, context.projectRoot);
         return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
-    } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        // Bookkeeping must never cancel the recovery. The most common merge failure
-        // leaves conflict markers in the Plan file, which makes this record impossible
-        // — the Plan can no longer be parsed — and that is exactly the moment the
-        // repair is most needed. Recording used to run first and throw, so the repair
-        // dispatch below was unreachable in its main case: RunWield would attempt the
-        // merge, fail, and go quiet.
-        // Repair first, and only record a failure if the repair did not land. A merge
-        // conflict is a normal, fixable event: the Engineer resolves it and publication
-        // retries. Recording `worktree_merge_failed` sends the Plan back to
-        // `implemented`, which throws away the passed CI and approved review and makes
-        // the user sit through the whole pipeline again for a conflict that was already
-        // fixed. Leaving the Plan at `validated_reviewer` lets the next call retry
-        // publication directly — the behavior before validation became phase-driven.
-        const repaired = await dispatchMergeRepair(args, context, reason, error);
-        if (repaired) {
-            return {
-                recorded: false,
-                result: {
-                    kind: "paused",
-                    planName: args.planName,
-                    projectRoot: context.projectRoot,
-                    reason: `Merge conflict repaired for ${args.planName}. Publication will retry.`,
-                },
-            };
-        }
-        // The repair did not finish, so the Plan must not be left mid-publication.
-        let unsettledNote = "";
-        try {
-            await recordLifecycleEvent(
-                args,
-                context.projectRoot,
-                "worktree_merge_failed",
-                "validated_reviewer",
-                reason,
-                {
-                    worktreeId: context.worktreeId,
-                    worktreePath: context.executionCwd,
-                    worktreeBranch: context.worktreeBranch,
-                    worktreeBaseBranch,
-                },
-            );
-        } catch (recordError) {
-            unsettledNote = `RunWield could not record the merge failure: ${
-                recordError instanceof Error ? recordError.message : String(recordError)
-            } The Plan's own status may be behind until that is resolved.`;
-        }
-        return {
-            recorded: true,
-            result: {
-                kind: "failed",
-                planName: args.planName,
-                projectRoot: context.projectRoot,
-                reason: appendUnsettledNote(`Worktree merge failed: ${reason}`, unsettledNote),
-            },
-        };
     }
 }
 
@@ -877,6 +1110,15 @@ async function resolvePhaseContext(
         activeWorkflow,
     });
     if (resolution.kind === "blocked") {
+        // Say it out loud. This path used to record the failure and return, emitting
+        // nothing: the workflow ended mid-run with no message, which is the exact
+        // shape of a strand — the user watches an Agent finish and then nothing
+        // happens, ever.
+        emitStatus(
+            args.hostedSession,
+            `RunWield cannot continue validating ${args.planName}: ${resolution.message}`,
+            "error",
+        );
         await recordLifecycleEvent(
             args,
             projectRoot,
@@ -956,7 +1198,19 @@ async function runReviewerRound(
     let inspectedDiff = false;
     let latestOutcome: ReviewOutcome | null = null;
 
-    for (let attempt = 1; attempt <= 3 && !latestOutcome; attempt++) {
+    for (let attempt = 1; !latestOutcome; attempt++) {
+        if (attempt > 3) {
+            // Out of nudges. The round is recoverable — the findings are preserved and
+            // the reviewer starts fresh — so offer that rather than ending here.
+            const pause: UserActionPause = {
+                whatHappened: `The reviewer could not finish looking at "${args.planName}". ${lastReviewerFailure}`,
+                doThis:
+                    "Pick Retry to have it try again from the same findings, or Stop to come back to this later. If its context is full, run /compact first.",
+            };
+            if (await pauseForUserAction(args, pause) === "stop") break;
+            attempt = 1;
+            nudgeReason = undefined;
+        }
         if (attempt > 1) {
             emitStatus(
                 args.hostedSession,
@@ -1008,7 +1262,7 @@ async function runReviewerRound(
 
     if (!latestOutcome) {
         const reason =
-            `${lastReviewerFailure} Review round ${state.semanticRound} did not finish after 3 attempts. Nudge the Reviewer to finish, or run /compact first if its context is full. Validation resumes this round from the preserved findings.`;
+            `The reviewer could not finish looking at "${args.planName}". ${lastReviewerFailure} Run this Plan again when you are ready — it picks up at this same round, with the findings so far kept.`;
         args.hostedSession.setActiveExecutionWorkflow?.({
             ...context.workflowBase,
             ...(args.hostedSession.getActiveExecutionWorkflow?.() || {}),
@@ -1194,6 +1448,118 @@ function getMergeRepairCwd(error: unknown): string | undefined {
     return undefined;
 }
 
+/** How many times an Agent may be sent at the same merge before the user is asked. */
+const MAX_AGENT_MERGE_REPAIRS = 2;
+
+/** What RunWield tells the user, and what it asks them to do about it. */
+type UserActionPause = {
+    /** One sentence, past tense: the thing that stopped. */
+    whatHappened: string;
+    /** One or two sentences, imperative: the user's move. */
+    doThis: string;
+    /** Optional paths or names the sentences refer to. */
+    details?: string[];
+};
+
+function getMergeFailureKind(error: unknown): string | undefined {
+    if (error && typeof error === "object" && "mergeFailureKind" in error) {
+        const kind = (error as { mergeFailureKind?: unknown }).mergeFailureKind;
+        return typeof kind === "string" ? kind : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * The merge worktree a repair happened in, so publication can finish that tree.
+ */
+function getMergeWorktreePath(error: unknown): string | undefined {
+    if (error && typeof error === "object" && "mergeWorktreePath" in error) {
+        const path = (error as { mergeWorktreePath?: unknown }).mergeWorktreePath;
+        return typeof path === "string" ? path : undefined;
+    }
+    return undefined;
+}
+
+function getBlockingPaths(error: unknown): string[] {
+    if (error && typeof error === "object" && "blockingPaths" in error) {
+        const paths = (error as { blockingPaths?: unknown }).blockingPaths;
+        if (Array.isArray(paths)) return paths.filter((path): path is string => typeof path === "string");
+    }
+    return [];
+}
+
+/**
+ * Turn a merge failure into something a person can act on.
+ *
+ * Written for someone who has never seen RunWield's internals: no status names, no
+ * transition vocabulary, no worktree ids. Say what stopped, then say the one thing
+ * they should do about it.
+ */
+function describeMergePause(
+    planName: string,
+    targetBranch: string,
+    error: unknown,
+    reason: string,
+    context: PhaseContext,
+): UserActionPause {
+    const kind = getMergeFailureKind(error);
+    if (kind === "primary_checkout_dirty") {
+        return {
+            whatHappened:
+                `RunWield finished "${planName}" but could not add it to your ${targetBranch} branch, because your project folder has changes you have not saved to git yet — in the same files this work changes. Merging now would wipe them out.`,
+            doThis:
+                "Commit, stash, or delete these files, then pick Retry. Nothing was lost, and the finished work is waiting.",
+            details: getBlockingPaths(error),
+        };
+    }
+    if (kind === "target_checked_out") {
+        return {
+            whatHappened:
+                `RunWield finished "${planName}" but could not add it to your ${targetBranch} branch, because that branch is checked out somewhere else.`,
+            doThis: `Switch that other checkout off ${targetBranch}, then pick Retry.`,
+        };
+    }
+    const repairCwd = getMergeRepairCwd(error) || context.executionCwd;
+    if (kind === "detached_merge_conflict" || kind === "current_checkout_merge_conflict") {
+        return {
+            whatHappened:
+                `RunWield could not combine "${planName}" with your ${targetBranch} branch: the same lines changed in both places, and the agent could not settle it.`,
+            doThis:
+                `Open ${repairCwd}, fix the files git marked as conflicted, run "git add" on each one, then pick Retry.`,
+        };
+    }
+    return {
+        whatHappened: `RunWield could not add "${planName}" to your ${targetBranch} branch. Git said: ${reason}`,
+        doThis: `Fix that in ${repairCwd}, then pick Retry.`,
+    };
+}
+
+/**
+ * Pause for a decision only the user can make, and offer exactly two ways out.
+ *
+ * RunWield does not halt. When it runs out of moves it says what happened in plain
+ * words, says what the user should do, and waits — Retry runs the same thing again,
+ * Stop leaves the work at its last safe point. A failed Retry lands right back here
+ * with the same two choices, so there is never a dead end.
+ *
+ * A session that cannot prompt (headless, scripted, cancelled) reads as Stop, which
+ * is the safe answer: it never loops unattended and never guesses on the user's
+ * behalf.
+ */
+async function pauseForUserAction(args: ValidationLoopArgs, pause: UserActionPause): Promise<"retry" | "stop"> {
+    const detailLines = pause.details?.length ? `\n\n${pause.details.map((detail) => `  ${detail}`).join("\n")}` : "";
+    emitStatus(args.hostedSession, `${pause.whatHappened}${detailLines}\n\n${pause.doThis}`, "warning");
+    const response = await requestInteraction(args, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: `${pause.whatHappened}${detailLines}\n\n${pause.doThis}`,
+        options: [
+            { value: "retry", label: "Retry" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "retry" ? "retry" : "stop";
+}
+
 /** @returns whether the repair agent reported completion. */
 async function dispatchMergeRepair(
     args: ValidationLoopArgs,
@@ -1221,21 +1587,37 @@ async function dispatchMergeRepair(
     return readLatestTaskCompletedReport(messages).completed;
 }
 
+/**
+ * The decision when the automatic review rounds are spent.
+ *
+ * Three ways forward, and every one of them is a way forward: another focused round,
+ * hand it to a person, or stop somewhere it can be picked up again. Stop used to be
+ * missing here on the grounds that stopping strands the work — but the Plan keeps its
+ * passing tests and its review findings, so returning resumes at the review rather
+ * than the beginning. A menu with no exit is not the same thing as never stranding
+ * someone.
+ */
 async function promptForSemanticRoundLimit(
     args: ValidationLoopArgs,
     semanticRound: number,
     openFindingCount: number,
-): Promise<"continue" | "code_review"> {
+    testsPass: boolean,
+): Promise<"continue" | "code_review" | "stop"> {
     const response = await requestInteraction(args, {
         type: RuntimeInteractionTypes.SELECT,
         prompt:
-            `Semantic Code Review has not approved after ${semanticRound} rounds. ${openFindingCount} finding(s) have not been verified. Continue another semantic round or open Local Human Code Review?`,
+            `The reviewer has looked at "${args.planName}" ${semanticRound} times and still is not happy with it. ${openFindingCount} thing(s) are still open, and the latest fix ${
+                testsPass ? "builds and passes the tests" : "does not pass the tests"
+            }.\n\nYou can have the reviewer take another look at just those, read the changes yourself, or leave it here for now — nothing is lost either way.`,
         options: [
-            { value: "continue", label: "Continue Semantic Code Review" },
-            { value: "code_review", label: "Open Local Human Code Review" },
+            { value: "continue", label: "Have the reviewer look again" },
+            { value: "code_review", label: "Let me read the changes" },
+            { value: "stop", label: "Stop" },
         ],
     });
-    return response.outcome === "selected" && response.value === "code_review" ? "code_review" : "continue";
+    if (response.outcome !== "selected") return "stop";
+    if (response.value === "code_review") return "code_review";
+    return response.value === "continue" ? "continue" : "stop";
 }
 
 async function recordLifecycleEvent(
@@ -1253,6 +1635,47 @@ async function recordLifecycleEvent(
         currentStatus,
         details: { triageMeta: args.triageMeta, failureReason, ...extraDetails },
     });
+}
+
+/**
+ * Confirm the merge delivered the verified Plan, and finish the job if it did not.
+ *
+ * Publication stages `validation_passed` in the execution worktree and lets the merge
+ * carry it into the primary checkout, so by the time the merge commits the canonical
+ * Plan should already read `verified`. If it does not — the Plan file was excluded
+ * from the merge, or an older attempt left the checkout behind — record the event
+ * here rather than returning a "verified" result over a Plan still sitting in
+ * validation. Publication succeeded either way; this only settles the bookkeeping.
+ */
+async function confirmPublishedPlanVerified(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    details: Partial<RecordPlanEventArgs["details"]>,
+): Promise<void> {
+    const status = (await loadPlan(context.projectRoot, args.planName))?.attrs.status;
+    if (status === "verified" || status === "user_verified") return;
+    if (!status || !VALIDATION_PLAN_STATUSES.includes(status as PlanStatus)) return;
+    await recordLifecycleEvent(
+        args,
+        context.projectRoot,
+        "validation_passed",
+        status as PlanEventStatus,
+        undefined,
+        details,
+    );
+}
+
+/**
+ * True when the Plan is already published, whatever the error says.
+ *
+ * A merge that moved the target branch cannot be un-moved, so an error raised after
+ * that point describes bookkeeping, not lost work. Dispatching a conflict repair for
+ * it sends an Agent to fix a conflict that does not exist and leaves the user
+ * watching a finished Plan get re-run.
+ */
+async function isPlanAlreadyPublished(projectRoot: string, planName: string): Promise<boolean> {
+    const status = await loadPlan(projectRoot, planName).then((plan) => plan?.attrs.status).catch(() => undefined);
+    return status === "verified" || status === "user_verified";
 }
 
 async function persistHumanReviewMetadata(

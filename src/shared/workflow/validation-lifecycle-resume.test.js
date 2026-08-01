@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { runValidationLoop } from "./validation.ts";
+import { runValidationPhase } from "./validation.ts";
 import { makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 /** @param {string} projectRoot */
@@ -16,7 +16,7 @@ Deno.test("validated_ci resumes at semantic review without rerunning CI", async 
     const projectRoot = await makeValidationProjectRoot("demo", { status: "validated_ci" });
     try {
         let ciCalls = 0;
-        const result = await runValidationLoop({
+        const result = await runValidationPhase({
             planName: "demo",
             planContent: "---\nstatus: implemented\nclassification: FEATURE\n---\n# Demo\n",
             triageMeta: { classification: "FEATURE" },
@@ -55,7 +55,7 @@ Deno.test("validated_reviewer with no human decision runs only the human review 
     });
     try {
         let ciCalls = 0;
-        const result = await runValidationLoop({
+        const result = await runValidationPhase({
             planName: "demo",
             planContent:
                 "---\nstatus: validated_reviewer\nhumanReviewDecision: null\nclassification: FEATURE\n---\n# Demo\n",

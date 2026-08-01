@@ -890,7 +890,13 @@ async function runComposedTuiScenario(scenario, options) {
                     const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
                     const editorUsable = snapshot?.busy === false;
                     state.editorUsable = editorUsable;
+                    // The Plan's own status, captured before cleanup. Without it a
+                    // stalled workflow leaves no way to tell which phase it died in.
+                    const planStatus = await Deno.readTextFile(`${Deno.cwd()}/plans/plan.md`)
+                        .then((text) => (text.match(/^status:\s*"?([a-z_]+)"?/m) || [])[1] || "")
+                        .catch(() => "");
                     state.workflowDurability = {
+                        planStatus,
                         goldenFileExists,
                         registryEntries,
                         branch,
@@ -929,8 +935,12 @@ async function runComposedTuiScenario(scenario, options) {
                         );
                     }
                     const statusLines = status.split("\n").filter(Boolean);
+                    // The Work Record the post-verification handoff writes under docs/ is
+                    // a real product output, not leftover mess: it is generated after the
+                    // Plan verifies and is the user's to keep or discard.
                     const unexpectedStatus = statusLines.filter((line) =>
-                        !line.endsWith("plans/plan.md") && !line.endsWith(".wld/worktrees.json")
+                        !line.endsWith("plans/plan.md") && !line.endsWith(".wld/worktrees.json") &&
+                        !line.endsWith("docs/") && !line.includes("docs/work-records/")
                     );
                     if (unexpectedStatus.length) {
                         throw new Error(`Unexpected post-delivery Git status entries: ${unexpectedStatus.join("; ")}`);

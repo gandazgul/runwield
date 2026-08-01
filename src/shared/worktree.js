@@ -667,12 +667,12 @@ export async function getWorktreeStatus({ path, branch, baseTree }) {
 }
 
 /**
- * @typedef {Error & { repairCwd?: string, mergeWorktreePath?: string, mergeFailureKind?: string }} MergeRepairError
+ * @typedef {Error & { repairCwd?: string, mergeWorktreePath?: string, mergeFailureKind?: string, blockingPaths?: string[] }} MergeRepairError
  */
 
 /**
  * @param {unknown} error
- * @param {{ repairCwd?: string, mergeWorktreePath?: string, mergeFailureKind?: string }} details
+ * @param {{ repairCwd?: string, mergeWorktreePath?: string, mergeFailureKind?: string, blockingPaths?: string[] }} details
  * @returns {MergeRepairError}
  */
 function attachMergeRepairDetails(error, details) {
@@ -680,6 +680,7 @@ function attachMergeRepairDetails(error, details) {
     if (details.repairCwd) mergeError.repairCwd = details.repairCwd;
     if (details.mergeWorktreePath) mergeError.mergeWorktreePath = details.mergeWorktreePath;
     if (details.mergeFailureKind) mergeError.mergeFailureKind = details.mergeFailureKind;
+    if (details.blockingPaths?.length) mergeError.blockingPaths = details.blockingPaths;
     return mergeError;
 }
 
@@ -772,9 +773,16 @@ async function assertNoOverlappingDirtyPaths(cwd, branch, allowedDirtyPaths) {
         !isAllowedDirtyPath(path, allowed) && overlapsBranchChangedPath(path, branchChangedPaths)
     );
     if (blockingDirtyPaths.length > 0) {
-        throw new Error(
-            "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: " +
-                blockingDirtyPaths.join(", "),
+        // Not a conflict, and not something an Agent may fix: these are the user's own
+        // uncommitted edits, and the merge would overwrite them. Mark the failure as
+        // needing the user so callers ask rather than dispatching a repair that would
+        // have to throw the work away to succeed.
+        throw attachMergeRepairDetails(
+            new Error(
+                "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: " +
+                    blockingDirtyPaths.join(", "),
+            ),
+            { mergeFailureKind: "primary_checkout_dirty", blockingPaths: blockingDirtyPaths },
         );
     }
 }
@@ -816,9 +824,13 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             }
             return;
         }
+        // Keep a kind that was already decided. `primary_checkout_dirty` is raised from
+        // inside this try and is not a conflict; relabeling it here would send an Agent
+        // to resolve conflict markers that do not exist.
+        const alreadyClassified = /** @type {MergeRepairError} */ (error)?.mergeFailureKind;
         throw attachMergeRepairDetails(error, {
             repairCwd: projectRoot,
-            mergeFailureKind: "current_checkout_merge_conflict",
+            mergeFailureKind: alreadyClassified || "current_checkout_merge_conflict",
         });
     }
 }

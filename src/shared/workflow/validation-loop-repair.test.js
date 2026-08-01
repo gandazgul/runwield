@@ -3,7 +3,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
-import { runValidationLoop } from "./validation.ts";
+import { runValidationLoop, runValidationPhase } from "./validation.ts";
 import {
     attachRecorder,
     makeUi,
@@ -83,7 +83,7 @@ async function makeImplementedRun(attrs = {}) {
 Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
     const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun();
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -109,7 +109,7 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         executionAgent: "frontend-engineer",
     });
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -128,13 +128,13 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
     assertEquals(plan?.attrs.validationCiAttempts, 1);
 });
 
-Deno.test("runValidationLoop reads persisted CI attempts and fails the implemented phase without resetting through another local loop", async () => {
+Deno.test("runValidationLoop offers a way out when the repair rounds for CI are spent", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "implemented",
         validationCiAttempts: 2,
     });
-    const { hostedSession } = makeValidationUi();
+    const { hostedSession, uiAPI } = makeValidationUi();
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
@@ -156,8 +156,90 @@ Deno.test("runValidationLoop reads persisted CI attempts and fails the implement
     });
 
     const plan = await loadPlan(projectRoot, "p");
+    // The user is asked before RunWield gives up, and told what would help.
+    assertEquals(uiAPI.promptSelections.length, 1);
     assertEquals(result.kind, "failed");
-    assertStringIncludes(result.reason || "", "after 3 repair attempts");
+    assertStringIncludes(result.reason || "", "still failing");
+    assertStringIncludes(result.reason || "", "pick Retry");
     assertEquals(plan?.attrs.status, "implemented");
+    // Cleared, so the Retry the message promises actually gets rounds to spend.
     assertEquals(plan?.attrs.validationCiAttempts, 0);
+});
+
+Deno.test("Retry after the CI rounds run out runs the tests again and carries on", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "QUICK_FIX",
+        status: "implemented",
+        validationCiAttempts: 2,
+    });
+    const { hostedSession, uiAPI } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    // The user fixes the tests, then picks Retry — exactly what the pause told them
+    // to do. RunWield must run them again in the same breath, not make the user
+    // start the whole Plan over.
+    let ciRuns = 0;
+    uiAPI.promptSelect = () => {
+        uiAPI.promptSelections.push("prompted");
+        return Promise.resolve("retry");
+    };
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => {
+                ciRuns += 1;
+                return Promise.resolve(
+                    ciRuns === 1
+                        ? { exitCode: 1, output: "type error", canceled: false }
+                        : { exitCode: 0, output: "ok", canceled: false },
+                );
+            },
+        }),
+    });
+
+    assertEquals(uiAPI.promptSelections.length, 1);
+    assertEquals(ciRuns, 2);
+    assertEquals(result.kind, "paused");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+});
+
+Deno.test("a stopped test run asks rather than reporting the work as broken", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", { classification: "QUICK_FIX", status: "implemented" });
+    const { hostedSession, uiAPI } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
+        }),
+    });
+
+    assertEquals(uiAPI.promptSelections.length, 1);
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "stopped before they finished");
+    // Nothing was learned, so nothing is recorded: the Plan stays where it was.
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });

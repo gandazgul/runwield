@@ -3,7 +3,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
-import { runValidationLoop, shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { runValidationLoop, runValidationPhase, shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
 import {
     attachRecorder,
@@ -203,7 +203,7 @@ Deno.test("runValidationLoop starts at implemented and records only the mechanic
     let ciCalls = 0;
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
