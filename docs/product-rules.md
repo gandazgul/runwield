@@ -84,3 +84,12 @@ reset lifecycle state. `createdAt` must be captured before the write: the atomic
 it is unrecoverable afterwards.
 
 Implemented as `onboardExternalPlan()` in `src/plan-store.js`, called from `/load-plan`.
+
+### PR-7 Workflows never halt
+
+The workflows in RunWield doesn't halt, it offers an immediate path to continue and simple retry option then it keeps
+going. This doeesnt mean it has to survive a process crash just end the workflow safely in one run through wothout
+halting or stopping or bothering the user with things it can't control, remember wld owns the machinery and the user
+owns the plan body and the decisions. When the user has something actionable to do, say so in plain language: this
+happened, you need to do X then comeback and hit retry, or stop (Always offer a way out that resets to the safest
+closest recoverable checkpoint).

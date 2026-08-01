@@ -344,6 +344,9 @@ enough for now.
 `humanReviewMode`: Human code review mode used for final validation: `none`, `ask`, or `always`.
 
 `humanReviewDecision`: Human code review outcome included in final validation: `not_required`, `skipped`, or `approved`.
+`changes_requested` is the one non-final value: the user read the diff and asked for changes. It makes the user the
+owner of this Plan's review, so the repair round runs the tests and hands the diff straight back to them instead of
+sweeping it with the Semantic Code Reviewer again.
 
 `humanReviewedAt`: Timestamp set when a human code review approved final validation.
 

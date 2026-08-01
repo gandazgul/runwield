@@ -384,3 +384,11 @@ effects, make sure this doesnt now break something downstream that required plan
 - [ ] Add Security Reviewer as optional planning/review gate for production-oriented FEATURE and PROJECT workflows.
 - [ ] Make security review mode-aware so prototypes and one-off builds can bypass it.
 - [ ] Investigate running restricted Agents' bash commands under a read-only OS user for stronger write barriers.
+
+- [ ] Plan human review ideas:
+
+  - Set plan on hold
+  - Send back to planner with a custom prompt, or just to review the plan to make adjustments, then re-run in the same
+    worktree
+  - open VS code in the work tree so the human can tweak the code directly
+  - go back to implementation engineer with a custom prompt
