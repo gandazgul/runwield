@@ -1,6 +1,117 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
+        "src/cmd/plans/doctor.ts": {
+            "seams": [
+                "parseArgs",
+                "runPlansDoctor"
+            ],
+            "machinery": []
+        },
+        "src/cmd/plans/pull.js": {
+            "seams": [
+                "assertCompatiblePullSecretRecord",
+                "createCollaborationClient",
+                "createPulledCollaborationPlan",
+                "cwd",
+                "decryptJsonPayload",
+                "ensureProjectSecretStoreIgnored",
+                "fetch",
+                "getGlobalSecretStorePath",
+                "getProjectSecretStorePath",
+                "hashPlanBody",
+                "importContentKey",
+                "listPlanResources",
+                "normalizePlanServerUrl",
+                "now",
+                "parseArgs",
+                "parseCollaborationUrl",
+                "putCompatibleSecretRecord",
+                "resolvePullSecretRecord",
+                "runPlanningAgent",
+                "startInteractiveSession",
+                "updatePlanCollaborationMetadata"
+            ],
+            "machinery": []
+        },
+        "src/cmd/plans/push.js": {
+            "seams": [
+                "buildCollaborationUrl",
+                "createCollaborationClient",
+                "cwd",
+                "encryptJsonPayload",
+                "fetch",
+                "getGlobalSecretStorePath",
+                "getProjectSecretStorePath",
+                "hashPlanBody",
+                "importContentKey",
+                "listPlanResources",
+                "normalizePlanServerUrl",
+                "now",
+                "parseArgs",
+                "resolvePullSecretRecord",
+                "updatePlanCollaborationMetadata"
+            ],
+            "machinery": []
+        },
+        "src/cmd/plans/ui.js": {
+            "seams": [
+                "command",
+                "cwd",
+                "generateWorkspaceToken",
+                "installShutdownHandler",
+                "openBrowser",
+                "parsePlansUiArgs",
+                "printPlansUiHelp",
+                "startWorkspaceServer"
+            ],
+            "machinery": []
+        },
+        "src/cmd/plans/unshare.js": {
+            "seams": [
+                "clearPlanCollaborationMetadata",
+                "confirm",
+                "createCollaborationClient",
+                "cwd",
+                "deleteCompatibleSecretRecords",
+                "fetch",
+                "getGlobalSecretStorePath",
+                "getProjectSecretStorePath",
+                "listPlanResources",
+                "normalizePlanServerUrl",
+                "now",
+                "parseArgs",
+                "resolveCompatibleSecretRecord"
+            ],
+            "machinery": []
+        },
+        "src/cmd/resume/index.js": {
+            "seams": [
+                "getCompactThresholdPercent",
+                "getResumeModelSelection"
+            ],
+            "machinery": []
+        },
+        "src/cmd/workspace/pair.js": {
+            "seams": [
+                "dbPath",
+                "printWorkspacePairHelp",
+                "store"
+            ],
+            "machinery": []
+        },
+        "src/cmd/workspace/serve.js": {
+            "seams": [
+                "dbPath",
+                "installShutdownHandlers",
+                "openBrowser",
+                "parseWorkspaceServeArgs",
+                "printWorkspaceServeHelp",
+                "startWorkspaceServer",
+                "store"
+            ],
+            "machinery": []
+        },
         "src/shared/session/agent-handler.js": {
             "seams": [
                 "_agentDefOverride",
@@ -121,11 +232,9 @@
                 "captureWorktreeTree",
                 "checkpointExecutionWorktree",
                 "confirmNonGitFeaturePlanExecution",
-                "createWorktreeGitArtifacts",
                 "ensureExecutionPlanFile",
                 "executeSingleEngineerPlan",
                 "findReusableWorktree",
-                "findWorktreeRegistryEntryById",
                 "hasNonGitExecutionConsent",
                 "loadCanonicalExecutionPlanSource",
                 "loadPlan",
@@ -138,15 +247,22 @@
                 "resolveCurrentCheckoutBranch",
                 "resolveTargetBranchName",
                 "runActiveAgentTurn",
-                "runImplementationCheckpointTransition",
-                "settleWorktreeAttempt",
-                "updateWorktreeRegistryEntry"
+                "runImplementationCheckpointTransition"
             ],
             "machinery": [
-                "checkpointExecutionWorktree",
-                "createWorktreeGitArtifacts",
-                "settleWorktreeAttempt",
-                "updateWorktreeRegistryEntry"
+                "checkpointExecutionWorktree"
+            ]
+        },
+        "src/tools/plan-written.js": {
+            "seams": [
+                "cwd",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "requestPlanReview",
+                "stat"
+            ],
+            "machinery": [
+                "recordPlanEvent"
             ]
         },
         "src/tools/return-to-router.js": {

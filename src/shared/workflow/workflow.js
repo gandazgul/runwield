@@ -1072,8 +1072,6 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   collaborationStyle?: "autonomous"|"pair",
  *   collaborationRecommendation?: "autonomous"|"pair",
  *   __deps?: {
- *     createWorktreeGitArtifacts?: typeof createWorktreeGitArtifacts,
- *     settleWorktreeAttempt?: typeof settleWorktreeAttempt,
  *     findReusableWorktree?: typeof findReusableWorktree,
  *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
  *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
@@ -1081,9 +1079,6 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     captureWorktreeTree?: typeof captureWorktreeTree,
  *     loadCanonicalExecutionPlanSource?: typeof loadCanonicalExecutionPlanSource,
  *     ensureExecutionPlanFile?: typeof ensureExecutionPlanFile,
- *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
- *     findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
- *     recordPlanEvent?: typeof recordPlanEvent,
  *     recordWorkflowMetric?: typeof recordWorkflowMetric,
  *     probeGitRepository?: typeof probeGitRepository,
  *     hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
@@ -1106,11 +1101,6 @@ export async function startActiveExecutionWorkflow(
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const createGitArtifacts = __deps?.createWorktreeGitArtifacts || createWorktreeGitArtifacts;
-    const settleRegistry = __deps?.settleWorktreeAttempt ||
-        ((__deps?.createWorktreeGitArtifacts && __deps?.updateWorktreeRegistryEntry)
-            ? ((_, worktree) => Promise.resolve({ ...worktree, status: worktree.status || "active" }))
-            : settleWorktreeAttempt);
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
     const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
     const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
@@ -1118,8 +1108,6 @@ export async function startActiveExecutionWorkflow(
     const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
     const loadCanonicalPlanSource = __deps?.loadCanonicalExecutionPlanSource || loadCanonicalExecutionPlanSource;
     const ensurePlanFile = __deps?.ensureExecutionPlanFile || ensureExecutionPlanFile;
-    const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
-    const findRegistryEntryById = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
     const recordWorkflowMetricFn = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
@@ -1316,7 +1304,7 @@ export async function startActiveExecutionWorkflow(
                     attemptId,
                     ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
                 };
-                const worktreeArtifacts = await createGitArtifacts(worktreeOptions);
+                const worktreeArtifacts = await createWorktreeGitArtifacts(worktreeOptions);
                 await markEffect("git_worktree_created", {
                     worktreeId: worktreeArtifacts.id,
                     path: worktreeArtifacts.path,
@@ -1339,7 +1327,7 @@ export async function startActiveExecutionWorkflow(
                         });
                     }
                 });
-                worktree = await settleRegistry(projectRoot, {
+                worktree = await settleWorktreeAttempt(projectRoot, {
                     ...worktreeArtifacts,
                     planName: worktreeArtifacts.planName || planName,
                     planId: worktreeArtifacts.planId || stablePlanId,
@@ -1367,7 +1355,7 @@ export async function startActiveExecutionWorkflow(
                     }`,
                 );
                 if (!reusedWorktree && worktree.id) {
-                    await updateRegistry(projectRoot, worktree.id, {
+                    await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
                         status: "execution_failed",
                     }).catch(() => null);
                 }
@@ -1401,7 +1389,7 @@ export async function startActiveExecutionWorkflow(
                     : undefined,
             };
             if (worktree.id) {
-                await updateRegistry(projectRoot, worktree.id, {
+                await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
                     status: "active",
                     executionBaselineTree: baselineTree,
                 });
@@ -1451,14 +1439,7 @@ export async function startActiveExecutionWorkflow(
             if (workflow.planName !== planName || workflow.executionMode !== "worktree") {
                 throw new Error(`Execution preparation returned incompatible workflow evidence for ${planName}.`);
             }
-            const usingInjectedWorktreeDeps = Boolean(
-                __deps?.findReusableWorktree ||
-                    __deps?.loadCanonicalExecutionPlanSource ||
-                    __deps?.ensureExecutionPlanFile || __deps?.captureWorktreeTree ||
-                    __deps?.updateWorktreeRegistryEntry,
-            );
-            const verifyDurableArtifacts = !usingInjectedWorktreeDeps || Boolean(__deps?.findWorktreeRegistryEntryById);
-            if (verifyDurableArtifacts && workflow.worktreeId !== attemptId) {
+            if (workflow.worktreeId !== attemptId) {
                 throw new Error(
                     `Execution preparation attempt mismatch for ${planName}: expected ${attemptId}, found ${workflow.worktreeId}.`,
                 );
@@ -1468,7 +1449,7 @@ export async function startActiveExecutionWorkflow(
                     `Execution preparation for ${planName} is missing worktree, branch, or baseline proof.`,
                 );
             }
-            if (verifyDurableArtifacts) {
+            {
                 const worktreeStat = await Deno.stat(workflow.executionCwd).catch(() => null);
                 if (!worktreeStat?.isDirectory) {
                     throw new Error(
@@ -1476,8 +1457,8 @@ export async function startActiveExecutionWorkflow(
                     );
                 }
             }
-            if (!__deps || __deps.findWorktreeRegistryEntryById) {
-                const registryEntry = await findRegistryEntryById(projectRoot, workflow.worktreeId);
+            {
+                const registryEntry = await findWorktreeRegistryEntryById(projectRoot, workflow.worktreeId);
                 if (!registryEntry) {
                     throw new Error(
                         `Execution preparation registry entry is missing for attempt ${workflow.worktreeId}.`,
@@ -1493,7 +1474,7 @@ export async function startActiveExecutionWorkflow(
                     );
                 }
             }
-            if (verifyDurableArtifacts) {
+            {
                 const worktreePlan = await loadPlan(workflow.executionCwd, planName);
                 if (!worktreePlan) {
                     throw new Error(`Execution preparation did not materialize Plan file for ${planName}.`);
@@ -1523,9 +1504,7 @@ export async function startActiveExecutionWorkflow(
                 worktreeBranch: workflow.worktreeBranch,
                 worktreeBaseBranch: workflow.worktreeBaseBranch,
                 baselineTree: workflow.baselineTree,
-                planRevision: verifyDurableArtifacts
-                    ? (await loadPlan(workflow.executionCwd, planName))?.revision
-                    : undefined,
+                planRevision: (await loadPlan(workflow.executionCwd, planName))?.revision,
             };
         },
     });

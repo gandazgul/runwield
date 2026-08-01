@@ -38,6 +38,16 @@
  * A rename rewrites the name in the baseline before comparing, so it can carry an
  * existing seam to a new name but can never introduce one — the old name has to be
  * there already.
+ *
+ * When the scan itself is fixed, modules it could never see before appear all at once
+ * and look exactly like a mass regression. Adopt them explicitly:
+ *
+ *     deno run -A scripts/check-injection-seams.js --update --adopt-newly-visible
+ *
+ * This is only ever correct in the same change as a detection fix. It records modules
+ * absent from the baseline and nothing else — a module already listed still may not
+ * grow — so newly-visible seams land under the same shrink-only rule as the rest
+ * rather than being waved through.
  */
 
 const BASELINE_PATH = new URL("./injection-seam-baseline.json", import.meta.url);
@@ -145,6 +155,21 @@ export function collectSeamNames(text) {
             if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
         }
     }
+    // Aliased reads: `const deps = __deps || {}` and then `deps.name`.
+    //
+    // One line of indirection was enough to make a whole bag invisible to this scan,
+    // machinery included — which is how `recordPlanEvent` sat behind a seam in
+    // plan-written.js under a green ratchet. A rule that a rename defeats is not a rule.
+    for (
+        const alias of text.matchAll(
+            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:options\.)?__(?:test)?[Dd]eps\s*(?:\|\||\?\?|;)/g,
+        )
+    ) {
+        const aliasName = alias[1];
+        for (const read of text.matchAll(new RegExp(`\\b${aliasName}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"))) {
+            names.add(read[1]);
+        }
+    }
     return [...names].sort();
 }
 
@@ -165,6 +190,55 @@ function blankComments(text) {
 }
 
 /**
+ * Walk back from a ternary's `?` to where its condition begins.
+ *
+ * Matching the condition by adjacency — "a `__deps` read immediately before the `?`" —
+ * only catches the shapes we happened to have seen. It missed
+ * `((__deps?.a && __deps?.b) ? fake : real)`, where the read is two tokens and a paren
+ * away from the `?`, which is how a live conditional seam sat in `workflow.js` under a
+ * green ratchet. So delimit the whole condition instead and look inside it.
+ *
+ * Scans backwards keeping bracket depth, stopping at the first delimiter that cannot
+ * appear inside a condition: an unbalanced opener, a statement or argument separator, an
+ * assignment or arrow, or the `?`/`:` of an enclosing ternary. Comparison operators
+ * (`===`, `!==`, `<=`, `>=`) are stepped over rather than treated as assignments, so a
+ * branch on an injected *value* is still seen in full.
+ *
+ * @param {string} text
+ * @param {number} index Position of the `?`.
+ * @returns {number} Start index of the condition expression.
+ */
+function findConditionStart(text, index) {
+    let depth = 0;
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+        const char = text[cursor];
+        if (char === ")" || char === "]" || char === "}") {
+            depth++;
+            continue;
+        }
+        if (char === "(" || char === "[" || char === "{") {
+            if (depth === 0) return cursor + 1;
+            depth--;
+            continue;
+        }
+        if (depth > 0) continue;
+        if (char === "?") {
+            // `?.` and `??` sit *inside* a condition — treating them as the `?` of an
+            // enclosing ternary would cut `__deps?.a ? fake : real` off at the optional
+            // chain and hide the read we are looking for.
+            if (text[cursor + 1] === "." || text[cursor + 1] === "?" || text[cursor - 1] === "?") continue;
+            return cursor + 1;
+        }
+        if (char === ";" || char === "," || char === ":") return cursor + 1;
+        if (char === "=") {
+            const isComparison = text[cursor + 1] === "=" || "=!<>".includes(text[cursor - 1] || "");
+            if (!isComparison) return cursor + 1;
+        }
+    }
+    return 0;
+}
+
+/**
  * Seams whose value depends on whether anything at all was injected.
  *
  * @param {string} text
@@ -173,34 +247,29 @@ function blankComments(text) {
 export function collectConditionalSeams(text) {
     /** @type {string[]} */
     const offenders = [];
-    // `__deps ? x : y`, including across a line break, which is how both known
-    // instances were formatted. The lookahead excludes optional chaining
-    // (`__deps?.name`), nullish coalescing, and optional-property syntax — ordinary
-    // reads of an injected value rather than a branch on whether anything was
-    // injected at all.
     const scanned = blankComments(text);
-    for (const match of scanned.matchAll(/__(?:test)?[Dd]eps\s*\n?\s*\?(?![.?:])[^:;{}]{0,300}:/g)) {
-        const line = text.slice(0, match.index || 0).split("\n").length;
-        offenders.push(`line ${line} (gated on the bag itself)`);
-    }
-    // Worse still: a seam gated on a *different* dep — `__deps?.a ? fakeB : realB`.
-    // Injecting one dependency then silently replaces an unrelated one, so a test that
-    // fakes a merge also gets a fake branch head and a fake ancestry check without
-    // asking for either. Nothing at the call site shows it.
-    for (
-        const match of scanned.matchAll(
-            /__(?:test)?[Dd]eps\??\.[A-Za-z_$][\w$]*\s*\n?\s*\?(?![.?:])[\s\S]{0,300}?:/g,
-        )
-    ) {
-        const line = text.slice(0, match.index || 0).split("\n").length;
-        offenders.push(`line ${line} (one seam gated on another dep)`);
+    for (let index = 0; index < scanned.length; index++) {
+        if (scanned[index] !== "?") continue;
+        // Not a ternary: optional chaining (`__deps?.name`), nullish coalescing, and
+        // TypeScript's optional parameter and property syntax (`__deps?: { … }`).
+        if (".?:".includes(scanned[index + 1] || "")) continue;
+        if (scanned[index - 1] === "?") continue;
+        const condition = scanned.slice(findConditionStart(scanned, index), index);
+        if (!/__(?:test)?[Dd]eps/.test(condition)) continue;
+        const line = text.slice(0, index).split("\n").length;
+        // Gated on the bag itself (`__deps ? fake : real`) versus gated on a *different*
+        // dep (`__deps?.a ? fakeB : realB`). The second is the subtler one: injecting a
+        // clock then silently replaces a transaction, and nothing at the call site shows
+        // it. Both are reported; the distinction is only there to say what to look for.
+        const gatedOnBag = /__(?:test)?[Dd]eps\s*(?![.?\w])/.test(condition);
+        offenders.push(`line ${line} (${gatedOnBag ? "gated on the bag itself" : "one seam gated on another dep"})`);
     }
     return offenders;
 }
 
 /** @param {URL} rootUrl */
 async function collectSeams(rootUrl = SOURCE_ROOT) {
-    /** @type {Record<string, { count: number, machinery: string[] }>} */
+    /** @type {SeamEntry} */
     const seams = {};
     /** @type {Record<string, string[]>} */
     const conditional = {};
@@ -250,18 +319,23 @@ async function readBaseline() {
 /**
  * @param {SeamEntry} current
  * @param {SeamEntry} baseline
+ * @param {boolean} [adoptNewModules] Record modules the scan can now see for the first
+ *   time. Only ever correct together with a detection fix: the seams were always there,
+ *   and once recorded they can only shrink like every other entry.
  */
-function findRegressions(current, baseline) {
+function findRegressions(current, baseline, adoptNewModules = false) {
     /** @type {string[]} */
     const problems = [];
     for (const [path, entry] of Object.entries(current)) {
         const before = baseline[path];
         if (!before) {
-            problems.push(
-                `${path}: new module with ${entry.seams.length} injection seam(s) (${
-                    entry.seams.join(", ")
-                }). Pass capability ports as required arguments instead of a dependency bag.`,
-            );
+            if (!adoptNewModules) {
+                problems.push(
+                    `${path}: new module with ${entry.seams.length} injection seam(s) (${
+                        entry.seams.join(", ")
+                    }). Pass capability ports as required arguments instead of a dependency bag.`,
+                );
+            }
             continue;
         }
         // Compared by name, not by count: swapping one seam for another keeps the count
@@ -338,6 +412,9 @@ function applyRenames(baseline, renames) {
 
 if (import.meta.main) {
     const update = Deno.args.includes("--update");
+    // Only meaningful alongside a fix to the scan itself: it adopts modules the scan
+    // could not previously see. It never permits a known module to grow.
+    const adopt = Deno.args.includes("--adopt-newly-visible");
     /** @type {Array<[string, string]>} */
     const renames = [];
     for (let index = 0; index < Deno.args.length; index++) {
@@ -368,7 +445,7 @@ if (import.meta.main) {
 
     if (update) {
         const baseline = applyRenames(await readBaseline().catch(() => ({})), renames);
-        const regressions = findRegressions(sortedSeams, baseline);
+        const regressions = findRegressions(sortedSeams, baseline, adopt);
         if (Object.keys(baseline).length > 0 && regressions.length > 0) {
             console.error(
                 `Refusing to loosen the injection-seam baseline:\n${formatList(regressions)}`,
