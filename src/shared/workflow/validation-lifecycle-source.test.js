@@ -32,7 +32,7 @@ Deno.test("runValidationLoop is a single-phase dispatcher", async () => {
 
 Deno.test("legacy validation drivers are not reachable", async () => {
     const lifecycleSource = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
-    const legacySource = await Deno.readTextFile(new URL("./validation-legacy.ts", import.meta.url));
+    const legacySource = await Deno.readTextFile(new URL("./validation-helpers.ts", import.meta.url));
 
     assertEquals(lifecycleSource.includes("runLegacyValidationMachine"), false);
     assertEquals(lifecycleSource.includes("runLegacyPhaseAdapter"), false);

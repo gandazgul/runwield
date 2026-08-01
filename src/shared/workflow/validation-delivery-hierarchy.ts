@@ -37,11 +37,6 @@ export function hasDirectDeliveryEvidence(attrs: PlanFrontMatter): boolean {
     );
 }
 
-export async function loadCurrentPlanRevision(projectRoot: string, planName: string): Promise<string | undefined> {
-    const plan = await loadPlan(projectRoot, planName).catch(() => null);
-    return plan?.revision;
-}
-
 /**
  * Capture this Plan and its siblings as they stand right now.
  *

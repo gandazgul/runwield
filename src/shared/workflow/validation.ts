@@ -61,7 +61,7 @@ import {
     unaccountedOpenItems,
     usedReviewDiffTool,
     verifyPostMergeCandidatePublished,
-} from "./validation-legacy.ts";
+} from "./validation-helpers.ts";
 
 export {
     loadManualQaPrompt,
@@ -73,7 +73,7 @@ export {
     shouldRunWorkflowValidation,
     unaccountedOpenItems,
     usedReviewDiffTool,
-} from "./validation-legacy.ts";
+} from "./validation-helpers.ts";
 
 export type WorkflowValidationResult = {
     kind: "verified" | "paused" | "failed";

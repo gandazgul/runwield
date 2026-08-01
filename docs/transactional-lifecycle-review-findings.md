@@ -190,14 +190,23 @@ widened check is what makes this class visible rather than folklore.
 
 ## Open — recommended next
 
-### A. CAS at several call sites protects a zero-width window
-
-`loadCurrentPlanRevision(projectRoot, planName)` is called inline as the `expectedRevision` argument, i.e. read
-microseconds before the lock. The real protection is the re-read under lock inside the transition; these arguments
-mostly document intent. Harmless, but do not count them as concurrency protection when reasoning about the design. (Line
-references predate the `validation.js` split into TypeScript modules in `1846ab2c`.)
+Nothing from the original review remains open. See the next section for what closed A, and "Standing risk" below for
+what replaced it as the thing most likely to hide the next defect.
 
 ## Closed after the review
+
+### A. Inline `expectedRevision` reads — closed, and the premise was superseded
+
+A said `loadCurrentPlanRevision(...)` passed inline as `expectedRevision` protected a zero-width window and only
+documented intent. Both halves have since stopped being true.
+
+The call sites are gone: `validation.js` was split into TypeScript modules (`1846ab2c`) and nothing calls
+`loadCurrentPlanRevision` anywhere. The two leftover definitions were dead code and are deleted.
+
+The premise is also obsolete. `classifyPlanPrecondition` now proves body-only drift instead of comparing whole-file
+bytes, and `rememberFrontMatterRevision` is called on the **read** path as well as the write path, so a token minted by
+an inline read is known to the process. Such a read would now be harmless _and_ correctly tolerant of a user editing the
+body. A was superseded by that work rather than merely outgrown.
 
 ### B. Registry read threw for ordinary callers — fixed in `3b92a685`
 

@@ -1,0 +1,668 @@
+/**
+ * @module shared/workflow/validation-helpers
+ *
+ * Supporting helpers for Workflow Validation: bundled prompt loading, local CI
+ * execution, manual QA handoffs, agent-turn repair, and post-merge publication
+ * proof. The validation loop itself lives in `validation.ts`; this module holds
+ * the pieces it calls out to.
+ */
+
+import { dirname, fromFileUrl } from "@std/path";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+
+import { getAgentDisplayName } from "../session/agents.js";
+
+import { runIsolatedAgentSession } from "../session/session.js";
+import { runLocalCI } from "./validation-local-ci.ts";
+import { verifyPostMergeCandidatePublished } from "./validation-merge-verification.ts";
+import { loadManualQaPrompt, loadReviewerFeedbackEngineerDef, loadReviewerPrompt } from "./validation-prompts.ts";
+import {
+    completeValidationProgress,
+    createValidationProgress,
+    emitRunWieldSystemStatus,
+    updateValidationProgress,
+} from "./validation-progress.ts";
+
+import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
+import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
+
+import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
+
+import { recordWorkflowMetric } from "./metrics.js";
+
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
+import {} from "../worktree.js";
+
+import { openItems } from "./review-ledger.ts";
+import {
+    autoGenerateWorkRecordForCompletedPlan,
+    formatWorkRecordAutoGenerationResult,
+} from "../work-records/auto-generation.js";
+
+export const __dirname = dirname(fromFileUrl(import.meta.url));
+interface WorkflowValidationResult {
+    kind: "verified" | "paused" | "failed";
+    planName: string;
+    projectRoot: string;
+    classification?: string;
+    reason?: string;
+    epicContinuation?: { completedPlanName: string; projectRoot: string };
+}
+
+interface RunManualQaChecklistPromptOptions {
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    name: string;
+    classification: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE";
+    context: string;
+    cwd: string;
+    __deps?: {
+        loadManualQaPrompt?: typeof loadManualQaPrompt;
+        runIsolatedAgentSession?: typeof runIsolatedAgentSession;
+    };
+}
+
+/**
+ * Run a transient, tool-free prompt that presents manual checks to the user
+ * after automated verification succeeds.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.name
+ * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
+ * @param {string} args.context
+ * @param {string} args.cwd
+ * @param {{
+ *   loadManualQaPrompt?: typeof loadManualQaPrompt,
+ *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
+ * }} [args.__deps]
+ * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
+ */
+export async function runManualQaChecklistPrompt({
+    hostedSession,
+    name,
+    classification,
+    context,
+    cwd,
+    __deps,
+}: RunManualQaChecklistPromptOptions) {
+    const loadPrompt = __deps?.loadManualQaPrompt || loadManualQaPrompt;
+    const runIsolatedAgentSessionImpl = __deps?.runIsolatedAgentSession || runIsolatedAgentSession;
+    const agentDef = await loadPrompt();
+    const normalizedClassification = classification === "FEATURE" ? "PLANNED_CHANGE" : classification;
+    const userRequest = [
+        "Prepare the post-verification checklist from this source material.",
+        `Name: ${name}`,
+        `Classification: ${normalizedClassification}`,
+        "",
+        "### Source context",
+        context,
+    ].join("\n");
+
+    const messages = await runIsolatedAgentSessionImpl({
+        hostedSession,
+        agentName: AGENTS.OPERATOR,
+        userRequest,
+        cwd,
+        _agentDefOverride: agentDef,
+        includeEditFallback: false,
+    });
+    const checklistText = extractAssistantOutput(messages);
+    if (checklistText) {
+        recordManualQaChecklistMessage(
+            hostedSession.getRootSessionManager?.() as
+                | import("@earendil-works/pi-coding-agent").SessionManager
+                | undefined
+                | null,
+            { agentName: "Operator", text: checklistText, name, classification: normalizedClassification },
+        );
+    }
+    return messages;
+}
+
+interface PresentManualQaChecklistOptions {
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    name: string;
+    classification: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE";
+    context: string;
+    cwd: string;
+    runPrompt: typeof runManualQaChecklistPrompt;
+}
+
+/**
+ * Checklist generation is a post-verification handoff. A model failure should
+ * be visible, but must not retroactively fail successful validation.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.name
+ * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
+ * @param {string} args.context
+ * @param {string} args.cwd
+ * @param {typeof runManualQaChecklistPrompt} args.runPrompt
+ * @returns {Promise<void>}
+ */
+async function presentManualQaChecklist(
+    { hostedSession, name, classification, context, cwd, runPrompt }: PresentManualQaChecklistOptions,
+) {
+    try {
+        await runPrompt({ hostedSession, name, classification, context, cwd });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `Automated verification passed, but the manual QA checklist could not be generated: ${reason}`,
+            true,
+        );
+    }
+}
+
+interface RunFeaturePostVerificationHandoffsOptions {
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    planName: string;
+    planContent: string;
+    projectRoot: string;
+    runManualQaChecklistPrompt: typeof runManualQaChecklistPrompt;
+    autoGenerateWorkRecordForCompletedPlan: typeof autoGenerateWorkRecordForCompletedPlan;
+    formatWorkRecordAutoGenerationResult: typeof formatWorkRecordAutoGenerationResult;
+}
+
+/**
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.planName
+ * @param {string} args.planContent
+ * @param {string} args.projectRoot
+ * @param {typeof runManualQaChecklistPrompt} args.runManualQaChecklistPrompt
+ * @param {typeof autoGenerateWorkRecordForCompletedPlan} args.autoGenerateWorkRecordForCompletedPlan
+ * @param {typeof formatWorkRecordAutoGenerationResult} args.formatWorkRecordAutoGenerationResult
+ */
+export async function runFeaturePostVerificationHandoffs({
+    hostedSession,
+    planName,
+    planContent,
+    projectRoot,
+    runManualQaChecklistPrompt,
+    autoGenerateWorkRecordForCompletedPlan,
+    formatWorkRecordAutoGenerationResult,
+}: RunFeaturePostVerificationHandoffsOptions) {
+    emitRunWieldSystemStatus(
+        hostedSession,
+        "Preparing post-verification Manual QA checklist and Work Record generation.",
+    );
+    const manualQaPromise = presentManualQaChecklist({
+        hostedSession,
+        name: planName,
+        classification: "PLANNED_CHANGE",
+        context: planContent,
+        cwd: projectRoot,
+        runPrompt: runManualQaChecklistPrompt,
+    });
+    const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({ cwd: projectRoot, planName }).catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+            status: "failed" as const,
+            planName,
+            error: reason,
+            message:
+                `Work Record generation failed for ${planName}: ${reason}. The Plan terminal state was preserved; run wld wr backfill after repair.`,
+        };
+    });
+    const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
+    emitRunWieldSystemStatus(
+        hostedSession,
+        workRecordResult.message || formatWorkRecordAutoGenerationResult(workRecordResult),
+        workRecordResult.status === "failed" ? "warning" : "info",
+    );
+}
+
+/**
+ * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {string} agentName
+ * @returns {unknown[]}
+ */
+function getRootMessages(
+    hostedSession: import("../session/hosted-session.js").HostedSession | undefined,
+    agentName: string,
+) {
+    if (hostedSession?.getRootAgentName?.() !== agentName) return [];
+    const rootSession = hostedSession?.getRootAgentSession?.();
+    const messages = (rootSession as { agent?: { state?: { messages?: unknown[] } } } | undefined)?.agent?.state
+        ?.messages;
+    return Array.isArray(messages) ? messages : [];
+}
+
+/**
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+function isSameMessage(left: unknown, right: unknown) {
+    if (left === right) return true;
+    try {
+        return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * @param {unknown[]} messages
+ * @param {unknown[]} prefix
+ * @returns {boolean}
+ */
+function startsWithMessages(messages: unknown[], prefix: unknown[]) {
+    return prefix.every((message, index) => isSameMessage(messages[index], message));
+}
+
+interface RunCompletionGatedRepairOptions {
+    agentName: string;
+    userRequest: string;
+    images?: Array<{ base64: string; mimeType: string }>;
+    sessionManager: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
+    cwd?: string;
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    runActiveAgentTurn?: typeof runActiveAgentTurn;
+    readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome;
+}
+
+async function runCompletionGatedRepair({
+    agentName,
+    userRequest,
+    images = [],
+    sessionManager,
+    cwd,
+    hostedSession,
+    runActiveAgentTurn: runActiveAgentTurnImpl = runActiveAgentTurn,
+    readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
+}: RunCompletionGatedRepairOptions): Promise<boolean> {
+    const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
+    const fromIndex = previousRootMessages.length;
+    const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    const customTools = workflow?.executionAgent === AGENTS.FRONTEND_ENGINEER && workflow.collaborationStyle === "pair"
+        ? [createPairCheckpointTool({ hostedSession, recordWorkflowMetric })]
+        : undefined;
+    const messages = await runActiveAgentTurnImpl({
+        hostedSession,
+        agentName,
+        userRequest,
+        images,
+        sessionManager,
+        cwd,
+        allowReturnToRouter: false,
+        ...(customTools ? { customTools } : {}),
+    });
+
+    const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
+    return readTaskCompleted(messages, returnedRootTranscript ? fromIndex : undefined);
+}
+
+/**
+ * Whether the Reviewer actually opened the diff during an invocation.
+ *
+ * The diff is never inlined into the prompt, so a `review_complete` call made
+ * without any `review_diff` call is a verdict reached without reading the code.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @returns {boolean}
+ */
+export function usedReviewDiffTool(messages: import("@earendil-works/pi-agent-core").AgentMessage[]) {
+    if (!Array.isArray(messages)) return false;
+    return messages.some((msg) => {
+        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") return false;
+        if (!("toolName" in msg) || msg.toolName !== "review_diff") return false;
+        // A failed lookup or an absent repair scope is not an inspection: the
+        // Reviewer saw no code, so it must not satisfy the read-before-deciding
+        // requirement.
+        const result = msg as ReviewDiffToolResult;
+        if (result.isError) return false;
+        const details = result.details || {};
+        return details.available !== false;
+    });
+}
+
+/** The `review_diff` tool-result fields this check reads off a transcript message. */
+interface ReviewDiffToolResult {
+    isError?: boolean;
+    details?: { available?: boolean };
+}
+
+/**
+ * Open ledger identities a review result failed to mention.
+ *
+ * The ledger only converges if every round returns a verdict on every open item.
+ * An omission is not neutral: it would let an approval merge over a finding
+ * nobody addressed, and it makes a re-reported issue arrive as a new identity
+ * beside the original, so one defect becomes two and the count grows each round.
+ *
+ * @param {import('./review-ledger.ts').ReviewLedger} ledger
+ * @param {import('../../tools/review-complete.js').ReviewFinding[] | undefined} findings
+ * @returns {string[]}
+ */
+export function unaccountedOpenItems(
+    ledger: import("./review-ledger.ts").ReviewLedger,
+    findings: import("../../tools/review-complete.js").ReviewFinding[] | undefined,
+) {
+    const mentioned = new Set(
+        (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),
+    );
+    return openItems(ledger).map((item) => item.id).filter((id) => !mentioned.has(id));
+}
+
+/**
+ * HumanReviewDecision is declared below as a TypeScript union.
+ */
+
+type HumanReviewDecision = "not_required" | "skipped" | "approved";
+
+interface HumanReviewMetadata {
+    humanReviewMode: "none" | "ask" | "always";
+    humanReviewDecision: HumanReviewDecision;
+    humanReviewedAt: string | null;
+}
+
+/**
+ * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @returns {boolean}
+ */
+export function shouldRunWorkflowValidation(triageMeta: import("../../tools/plan-written.js").TriageMeta) {
+    return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
+}
+
+/**
+ * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @returns {boolean}
+ */
+export function shouldContinueParentEpicAfterValidation(triageMeta: import("../../tools/plan-written.js").TriageMeta) {
+    const parentPlan = (triageMeta || {} as { parentPlan?: unknown }).parentPlan;
+    return isPlannedChangeClassification(triageMeta?.classification) &&
+        typeof parentPlan === "string" &&
+        parentPlan.trim().length > 0;
+}
+
+interface RunMechanicalValidationOptions {
+    sessionManager: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
+    hostedSession?: import("../session/hosted-session.js").HostedSession;
+    cwd?: string;
+    manualQaName?: string;
+    manualQaContext?: string;
+    __deps?: {
+        runLocalCI?: typeof runLocalCI;
+        runIsolatedAgentSession?: typeof runIsolatedAgentSession;
+        runActiveAgentTurn?: typeof runActiveAgentTurn;
+        runCompletionGatedRepair?: typeof runCompletionGatedRepair;
+        runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt;
+        readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome;
+        switchActiveAgent?: typeof switchActiveAgent;
+        recordWorkflowMetric?: typeof recordWorkflowMetric;
+    };
+}
+
+/**
+ * No-plan Mechanical Validation for direct QUICK_FIX work. Runs configured local
+ * CI and sends failures back to Engineer, without Plan lifecycle, semantic
+ * review, code review, implementation diff checks, worktree merge-back, or
+ * worktree registry updates.
+ *
+ * @param {Object} args
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
+ * @param {string} [args.cwd]
+ * @param {string} [args.manualQaName]
+ * @param {string} [args.manualQaContext]
+ * @param {{
+ *   runLocalCI?: typeof runLocalCI,
+ *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
+ *   runActiveAgentTurn?: typeof runActiveAgentTurn,
+ *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
+ *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
+ *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
+ *   switchActiveAgent?: typeof switchActiveAgent,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ * }} [args.__deps] Test-only injection point.
+ * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
+ */
+export async function runMechanicalValidation({
+    sessionManager,
+    hostedSession,
+    cwd,
+    manualQaName = "quick-fix",
+    manualQaContext = "The QUICK_FIX implementation completed and passed automated verification.",
+    __deps,
+}: RunMechanicalValidationOptions): Promise<{ passed: boolean; attempts: number; reason?: string }> {
+    if (!hostedSession) throw new Error("runMechanicalValidation: hostedSession is required");
+    const projectRoot = hostedSession?.cwd || cwd;
+    if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
+    const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
+    const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
+    const runRepairAgentTurn = __deps?.runActiveAgentTurn || runActiveAgentTurn;
+    const repair = __deps?.runCompletionGatedRepair ||
+        ((repairArgs) =>
+            runCompletionGatedRepair({
+                ...repairArgs,
+                runActiveAgentTurn: runRepairAgentTurn,
+                readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
+                hostedSession,
+            }));
+    const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
+    const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
+    const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    function recordWorkflowMetricImpl(
+        metric: Parameters<typeof recordWorkflowMetricSource>[0],
+        deps: Parameters<typeof recordWorkflowMetricSource>[1] = {},
+    ) {
+        return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
+    }
+    /** @param {string} agentName */
+    const activateAgent = async (agentName: string) => {
+        if (!hostedSession) return;
+        await switchActiveAgentImpl(hostedSession, { agentName });
+    };
+    const maxRepairAttempts = 3;
+    let repairAttempts = 0;
+    let progress = createValidationProgress({
+        kind: "mechanical",
+        outcome: "running",
+        stage: "ci",
+        checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+    });
+
+    await recordWorkflowMetricImpl({
+        category: "validation",
+        event: "mechanical_validation_started",
+        planName: "quick-fix",
+        details: { maxRepairAttempts },
+    });
+    emitRunWieldSystemStatus(hostedSession, "Starting QUICK_FIX Mechanical Validation.", "info", progress);
+
+    while (true) {
+        progress = updateValidationProgress(progress, {
+            outcome: "running",
+            stage: "ci",
+            repairAttempt: repairAttempts > 0 ? repairAttempts : null,
+            maxRepairAttempts: repairAttempts > 0 ? maxRepairAttempts : null,
+            checks: { ci: "running" },
+        });
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `Running QUICK_FIX CI Validation (Repair Attempts ${repairAttempts}/${maxRepairAttempts})...`,
+            "info",
+            progress,
+        );
+        const ciResult = await runLocalCIImpl({ hostedSession, cwd: validationCwd });
+
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_ci_attempt",
+            planName: "quick-fix",
+            details: {
+                attempt: repairAttempts + 1,
+                exitCode: ciResult.exitCode,
+                passed: ciResult.exitCode === 0,
+                canceled: ciResult.canceled === true,
+            },
+        });
+        if (ciResult.canceled) {
+            const reason = "QUICK_FIX Mechanical Validation canceled. Staying with Engineer so messages can continue.";
+            progress = updateValidationProgress(progress, {
+                outcome: "paused",
+                stage: "terminal",
+                message: reason,
+                checks: { ci: "canceled" },
+            });
+            emitRunWieldSystemStatus(hostedSession, reason, false, progress);
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, canceled: true, attempts: repairAttempts },
+            });
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: false, attempts: repairAttempts, reason: "canceled" };
+        }
+        if (ciResult.exitCode === 0) {
+            progress = updateValidationProgress(progress, { checks: { ci: "passed" } });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                "QUICK_FIX Mechanical Validation passed CI.",
+                "success",
+                progress,
+            );
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: true, attempts: repairAttempts },
+            });
+            progress = updateValidationProgress(progress, {
+                outcome: "running",
+                stage: "manual_qa",
+                message: "Preparing QUICK_FIX manual QA checklist.",
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                "Preparing QUICK_FIX manual QA checklist.",
+                "info",
+                progress,
+            );
+            await presentManualQaChecklist({
+                hostedSession,
+                name: manualQaName,
+                classification: "QUICK_FIX",
+                context: manualQaContext,
+                cwd: validationCwd,
+                runPrompt: runManualQaChecklistPromptImpl,
+            });
+            progress = completeValidationProgress(progress, true, "QUICK_FIX Mechanical Validation passed.");
+            emitRunWieldSystemStatus(
+                hostedSession,
+                "QUICK_FIX Mechanical Validation passed.",
+                "success",
+                progress,
+            );
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: true, attempts: repairAttempts };
+        }
+
+        if (repairAttempts >= maxRepairAttempts) {
+            const reason =
+                `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
+            progress = completeValidationProgress(
+                updateValidationProgress(progress, { checks: { ci: "failed" } }),
+                false,
+                reason,
+            );
+            emitRunWieldSystemStatus(hostedSession, reason, true, progress);
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, attempts: repairAttempts, reason: "max_repair_attempts" },
+            });
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: false, attempts: repairAttempts, reason };
+        }
+
+        repairAttempts++;
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_repair_dispatched",
+            agentName: AGENTS.ENGINEER,
+            planName: "quick-fix",
+            details: { repairAttempt: repairAttempts },
+        });
+        progress = updateValidationProgress(progress, {
+            outcome: "running",
+            stage: "engineer_repair",
+            repairAttempt: repairAttempts,
+            maxRepairAttempts,
+            checks: { ci: "failed" },
+        });
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `QUICK_FIX CI failed. Dispatching ${
+                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+            } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
+            true,
+            progress,
+        );
+        const completed = await repair({
+            agentName: AGENTS.ENGINEER,
+            userRequest:
+                "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +
+                "run appropriate verification, then call task_completed when the repair is complete. " +
+                "If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
+                ciResult.output,
+            sessionManager,
+            cwd: validationCwd,
+            hostedSession,
+        });
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_repair_completed",
+            agentName: AGENTS.ENGINEER,
+            planName: "quick-fix",
+            details: { repairAttempt: repairAttempts, taskCompletedObserved: Boolean(completed) },
+        });
+        if (!completed) {
+            const reason = `${
+                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+            } stopped without task_completed during QUICK_FIX repair.`;
+            progress = updateValidationProgress(progress, {
+                outcome: "paused",
+                message: reason,
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                `${reason} Staying with ${
+                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                } so the user can continue the session. ` +
+                    "Mechanical Validation will resume after task_completed.",
+                true,
+                progress,
+            );
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, attempts: repairAttempts, reason: "repair_without_task_completed" },
+            });
+            hostedSession?.setActiveExecutionWorkflow({
+                planName: "quick-fix",
+                triageMeta: { classification: "QUICK_FIX" },
+                executionAgent: AGENTS.ENGINEER as "engineer",
+                executionCwd: validationCwd,
+                validationContinuation: true,
+                manualQaName,
+                manualQaContext,
+            });
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: false, attempts: repairAttempts, reason };
+        }
+    }
+}
+
+export { verifyPostMergeCandidatePublished };
+
+export { loadManualQaPrompt, loadReviewerFeedbackEngineerDef, loadReviewerPrompt };
+
+export { runLocalCI };

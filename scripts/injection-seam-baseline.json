@@ -82,7 +82,7 @@
             ],
             "machinery": []
         },
-        "src/shared/workflow/validation-legacy.ts": {
+        "src/shared/workflow/validation-helpers.ts": {
             "seams": [
                 "loadManualQaPrompt",
                 "readLatestTaskCompletedOutcome",

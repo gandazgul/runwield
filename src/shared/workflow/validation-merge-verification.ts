@@ -1,0 +1,151 @@
+/**
+ * @module shared/workflow/validation-merge-verification
+ *
+ * Post-merge publication proof. The paired precondition,
+ * `assertPreMergeCandidateUnchanged`, runs in worktree.js before the target ref
+ * moves; this runs after it moved and answers whether everything that had to
+ * reach the target branch actually did.
+ */
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ exitCode: number, stdout: string, stderr: string }>}
+ */
+async function runGitForMergeVerification(cwd: string, args: string[]) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const output = await command.output();
+    const decoder = new TextDecoder();
+    return {
+        exitCode: output.code,
+        stdout: decoder.decode(output.stdout),
+        stderr: decoder.decode(output.stderr),
+    };
+}
+
+interface MergeVerificationResult {
+    merged: boolean;
+    message: string;
+}
+
+interface VerifyPostMergeCandidatePublishedOptions {
+    projectRoot: string;
+    worktreeBranch: string;
+    worktreeBaseBranch: string | undefined;
+    git: import("../git-port.ts").GitPort;
+    executionCommit?: string;
+    metadataCommit?: string;
+    targetBranch?: string;
+}
+
+/**
+ * Post-merge proof: everything that had to reach the target branch did.
+ *
+ * The paired precondition is `assertPreMergeCandidateUnchanged` in worktree.js, which
+ * runs before the ref moves. This runs after, and answers three questions that used to
+ * be asked separately at each call site:
+ *
+ * 1. Is the validated candidate commit contained in the target branch? (the work)
+ * 2. Is the metadata commit contained in it? (the Plan Front Matter that went with it)
+ * 3. Is the execution branch itself contained in it? (nothing left behind)
+ *
+ * They are genuinely different subjects — a commit and a branch are not the same claim,
+ * and they only coincide when the branch tip happens to be the metadata commit. Asking
+ * them here rather than inline means one verdict, one message format, and no call site
+ * that checks two of the three and calls it proof.
+ *
+ * Returns a verdict instead of throwing: the caller decides whether an unproven
+ * publication is a halt, a repair, or a reconciliation recipe.
+ *
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {string} opts.worktreeBranch
+ * @param {string | undefined} opts.worktreeBaseBranch
+ * @param {import('../git-port.ts').GitPort} opts.git
+ * @param {string} [opts.executionCommit] Validated candidate, when Delivery Evidence names one.
+ * @param {string} [opts.metadataCommit] Commit carrying the staged Plan metadata.
+ * @param {string} [opts.targetBranch] Branch the evidence says was published to.
+ * @returns {Promise<MergeVerificationResult>}
+ */
+export async function verifyPostMergeCandidatePublished(
+    { projectRoot, worktreeBranch, worktreeBaseBranch, git, executionCommit, metadataCommit, targetBranch }:
+        VerifyPostMergeCandidatePublishedOptions,
+) {
+    // Commit containment first: it names the exact thing validation approved, so its
+    // failure is more specific than "the branch is not contained".
+    if (targetBranch && executionCommit) {
+        if (!(await git.isAncestor(projectRoot, executionCommit, targetBranch))) {
+            return {
+                merged: false,
+                message: `Validated candidate ${executionCommit} is not contained in ${targetBranch}.`,
+            };
+        }
+        if (metadataCommit && !(await git.isAncestor(projectRoot, metadataCommit, targetBranch))) {
+            return {
+                merged: false,
+                message: `Validation metadata commit ${metadataCommit} is not contained in ${targetBranch}.`,
+            };
+        }
+    }
+    try {
+        const targetRef = worktreeBaseBranch ? `refs/heads/${worktreeBaseBranch}` : "HEAD";
+        const branchResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", worktreeBranch]);
+        if (branchResult.exitCode !== 0) {
+            return {
+                merged: false,
+                message: `Could not verify execution branch ${worktreeBranch}: ${branchResult.stderr.trim()}`,
+            };
+        }
+
+        const targetResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", targetRef]);
+        if (targetResult.exitCode !== 0) {
+            return {
+                merged: false,
+                message: `Could not verify merge target ${targetRef}: ${targetResult.stderr.trim()}`,
+            };
+        }
+
+        const ancestorResult = await runGitForMergeVerification(projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            worktreeBranch,
+            targetRef,
+        ]);
+        if (ancestorResult.exitCode === 0) {
+            return { merged: true, message: `${worktreeBranch} is contained in ${targetRef}.` };
+        }
+
+        const mergeBaseResult = await runGitForMergeVerification(projectRoot, [
+            "merge-base",
+            worktreeBranch,
+            targetRef,
+        ]);
+        const mergeBase = mergeBaseResult.stdout.trim();
+        if (mergeBaseResult.exitCode === 0 && mergeBase) {
+            const treeDiffResult = await runGitForMergeVerification(projectRoot, [
+                "diff",
+                "--quiet",
+                mergeBase,
+                worktreeBranch,
+            ]);
+            if (treeDiffResult.exitCode === 0) {
+                return {
+                    merged: true,
+                    message:
+                        `${worktreeBranch} has no unmerged tree changes beyond ${targetRef}; latest branch-only metadata commit can be safely treated as merged.`,
+                };
+            }
+        }
+
+        const detail = (ancestorResult.stderr || ancestorResult.stdout).trim();
+        return {
+            merged: false,
+            message: detail
+                ? `${worktreeBranch} still has changes that are not merged into ${targetRef}: ${detail}`
+                : `${worktreeBranch} still has changes that are not merged into ${targetRef}.`,
+        };
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { merged: false, message: `Could not run merge verification: ${reason}` };
+    }
+}
