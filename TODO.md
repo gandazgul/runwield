@@ -2,6 +2,7 @@
 
 ## Bugs
 
+- [ ] The persistent review loop card above the footer is still gone after the refactors
 - [ ] we need to examine ALL of the lifecycle error messages and revise them:
 
   the message needs to speak the product language not the tech jargon, lifecycle operation what?

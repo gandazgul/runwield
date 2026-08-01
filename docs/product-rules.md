@@ -93,3 +93,8 @@ halting or stopping or bothering the user with things it can't control, remember
 owns the plan body and the decisions. When the user has something actionable to do, say so in plain language: this
 happened, you need to do X then comeback and hit retry, or stop (Always offer a way out that resets to the safest
 closest recoverable checkpoint).
+
+### PR-8 Dont drive workflow advances through parsing messages in the stream
+
+Instead use tool calls like plan_writtena and task_completed to advance the workflow, the stream is for human readable
+messages.
