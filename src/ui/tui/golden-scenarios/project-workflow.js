@@ -155,7 +155,10 @@ export const twoChildProjectContinuationScenario = {
     composedTui: true,
     initialAgentName: "planner",
     terminal: { columns: 100, rows: 30 },
-    timeoutMs: 180000,
+    // Two full child journeys, each with real Git, real transactions and real Agent
+    // turns. ~95s standalone; `deno task ci` runs 12 files at a time, and this is the
+    // outer cap, so it has to clear the contended case or the inner budgets never apply.
+    timeoutMs: 420000,
     coverage: ["durable:session-replaced", "durable:epic-evidence", "durable:work-record"],
     // Three real Plan Reviews: the Architect defers the Epic, then each child is
     // approved for execution. The second child's review is reached only through the
@@ -371,13 +374,17 @@ export const twoChildProjectContinuationScenario = {
             type: "waitForPlanStatus",
             planName: "epic/01-child-one",
             statuses: ["verified", "user_verified"],
-            timeoutMs: 90000,
+            // Two full child journeys run inside these two waits, each with real Git,
+            // real transactions and real Agent turns. It takes ~95s on its own, and
+            // `deno task ci` runs 12 files at a time, so the budget is sized for that
+            // contention rather than for a standalone run.
+            timeoutMs: 240000,
         },
         {
             type: "waitForPlanStatus",
             planName: "epic/02-child-two",
             statuses: ["verified", "user_verified"],
-            timeoutMs: 90000,
+            timeoutMs: 240000,
         },
         // No idle wait here: both children's terminal statuses above already prove
         // the Epic finished, and after the continuation replaced the Session the

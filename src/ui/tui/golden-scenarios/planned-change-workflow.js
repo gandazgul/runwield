@@ -82,6 +82,10 @@ export const plannedChangeReviewRepairValidationScenario = {
     composedTui: true,
     initialAgentName: "planner",
     terminal: { columns: 100, rows: 30 },
+    // The whole journey — real Git, real transactions, real Agent turns — takes ~55s on
+    // its own. `deno task ci` runs 12 files at a time, and this bounds the child process,
+    // so it is sized for the contended case rather than the standalone one.
+    timeoutMs: 420000,
     coverage: [
         "workflow:PLANNED_CHANGE",
         "recovery:reviewer-rejection",
@@ -240,11 +244,16 @@ export const plannedChangeReviewRepairValidationScenario = {
         { type: "enter" },
         // The whole PLANNED_CHANGE journey runs inside these waits: plan review,
         // execution, CI, two semantic rounds with a repair between them, the merge,
-        // and the post-verification handoffs. It takes about 40s, and the 12s budget
-        // it used to carry only ever fit because the run died at the repair.
-        { type: "waitForIdle", timeoutMs: 90000 },
-        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
-        { type: "waitForIdle", timeoutMs: 90000 },
+        // and the post-verification handoffs. It takes about 60s on its own, and the 12s
+        // budget it used to carry only ever fit because the run died at the repair.
+        //
+        // The budget is deliberately several times the standalone cost. `deno task ci`
+        // runs 12 files at a time, and a scenario this heavy — real Git worktrees, real
+        // transactions, real agent turns — stretches by more than 50% under that load. A
+        // ceiling sized to the standalone run fails on contention rather than on defects.
+        { type: "waitForIdle", timeoutMs: 240000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForIdle", timeoutMs: 240000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [
@@ -314,9 +323,11 @@ export const plannedChangeBlockedMergePauseScenario = {
         { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
         { type: "type", text: "submit the planned change for review" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 90000 },
-        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 30000 },
-        { type: "waitForIdle", timeoutMs: 90000 },
+        // Same budget rationale as the scenario above: sized for 12-way parallel CI, not
+        // for a standalone run.
+        { type: "waitForIdle", timeoutMs: 240000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForIdle", timeoutMs: 240000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [

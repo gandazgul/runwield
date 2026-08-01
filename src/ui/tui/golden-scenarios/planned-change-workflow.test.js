@@ -18,7 +18,10 @@ for (const scenario of plannedChangeWorkflowScenarios) {
             const result = await runGoldenScenarioChildProcess({
                 scenarioModule: "src/ui/tui/golden-scenarios/planned-change-workflow.js",
                 exportName: scenarioExportNames.get(scenario) || "",
-                timeoutMs: 120000,
+                // Read from the scenario rather than fixed here, so the budget lives next
+                // to the waits it has to cover. A cap hidden in the test file silently
+                // overrode those waits and killed the child before they could apply.
+                timeoutMs: /** @type {{ timeoutMs?: number }} */ (scenario).timeoutMs || 120000,
             });
             assertEquals(result.result.actor.remaining, []);
         },
