@@ -224,6 +224,37 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
     assertEquals(plan?.attrs.status, "validated_ci");
 });
 
+Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Change classifications", async () => {
+    for (const classification of ["QUICK_FIX", "PROJECT"]) {
+        const objectiveChecks = [{ id: "OC-SKIP", command: "false", rationale: "must not run" }];
+        const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", {
+            classification,
+            objectiveChecks: /** @type {any} */ (objectiveChecks),
+        });
+        let ciCalls = 0;
+
+        const result = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification, status: "implemented", objectiveChecks },
+            __deps: /** @type {any} */ ({
+                ...noOpWorktreePlanHandoffDeps(),
+                runLocalCI: () => {
+                    ciCalls += 1;
+                    return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                },
+            }),
+        });
+
+        const plan = await loadPlan(projectRoot, "p");
+        assertEquals(ciCalls, 1);
+        assertEquals(result.kind, "paused");
+        assertEquals(plan?.attrs.status, "validated_ci");
+        assertEquals(plan?.attrs.validationCiAttempts, 0);
+    }
+});
+
 Deno.test("runValidationLoop starts at implemented and records only the mechanical pass boundary", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", { complexity: "MEDIUM" });

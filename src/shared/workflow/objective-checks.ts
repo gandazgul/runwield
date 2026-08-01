@@ -199,9 +199,9 @@ export function summarizeObjectiveChecks(results: ObjectiveCheckResult[]): Objec
     const met = results.filter((result) => result.status === "met").length;
     const unmet = results.filter((result) => result.status === "unmet").length;
     const broken = results.filter((result) => result.status === "broken").length;
-    const nonMet = results.filter((result) => result.status !== "met");
     const statusLine =
         `Objective-Failing Checks: ${met} met, ${unmet} unmet, ${broken} broken (${results.length} total).`;
-    const block = nonMet.length ? `${statusLine}\n\n${nonMet.map(formatResult).join("\n\n")}` : statusLine;
+    const resultLines = results.map(formatResult).join("\n\n");
+    const block = resultLines ? `${statusLine}\n\n${resultLines}` : statusLine;
     return { total: results.length, met, unmet, broken, block };
 }

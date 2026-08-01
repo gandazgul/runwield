@@ -1503,6 +1503,7 @@ async function runPlanObjectiveChecks(
     context: PhaseContext,
     attempts: number,
 ): Promise<ObjectiveCheckPhaseOutcome> {
+    if (!isPlannedChangeClassification(args.triageMeta.classification)) return { kind: "skipped" };
     const checks = args.triageMeta.objectiveChecks || [];
     if (!checks.length) return { kind: "skipped" };
 

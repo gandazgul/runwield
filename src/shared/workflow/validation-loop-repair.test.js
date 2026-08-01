@@ -106,7 +106,10 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
 
 Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are unmet", async () => {
     const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({ objectiveChecks });
+    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
+        classification: "PLANNED_CHANGE",
+        objectiveChecks,
+    });
 
     const result = await runValidationPhase({
         hostedSession,
@@ -129,7 +132,10 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
 
 Deno.test("runValidationLoop stops without repair when an Objective-Failing Check is broken", async () => {
     const objectiveChecks = [{ id: "OC1", command: "not-a-real-runwield-command" }];
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({ objectiveChecks });
+    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
+        classification: "PLANNED_CHANGE",
+        objectiveChecks,
+    });
 
     const result = await runValidationPhase({
         hostedSession,

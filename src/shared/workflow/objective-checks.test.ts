@@ -81,6 +81,7 @@ Deno.test("summarizeObjectiveChecks counts results and formats non-met output", 
         assertEquals(summary.met, 1);
         assertEquals(summary.unmet, 1);
         assertEquals(summary.broken, 0);
+        assertStringIncludes(summary.block, "PASS: met");
         assertStringIncludes(summary.block, "FAIL: unmet");
         assertStringIncludes(summary.block, "command: printf details; exit 3");
         assertStringIncludes(summary.block, "details");
