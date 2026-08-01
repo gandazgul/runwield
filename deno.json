@@ -115,12 +115,13 @@
         "@xterm/headless": "npm:@xterm/headless@5.5.0"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q test",
+        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",
         "language-policy:check": "deno run -A scripts/check-language-policy.js",
         "seams:check": "deno run -A scripts/check-injection-seams.js",
+        "doc-links:check": "deno run -A scripts/check-doc-links.js",
         "seams:update": "deno run -A scripts/check-injection-seams.js --update",
         "test": "deno run -A scripts/write-version.js && snip run -- deno run -A scripts/run-tests.js",
         "lint": "snip run -- deno lint",

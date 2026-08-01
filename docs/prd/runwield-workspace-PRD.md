@@ -607,10 +607,9 @@ only Workspace Intelligence Search must not promote Project Evidence Graph prema
 
 - [RunWield Core PRD](./runwield-core-prd.md)
 - [Session Host and ACP PRD](./runwield-acp-session-host-PRD.md)
-- [Workspace Agent Sessions and Web IDE handoff](../handoffs/2026-07-20-workspace-agent-sessions-and-web-ide.md)
 - [Cymbal multi-Project federation research](../research/cymbal-multiproject-search-federation.md)
 - [Sourcebot integration research](../research/sourcebot-workspace-integration.md)
-- [Local-First Plan Management UI PRD](./local-first-plan-management-ui-PRD.md)
+- [Local-First Plan Management UI PRD](./done/local-first-plan-management-ui-PRD.md)
 - [Collaborative Planning PRD](./collaborative-planning-PRD.md)
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)
 - [ADR-008: Remote-Canonical Collaborative Shared Spaces](../adr/008-remote-canonical-collaborative-shared-spaces.md)
