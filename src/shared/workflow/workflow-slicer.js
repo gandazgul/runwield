@@ -132,7 +132,8 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
             "Child Work Kind. Set for new child planned changes based on the work's nature, including DOCUMENTATION for documentation creation or substantial documentation updates; omit only to preserve an existing child draft's Work Kind.",
     })),
     content: Type.String({
-        description: "Complete child planned change plan markdown body without YAML front matter.",
+        description:
+            "Child planned change plan markdown body without YAML front matter. A seed shaped like a Plan: the whole body in canonical planner sections, carrying the boundary and its intent. Planner elaborates executable detail before execution, so do not invent implementation steps or verification you would be guessing at.",
     }),
 });
 
