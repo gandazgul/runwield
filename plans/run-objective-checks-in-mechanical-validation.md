@@ -1,24 +1,43 @@
 ---
+planId: "6628077e-29f5-4f9c-b993-7d9e13dc7cbf"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Persist each Plan's Objective-Failing Checks as Front Matter through plan_written and run them in Mechanical Validation, so the one check designed to fail is actually executed."
+summary: "Persist each Plan's Objective-Failing Checks as Front Matter through plan_written and run them in Workflow Validation's Mechanical Validation phase, so the one check designed to fail is actually executed."
 affectedPaths:
     - "src/shared/workflow/objective-checks.ts"
-    - "src/tools/plan-written.js"
+    - "src/shared/workflow/objective-checks.test.ts"
+    - "src/plan-front-matter.js"
     - "src/plan-store.js"
+    - "src/plan-store.test.js"
+    - "src/tools/plan-written.js"
+    - "src/tools/__tests__/plan-written.test.js"
     - "src/shared/workflow/validation.ts"
-    - "src/shared/workflow/validation-legacy.ts"
+    - "src/shared/workflow/validation-loop-core.test.js"
+    - "src/shared/workflow/validation-loop-repair.test.js"
     - "src/agent-definitions/planner.md"
     - "src/agent-definitions/document-formats/planner-plan-format.md"
     - "CONTEXT.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-01T01:39:35-04:00"
-status: "validated_reviewer"
+updatedAt: "2026-08-01T20:48:09.698Z"
+status: "verified"
+origin: "internal"
+implementedAt: "2026-08-01T18:51:26.646Z"
+verifiedAt: "2026-08-01T20:48:09.698Z"
+userVerifiedAt: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "bc89f87488bb11a280ceacb0c68de3c7a3f02950"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "9977af45f1d16f10101cd16f9edb03061dd786b6"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Run Objective-Failing Checks in Mechanical Validation
@@ -34,16 +53,18 @@ nothing in the pipeline runs them:
 - The Semantic Reviewer is explicitly forbidden from auditing it: _"Do not audit whether the Engineer performed the
   Plan's verification procedures. Mechanical validation owns tests, linters, builds, and verification procedures."_
   (`workflow-prompts/reviewer-prompt.md:13-14`).
-- Mechanical Validation runs `runLocalCI` (`validation-legacy.ts:1416`) — the project's generic CI command, which has
-  never read the Plan and passes on an empty change.
+- Workflow Validation's Mechanical Validation phase starts in `runMechanicalValidationPhase` (`validation.ts`) and uses
+  `runLocalCI` from `validation-local-ci.ts` — the project's generic CI command, which has never read the Plan and
+  passes on an empty change.
 
 So the one check designed to fail is the only check no independent stage executes. The rename-plus-`export {}` split
 failure passed every gate for exactly this reason.
 
 ## Objective
 
-A Plan's Objective-Failing Checks become durable RunWield-owned state that Mechanical Validation executes: submitted
-through `plan_written`, persisted in Front Matter, run after CI passes, and failing the phase when unmet.
+A Plan's Objective-Failing Checks become durable RunWield-owned state that Workflow Validation executes during its
+Mechanical Validation phase: submitted through `plan_written`, persisted in Front Matter, run after CI passes, and
+failing the phase when unmet.
 
 This Plan makes the checks _run_. Proving they were red before the work is
 [`baseline-objective-checks-before-execution`](baseline-objective-checks-before-execution.md), which depends on this
@@ -72,54 +93,90 @@ The classification is three-valued, not pass/fail:
 
 ## Files to Modify
 
-- `src/shared/workflow/objective-checks.ts` — new: check execution and result classification.
-- `src/plan-store.js` — `objectiveChecks` in the Plan Front Matter type, schema, and normalization.
-- `src/tools/plan-written.js` — accept and validate the `objectiveChecks` parameter; reject a check-less PLANNED_CHANGE.
-- `src/shared/workflow/validation.ts` / `validation-legacy.ts` — run the check set after CI and fold `unmet` results
-  into the existing repair loop.
-- `src/agent-definitions/planner.md`, `document-formats/planner-plan-format.md` — reconcile wording with the shipped
-  parameter shape.
-- `CONTEXT.md` — Objective-Failing Check as canonical project language.
+- `src/shared/workflow/objective-checks.ts` — new TypeScript module for shell execution, timeout handling, output
+  capture, result classification, and summary formatting.
+- `src/shared/workflow/objective-checks.test.ts` — new tests for met/unmet/broken classification, timeout behavior,
+  output capture, summary formatting, and validation-import independence.
+- `src/plan-front-matter.js` — add `objectiveChecks` to the known ordered Front Matter keys so formatting and merge
+  overrides keep it in a stable location.
+- `src/plan-store.js` — `objectiveChecks` in the Plan Front Matter typedef, parsing, normalization, and round-trip
+  formatting.
+- `src/plan-store.test.js` — cover valid check normalization, invalid field dropping/rejection behavior, and legacy Plan
+  compatibility.
+- `src/tools/plan-written.js` — accept and validate the `objectiveChecks` parameter, write it to Front Matter before
+  review, and reject a check-less PLANNED_CHANGE submission.
+- `src/tools/__tests__/plan-written.test.js` — cover tool parameter validation, Front Matter persistence before review,
+  PLANNED_CHANGE rejection with no checks, and PROJECT Epic exemption.
+- `src/shared/workflow/validation.ts` — run the Plan check set after CI and fold `unmet` results into the existing Plan
+  Workflow Validation repair loop.
+- `src/shared/workflow/validation-loop-core.test.js`, `validation-loop-repair.test.js` — cover passing checks, unmet
+  checks dispatching repair under the existing attempt ceiling, broken checks stopping without repair, and legacy Plans
+  with no `objectiveChecks`.
+- `src/agent-definitions/planner.md`, `document-formats/planner-plan-format.md` — reconcile Planner instructions and
+  Plan format wording with the shipped `plan_written` parameter and Front Matter field.
+- `CONTEXT.md` — define Objective-Failing Check and clarify that executable Plan work runs these checks inside Workflow
+  Validation's Mechanical Validation phase.
 
 ## Reuse Opportunities
 
-- `src/shared/workflow/validation-legacy.ts` — `runLocalCI` for the command-execution and output-capture pattern;
-  `runCompletionGatedRepair` for the repair loop that `unmet` results feed into.
-- `src/tools/plan-written.js` — the existing front-matter policy-rejection path (`policy.error`) is the model for
-  rejecting a check-less submission back to Planner.
-- `src/shared/workflow/plan-lifecycle.js` — `recordPlanEvent` and the existing event vocabulary.
+- `src/shared/workflow/validation-local-ci.ts` and `src/shared/workflow/process-output.ts` — subprocess spawning and
+  bounded output-capture patterns; prefer the shared `process-output.ts` helpers in the new module rather than copying
+  validation-local code again.
+- `src/shared/workflow/validation.ts` — `runMechanicalValidationPhase`, `dispatchCiRepair`, `getCiFailureReason`, and
+  the durable `validationCiAttempts` counter are the model for how unmet checks consume repair attempts.
+- `src/tools/plan-written.js` — the existing Front Matter policy-rejection path (`policy.error`) is the model for
+  rejecting a check-less submission back to Planner before review/readiness.
+- `src/plan-store.js` — `updatePlanFrontMatter` / Front Matter merge helpers are the route for tool-owned metadata
+  updates; do not hand-edit YAML text in `plan_written`.
+- `src/shared/workflow/plan-lifecycle.js` — `recordPlanEvent` and the existing validation event vocabulary.
 - `src/shared/workflow/metrics.js` — `recordWorkflowMetric` for check outcomes.
 
 ## Implementation Steps
 
 - [ ] `src/shared/workflow/objective-checks.ts` exports `runObjectiveChecks({ checks, cwd, signal, timeoutMs })`
-      returning one result per check with status `"met" | "unmet" | "broken"`, captured stdout/stderr, exit code, and
-      duration. A command that cannot be spawned or exceeds its timeout classifies as `"broken"`, never `"unmet"`. The
-      module imports nothing from `validation.ts` or `validation-legacy.ts`.
-- [ ] `src/shared/workflow/objective-checks.ts` exports `summarizeObjectiveChecks(results)` producing counts and the
-      human-readable failure block, so validation output and the later baseline rejection share one format.
+      returning one result per check with status `"met" | "unmet" | "broken"`, captured stdout/stderr, exit code,
+      duration, command, and check ID. A command that cannot be spawned or exceeds its timeout classifies as `"broken"`,
+      never `"unmet"`. The module imports nothing from `validation.ts`, `validation-local-ci.ts`, or
+      `validation-helpers.ts`.
+- [ ] `src/shared/workflow/objective-checks.ts` executes commands through the platform shell (`sh -c` / `cmd /c`) in the
+      supplied `cwd`, uses a default per-check timeout constant, honors an abort `signal`, and captures bounded output
+      through `src/shared/workflow/process-output.ts`.
+- [ ] `src/shared/workflow/objective-checks.ts` exports `summarizeObjectiveChecks(results)` producing counts plus a
+      human-readable block that names every non-met check by ID, command, status, exit code, timeout/spawn reason, and
+      captured output tail, so validation output and the later baseline rejection share one format.
+- [ ] `src/plan-front-matter.js` includes `objectiveChecks` in `PLAN_FRONT_MATTER_KEYS` immediately after
+      `affectedPaths`, keeping it with the Plan's reviewable requirement metadata rather than lifecycle/recovery fields.
 - [ ] `src/plan-store.js` accepts, validates, normalizes, and round-trips `objectiveChecks` in Plan Front Matter as an
-      array of `{ id, command, rationale }`. Plans without the field load unchanged, so existing Plans in `plans/` and
-      `plans/archived/` still parse.
-- [ ] `plan_written` accepts an `objectiveChecks` parameter and writes it to Front Matter. A PLANNED_CHANGE submission
-      with zero checks is rejected with the reason and the format reference, and no lifecycle transition is recorded.
-      PROJECT Epics accept and require none.
-- [ ] `plan_written` caps check count and per-command length so a Plan header cannot grow unbounded.
-- [ ] Mechanical Validation runs the Plan's checks after `runLocalCI` passes and before Semantic Review, reporting each
-      check ID with its status in the progress surface.
-- [ ] An `"unmet"` check fails the phase and feeds the existing completion-gated repair loop with the check ID, command,
-      and captured output, under the same attempt ceiling as CI failure.
-- [ ] A `"broken"` check stops the phase and surfaces the command, exit status, and captured output to the user as a
-      Plan defect rather than consuming repair attempts.
-- [ ] QUICK_FIX validation and PROJECT Epics run no checks; a legacy Plan without `objectiveChecks` validates exactly as
-      it does today.
-- [ ] `CONTEXT.md` defines Objective-Failing Check and its exit-0 contract in the same change.
+      array of `{ id, command, rationale }`. `id` and `command` are required non-empty strings, `rationale` is an
+      optional non-empty string, IDs are unique within a Plan, and invalid entries fail closed for newly written
+      metadata while Plans without the field load unchanged.
+- [ ] `plan_written` accepts an `objectiveChecks` parameter with the same `{ id, command, rationale }` shape and writes
+      the normalized list to Front Matter using `updatePlanFrontMatter` before opening the review UI, so the reviewed
+      Plan includes the executable copy RunWield will later run.
+- [ ] A PLANNED_CHANGE submission with zero valid checks is rejected before review/readiness with the reason and the
+      Plan format reference, and no Plan Lifecycle event is recorded. PROJECT Epics accept and require none.
+- [ ] `plan_written` enforces bounded metadata: at most 12 checks, `id` at most 64 characters, `command` at most 1000
+      characters, and `rationale` at most 500 characters.
+- [ ] Workflow Validation's Mechanical Validation phase loads `objectiveChecks` from the canonical Plan metadata after
+      CI passes and before `mechanical_validation_passed` is recorded. Each status line names the check currently
+      running and the final summary lists every check ID with its status.
+- [ ] An `"unmet"` check fails the phase and dispatches the Plan's execution Agent for repair with the check ID,
+      command, rationale, and captured output, under the same `validationCiAttempts` / `AUTOMATIC_ROUNDS` ceiling as CI
+      failure.
+- [ ] A `"broken"` check records/stages a validation failure reason when possible, surfaces the command, exit status or
+      spawn/timeout reason, and captured output to the user as a Plan defect, and does not dispatch Engineer or consume
+      a repair attempt.
+- [ ] QUICK_FIX no-plan Mechanical Validation and PROJECT Epics run no Objective-Failing Checks; an already-approved or
+      external legacy Plan without `objectiveChecks` validates exactly as it does today.
+- [ ] `CONTEXT.md` defines Objective-Failing Check and its exit-0 contract in the same change, and clarifies the
+      distinction between no-plan QUICK_FIX Mechanical Validation and the Mechanical Validation phase inside Workflow
+      Validation.
 
 ## Verification Plan
 
 - Automated: `deno task ci`.
 - Automated:
-  `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/tools/__tests__/plan-written.test.js src/plan-store.test.js`
+  `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/tools/__tests__/plan-written.test.js src/plan-store.test.js src/shared/workflow/validation-loop-core.test.js src/shared/workflow/validation-loop-repair.test.js`
 - Automated: `deno task test:golden-tui` — a Golden scenario drives a Plan whose check goes green after implementation,
   and a second whose check stays red and reaches the repair loop.
 - Manual: submit a Plan with no checks and confirm Planner receives the rejection rather than the Plan reaching review.
@@ -133,12 +190,14 @@ The classification is three-valued, not pass/fail:
 
 - `OC1` — `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts` — the module and
   its three-valued classification exist and are exercised.
-- `OC2` — `grep -rq "runObjectiveChecks" src/shared/workflow/validation.ts src/shared/workflow/validation-legacy.ts` —
-  Mechanical Validation calls the checks rather than remaining CI-only.
-- `OC3` — `grep -q "objectiveChecks" src/tools/plan-written.js && grep -q "objectiveChecks" src/plan-store.js` — the
-  parameter is accepted and persisted, not merely documented in the prompts.
-- `OC4` — `! grep -q "validation" src/shared/workflow/objective-checks.ts` — the module stays free of validation
-  imports, so the baseline Plan can call it from the execution path.
+- `OC2` — `grep -q "runObjectiveChecks" src/shared/workflow/validation.ts` — Workflow Validation's Mechanical Validation
+  phase calls the checks rather than remaining CI-only.
+- `OC3` —
+  `grep -q "objectiveChecks" src/tools/plan-written.js && grep -q "objectiveChecks" src/plan-store.js && grep -q "objectiveChecks" src/plan-front-matter.js`
+  — the parameter is accepted, persisted, and formatted as known Front Matter, not merely documented in the prompts.
+- `OC4` —
+  `deno eval -A 'const s=await Deno.readTextFile("src/shared/workflow/objective-checks.ts"); Deno.exit(/from\s+["\x27][^"\x27]*validation|import\s*\(\s*["\x27][^"\x27]*validation/.test(s) ? 1 : 0)'`
+  — the module stays free of validation imports, so the baseline Plan can call it from the execution path.
 
 ## Edge Cases & Considerations
 
@@ -149,7 +208,11 @@ The classification is three-valued, not pass/fail:
   accepted gap for this Plan, not something to paper over with a heuristic.
 - A check that re-runs one test file is slower than a grep, but Mechanical Validation already runs the full suite via
   CI, so the marginal cost is small. Do not special-case by command shape.
-- `validation-legacy.ts` does not type-check cleanly in isolation today. Do not widen its looseness into the new module,
-  which is typed properly per the house style.
+- `validation.ts` is a large lifecycle module; keep the new command runner isolated and typed rather than growing a
+  second validation driver or adding broad dependency seams. Do not add `__deps` for RunWield-owned objective check
+  machinery; test it with real temp directories and real shell commands.
 - Check output can be large. Truncate captured output for the repair prompt the same way other validation output is
   truncated, keeping the failing command and exit status intact.
+- Updating the canonical Plan format changes how future Planner calls `plan_written`, but existing draft Plans may still
+  only have a body section until they are resubmitted. Treat the tool parameter and persisted Front Matter as authority;
+  the body section remains reviewable explanation.
