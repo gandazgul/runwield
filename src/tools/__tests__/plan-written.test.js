@@ -19,7 +19,20 @@ function makeHarness(options = {}) {
     const reviewResponses = [...(options.reviewResponses || [])];
     const lifecycle = /** @type {any[]} */ ([]);
     const metrics = /** @type {any[]} */ ([]);
-    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: Deno.cwd() });
+    const cwd = Deno.makeTempDirSync();
+    Deno.mkdirSync(`${cwd}/plans`, { recursive: true });
+    if (options.exists !== false) {
+        Deno.writeTextFileSync(
+            `${cwd}/plans/runtime-boundary.md`,
+            `---
+classification: ${options.classification || "FEATURE"}
+status: draft
+---
+# Runtime Boundary
+`,
+        );
+    }
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
     hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
     const tool = createPlanWrittenTool({
         hostedSession,
@@ -32,11 +45,11 @@ function makeHarness(options = {}) {
             affectedPaths: ["src/shared/session/session-runtime.js"],
         },
         __deps: {
-            cwd: Deno.cwd(),
+            cwd,
             stat: () =>
                 options.exists === false
                     ? Promise.reject(new Deno.errors.NotFound())
-                    : Promise.resolve({ isFile: true }),
+                    : Deno.stat(`${cwd}/plans/runtime-boundary.md`),
             requestPlanReview: (_hostedSession, request) => {
                 if (request.type === "approval") {
                     return Promise.resolve(options.retryResponse || { outcome: "canceled", value: false });
@@ -72,8 +85,18 @@ function makeHarness(options = {}) {
  * @param {string} [planName]
  * @param {(result: any) => void} [onUpdate]
  */
-function execute(tool, planName = "runtime-boundary", onUpdate = () => {}) {
-    return /** @type {any} */ (tool.execute)("call", { planName }, new AbortController().signal, onUpdate, {});
+function execute(tool, planName = "runtime-boundary", onUpdate = () => {}, params = {}) {
+    return /** @type {any} */ (tool.execute)(
+        "call",
+        {
+            planName,
+            objectiveChecks: [{ id: "OC1", command: "test -f src/shared/session/session-runtime.js" }],
+            ...params,
+        },
+        new AbortController().signal,
+        onUpdate,
+        {},
+    );
 }
 
 Deno.test("plan_written validates the declared plan before requesting review", async () => {
@@ -172,6 +195,7 @@ Deno.test("plan_written returns review feedback and images to the planning agent
     assertEquals(result.terminate, undefined);
     assertEquals(result.details, {
         planName: "runtime-boundary",
+        objectiveChecks: [{ id: "OC1", command: "test -f src/shared/session/session-runtime.js" }],
         outcome: "feedback",
         feedback: "Remove the cross-boundary import.",
         imageCount: 1,
@@ -215,6 +239,46 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     assertEquals(result.terminate, true);
     assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
+});
+
+Deno.test("plan_written rejects planned changes without Objective-Failing Checks before review", async () => {
+    const { tool, lifecycle } = makeHarness({ classification: "PLANNED_CHANGE" });
+    const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
+
+    assertEquals(result.details.outcome, "repair_required");
+    assertEquals(result.details.reason, "missing_objective_checks");
+    assertStringIncludes(
+        result.content[0].text,
+        "PLANNED_CHANGE Plans must provide at least one objectiveChecks entry",
+    );
+    assertEquals(lifecycle, []);
+});
+
+Deno.test("plan_written persists Objective-Failing Checks to front matter before review", async () => {
+    const { tool, hostedSession } = makeHarness({ classification: "PLANNED_CHANGE" });
+    const result = await execute(tool, "runtime-boundary", () => {}, {
+        objectiveChecks: [
+            {
+                id: "OC1",
+                command: "grep -q runObjectiveChecks src/shared/workflow/validation.ts",
+                rationale: "validation calls checks",
+            },
+        ],
+    });
+    const markdown = await Deno.readTextFile(`${hostedSession.cwd}/plans/runtime-boundary.md`);
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertStringIncludes(markdown, "objectiveChecks:");
+    assertStringIncludes(markdown, 'id: "OC1"');
+    assertStringIncludes(markdown, 'command: "grep -q runObjectiveChecks src/shared/workflow/validation.ts"');
+});
+
+Deno.test("plan_written accepts PROJECT Epics without Objective-Failing Checks", async () => {
+    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
+    const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
+
+    assertEquals(result.details.outcome, "approved_decompose");
+    assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
 });
 
 Deno.test("plan_written preserves documentation triage workKind when Plan front matter omits it", async () => {

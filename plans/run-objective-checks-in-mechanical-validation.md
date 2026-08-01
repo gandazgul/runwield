@@ -21,20 +21,21 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
-updatedAt: "2026-08-01T20:48:07.440Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-01T20:56:47.371Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-01T18:51:26.646Z"
+verifiedAt: "2026-08-01T20:56:47.371Z"
 userVerifiedAt: null
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "7513eea0cf864dbddea6cd5d7c6fa798c0110fa7"
-worktreeId: "000300da"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-run-objective-checks-in-mechanical-validation-000300da"
-worktreeBranch: "runwield/worktree/run-objective-checks-in-mechanical-validation-000300da"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "7e7d3a99cce691df4c8b935cff6097f10b6d3d0b"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "586b5a3a4700fbe188bb5c5239dbdf419db59c0c"
 validationCiAttempts: 0
 validationSemanticRounds: 1
 ---

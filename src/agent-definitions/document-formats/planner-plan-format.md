@@ -79,7 +79,9 @@ Plan on their own. List **at least one** check that is red today and can only go
 met.
 
 Each check is a shell command with one uniform contract: **exit 0 means the objective was met.** RunWield runs these
-commands, so they must be literal and runnable from the repository root — not instructions to eyeball something.
+commands, so they must be literal and runnable from the repository root — not instructions to eyeball something. When
+you call `plan_written`, pass the same checks in the `objectiveChecks` parameter as `{ id, command, rationale }`; the
+Plan body remains the reviewable explanation, while Front Matter carries RunWield's executable copy.
 
 - `OC1` — `! grep -rq "renderLegacy" src/` — the legacy renderer no longer exists anywhere.
 - `OC2` — `test "$(wc -l < src/parser/index.ts)" -lt 400` — the monolith was actually split, not renamed.

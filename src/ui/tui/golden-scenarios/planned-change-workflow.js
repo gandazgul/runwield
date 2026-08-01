@@ -117,7 +117,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             ordinal: 1,
             requiredTools: ["plan_written"],
             thinking: "Submit draft for Plan Review feedback.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "plan",
+                    objectiveChecks: [{
+                        id: "OC1",
+                        command: "test -f golden-planned-change.txt",
+                        rationale: "implementation creates the golden planned-change artifact",
+                    }],
+                },
+            }],
         },
         {
             id: "planner-submit-approval-round",
@@ -126,7 +136,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             ordinal: 2,
             requiredTools: ["plan_written"],
             thinking: "Resubmit revised Plan for approval and execution.",
-            toolCalls: [{ name: "plan_written", arguments: { planName: "plan" } }],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "plan",
+                    objectiveChecks: [{
+                        id: "OC1",
+                        command: "test -f golden-planned-change.txt",
+                        rationale: "implementation creates the golden planned-change artifact",
+                    }],
+                },
+            }],
         },
         {
             id: "engineer-implements-plan",

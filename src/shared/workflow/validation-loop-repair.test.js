@@ -104,6 +104,57 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
     assertEquals(plan?.attrs.validationCiAttempts, 1);
 });
 
+Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are unmet", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
+    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
+        classification: "PLANNED_CHANGE",
+        objectiveChecks,
+    });
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "paused");
+    assertEquals(repairRoot.prompts.length, 1);
+    assertStringIncludes(repairRoot.prompts[0], "Objective-Failing Checks");
+    assertStringIncludes(repairRoot.prompts[0], "OC1: unmet");
+    assertEquals(plan?.attrs.validationCiAttempts, 1);
+});
+
+Deno.test("runValidationLoop stops without repair when an Objective-Failing Check is broken", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "not-a-real-runwield-command" }];
+    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
+        classification: "PLANNED_CHANGE",
+        objectiveChecks,
+    });
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "failed");
+    assertStringIncludes(result.reason || "", "Objective-Failing Check defect");
+    assertEquals(repairRoot.prompts.length, 0);
+    assertEquals(plan?.attrs.validationCiAttempts, 0);
+});
+
 Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pauses", async () => {
     const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
         executionAgent: "frontend-engineer",

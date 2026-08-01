@@ -145,6 +145,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
+ * @property {ObjectiveCheck[]} [objectiveChecks] - Executable Objective-Failing Checks owned by RunWield.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
@@ -201,6 +202,13 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {number} [collaborationRevision] - Latest known positive integer remote revision
  * @property {string} [collaborationBodyHash] - SHA-256 hash of the last controlled synced Plan body
  * @property {string} [collaborationSyncedAt] - ISO timestamp of the last controlled collaboration metadata write
+ */
+
+/**
+ * @typedef {Object} ObjectiveCheck
+ * @property {string} id
+ * @property {string} command
+ * @property {string} [rationale]
  */
 
 /** @typedef {Partial<PlanFrontMatter> & Record<string, unknown>} PlanFrontMatterInput */
@@ -402,6 +410,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecks, fm.objectiveChecks);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
@@ -760,6 +769,28 @@ function normalizeStringList(value) {
 
 /**
  * @param {unknown} value
+ * @returns {ObjectiveCheck[] | undefined}
+ */
+export function normalizeObjectiveChecks(value) {
+    if (!Array.isArray(value)) return undefined;
+    /** @type {ObjectiveCheck[]} */
+    const checks = [];
+    const ids = new Set();
+    for (const item of value) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
+        const source = /** @type {Record<string, unknown>} */ (item);
+        const id = typeof source.id === "string" ? source.id.trim() : "";
+        const command = typeof source.command === "string" ? source.command.trim() : "";
+        if (!id || !command || ids.has(id)) return undefined;
+        ids.add(id);
+        const rationale = typeof source.rationale === "string" ? source.rationale.trim() : "";
+        checks.push({ id, command, ...(rationale ? { rationale } : {}) });
+    }
+    return checks;
+}
+
+/**
+ * @param {unknown} value
  * @returns {number | undefined}
  */
 function normalizeNonNegativeInteger(value) {
@@ -937,6 +968,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
+        objectiveChecks: Object.hasOwn(overrides, "objectiveChecks")
+            ? normalizeObjectiveChecks(overrides.objectiveChecks)
+            : normalizeObjectiveChecks(existingFm.objectiveChecks),
         tickets: Object.hasOwn(overrides, "tickets")
             ? normalizeTicketReferences(overrides.tickets)
             : normalizeTicketReferences(existingFm.tickets),
@@ -1067,6 +1101,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
+            objectiveChecks: normalizeObjectiveChecks(attrs.objectiveChecks),
             tickets: normalizeTicketReferences(attrs.tickets),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
