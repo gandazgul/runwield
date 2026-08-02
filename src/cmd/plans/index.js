@@ -116,7 +116,7 @@ export async function runPlansCommand(argv, options = {}) {
     }
     if (argv[0] === "archive") {
         const runPlansArchiveCommand = runPlansArchiveCommandDep ||
-            (await import("./archive.js")).runPlansArchiveCommand;
+            (await import("./archive.ts")).runPlansArchiveCommand;
         await runPlansArchiveCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
@@ -127,7 +127,7 @@ export async function runPlansCommand(argv, options = {}) {
         return;
     }
     if (argv[0] === "read") {
-        const runPlansReadCommand = runPlansReadCommandDep || (await import("./read.js")).runPlansReadCommand;
+        const runPlansReadCommand = runPlansReadCommandDep || (await import("./read.ts")).runPlansReadCommand;
         await runPlansReadCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }

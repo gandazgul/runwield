@@ -15,7 +15,7 @@ import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/inde
 import { runQuitCommand } from "./quit/index.js";
 import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.js";
 import { runExportCommand } from "./export/index.js";
-import { runNewCommand } from "./new/index.js";
+import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
 import { runSessionCommand } from "./session/index.js";
 import { runContextCommand } from "./context/index.js";
@@ -26,7 +26,7 @@ import { runThemeCommand } from "./theme/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
 import { runCompactCommand } from "./compact/index.js";
-import { runSettingsCommand } from "./settings/index.js";
+import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
