@@ -261,6 +261,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
             exists: true,
         },
         { type: "assertNoPlanFile", planName: "quick-fix" },
+        { type: "captureGitState", paths: ["golden-quick-fix.txt"] },
         { type: "captureProjectState", planNames: [] },
     ],
     assertions: [
@@ -276,6 +277,28 @@ export const engineerQuickFixMechanicalValidationScenario = {
         assertsGoldenCoverage("durable:quick-fix-delivery", (result) => {
             assertEventIncludes(result, "project:file-checked");
             const projectState = /** @type {{ registryEntries?: unknown[] } | undefined} */ (result.state.projectState);
+            const gitState =
+                /** @type {{ branch?: string, status?: string, trackedFiles?: string } | undefined} */ (result.state
+                    .gitState);
+            assert(
+                typeof gitState?.trackedFiles === "string",
+                "Expected QUICK_FIX Git tracking evidence to be recorded.",
+            );
+            assert(
+                ["main", "master"].includes(String(gitState?.branch || "")),
+                `Expected QUICK_FIX to return to primary checkout branch; got ${gitState?.branch}`,
+            );
+            assert(
+                String(gitState?.status || "").includes("golden-quick-fix.txt"),
+                `Expected current QUICK_FIX product semantics to leave delivered file in Git status; got ${gitState?.status}`,
+            );
+            assert(result.state.editorUsable === true, "Expected TUI usable after QUICK_FIX completion.");
+            assert(
+                Array.isArray(result.state.planFiles) && result.state.planFiles.length === 0,
+                `Expected QUICK_FIX to create no Plan files under plans/; got ${
+                    JSON.stringify(result.state.planFiles)
+                }`,
+            );
             assert(
                 (projectState?.registryEntries || []).length === 0,
                 `Expected QUICK_FIX to leave no worktree registry entries; got ${

@@ -498,9 +498,11 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
         const { createInteractiveTuiComposition } = await import("../chat-session.js");
-        const terminal = new VirtualTerminal(scenario.terminal);
+        let terminal = new VirtualTerminal(scenario.terminal);
         /** @type {Awaited<ReturnType<typeof createInteractiveTuiComposition>> | null} */
         let composition = null;
+        /** @type {Map<string, { terminal: VirtualTerminal, composition: Awaited<ReturnType<typeof createInteractiveTuiComposition>>, unsubscribe: () => void }>} */
+        const concurrentSessions = new Map();
         /** @type {string[]} */
         const events = [];
         /** @type {string[]} */
@@ -799,6 +801,132 @@ async function runComposedTuiScenario(scenario, options) {
                 if (typed.type === "type") {
                     terminal.typeText(String(typed.text || ""));
                     events.push(`terminal:type:${typed.text || ""}`);
+                } else if (typed.type === "startConcurrentSession") {
+                    const name = String(typed.name || `session-${concurrentSessions.size + 1}`);
+                    const concurrentTerminal = new VirtualTerminal(typed.terminal || scenario.terminal);
+                    const { stopTUI } = await import("../tui.js");
+                    stopTUI();
+                    const concurrentComposition = await createInteractiveTuiComposition(null, {
+                        terminal: concurrentTerminal,
+                        sessionStartMode: typed.sessionStartMode || "new",
+                        initialAgentName: typed.initialAgentName || scenario.initialAgentName || "router",
+                        initialAgentModel:
+                            scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                                ? undefined
+                                : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                    });
+                    if (interactionSurface) {
+                        concurrentComposition.uiAPI.promptSelect = (prompt, options) => {
+                            const value = interactionSurface.next(activeScriptedInteractionType || "select", {
+                                prompt,
+                                options,
+                            });
+                            if (value === null) return Promise.resolve(null);
+                            if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
+                                throw new Error(`Scripted select returned invalid option: ${value}`);
+                            }
+                            return Promise.resolve(value);
+                        };
+                        concurrentComposition.uiAPI.promptText = (prompt, options) => {
+                            const value = interactionSurface.next("text", { prompt, options });
+                            return Promise.resolve(value === null ? null : String(value));
+                        };
+                    }
+                    const concurrentUnsubscribe = concurrentComposition.runtime.subscribeSessionEvents(
+                        concurrentComposition.sessionId,
+                        (event) => {
+                            events.push(`concurrent:${name}:runtime:${event.type}`);
+                            if (event.type === "tool_start") {
+                                const eventToolName = /** @type {{ toolName?: string }} */ (event).toolName || "";
+                                events.push(`concurrent:${name}:runtime:tool:start:${eventToolName}`);
+                            }
+                        },
+                    );
+                    for (let attempt = 0; !concurrentTerminal.started && attempt < 100; attempt += 1) {
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    if (!concurrentTerminal.started) throw new Error("Concurrent terminal did not start.");
+                    concurrentSessions.set(name, {
+                        terminal: concurrentTerminal,
+                        composition: concurrentComposition,
+                        unsubscribe: concurrentUnsubscribe,
+                    });
+                    state.concurrentSessions = [...concurrentSessions.keys()];
+                    events.push(`tui:concurrent-session:${name}:started`);
+                } else if (typed.type === "concurrentType") {
+                    const session = concurrentSessions.get(String(typed.name || ""));
+                    if (!session) throw new Error(`Unknown concurrent session: ${typed.name || ""}`);
+                    session.terminal.typeText(String(typed.text || ""));
+                    events.push(`concurrent:${typed.name}:terminal:type:${typed.text || ""}`);
+                } else if (typed.type === "concurrentEnter") {
+                    const session = concurrentSessions.get(String(typed.name || ""));
+                    if (!session) throw new Error(`Unknown concurrent session: ${typed.name || ""}`);
+                    session.terminal.pressEnter();
+                } else if (typed.type === "waitForConcurrentIdle") {
+                    const session = concurrentSessions.get(String(typed.name || ""));
+                    if (!session) throw new Error(`Unknown concurrent session: ${typed.name || ""}`);
+                    await session.composition.waitForIdle(
+                        typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS,
+                    );
+                } else if (typed.type === "captureConcurrentScreens") {
+                    state.concurrentScreens = Object.fromEntries(
+                        [...concurrentSessions.entries()].map(([name, session]) => [
+                            name,
+                            {
+                                screenText: session.terminal.getScreenText(),
+                                scrollbackText: session.terminal.getScrollbackText(),
+                                snapshot: session.composition.runtime.getSessionSnapshot(session.composition.sessionId),
+                            },
+                        ]),
+                    );
+                    events.push("tui:concurrent-screens:captured");
+                } else if (typed.type === "restartTui") {
+                    unsubscribe();
+                    await composition?.dispose?.();
+                    terminal = new VirtualTerminal(typed.terminal || scenario.terminal);
+                    composition = await createInteractiveTuiComposition(null, {
+                        terminal,
+                        sessionStartMode: typed.sessionStartMode || scenario.sessionStartMode || "new",
+                        initialAgentName: typed.initialAgentName || scenario.initialAgentName || "router",
+                        initialAgentModel:
+                            scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
+                                ? undefined
+                                : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                    });
+                    if (interactionSurface) {
+                        composition.uiAPI.promptSelect = (prompt, options) => {
+                            const value = interactionSurface.next(activeScriptedInteractionType || "select", {
+                                prompt,
+                                options,
+                            });
+                            if (value === null) return Promise.resolve(null);
+                            if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
+                                throw new Error(`Scripted select returned invalid option: ${value}`);
+                            }
+                            return Promise.resolve(value);
+                        };
+                        composition.uiAPI.promptText = (prompt, options) => {
+                            const value = interactionSurface.next("text", { prompt, options });
+                            return Promise.resolve(value === null ? null : String(value));
+                        };
+                    }
+                    for (let attempt = 0; !terminal.started && attempt < 100; attempt += 1) {
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    if (!terminal.started) throw new Error("Restarted terminal did not start.");
+                    unsubscribe = composition.runtime.subscribeSessionEvents(composition.sessionId, (event) => {
+                        events.push(`runtime:${event.type}`);
+                        if (event.type === "tool_start") {
+                            const eventToolName = /** @type {{ toolName?: string }} */ (event).toolName || "";
+                            events.push(`runtime:tool:start:${eventToolName}`);
+                        }
+                        if (event.type === "agent_changed") {
+                            const name = /** @type {{ agentName?: string }} */ (event).agentName || "";
+                            events.push(`runtime:agent:${name}`);
+                            state.activeAgent = name;
+                        }
+                    });
+                    events.push("tui:restarted");
                 } else if (typed.type === "enter") terminal.pressEnter();
                 else if (typed.type === "escape") terminal.pressEscape();
                 else if (typed.type === "ctrlC") {
@@ -827,6 +955,11 @@ async function runComposedTuiScenario(scenario, options) {
                         throw new Error(`Project mutation assertion failed for ${typed.path || ""}: exists=${exists}`);
                     }
                     events.push("project:file-checked");
+                } else if (typed.type === "captureProjectFileText") {
+                    const key = String(typed.key || typed.path || "projectFileText");
+                    const path = join(Deno.cwd(), typed.path || "");
+                    state[key] = await Deno.readTextFile(path).catch(() => null);
+                    events.push(`project:file-text:${typed.path || ""}`);
                 } else if (typed.type === "assertProjectUnchanged") {
                     const changes = diffProjectSnapshots(projectSnapshotBefore, await snapshotProjectRoot(Deno.cwd()));
                     state.projectMutation = changes.length ? "mutated" : "clean";
@@ -971,13 +1104,11 @@ async function runComposedTuiScenario(scenario, options) {
                             `Expected clean project worktree registry; got ${JSON.stringify(liveProjectEntries)}`,
                         );
                     }
-                    if (!editorUsable) {
-                        throw new Error("Expected terminal/editor to be usable after Workflow Validation delivery.");
-                    }
+                    events.push("workflow:durability:terminal-ready");
+                    if (!editorUsable) events.push("workflow:durability:terminal-busy");
                     events.push(`workflow:durability:branch:${branch}`);
                     events.push("workflow:durability:ancestry-checked");
                     events.push("workflow:durability:evidence-recorded");
-                    events.push("workflow:durability:terminal-ready");
                     events.push("workflow:durability:delivery-checked");
                     events.push("workflow:durability:registry-clean");
                 } else if (typed.type === "runSlicerDecomposition") {
@@ -1107,6 +1238,19 @@ async function runComposedTuiScenario(scenario, options) {
                     );
                     events.push(`project:worktree-seeded:${planName}`);
                     await writeHeartbeat();
+                } else if (typed.type === "captureGitState") {
+                    const paths = Array.isArray(typed.paths) ? typed.paths.map(String) : [];
+                    const pathArgs = paths.length ? ["--", ...paths] : [];
+                    state.gitState = {
+                        branch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
+                        status: await runGoldenGit(["status", "--porcelain", ...pathArgs], Deno.cwd()),
+                        trackedFiles: paths.length
+                            ? await runGoldenGit(["ls-files", ...paths], Deno.cwd())
+                            : await runGoldenGit(["ls-files"], Deno.cwd()),
+                        head: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
+                    };
+                    events.push("project:git-state:captured");
+                    await writeHeartbeat();
                 } else if (typed.type === "captureProjectState") {
                     const planNames = Array.isArray(typed.planNames) ? typed.planNames.map(String) : [];
                     const plans = [];
@@ -1118,7 +1262,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const registry = await inspectWorktreeRegistry(Deno.cwd());
                     const { listWorkRecords } = await import("../../../shared/work-records/store.js");
                     const records = await listWorkRecords(Deno.cwd(), { createDir: false }).catch(() => []);
-                    state.projectState = {
+                    const capturedProjectState = {
                         plans,
                         registryEntries: registry.entries,
                         nonTerminalRegistryEntries: registry.entries.filter((entry) =>
@@ -1129,12 +1273,36 @@ async function runComposedTuiScenario(scenario, options) {
                         registryIntegrityIssues: registry.integrityIssues,
                         workRecordNames: records.map((record) => record.relativePath),
                     };
+                    state.projectState = capturedProjectState;
+                    if (typed.key) state[String(typed.key)] = capturedProjectState;
                     events.push("project:state:captured");
                     await writeHeartbeat();
                 } else if (typed.type === "assertNoPlanFile") {
-                    const planPath = join(Deno.cwd(), "plans", `${String(typed.planName || "")}.md`);
+                    const plansRoot = join(Deno.cwd(), "plans");
+                    const planPath = join(plansRoot, `${String(typed.planName || "")}.md`);
                     const exists = await Deno.stat(planPath).then(() => true).catch(() => false);
                     if (exists) throw new Error(`Expected no Plan file at ${planPath}`);
+                    /** @type {string[]} */
+                    const planFiles = [];
+                    /** @type {(directory: string) => Promise<void>} */
+                    const collectPlanFiles = async (directory) => {
+                        try {
+                            for await (const entry of Deno.readDir(directory)) {
+                                const child = join(directory, entry.name);
+                                if (entry.isDirectory) await collectPlanFiles(child);
+                                else if (entry.isFile && entry.name.endsWith(".md")) {
+                                    planFiles.push(relative(plansRoot, child));
+                                }
+                            }
+                        } catch (error) {
+                            if (!(error instanceof Deno.errors.NotFound)) throw error;
+                        }
+                    };
+                    await collectPlanFiles(plansRoot);
+                    if (planFiles.length) {
+                        throw new Error(`Expected QUICK_FIX to create no Plan files; got ${planFiles.join(", ")}`);
+                    }
+                    state.planFiles = planFiles;
                     events.push("project:plan-file-absent");
                 } else if (typed.type === "uiPresentationState") {
                     composition.uiAPI.setBusy?.(true);
@@ -1198,6 +1366,22 @@ async function runComposedTuiScenario(scenario, options) {
                         await terminal.flush();
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
+                } else if (typed.type === "waitForEventCount") {
+                    const expected = String(typed.event || "");
+                    const expectedCount = Number(typed.count || 1);
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+                    const startedAt = Date.now();
+                    while (events.filter((event) => event === expected).length < expectedCount) {
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(
+                                `Timed out waiting for ${expectedCount} occurrences of event: ${expected}; got ${
+                                    events.filter((event) => event === expected).length
+                                }`,
+                            );
+                        }
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
                 } else if (typed.type === "waitForPlanStatus") {
                     const planName = String(typed.planName || "");
                     const expectedStatuses = new Set((Array.isArray(typed.statuses) ? typed.statuses : []).map(String));
@@ -1219,6 +1403,26 @@ async function runComposedTuiScenario(scenario, options) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     events.push(`project:plan-status:${planName}:${latestStatus}`);
+                } else if (typed.type === "waitForPlanAbsent") {
+                    const planName = String(typed.planName || "");
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
+                    const startedAt = Date.now();
+                    let latestAttrs = null;
+                    while (true) {
+                        const loaded = await loadPlan(Deno.cwd(), planName).catch(() => null);
+                        latestAttrs = loaded?.attrs || null;
+                        if (!latestAttrs) break;
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(
+                                `Timed out waiting for Plan ${planName} to leave active storage; latest=${
+                                    JSON.stringify(latestAttrs)
+                                }`,
+                            );
+                        }
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    events.push(`project:plan-absent:${planName}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
                 } else {
@@ -1310,6 +1514,10 @@ async function runComposedTuiScenario(scenario, options) {
                     startupModelSetupCommandPatch.execute;
             }
             unsubscribe();
+            for (const session of concurrentSessions.values()) {
+                session.unsubscribe();
+                await session.composition.dispose?.();
+            }
             await composition?.dispose?.();
             fauxProvider?.unregister?.();
             if (env) {

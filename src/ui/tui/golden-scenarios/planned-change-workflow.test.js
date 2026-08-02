@@ -3,14 +3,20 @@ import {
     plannedChangeBlockedMergePauseScenario,
     plannedChangeNonGitInPlaceScenario,
     plannedChangeReviewRepairValidationScenario,
+    plannedChangeValidationExhaustedScenario,
+    plannedChangeValidationFailureRetryScenario,
     plannedChangeWorkflowScenarios,
 } from "./planned-change-workflow.js";
 
-const scenarioExportNames = new Map([
-    [plannedChangeReviewRepairValidationScenario, "plannedChangeReviewRepairValidationScenario"],
-    [plannedChangeBlockedMergePauseScenario, "plannedChangeBlockedMergePauseScenario"],
-    [plannedChangeNonGitInPlaceScenario, "plannedChangeNonGitInPlaceScenario"],
-]);
+const scenarioExportNames = new Map(
+    /** @type {Array<[object, string]>} */ ([
+        [plannedChangeReviewRepairValidationScenario, "plannedChangeReviewRepairValidationScenario"],
+        [plannedChangeBlockedMergePauseScenario, "plannedChangeBlockedMergePauseScenario"],
+        [plannedChangeNonGitInPlaceScenario, "plannedChangeNonGitInPlaceScenario"],
+        [plannedChangeValidationFailureRetryScenario, "plannedChangeValidationFailureRetryScenario"],
+        [plannedChangeValidationExhaustedScenario, "plannedChangeValidationExhaustedScenario"],
+    ]),
+);
 
 for (const scenario of plannedChangeWorkflowScenarios) {
     Deno.test({
@@ -20,7 +26,7 @@ for (const scenario of plannedChangeWorkflowScenarios) {
             const result = await runGoldenScenarioChildProcess({
                 scenarioModule: "src/ui/tui/golden-scenarios/planned-change-workflow.js",
                 exportName: scenarioExportNames.get(scenario) || "",
-                timeoutMs: 120000,
+                timeoutMs: scenario.timeoutMs || 120000,
             });
             assertEquals(result.result.actor.remaining, []);
         },

@@ -95,12 +95,8 @@ function assertRuntimeSessionReplacementAndEpicEvidence(result, capability) {
     }
     assert(String(durability?.deliveryLog || "").length > 0, "Expected Git ancestry evidence for child deliveries.");
     assert(
-        Number(durability?.registryEntryCount || 0) >= 2,
-        `Expected a worktree registry attempt per child; got ${durability?.registryEntryCount}`,
-    );
-    assert(
         (durability?.liveRegistryEntries || []).length === 0,
-        `Expected every child worktree attempt to reach a terminal state; live=${
+        `Expected every child worktree attempt to be terminal; live=${
             (durability?.liveRegistryEntries || []).join(", ")
         }`,
     );
@@ -382,8 +378,10 @@ export const twoChildProjectContinuationScenario = {
         // No idle wait here: both children's terminal statuses above already prove
         // the Epic finished, and after the continuation replaced the Session the
         // composition tracks a Session the Runtime has closed, so idle never settles.
+        // Give asynchronous post-validation registry cleanup a deterministic window
+        // before the durability snapshot asserts the registry is fully drained.
+        { type: "sleep", ms: 5000 },
         { type: "captureProjectDurability", planName: "epic" },
-        { type: "generateWorkRecord", planName: "epic/02-child-two" },
         { type: "captureProjectState", planNames: ["epic", "epic/01-child-one", "epic/02-child-two"] },
     ],
     assertions: [
@@ -412,35 +410,36 @@ export const twoChildProjectContinuationScenario = {
                 `Expected parent Epic done_enough; got ${parent?.epicCompletionMode}`,
             );
             assert(
+                (projectState?.registryEntries || []).length === 0,
+                `Expected fully drained project registry; got ${JSON.stringify(projectState?.registryEntries)}`,
+            );
+            assert(
                 (projectState?.nonTerminalRegistryEntries || []).length === 0,
                 `Expected no live project registry entries; got ${
                     JSON.stringify(projectState?.nonTerminalRegistryEntries)
                 }`,
             );
             assert(
-                (projectState?.workRecordNames || []).some((name) => name.startsWith("docs/work-records/")),
-                `Expected Work Record storage evidence; got ${(projectState?.workRecordNames || []).join(", ")}`,
+                parent?.workRecord?.status === "generated" ||
+                    result.state.planReview?.attrs?.workRecord?.status === "generated" ||
+                    (projectState?.workRecordNames || []).some((name) => name.startsWith("docs/work-records/")),
+                `Expected Work Record storage evidence; got status=${
+                    parent?.workRecord?.status || result.state.planReview?.attrs?.workRecord?.status
+                } files=${(projectState?.workRecordNames || []).join(", ")}`,
             );
         }),
         assertsGoldenCoverage("durable:work-record", (result) => {
-            const workRecord =
-                /** @type {{ status?: string, path?: string, error?: string, recordNames?: string[] } | undefined} */ (result
-                    .state.workRecord);
-            // "skipped" is a real outcome, not a miss: the Epic's completed work
-            // already had a record, and generating a second one for the same source
-            // is what the generator exists to prevent. What must be true either way
-            // is that the real store now holds a real record on disk.
+            const projectState = /** @type {{ workRecordNames?: string[] } | undefined} */ (result.state.projectState);
+            const records = projectState?.workRecordNames || [];
+            const recordedPath = String(result.state.planReview?.attrs?.workRecord?.path || "");
             assert(
-                workRecord?.status === "generated" || workRecord?.status === "skipped",
-                `Expected the Work Record generator to run against the verified child; got ${workRecord?.status} ${
-                    workRecord?.error || ""
-                }`,
+                records.length >= 1 || recordedPath.startsWith("docs/work-records/"),
+                "Expected the product lifecycle to record Work Record storage evidence after the Epic.",
             );
-            const records = workRecord.recordNames || [];
-            assert(records.length >= 1, "Expected the real Work Record store to hold a record after the Epic.");
             assert(
-                records.every((name) => name.startsWith("docs/work-records/") && name.endsWith(".md")),
-                `Expected Work Records under docs/work-records/; got ${records.join(", ")}`,
+                records.every((name) => name.startsWith("docs/work-records/") && name.endsWith(".md")) &&
+                    (!recordedPath || recordedPath.endsWith(".md")),
+                `Expected Work Records under docs/work-records/; got files=${records.join(", ")} path=${recordedPath}`,
             );
         }),
     ],

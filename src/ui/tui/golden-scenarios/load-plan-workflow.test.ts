@@ -4,12 +4,16 @@ import {
     loadPlanActionsScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
+    loadPlanResetReviewArchiveScenario,
     loadPlanWorkflowScenarios,
+    loadPlanWorktreeInspectResetScenario,
 } from "./load-plan-workflow.ts";
 
 const scenarioExportNames = new Map<object, string>([
     [loadPlanActionsScenario, "loadPlanActionsScenario"],
+    [loadPlanResetReviewArchiveScenario, "loadPlanResetReviewArchiveScenario"],
     [loadPlanInterruptedRecoveryScenario, "loadPlanInterruptedRecoveryScenario"],
+    [loadPlanWorktreeInspectResetScenario, "loadPlanWorktreeInspectResetScenario"],
     [loadPlanAbandonProgressScenario, "loadPlanAbandonProgressScenario"],
     [loadPlanMalformedFrontMatterScenario, "loadPlanMalformedFrontMatterScenario"],
 ]);
