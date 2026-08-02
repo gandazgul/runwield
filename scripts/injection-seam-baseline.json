@@ -153,13 +153,6 @@
             ],
             "machinery": []
         },
-        "src/shared/work-records/auto-generation.js": {
-            "seams": [
-                "generateWorkRecordForSource",
-                "shouldAutoGenerate"
-            ],
-            "machinery": []
-        },
         "src/shared/workflow/epic-continuation.js": {
             "seams": [
                 "decidePostExecution",

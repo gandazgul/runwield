@@ -1,7 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     archiveWorkRecord,
-    autoGenerateWorkRecordForCompletedPlan,
     buildWorkRecordFileName,
     buildWorkRecordIndexDocument,
     buildWorkRecordIndexTags,
@@ -25,7 +24,7 @@ import {
     supersedeWorkRecord,
     syncWorkRecordToIndex,
     writeWorkRecord,
-} from "./index.js";
+} from "./index.ts";
 import { archivePlan, loadArchivedPlan, loadPlan, savePlan } from "../../plan-store.js";
 
 /** @type {import('./schema.js').WorkRecordFrontMatter} */
@@ -393,160 +392,6 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
         const plan = await loadPlan(cwd, "standalone");
         assertEquals(plan?.attrs.workRecord?.recordId, "44444444-4444-4444-8444-444444444444");
         assertEquals(plan?.attrs.status, "verified");
-    } finally {
-        await cleanupTempProject(cwd);
-    }
-});
-
-Deno.test("targeted Work Record auto-generation writes standalone FEATURE records", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "standalone", "# Standalone\n\n## Plan\n\nBody", {
-            planId: "plan-standalone",
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "Built standalone feature.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "verified",
-        });
-
-        const result = await autoGenerateWorkRecordForCompletedPlan({
-            cwd,
-            planName: "standalone",
-            __deps: { shouldAutoGenerate: () => true },
-            generationOptions: {
-                idGenerator: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                now: () => new Date("2026-07-16T00:00:00.000Z"),
-                generateSections: () => ({ title: "Standalone Outcome", summary: "Completed." }),
-                syncWorkRecordToIndex: skipWorkRecordIndexSync,
-                commandOutput: skipWorkRecordIndexCommand,
-            },
-        });
-
-        assertEquals(result.status, "generated");
-        assertEquals(result.path, "docs/work-records/2026-07-16-standalone-outcome.md");
-        assertStringIncludes(result.message, "Work Record generated");
-    } finally {
-        await cleanupTempProject(cwd);
-    }
-});
-
-Deno.test("targeted Work Record auto-generation resolves child Planned Change to terminal parent Epic", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nBody", {
-            planId: "plan-epic",
-            classification: "PROJECT",
-            complexity: "MEDIUM",
-            summary: "Epic complete enough.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "verified",
-            epicCompletionMode: "done_enough",
-        });
-        await savePlan(cwd, "epic/01-child", "# Child\n\n## Plan\n\nBody", {
-            planId: "plan-child",
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "Child feature.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "verified",
-            parentPlan: "epic",
-            order: 1,
-        });
-
-        const result = await autoGenerateWorkRecordForCompletedPlan({
-            cwd,
-            planName: "epic/01-child",
-            __deps: { shouldAutoGenerate: () => true },
-            generationOptions: {
-                idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                now: () => new Date("2026-07-16T00:00:00.000Z"),
-                generateSections: (source) => ({ title: "Epic Outcome", summary: `${source.children?.length} child.` }),
-                syncWorkRecordToIndex: skipWorkRecordIndexSync,
-                commandOutput: skipWorkRecordIndexCommand,
-            },
-        });
-
-        assertEquals(result.status, "generated");
-        assertEquals(result.targetPlanName, "epic");
-        assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.workRecord, undefined);
-        assertEquals((await loadPlan(cwd, "epic"))?.attrs.workRecord?.recordId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-    } finally {
-        await cleanupTempProject(cwd);
-    }
-});
-
-Deno.test("targeted Work Record auto-generation skips non-terminal child parent and honors disabled setting", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nBody", {
-            planId: "plan-epic",
-            classification: "PROJECT",
-            complexity: "MEDIUM",
-            summary: "Epic incomplete.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "ready_for_work",
-        });
-        await savePlan(cwd, "epic/01-child", "# Child\n\n## Plan\n\nBody", {
-            planId: "plan-child",
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "Child feature.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "verified",
-            parentPlan: "epic",
-            order: 1,
-        });
-
-        const skipped = await autoGenerateWorkRecordForCompletedPlan({
-            cwd,
-            planName: "epic/01-child",
-            __deps: { shouldAutoGenerate: () => true },
-        });
-        assertEquals(skipped.status, "skipped");
-        assertEquals(skipped.reason, "parent_not_terminal");
-
-        const disabled = await autoGenerateWorkRecordForCompletedPlan({
-            cwd,
-            planName: "epic",
-            __deps: { shouldAutoGenerate: () => false },
-        });
-        assertEquals(disabled.status, "disabled");
-    } finally {
-        await cleanupTempProject(cwd);
-    }
-});
-
-Deno.test("targeted Work Record auto-generation reports generation failures without throwing", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "standalone", "# Standalone\n\n## Plan\n\nBody", {
-            planId: "plan-standalone",
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "Built standalone feature.",
-            affectedPaths: [],
-            createdAt: "2026-07-14T00:00:00.000Z",
-            status: "verified",
-        });
-
-        const result = await autoGenerateWorkRecordForCompletedPlan({
-            cwd,
-            planName: "standalone",
-            __deps: {
-                shouldAutoGenerate: () => true,
-                generateWorkRecordForSource: (_cwd, source) =>
-                    Promise.resolve({ source, status: "failed", error: "Recorder unavailable" }),
-            },
-        });
-
-        assertEquals(result.status, "failed");
-        assertStringIncludes(result.message, "run wld wr backfill");
     } finally {
         await cleanupTempProject(cwd);
     }

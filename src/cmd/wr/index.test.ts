@@ -1,9 +1,10 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import type { WorkRecordFrontMatter } from "../../shared/work-records/schema.js";
-import { findWorkRecordById, listWorkRecords, writeWorkRecord } from "../../shared/work-records/index.js";
+import { findWorkRecordById, listWorkRecords, writeWorkRecord } from "../../shared/work-records/index.ts";
+import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { runWorkRecordsCommand, type WorkRecordCommandOptions, type WorkRecordMnemosynePort } from "./index.ts";
+import { runWorkRecordsCommand, type WorkRecordCommandOptions } from "./index.ts";
 
 const CURRENT_RECORD_ID = "11111111-1111-4111-8111-111111111111";
 const ARCHIVED_RECORD_ID = "22222222-2222-4222-8222-222222222222";
@@ -51,69 +52,6 @@ async function saveVerifiedPlan(projectRoot: string): Promise<void> {
         createdAt: "2026-07-14T00:00:00.000Z",
         status: "verified",
     });
-}
-
-interface IndexedFixtureDocument {
-    id: number;
-    tags: string[];
-    content: string;
-}
-
-function createMnemosyneFixture(): WorkRecordMnemosynePort {
-    let documents: IndexedFixtureDocument[] = [];
-    let nextId = 1;
-    const encode = (text: string) => new TextEncoder().encode(text);
-    const result = (stdout = "", code = 0) => ({
-        success: code === 0,
-        code,
-        stdout: encode(stdout),
-        stderr: new Uint8Array(),
-    });
-    const optionValues = (args: string[], name: string): string[] => {
-        const values: string[] = [];
-        for (let index = 0; index < args.length - 1; index += 1) {
-            if (args[index] === name) values.push(args[index + 1]);
-        }
-        return values;
-    };
-    return {
-        run(args) {
-            const command = args[0] || "";
-            if (command === "update" && args[1] === "--help") {
-                return Promise.resolve(result("Usage: mnemosyne update <id> --replace-tags"));
-            }
-            if (command === "forget") {
-                documents = [];
-                return Promise.resolve(result());
-            }
-            if (command === "init") return Promise.resolve(result());
-            if (command === "add") {
-                documents.push({ id: nextId++, tags: optionValues(args, "--tag"), content: args.at(-1) || "" });
-                return Promise.resolve(result());
-            }
-            if (command === "update") {
-                const id = Number(args[1]);
-                const document = documents.find((candidate) => candidate.id === id);
-                if (!document) return Promise.resolve(result("", 1));
-                document.tags = optionValues(args, "--tag");
-                document.content = args.at(-1) || "";
-                return Promise.resolve(result());
-            }
-            if (command === "list") {
-                const locator = optionValues(args, "--tag")[0];
-                const matches = locator ? documents.filter((document) => document.tags.includes(locator)) : documents;
-                return Promise.resolve(result(matches.map((document) => `[${document.id}] fixture`).join("\n")));
-            }
-            if (command === "search") {
-                const query = (args.at(-1) || "").toLowerCase();
-                const matches = documents.filter((document) => document.content.toLowerCase().includes(query));
-                return Promise.resolve(result(JSON.stringify({
-                    results: matches.map((document) => ({ metadata: { tags: document.tags } })),
-                })));
-            }
-            return Promise.resolve(result(`Unsupported fixture command: ${command}`, 1));
-        },
-    };
 }
 
 async function captureCommand(argv: string[], options: WorkRecordCommandOptions = {}): Promise<string> {
@@ -191,7 +129,7 @@ Deno.test("wld wr backfill --yes writes a Work Record and its Plan backlink", as
         }));
 
         const output = await captureCommand(["backfill", "--yes"], {
-            mnemosynePort: createMnemosyneFixture(),
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
         });
 
         assertStringIncludes(output, "Generated standalone");
@@ -209,7 +147,7 @@ Deno.test("wld wr index rebuild and search hydrate canonical project records", a
         Deno.chdir(projectRoot);
         await writeFixtureRecords(projectRoot);
 
-        const mnemosynePort = createMnemosyneFixture();
+        const mnemosynePort = createWorkRecordMnemosyneFixture();
         const options = { mnemosynePort };
         const rebuildOutput = await captureCommand(["index", "rebuild"], options);
         const currentOutput = await captureCommand(["search", "durable current machinery"], options);

@@ -16,38 +16,18 @@ import {
     rebuildWorkRecordIndex,
     runWorkRecordBackfill,
     searchWorkRecords,
-} from "../../shared/work-records/index.js";
+} from "../../shared/work-records/index.ts";
+import {
+    SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+    workRecordCommandOutput,
+    type WorkRecordMnemosynePort,
+} from "../../shared/work-records/mnemosyne-port.ts";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
 import { printCommandHelp } from "../help/index.js";
-
-interface MnemosyneCommandResult {
-    success: boolean;
-    code: number;
-    stdout: Uint8Array;
-    stderr: Uint8Array;
-}
-
-export interface WorkRecordMnemosynePort {
-    run(args: string[], options?: { cwd?: string }): Promise<MnemosyneCommandResult>;
-}
 
 export interface WorkRecordCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
     mnemosynePort?: WorkRecordMnemosynePort;
-}
-
-const SYSTEM_MNEMOSYNE_PORT: WorkRecordMnemosynePort = {
-    run: (args, options) =>
-        new Deno.Command("mnemosyne", {
-            args,
-            cwd: options?.cwd,
-            stdout: "piped",
-            stderr: "piped",
-        }).output(),
-};
-
-function mnemosyneCommandOutput(port: WorkRecordMnemosynePort) {
-    return (_command: string, args: string[], options?: { cwd?: string }) => port.run(args, options);
 }
 
 function promptForBackfillConfirmation(message: string): boolean {
@@ -118,7 +98,7 @@ export async function runWorkRecordsCommand(
     argv: string[],
     options: WorkRecordCommandOptions = {},
 ): Promise<void> {
-    const commandOutput = mnemosyneCommandOutput(options.mnemosynePort || SYSTEM_MNEMOSYNE_PORT);
+    const commandOutput = workRecordCommandOutput(options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT);
     const subcommand = argv[0] && !argv[0].startsWith("-") ? argv[0] : "list";
     const rest = subcommand === "list" ? (argv[0] === "list" ? argv.slice(1) : argv) : argv.slice(1);
 
