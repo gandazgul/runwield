@@ -30,23 +30,25 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
-updatedAt: "2026-08-02T03:23:11.498Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-02T04:19:23.013Z"
+status: "verified"
 origin: "internal"
 dependencies:
     - "run-objective-checks-in-mechanical-validation"
 implementedAt: "2026-08-02T02:44:05.146Z"
+verifiedAt: "2026-08-02T04:19:23.013Z"
 userVerifiedAt: null
 executionReport: "- Implemented baseline Objective-Failing Check support: normalized/persisted `objectiveChecksBaseline`, baseline classification/matching helpers, workflow pre-execution baselining for worktree and non-Git execution, stale-baseline re-run logic, and Planner rejection routing for already-met/broken checks.\n- Added/updated coverage in `objective-checks.test.ts`, `workflow.test.js`, and `plan-store.test.js`, including the required tests `baseline rejects already-met Objective-Failing Checks before Engineer starts` and `re-baselines Objective-Failing Checks when head or command set changes`.\n- Updated Planner and context docs to describe mechanically observed red-before-execution and green-during-validation checks.\n- Verification passed: `deno task ci`; `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/shared/workflow/workflow.test.js src/plan-store.test.js`; `deno task test:golden-tui` (first attempt timed out at 180s, rerun with 360s passed).\n- Manual verification from the plan was not performed interactively; automated workflow/golden coverage exercises the same already-green rejection and normal execution paths."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-02T04:19:21.572Z"
 executionMode: "worktree"
-executionBaselineTree: "86a617856112cbe1796134d1ec32aa6c1f215f24"
-worktreeId: "06e4344b"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-baseline-objective-checks-before-execution-06e4344b"
-worktreeBranch: "runwield/worktree/baseline-objective-checks-before-execution-06e4344b"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "3dc86832329a7a3b9de5a8c42c15b13eb91a1072"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "c95cd744d79e475995d252a862bac60300fcccd0"
 validationCiAttempts: 0
 validationSemanticRounds: 1
 ---

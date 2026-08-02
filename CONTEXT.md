@@ -424,8 +424,9 @@ self-check
 
 **Objective-Failing Check**: A Plan-owned shell command with one contract: exit 0 means the Plan objective is met. It
 must be red before implementation and green after implementation; RunWield stores the executable copy in Plan Front
-Matter as `objectiveChecks` and runs it during Workflow Validation's Mechanical Validation phase. _Avoid_: Manual check,
-verification note, lint/type-check only
+Matter as `objectiveChecks`, mechanically verifies the red state before execution starts, and reruns it during Workflow
+Validation's Mechanical Validation phase to verify the green state. _Avoid_: Manual check, verification note,
+lint/type-check only
 
 **Pair Execution**: A user-steered frontend execution style where the Frontend Engineer delivers coherent visible
 increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-design, frontend mode, Manual QA

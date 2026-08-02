@@ -24,6 +24,7 @@ import {
     loadExternalPlan,
     loadPlan,
     loadPlanBodyById,
+    normalizeObjectiveChecksBaseline,
     onboardExternalPlan,
     parsePlanFrontMatter,
     PLAN_FRONT_MATTER_KEY_ORDER,
@@ -112,13 +113,84 @@ Deno.test("getStoredPlanPath rejects escaping or ambiguous plan names", () => {
     }
 });
 
+Deno.test("objectiveChecksBaseline normalizes valid baseline results and drops malformed metadata", () => {
+    const baseline = normalizeObjectiveChecksBaseline({
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        head: "0123456789012345678901234567890123456789",
+        results: [{
+            id: " OC1 ",
+            command: " grep needle src/file.ts ",
+            status: "unmet",
+            stdout: "out",
+            stderr: "err",
+            exitCode: 1,
+            durationMs: 12,
+            output: "out\nerr",
+            reason: " expected miss ",
+        }],
+    });
+
+    assertEquals(baseline, {
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        head: "0123456789012345678901234567890123456789",
+        results: [{
+            id: "OC1",
+            command: "grep needle src/file.ts",
+            status: "unmet",
+            stdout: "out",
+            stderr: "err",
+            exitCode: 1,
+            durationMs: 12,
+            output: "out\nerr",
+            reason: "expected miss",
+        }],
+    });
+    assertEquals(normalizeObjectiveChecksBaseline({ recordedAt: "now", results: [{ id: "OC1" }] }), undefined);
+    assertEquals(normalizeObjectiveChecksBaseline({ recordedAt: "now", results: [] }), {
+        recordedAt: "now",
+        results: [],
+    });
+});
+
 Deno.test("front matter key constants expose canonical planning metadata order", () => {
     assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER[0], PLAN_FRONT_MATTER_KEYS.planId);
     assertEquals(PLAN_FRONT_MATTER_KEYS.frontend, "frontend");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.devServerUrl), true);
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
     assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
+});
+
+testWithFs("objectiveChecksBaseline round-trips through saved Plan front matter", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "baseline-plan", "# Baseline", {
+            objectiveChecks: [{ id: "OC1", command: "grep needle src/file.ts" }],
+            objectiveChecksBaseline: {
+                recordedAt: "2026-01-01T00:00:00.000Z",
+                head: "0123456789012345678901234567890123456789",
+                results: [{
+                    id: "OC1",
+                    command: "grep needle src/file.ts",
+                    status: "unmet",
+                    stdout: "",
+                    stderr: "missing",
+                    exitCode: 1,
+                    durationMs: 7,
+                    output: "missing",
+                }],
+            },
+        });
+
+        const loaded = await loadPlan(cwd, "baseline-plan");
+        assertEquals(loaded?.attrs.objectiveChecksBaseline?.results[0].id, "OC1");
+        assertEquals(loaded?.attrs.objectiveChecksBaseline?.head, "0123456789012345678901234567890123456789");
+        const markdown = await Deno.readTextFile(join(cwd, "plans", "baseline-plan.md"));
+        assertStringIncludes(markdown, "objectiveChecksBaseline:");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {

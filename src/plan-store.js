@@ -147,6 +147,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {ObjectiveCheck[]} [objectiveChecks] - Executable Objective-Failing Checks owned by RunWield.
+ * @property {ObjectiveChecksBaseline} [objectiveChecksBaseline] - Last trusted pre-execution red-state check results.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
@@ -210,6 +211,27 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} id
  * @property {string} command
  * @property {string} [rationale]
+ */
+
+/**
+ * @typedef {Object} ObjectiveCheckResult
+ * @property {string} id
+ * @property {string} command
+ * @property {string} [rationale]
+ * @property {"met"|"unmet"|"broken"} status
+ * @property {string} stdout
+ * @property {string} stderr
+ * @property {number|null} exitCode
+ * @property {number} durationMs
+ * @property {string} output
+ * @property {string} [reason]
+ */
+
+/**
+ * @typedef {Object} ObjectiveChecksBaseline
+ * @property {string} recordedAt
+ * @property {string} [head]
+ * @property {ObjectiveCheckResult[]} results
  */
 
 /** @typedef {Partial<PlanFrontMatter> & Record<string, unknown>} PlanFrontMatterInput */
@@ -398,6 +420,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecks, fm.objectiveChecks);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline, fm.objectiveChecksBaseline);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
@@ -776,6 +799,71 @@ export function normalizeObjectiveChecks(value) {
     return checks;
 }
 
+const OBJECTIVE_CHECK_RESULT_STATUSES = new Set(["met", "unmet", "broken"]);
+
+/**
+ * @param {unknown} value
+ * @returns {ObjectiveCheckResult | undefined}
+ */
+function normalizeObjectiveCheckResult(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const source = /** @type {Record<string, unknown>} */ (value);
+    const id = typeof source.id === "string" ? source.id.trim() : "";
+    const command = typeof source.command === "string" ? source.command.trim() : "";
+    const status = typeof source.status === "string" && OBJECTIVE_CHECK_RESULT_STATUSES.has(source.status)
+        ? /** @type {ObjectiveCheckResult["status"]} */ (source.status)
+        : undefined;
+    const durationMs = normalizeNonNegativeInteger(source.durationMs);
+    const hasNullExitCode = source.exitCode === null;
+    const normalizedExitCode = typeof source.exitCode === "number" && Number.isInteger(source.exitCode)
+        ? source.exitCode
+        : undefined;
+    if (
+        !id || !command || !status || durationMs === undefined || (!hasNullExitCode && normalizedExitCode === undefined)
+    ) {
+        return undefined;
+    }
+    const stdout = typeof source.stdout === "string" ? source.stdout : "";
+    const stderr = typeof source.stderr === "string" ? source.stderr : "";
+    const output = typeof source.output === "string" ? source.output : "";
+    const rationale = typeof source.rationale === "string" ? source.rationale.trim() : "";
+    const reason = typeof source.reason === "string" ? source.reason.trim() : "";
+    return {
+        id,
+        command,
+        ...(rationale ? { rationale } : {}),
+        status,
+        stdout,
+        stderr,
+        exitCode: hasNullExitCode ? null : /** @type {number} */ (normalizedExitCode),
+        durationMs,
+        output,
+        ...(reason ? { reason } : {}),
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {ObjectiveChecksBaseline | undefined}
+ */
+export function normalizeObjectiveChecksBaseline(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const source = /** @type {Record<string, unknown>} */ (value);
+    const recordedAt = typeof source.recordedAt === "string" && source.recordedAt.trim()
+        ? source.recordedAt.trim()
+        : "";
+    if (!recordedAt || !Array.isArray(source.results)) return undefined;
+    const head = typeof source.head === "string" && source.head.trim() ? source.head.trim() : undefined;
+    /** @type {ObjectiveCheckResult[]} */
+    const results = [];
+    for (const result of source.results) {
+        const normalized = normalizeObjectiveCheckResult(result);
+        if (!normalized) return undefined;
+        results.push(normalized);
+    }
+    return { recordedAt, ...(head ? { head } : {}), results };
+}
+
 /**
  * @param {unknown} value
  * @returns {number | undefined}
@@ -958,6 +1046,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         objectiveChecks: Object.hasOwn(overrides, "objectiveChecks")
             ? normalizeObjectiveChecks(overrides.objectiveChecks)
             : normalizeObjectiveChecks(existingFm.objectiveChecks),
+        objectiveChecksBaseline: Object.hasOwn(overrides, "objectiveChecksBaseline")
+            ? normalizeObjectiveChecksBaseline(overrides.objectiveChecksBaseline)
+            : normalizeObjectiveChecksBaseline(existingFm.objectiveChecksBaseline),
         tickets: Object.hasOwn(overrides, "tickets")
             ? normalizeTicketReferences(overrides.tickets)
             : normalizeTicketReferences(existingFm.tickets),
@@ -1089,6 +1180,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
             objectiveChecks: normalizeObjectiveChecks(attrs.objectiveChecks),
+            objectiveChecksBaseline: normalizeObjectiveChecksBaseline(attrs.objectiveChecksBaseline),
             tickets: normalizeTicketReferences(attrs.tickets),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
