@@ -51,8 +51,25 @@ const NO_REWRITE_PREFIXES = [
     "bun pm view",
 ];
 
-const SNIP_NO_FILTER_STDERR_FILTER =
-    '2> >(grep -vE \'^snip: no filter for ".+", passing through -- you can run ".+" directly$\' >&2)';
+const SNIP_NO_FILTER_STDERR_PATTERN = '^snip: no filter for ".+", passing through -- you can run ".+" directly$';
+
+/**
+ * Wrap a Snip invocation so its optional "no filter" notice is removed without
+ * relying on Bash process substitution. Agent subprocess sandboxes can reject the
+ * resulting `/dev/fd/*` path even when the same shell supports the syntax.
+ *
+ * The subshell preserves the Snip invocation's exit status so `&&`, `||`, pipes,
+ * and later command segments retain their original behavior.
+ *
+ * @param {string} command
+ * @returns {string}
+ */
+function withFilteredSnipStderr(command) {
+    return `( runwield_snip_stderr="$(mktemp -t runwield-snip-stderr.XXXXXX)" || exit 1; ` +
+        `trap 'rm -f "$runwield_snip_stderr"' EXIT; ${command} 2>"$runwield_snip_stderr"; ` +
+        `runwield_snip_status=$?; grep -vE '${SNIP_NO_FILTER_STDERR_PATTERN}' "$runwield_snip_stderr" >&2; ` +
+        `exit "$runwield_snip_status" )`;
+}
 
 /**
  * @param {string} command
@@ -255,7 +272,8 @@ function rewriteCommand(originalCommand) {
     if (isGitDiffCommand(parsed.commandText)) return null;
     if (NO_REWRITE_PREFIXES.some((prefix) => parsed.commandText.startsWith(prefix))) return null;
 
-    return `${parsed.envPrefix}snip run -- ${parsed.commandText.trimEnd()} ${SNIP_NO_FILTER_STDERR_FILTER}${rest}`;
+    const snipCommand = `${parsed.envPrefix}snip run -- ${parsed.commandText.trimEnd()}`;
+    return `${withFilteredSnipStderr(snipCommand)}${rest}`;
 }
 
 /**
@@ -282,4 +300,4 @@ export default function snipExtension(pi) {
     });
 }
 
-export const __testing = { findFirstSegmentEnd, parseSimpleSegment, rewriteCommand };
+export const __testing = { findFirstSegmentEnd, parseSimpleSegment, rewriteCommand, withFilteredSnipStderr };
