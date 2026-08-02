@@ -371,6 +371,7 @@ export const twoChildProjectContinuationScenario = {
             timeoutMs: 12000,
         },
         { type: "runSlicerDecomposition", planName: "epic" },
+        { type: "waitForIdle", timeoutMs: 15000 },
         // Decomposition leaves the Slicer active, so the next request would go to it.
         // `/agent` is the real user-facing way back to the Planner.
         { type: "type", text: "/agent planner" },
@@ -617,6 +618,7 @@ export const projectChildObjectiveCheckStopScenario = {
             timeoutMs: 12000,
         },
         { type: "runSlicerDecomposition", planName: "epic" },
+        { type: "waitForIdle", timeoutMs: 15000 },
         { type: "type", text: "/agent planner" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:agent:planner", timeoutMs: 15000 },

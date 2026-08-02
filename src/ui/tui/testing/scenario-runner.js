@@ -1327,15 +1327,21 @@ async function runComposedTuiScenario(scenario, options) {
                         if (terminal.getScreenText() !== beforePresentation) break;
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
-                    state.presentationScreen = terminal.getScreenText();
+                    const presentationScreen = terminal.getScreenText();
+                    state.presentationScreen = presentationScreen;
                     // A block appended to the message list scrolls above the viewport
                     // as soon as anything follows it, so the proof includes scrollback.
-                    state.presentationScrollback = terminal.getScrollbackText();
-                    // An image has no text form, so the proof is that its bytes were
-                    // actually written to the terminal rather than that a method ran.
-                    state.presentationImageEmitted = String(
+                    const presentationScrollback = terminal.getScrollbackText();
+                    state.presentationScrollback = presentationScrollback;
+                    // Capable terminals receive image bytes. Headless/unsupported
+                    // terminals receive pi-tui's visible image fallback instead. Both
+                    // are real rendered outcomes, unlike merely recording the API call.
+                    const presentationWrites = String(
                         /** @type {{ writes?: string }} */ (terminal).writes || "",
-                    ).includes("iVBORw0KGgo=");
+                    );
+                    state.presentationImageRendered = presentationWrites.includes("iVBORw0KGgo=") ||
+                        presentationScreen.includes("[Image: [image/png]") ||
+                        presentationScrollback.includes("[Image: [image/png]");
                     composition.uiAPI.removeQueuedMessage?.("golden-queued");
                     events.push("ui:queued-steering:remove");
                     composition.uiAPI.setBusy?.(false);

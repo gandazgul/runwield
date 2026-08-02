@@ -81,8 +81,8 @@ export const managedSyncQueueImageScenario = {
         }),
         assertsGoldenCoverage("block:image", (result) => {
             assert(
-                result.state.presentationImageEmitted === true,
-                "Expected the image block to write its payload to the terminal.",
+                result.state.presentationImageRendered === true,
+                "Expected the image block to render image bytes or its terminal fallback.",
             );
         }),
         assertsGoldenCoverage("block:select", (result) => {
