@@ -116,9 +116,9 @@ Deno.test("runInitCommand reports duplicate init through ui when available", asy
     assertStringIncludes(messages[0], "/tmp/project");
 });
 
-Deno.test("runInitCommand launches TUI setup for CLI init when no providers are configured", async () => {
-    /** @type {Array<{ request: string | null, options: { initialAgentName?: string } }>} */
-    const launches = [];
+Deno.test("runInitCommand extracts bundled assets before launching TUI setup", async () => {
+    /** @type {string[]} */
+    const events = [];
 
     await runInitCommand(
         [],
@@ -128,6 +128,14 @@ Deno.test("runInitCommand launches TUI setup for CLI init when no providers are 
                 parseArgs: () => ({}),
                 cwd: () => "/tmp/project",
                 isEmptyProjectDirectory: () => Promise.resolve(false),
+                extractBundledSkills: () => {
+                    events.push("skills");
+                    return Promise.resolve("/tmp/bundled-skills");
+                },
+                ensureBundledAgentDefFile: (/** @type {string} */ relativePath) => {
+                    events.push(`agent:${relativePath}`);
+                    return Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`);
+                },
                 getModelRegistry: () => ({
                     getRegisteredProviderIds: () => [],
                     find: () => undefined,
@@ -140,14 +148,18 @@ Deno.test("runInitCommand launches TUI setup for CLI init when no providers are 
                     /** @type {string | null} */ request,
                     /** @type {{ initialAgentName?: string }} */ options,
                 ) => {
-                    launches.push({ request, options });
+                    events.push(`launch:${request}:${options.initialAgentName}`);
                     return Promise.resolve({});
                 },
             }),
         }),
     );
 
-    assertEquals(launches, [{ request: "/init", options: { initialAgentName: "router" } }]);
+    assertEquals(events, [
+        "skills",
+        "agent:workflow-prompts/init-agent-prompt.md",
+        "launch:/init:router",
+    ]);
 });
 
 Deno.test("runInitCommand launches TUI setup for CLI init when providers exist without a selected model", async () => {
@@ -162,6 +174,9 @@ Deno.test("runInitCommand launches TUI setup for CLI init when providers exist w
                 parseArgs: () => ({}),
                 cwd: () => "/tmp/project",
                 isEmptyProjectDirectory: () => Promise.resolve(false),
+                extractBundledSkills: () => Promise.resolve("/tmp/bundled-skills"),
+                ensureBundledAgentDefFile: (/** @type {string} */ relativePath) =>
+                    Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
                 getModelRegistry: () => ({
                     getRegisteredProviderIds: () => ["configured"],
                     find: () => undefined,

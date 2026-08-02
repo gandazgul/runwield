@@ -19,6 +19,7 @@ import {
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
 import {
     ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
+    extractBundledAgentDefs,
     extractBundledSkills as extractBundledSkillsFn,
 } from "../../shared/session/agent-assets.js";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
@@ -141,21 +142,23 @@ export async function runInitCommand(argv, options = {}) {
         return;
     }
 
-    if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(cwd()))) {
-        await startInteractiveSession(`/${COMMAND_NAMES.INIT}`, { initialAgentName: AGENTS.ROUTER });
-        return;
-    }
-
     // ── Extract bundled prompt assets before model resolution ──────
     // Fresh binary installs need real on-disk copies so external read tools can
     // access bundled skills and document-format references, even if init later
     // stops because no model is configured.
+    await extractBundledAgentDefs();
     await extractBundledSkills();
 
     // ── Load init agent definition directly from bundled path ──────
     // Pass agentName: AGENTS.INIT so the display-name cache uses the canonical
     // "init" identifier rather than the file's basename ("init-agent-prompt").
     const initAgentPath = await ensureBundledAgentDefFile(join("workflow-prompts", "init-agent-prompt.md"));
+
+    if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(cwd()))) {
+        await startInteractiveSession(`/${COMMAND_NAMES.INIT}`, { initialAgentName: AGENTS.ROUTER });
+        return;
+    }
+
     const agentDef = await loadAgentDefFromPath(initAgentPath, { agentName: AGENTS.INIT });
     const sessionRuntime = options.sessionRuntime || (createRuntimeDep || (() => new SessionRuntime()))();
     const ownsRuntimeSession = !options.sessionId;
