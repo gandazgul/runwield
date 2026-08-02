@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
+import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { runValidationLoop, runValidationPhase } from "./validation.ts";
@@ -293,4 +294,53 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
     assertStringIncludes(result.reason || "", "stopped before they finished");
     // Nothing was learned, so nothing is recorded: the Plan stays where it was.
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
+});
+
+Deno.test("runValidationPhase re-runs CI after a repair even when the Plan status jumped ahead", async () => {
+    const { projectRoot, hostedSession } = await makeImplementedRun();
+
+    /** @type {number[]} */
+    const ciExitCodes = [];
+    const deps = /** @type {any} */ ({
+        ...noOpWorktreePlanHandoffDeps(),
+        runLocalCI: () => {
+            ciExitCodes.push(1);
+            return Promise.resolve({ exitCode: 1, output: "type error", canceled: false });
+        },
+    });
+
+    const first = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        __deps: deps,
+    });
+    assertEquals(first.kind, "paused");
+    assertEquals(ciExitCodes.length, 1);
+
+    // The repair Agent reports `task_completed` into the root transcript, which is
+    // also what marks a Plan implemented, so the status can arrive at the next phase
+    // already advanced past the CI that never passed. Simulate exactly that.
+    await recordPlanEvent({
+        cwd: projectRoot,
+        planName: "p",
+        event: "mechanical_validation_passed",
+        currentStatus: "implemented",
+        details: { triageMeta: { classification: "QUICK_FIX", status: "implemented" } },
+    });
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+
+    // Status now says Semantic Review is next. The loop knows better: it dispatched a
+    // CI repair and never saw CI pass, so it goes back to CI.
+    const second = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        __deps: deps,
+    });
+
+    assertEquals(second.kind, "paused");
+    assertEquals(ciExitCodes.length, 2, "Expected CI to run again rather than being skipped by the advanced status.");
 });

@@ -252,7 +252,11 @@ export const engineerQuickFixMechanicalValidationScenario = {
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
             assertScreenIncludes(result, "Saved validation command: 'true'");
         }),
-        assertRuntimeEvent("block:validation-handoff", "runtime:tool:start:task_completed"),
+        // QUICK_FIX drives the mechanical panel. Asserting a `task_completed` tool
+        // start here proved nothing about the panel; the heading does.
+        assertsGoldenCoverage("block:validation-handoff", (result) => {
+            assertScreenIncludes(result, "Mechanical Validation");
+        }),
     ],
 };
 

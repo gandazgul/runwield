@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop, runValidationPhase } from "./validation.ts";
+import { runValidationPhase } from "./validation.ts";
 import { makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
@@ -132,7 +132,7 @@ function roundLimitPort(reviewer = {}) {
     });
 }
 
-Deno.test("runValidationLoop resumes at validated_ci and skips CI before recording semantic approval for non-Git validation", async () => {
+Deno.test("runValidationPhase resumes at validated_ci and skips CI before recording semantic approval for non-Git validation", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "validated_ci",
@@ -171,14 +171,14 @@ Deno.test("runValidationLoop resumes at validated_ci and skips CI before recordi
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationLoop reviews the diff scoped to the active workflow baseline from validated_ci", async () => {
+Deno.test("runValidationPhase reviews the diff scoped to the active workflow baseline from validated_ci", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
     const baselineArgs = /** @type {Array<string | undefined>} */ ([]);
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -204,12 +204,12 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationLoop configures Semantic Reviewer with diff tools and isolated session", async () => {
+Deno.test("runValidationPhase configures Semantic Reviewer with diff tools and isolated session", async () => {
     const { hostedSession } = await makeValidatedCiRun();
     const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     const sessionOpts = /** @type {any[]} */ ([]);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -240,12 +240,12 @@ Deno.test("runValidationLoop configures Semantic Reviewer with diff tools and is
     );
 });
 
-Deno.test("runValidationLoop rejects an approved verdict reached without inspecting the diff", async () => {
+Deno.test("runValidationPhase rejects an approved verdict reached without inspecting the diff", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun();
     const reviewPrompts = /** @type {string[]} */ ([]);
     let reviewCalls = 0;
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -274,12 +274,12 @@ Deno.test("runValidationLoop rejects an approved verdict reached without inspect
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationLoop does not count a failed review_diff call as inspecting the diff", async () => {
+Deno.test("runValidationPhase does not count a failed review_diff call as inspecting the diff", async () => {
     const { hostedSession } = await makeValidatedCiRun();
     const reviewPrompts = /** @type {string[]} */ ([]);
     let reviewCalls = 0;
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -311,12 +311,12 @@ Deno.test("runValidationLoop does not count a failed review_diff call as inspect
     assertStringIncludes(reviewPrompts[1], "without inspecting the diff");
 });
 
-Deno.test("runValidationLoop nudges the same reviewer session when review_complete is omitted", async () => {
+Deno.test("runValidationPhase nudges the same reviewer session when review_complete is omitted", async () => {
     const { uiAPI, hostedSession } = await makeValidatedCiRun();
     const reviewOpts = /** @type {any[]} */ ([]);
     let reviewCalls = 0;
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -349,11 +349,11 @@ Deno.test("runValidationLoop nudges the same reviewer session when review_comple
     assertStringIncludes(uiAPI.messages.join(" "), "Nudging Semantic Reviewer");
 });
 
-Deno.test("runValidationLoop pauses at validated_ci when the reviewer never finishes", async () => {
+Deno.test("runValidationPhase pauses at validated_ci when the reviewer never finishes", async () => {
     const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
     let reviewCalls = 0;
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -374,7 +374,7 @@ Deno.test("runValidationLoop pauses at validated_ci when the reviewer never fini
     assertStringIncludes(uiAPI.messages.join(" "), "Semantic Reviewer execution failed");
 });
 
-Deno.test("runValidationLoop dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
+Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({
         complexity: "MEDIUM",
@@ -433,7 +433,7 @@ Deno.test("runValidationLoop dispatches semantic review feedback to Reviewer-Fee
     assertStringIncludes(uiAPI.messages.join(" "), "Dispatching repair");
 });
 
-Deno.test("runValidationLoop carries existing ledger identities and repair report into the next semantic round", async () => {
+Deno.test("runValidationPhase carries existing ledger identities and repair report into the next semantic round", async () => {
     const ledger = {
         sequence: 1,
         items: [{
@@ -455,7 +455,7 @@ Deno.test("runValidationLoop carries existing ledger identities and repair repor
     );
     const reviewPrompts = /** @type {string[]} */ ([]);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -478,7 +478,7 @@ Deno.test("runValidationLoop carries existing ledger identities and repair repor
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationLoop refuses semantic approval while a prior finding is unmentioned", async () => {
+Deno.test("runValidationPhase refuses semantic approval while a prior finding is unmentioned", async () => {
     const ledger = {
         sequence: 1,
         items: [{
@@ -497,7 +497,7 @@ Deno.test("runValidationLoop refuses semantic approval while a prior finding is 
     const reviewPrompts = /** @type {string[]} */ ([]);
     let reviewCalls = 0;
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -521,7 +521,7 @@ Deno.test("runValidationLoop refuses semantic approval while a prior finding is 
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationLoop narrows semantic review to verification mode after discovery rounds", async () => {
+Deno.test("runValidationPhase narrows semantic review to verification mode after discovery rounds", async () => {
     const ledger = {
         sequence: 2,
         items: [{
@@ -547,7 +547,7 @@ Deno.test("runValidationLoop narrows semantic review to verification mode after 
     const promptModes = /** @type {string[]} */ ([]);
     const reviewPrompts = /** @type {string[]} */ ([]);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -583,11 +583,11 @@ Deno.test("runValidationLoop narrows semantic review to verification mode after 
     assertStringIncludes(reviewPrompts[0], "R2-2");
 });
 
-Deno.test("runValidationLoop offers Local Human Code Review after automatic semantic rounds", async () => {
+Deno.test("runValidationPhase offers Local Human Code Review after automatic semantic rounds", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
     const interactions = /** @type {any[]} */ ([]);
 
-    await runValidationLoop({
+    await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -622,7 +622,7 @@ Deno.test("runValidationLoop offers Local Human Code Review after automatic sema
 Deno.test("Stop at the review round limit keeps the passing tests and the open findings", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -655,7 +655,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
     let asks = 0;
     const answers = ["continue"];
 
-    const result = await runValidationLoop({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",

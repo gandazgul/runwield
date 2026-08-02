@@ -860,7 +860,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const goldenFileExists = await Deno.stat(goldenFilePath).then(() => true).catch(() => false);
                     const branch = await runGoldenGit(["branch", "--show-current"], Deno.cwd());
                     const status = await runGoldenGit(["status", "--porcelain"], Deno.cwd());
-                    const trackedFiles = await runGoldenGit(["ls-files", "golden-planned-change.txt"], Deno.cwd());
+                    const trackedFiles = await runGoldenGit(["ls-files"], Deno.cwd());
                     const deliveryLog = goldenFileExists
                         ? await runGoldenGit(["log", "--format=%H", "--", "golden-planned-change.txt"], Deno.cwd())
                         : "";

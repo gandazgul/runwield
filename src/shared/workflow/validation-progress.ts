@@ -83,6 +83,20 @@ export function describeUnsettledTransition(transition: TransitionResult, intent
     ].join(" ");
 }
 
+/**
+ * The progress this session is currently showing, if any.
+ *
+ * This is the loop's memory of where it is. Plan status only has three values and
+ * a phase re-derives from it on a cold start, but while a run is in flight the
+ * stage, the round and the per-check verdicts live here — a status of
+ * `implemented` cannot say whether CI is running, failed, or waiting on a repair.
+ */
+export function getCurrentValidationProgress(
+    hostedSession: HostedSession | undefined,
+): RuntimeValidationProgress | undefined {
+    return hostedSession ? CURRENT_VALIDATION_PROGRESS.get(hostedSession) : undefined;
+}
+
 export function emitRunWieldSystemStatus(
     hostedSession: HostedSession | undefined,
     text: string,
@@ -90,7 +104,6 @@ export function emitRunWieldSystemStatus(
     validationProgress?: RuntimeValidationProgress,
 ): void {
     const resolvedLevel = level === true ? "error" : level === false ? "info" : level;
-    if (hostedSession && validationProgress) CURRENT_VALIDATION_PROGRESS.set(hostedSession, validationProgress);
     const currentProgress = validationProgress ||
         (hostedSession ? CURRENT_VALIDATION_PROGRESS.get(hostedSession) : undefined);
     emitSystemStatus(hostedSession, text, {
@@ -98,6 +111,11 @@ export function emitRunWieldSystemStatus(
         header: "RunWield",
         ...(currentProgress ? { validationProgress: structuredClone(currentProgress) } : {}),
     });
+    // The runtime event boundary validates the semantic consistency of the
+    // snapshot. Commit it to session memory only after that boundary accepts it;
+    // caching first leaves a rejected stage/check combination behind, so every
+    // later plain status line or retry re-emits the same invalid snapshot.
+    if (hostedSession && validationProgress) CURRENT_VALIDATION_PROGRESS.set(hostedSession, validationProgress);
 }
 
 export function createValidationProgress(values: ValidationProgressInput): RuntimeValidationProgress {
@@ -113,7 +131,11 @@ export function createValidationProgress(values: ValidationProgressInput): Runti
         },
         ...(values.cycle ? { cycle: values.cycle } : {}),
         ...(values.maxCycles ? { maxCycles: values.maxCycles } : {}),
-        ...(values.totalCycle ? { totalCycle: values.totalCycle } : {}),
+        ...(values.kind === "workflow"
+            ? { totalCycle: values.totalCycle || values.cycle || 1 }
+            : values.totalCycle
+            ? { totalCycle: values.totalCycle }
+            : {}),
         ...(values.repairAttempt ? { repairAttempt: values.repairAttempt } : {}),
         ...(values.maxRepairAttempts ? { maxRepairAttempts: values.maxRepairAttempts } : {}),
         ...(values.message ? { message: values.message } : {}),

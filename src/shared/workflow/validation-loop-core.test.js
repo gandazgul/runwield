@@ -224,6 +224,78 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
     assertEquals(plan?.attrs.status, "validated_ci");
 });
 
+Deno.test("runValidationLoop advances from met Objective-Failing Checks into semantic review", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "true", rationale: "already satisfied for test" }];
+    const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", {
+        classification: "PLANNED_CHANGE",
+        humanReviewMode: "always",
+        objectiveChecks: /** @type {any} */ (objectiveChecks),
+    });
+    const triageMeta = /** @type {any} */ ({
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        humanReviewMode: "always",
+        objectiveChecks,
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta,
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        executionMode: "worktree",
+        baselineTree: "baseline-tree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "main",
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta,
+        semanticReviewPort: {
+            getDiffText: () => Promise.resolve("diff --git a/file.ts b/file.ts\n+const fixed = true;\n"),
+            loadReviewerPrompt: () =>
+                Promise.resolve({
+                    name: "reviewer",
+                    displayName: "Reviewer",
+                    model: "",
+                    description: "",
+                    tools: [],
+                    systemPrompt: "review prompt",
+                }),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: "approved",
+                            approved: true,
+                            feedback: "",
+                            findings: [],
+                            advisories: [],
+                        },
+                    }]),
+                ),
+        },
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "paused");
+    assertEquals(plan?.attrs.status, "validated_reviewer");
+});
+
 Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Change classifications", async () => {
     /** @type {Array<"QUICK_FIX" | "PROJECT">} */
     const classifications = ["QUICK_FIX", "PROJECT"];

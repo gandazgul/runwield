@@ -12,7 +12,7 @@ import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
 import { preparePrimaryPlanPathForMerge, restorePrimaryPlanPathAfterMergeFailure } from "../worktree.js";
 import { runIsolatedAgentSession } from "../session/session.js";
-import { emitSystemStatus } from "../session/session-runtime-events.js";
+import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { getCodeReviewMode, getGuidedReviewMode, shouldCleanupMergedWorktrees } from "../settings.js";
 import { createGitPort } from "../git-port.ts";
@@ -63,6 +63,19 @@ import {
     usedReviewDiffTool,
     verifyPostMergeCandidatePublished,
 } from "./validation-helpers.ts";
+import {
+    clearValidationPosition,
+    getValidationPosition,
+    rememberValidationPosition,
+    type ValidationPhaseName,
+} from "./validation-position.ts";
+import {
+    completeValidationProgress,
+    createValidationProgress,
+    emitRunWieldSystemStatus,
+    getCurrentValidationProgress,
+    updateValidationProgress,
+} from "./validation-progress.ts";
 
 export {
     loadManualQaPrompt,
@@ -240,14 +253,82 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
         triageMeta: { ...args.triageMeta, ...canonicalPlan.attrs },
         planContent: canonicalPlan.markdown,
     };
-    switch (canonicalPlan.status) {
-        case "implemented":
+    const nextPhase = resolveNextPhase(args, canonicalPlan.status);
+    if (await healStatusAheadOfPhase(canonicalArgs, nextPhase, canonicalPlan.status)) {
+        return await runMechanicalValidationPhase({
+            ...canonicalArgs,
+            triageMeta: { ...canonicalArgs.triageMeta, status: "implemented" },
+        });
+    }
+    switch (nextPhase) {
+        case "mechanical":
             return await runMechanicalValidationPhase(canonicalArgs);
-        case "validated_ci":
+        case "semantic":
             return await runSemanticReviewPhase(canonicalArgs);
-        case "validated_reviewer":
+        case "delivery":
             return await runValidatedReviewerPhase(canonicalArgs);
     }
+}
+
+/**
+ * Which phase runs next: what the loop remembers, or failing that, the Plan.
+ *
+ * Memory wins because it is strictly better informed. It was written by the phase
+ * that last knew where it was going, whereas status is a three-valued summary that
+ * anything writing to the Plan can move — including a repair Agent's own
+ * `task_completed`, which is how a run could skip its remaining checks and go
+ * straight to publication.
+ */
+/** Validation's three statuses in the order the loop passes through them. */
+const VALIDATION_STATUS_ORDER = ["implemented", "validated_ci", "validated_reviewer"];
+
+/** The status a phase expects to find on the Plan it is about to run. */
+const PHASE_STATUS: Record<ValidationPhaseName, string> = {
+    mechanical: "implemented",
+    semantic: "validated_ci",
+    delivery: "validated_reviewer",
+};
+
+/**
+ * Pull a Plan back when its status has run ahead of where the loop actually is.
+ *
+ * The loop remembers dispatching a CI repair and never seeing CI pass; if the Plan
+ * meanwhile reads `validated_ci`, something else moved it — a repair Agent's
+ * `task_completed` is the one that happens — and the checks it claims to have
+ * passed never ran. Recording the phase's own outcome against that status is
+ * refused by the lifecycle guard, correctly, so the drift has to be undone rather
+ * than worked around: `validation_failed` is legal from every validation status and
+ * lands on `implemented`, which re-runs the checks from the start.
+ *
+ * Returns whether a heal happened, in which case the mechanical phase runs.
+ */
+async function healStatusAheadOfPhase(
+    args: ValidationLoopArgs,
+    phase: ValidationPhaseName,
+    status: string,
+): Promise<boolean> {
+    const expected = VALIDATION_STATUS_ORDER.indexOf(PHASE_STATUS[phase]);
+    const actual = VALIDATION_STATUS_ORDER.indexOf(status);
+    if (expected < 0 || actual < 0 || actual <= expected) return false;
+    const reason = `The Plan was marked ${status} while Workflow Validation was still at ${
+        PHASE_STATUS[phase]
+    }. Those checks did not run, so validation is starting again from the build.`;
+    const projectRoot = getProjectRoot(args);
+    emitStatus(args.hostedSession, reason, "warning");
+    await recordLifecycleEvent(args, projectRoot, "validation_failed", status as PlanEventStatus, reason);
+    return true;
+}
+
+function resolveNextPhase(
+    args: ValidationLoopArgs,
+    status: "implemented" | "validated_ci" | "validated_reviewer",
+): ValidationPhaseName {
+    const fromStatus: ValidationPhaseName = status === "validated_reviewer"
+        ? "delivery"
+        : status === "validated_ci"
+        ? "semantic"
+        : "mechanical";
+    return getValidationPosition(args.hostedSession, args.planName)?.phase || fromStatus;
 }
 
 /**
@@ -277,7 +358,11 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
     for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
         const before = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
         result = await runValidationPhase(phaseArgs);
-        if (result.kind !== "paused") return result;
+        if (result.kind !== "paused") {
+            // Verified or failed, the run is finished and its position dies with it.
+            clearValidationPosition(args.hostedSession, args.planName);
+            return result;
+        }
         const after = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
         // Front Matter revision, not status: human review reaches a decision without
         // changing status, and publication is what runs next. Comparing status alone
@@ -372,7 +457,13 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
         // A test suite can run for minutes. Saying so beforehand is the difference
         // between "it is working" and "it has hung" — publication had gone quiet here
         // too, leaving the longest wait in the workflow completely unannounced.
-        emitStatus(args.hostedSession, `Running CI Validation in ${phase.context.executionCwd}.`);
+        emitProgress(args, `Running CI Validation in ${phase.context.executionCwd}.`, "info", {
+            outcome: "running",
+            stage: "ci",
+            repairAttempt: attempts > 0 ? clampCycle(attempts) : null,
+            maxRepairAttempts: attempts > 0 ? AUTOMATIC_ROUNDS : null,
+            checks: { ci: "running" },
+        });
         const ciResult = await runLocalCIImpl({ hostedSession: args.hostedSession, cwd: phase.context.executionCwd });
         await recordMetric(args, phase.context.projectRoot, {
             category: "validation",
@@ -410,7 +501,10 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
                     "implemented",
                 );
                 preserveValidationContinuationState(args, phase.context);
-                emitStatus(args.hostedSession, "Build, tests, and Objective-Failing Checks passed.", "success");
+                emitProgress(args, "Build, tests, and Objective-Failing Checks passed.", "success", {
+                    stage: "cycle",
+                    checks: { ci: "passed" },
+                });
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -426,7 +520,10 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
                     "implemented",
                 );
                 preserveValidationContinuationState(args, phase.context);
-                emitStatus(args.hostedSession, "Build and tests passed.", "success");
+                emitProgress(args, "Build and tests passed.", "success", {
+                    stage: "cycle",
+                    checks: { ci: "passed" },
+                });
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -601,6 +698,22 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
     for (;;) {
         const nextRound = round + 1;
         const reviewMode = nextRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
+        // The reviewer runs in its own session, so without this the whole round is
+        // silent: the user sees the Engineer finish, then nothing, and the verdict
+        // lands only in the Plan's failure reason. Say a round is starting, and say
+        // which kind it is — a verify round reads very differently from a sweep.
+        emitProgress(
+            args,
+            `Semantic Code Review round ${nextRound}/${AUTOMATIC_ROUNDS} (${reviewMode}) in progress...`,
+            "info",
+            {
+                outcome: "running",
+                stage: "semantic_review",
+                cycle: clampCycle(nextRound),
+                maxCycles: AUTOMATIC_ROUNDS,
+                checks: { semanticReview: "running" },
+            },
+        );
         const review = await runReviewerRound(
             args,
             context,
@@ -634,7 +747,12 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
                     advisoryCount: review.outcome.advisories.length,
                 },
             });
-            emitStatus(args.hostedSession, `Semantic Code Review Approved (round ${nextRound}).`, "success");
+            emitProgress(args, `Semantic Code Review Approved (round ${nextRound}).`, "success", {
+                stage: "semantic_review",
+                cycle: clampCycle(nextRound),
+                maxCycles: AUTOMATIC_ROUNDS,
+                checks: { semanticReview: "passed" },
+            });
             await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
             return {
                 kind: "paused",
@@ -686,6 +804,10 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
         // unbuilt, now that a Retry re-enters at the reviewer rather than going back
         // around through the mechanical phase.
         if (nextRound >= AUTOMATIC_ROUNDS) {
+            // At the limit the repair is tested right here instead of going back
+            // around, so the loop stays in this phase rather than the mechanical one
+            // the dispatch above pinned it to.
+            rememberValidationPosition(args.hostedSession, args.planName, { phase: "semantic" });
             const runLocalCIImpl = args.__deps?.runLocalCI || runLocalCI;
             emitStatus(args.hostedSession, `Running CI Validation in ${context.executionCwd}.`);
             const ciResult = await runLocalCIImpl({
@@ -820,7 +942,11 @@ async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseConte
         stats: {},
     };
     for (;;) {
-        emitStatus(args.hostedSession, "Waiting for User Code Review...", "info");
+        emitProgress(args, "Waiting for User Code Review...", "info", {
+            outcome: "running",
+            stage: "human_review",
+            checks: { humanReview: "running" },
+        });
         const outcome = await requestHumanReviewDecision();
         if (outcome.kind === "decided") return outcome.result;
         // The review window closed with no answer in it. That is not a rejection, so
@@ -859,7 +985,10 @@ async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseConte
                 humanReviewDecision: "approved",
                 humanReviewedAt: new Date().toISOString(),
             });
-            emitStatus(args.hostedSession, "User Code Review Approved.", "success");
+            emitProgress(args, "User Code Review Approved.", "success", {
+                stage: "human_review",
+                checks: { humanReview: "passed" },
+            });
             return {
                 kind: "decided",
                 result: {
@@ -1103,9 +1232,11 @@ async function runPublicationPhase(
                 // Say what is about to happen to the user's branch. The merge is the
                 // one irreversible act in the system, and publication had gone silent
                 // about it: the branch moved with nothing in the transcript saying so.
-                emitStatus(
-                    args.hostedSession,
+                emitProgress(
+                    args,
                     `Merging validated worktree branch ${executionBranch} into target branch ${targetBranch}.`,
+                    "info",
+                    { outcome: "running", stage: "merge", checks: { merge: "running" } },
                 );
                 const mergeResult = await mergeExecutionWorktree({
                     projectRoot: context.projectRoot,
@@ -1199,10 +1330,10 @@ async function resolvePhaseContext(
         // nothing: the workflow ended mid-run with no message, which is the exact
         // shape of a strand — the user watches an Agent finish and then nothing
         // happens, ever.
-        emitStatus(
-            args.hostedSession,
+        emitHalted(
+            args,
             `RunWield cannot continue validating ${args.planName}: ${resolution.message}`,
-            "error",
+            resolution.message,
         );
         await recordLifecycleEvent(
             args,
@@ -1216,7 +1347,6 @@ async function resolvePhaseContext(
             result: { kind: "failed", planName: args.planName, projectRoot, reason: resolution.message },
         };
     }
-    if (activeWorkflow) args.hostedSession.clearActiveExecutionWorkflow?.();
     const context = resolution.context;
     const policyAgent = activeWorkflow?.executionAgent || args.executionContext?.executionAgent || AGENTS.ENGINEER;
     const executionAgent = policyAgent === AGENTS.FRONTEND_ENGINEER ? "frontend-engineer" : "engineer";
@@ -1569,12 +1699,21 @@ async function dispatchCiRepair(
 ): Promise<void> {
     const runActiveAgentTurnImpl = runActiveAgentTurn;
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
-    emitStatus(
-        args.hostedSession,
+    // Pin the loop here before the Agent runs. The repair reports `task_completed`
+    // into the root transcript, which is also what marks a Plan implemented — so
+    // without this the next phase reads an advanced status and jumps past the CI
+    // that has not passed yet.
+    rememberValidationPosition(args.hostedSession, args.planName, {
+        phase: "mechanical",
+        awaiting: "ci_repair",
+    });
+    emitProgress(
+        args,
         `Build failed. Dispatching ${
             getAgentDisplayName(context.executionAgent, context.projectRoot)
-        } to fix syntax/types...`,
+        } to fix the CI failure...`,
         "warning",
+        { outcome: "running", stage: "engineer_repair", checks: { ci: "failed" } },
     );
     await runActiveAgentTurnImpl({
         hostedSession: args.hostedSession,
@@ -1783,13 +1922,47 @@ async function recordLifecycleEvent(
     failureReason?: string,
     extraDetails: Partial<RecordPlanEventArgs["details"]> = {},
 ): Promise<RecordPlanEventResult> {
-    return await recordPlanEvent({
+    const result = await recordPlanEvent({
         cwd: projectRoot,
         planName: args.planName,
         event,
         currentStatus,
         details: { triageMeta: args.triageMeta, failureReason, ...extraDetails },
     });
+    // Move the remembered position with the transition the loop just made, in one
+    // place rather than at each call site. Scattering it meant a path that recorded
+    // a status change without also updating the memory left the two disagreeing,
+    // and dispatch trusts the memory — human-review feedback sent the Plan back to
+    // `implemented` while the memory still said `semantic`, and the next phase tried
+    // to review a Plan that had already moved past it.
+    //
+    // Only transitions validation performs land here. That is the point: a status
+    // moved by anything else — a repair Agent's own `task_completed` — leaves the
+    // memory alone, which is exactly the jump this is meant to refuse.
+    const nextPhase = phaseForRecordedStatus(event);
+    if (nextPhase) rememberValidationPosition(args.hostedSession, args.planName, { phase: nextPhase });
+    return result;
+}
+
+/**
+ * The phase that owns the status a lifecycle event moves a Plan to.
+ *
+ * Returns nothing for events that do not resolve to a validation phase — the
+ * terminal ones, whose position is cleared rather than moved.
+ */
+function phaseForRecordedStatus(event: PlanEvent): ValidationPhaseName | undefined {
+    switch (event) {
+        case "mechanical_validation_passed":
+            return "semantic";
+        case "semantic_review_passed":
+            return "delivery";
+        case "mechanical_validation_failed":
+        case "semantic_review_feedback":
+        case "validation_failed":
+            return "mechanical";
+        default:
+            return undefined;
+    }
 }
 
 /**
@@ -1882,6 +2055,20 @@ async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot
 }
 
 function buildVerifiedResult(args: ValidationLoopArgs, projectRoot: string): WorkflowValidationResult {
+    // The run is over, so its position must not outlive it — a Plan reopened later
+    // has to start from what the Plan durably says, not from where this one ended.
+    clearValidationPosition(args.hostedSession, args.planName);
+    // Close the panel out on the way past. Without this the last thing the user
+    // sees is a merge still "running", on a run that finished successfully.
+    const current = getCurrentValidationProgress(args.hostedSession);
+    if (current) {
+        emitStatus(
+            args.hostedSession,
+            `${args.planName} is verified and published.`,
+            "success",
+            completeValidationProgress(current, true, `${args.planName} is verified and published.`),
+        );
+    }
     return {
         kind: "verified",
         planName: args.planName,
@@ -1893,12 +2080,110 @@ function buildVerifiedResult(args: ValidationLoopArgs, projectRoot: string): Wor
     };
 }
 
+/**
+ * Say something to the user, carrying the validation panel with it.
+ *
+ * Every line the loop emits goes through here, and every one of them re-sends the
+ * progress the session is currently holding. That is what keeps the panel pinned
+ * for the whole run rather than only on the lines that happen to change a stage:
+ * the loop talks constantly, and a status line that dropped the progress used to
+ * take the panel down with it.
+ */
 function emitStatus(
     hostedSession: HostedSession,
     message: string,
     level: "info" | "success" | "warning" | "error" = "info",
+    progress?: RuntimeValidationProgress,
 ): void {
-    emitSystemStatus(hostedSession, message, { level });
+    emitRunWieldSystemStatus(hostedSession, message, level, progress);
+}
+
+/**
+ * Move the loop's position and announce it.
+ *
+ * The patch applies to wherever the session already is, so checks accumulate
+ * across phases within a run. On a cold start there is nothing to patch and the
+ * position is seeded from the Plan's status by {@link seedProgressForStatus}.
+ */
+function emitProgress(
+    args: ValidationLoopArgs,
+    message: string,
+    level: "info" | "success" | "warning" | "error",
+    patch: Parameters<typeof updateValidationProgress>[1],
+): void {
+    const current = getCurrentValidationProgress(args.hostedSession) || seedProgressForStatus(args);
+    const next = updateValidationProgress(current, patch);
+    // The total counts passes through the loop, so it can never sit below the round
+    // it is qualifying. Rounds advance within a run while the total was seeded once
+    // from durable counters, which is how the panel came to read "round 2/3 (total 1)".
+    const total = Math.max(next.totalCycle || 0, next.cycle || 0, current.totalCycle || 0);
+    emitStatus(args.hostedSession, message, level, total > 0 ? { ...next, totalCycle: total } : next);
+}
+
+/**
+ * Close the panel out on a run that stopped.
+ *
+ * Terminal outcomes have to be internally consistent — no check left pending, none
+ * left running — which is what {@link completeValidationProgress} settles. Patching
+ * `outcome: "failed"` directly leaves the record contradicting itself and the event
+ * is rejected, taking the whole halt path down with it.
+ */
+function emitHalted(args: ValidationLoopArgs, message: string, reason: string): void {
+    clearValidationPosition(args.hostedSession, args.planName);
+    const current = getCurrentValidationProgress(args.hostedSession) || seedProgressForStatus(args);
+    // A failed run has to name what failed. Checks caught mid-flight settle to
+    // `failed` on their own; a halt that lands before anything started has nothing
+    // to settle, and CI is the gate it never got through.
+    const settled = Object.values(current.checks).some((check) => check === "running" || check === "failed")
+        ? current
+        : updateValidationProgress(current, { checks: { ci: "failed" } });
+    emitStatus(args.hostedSession, message, "error", completeValidationProgress(settled, false, reason));
+}
+
+/**
+ * Where a run picks up when nothing is held in memory.
+ *
+ * Status is the right answer for exactly this moment and no other: a fresh call
+ * knows only what the Plan durably records, so the checks already behind the
+ * current status are marked passed and the rest are left pending.
+ */
+function seedProgressForStatus(args: ValidationLoopArgs): RuntimeValidationProgress {
+    const status = args.triageMeta.status;
+    const semanticDone = status === "validated_reviewer";
+    const ciDone = semanticDone || status === "validated_ci";
+    const rounds = readSemanticRound(args.triageMeta);
+    return createValidationProgress({
+        kind: "workflow",
+        outcome: "running",
+        // Deliberately neutral. A stage has to agree with its own check — naming
+        // `semantic_review` before the reviewer has started is rejected outright —
+        // so the seed only says which checks are already behind us, and the first
+        // real emit of a phase names the stage as it begins.
+        stage: "cycle",
+        cycle: clampCycle(rounds + 1),
+        maxCycles: AUTOMATIC_ROUNDS,
+        // Rounds and repairs both count as passes through the loop, so a user Retry
+        // that resets the round counter still reads as forward motion rather than
+        // starting over at one.
+        totalCycle: rounds + readCiAttempts(args.triageMeta) + 1,
+        checks: {
+            ci: ciDone ? "passed" : "pending",
+            semanticReview: semanticDone ? "passed" : ciDone ? "running" : "pending",
+            humanReview: semanticDone ? "running" : "pending",
+            merge: "pending",
+        },
+    });
+}
+
+/**
+ * Keep the displayed round inside the advertised limit.
+ *
+ * A Retry hands out a fresh set of rounds without resetting how many have run, so
+ * the raw count legitimately passes the maximum; showing "round 4/3" would just
+ * look broken. The total is what carries the real number.
+ */
+function clampCycle(cycle: number): number {
+    return Math.min(Math.max(1, cycle), AUTOMATIC_ROUNDS);
 }
 
 function getProjectRoot(args: ValidationLoopArgs): string {
@@ -1958,12 +2243,12 @@ function hasFinalHumanReviewDecision(meta: Partial<PlanFrontMatter>): boolean {
 }
 
 function preserveValidationContinuationState(args: ValidationLoopArgs, context: PhaseContext): void {
-    if (
-        context.workflowBase.semanticRound === undefined && !context.workflowBase.reviewLedger &&
-        !context.workflowBase.repairBaselineTree && !context.workflowBase.lastRepairReport
-    ) {
-        return;
-    }
+    // Resolving a phase temporarily clears the active workflow while it verifies
+    // the execution context. A successful boundary is still the same execution:
+    // semantic review needs its Plan/worktree identity even when this is the first
+    // pass and there is no repair ledger yet. Restoring only workflows that happened
+    // to carry repair metadata stranded ordinary CI -> review transitions at the
+    // session cwd with no active owner.
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
 }
 
