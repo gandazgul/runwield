@@ -156,7 +156,9 @@ export function createTaskCompletedTool(
                     terminate: false,
                 };
             }
-            emitTaskCompletedMessage(hostedSession, agentName, params.message);
+            const report = typeof params.message === "string" ? params.message : "";
+            emitTaskCompletedMessage(hostedSession, agentName, report);
+            hostedSession.recordPendingTaskCompletion?.(normalizedAgentName, report, now());
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "task_completed",
@@ -187,7 +189,7 @@ export function createTaskCompletedTool(
                 content: [],
                 details: {
                     outcome: "task_completed",
-                    message: params.message,
+                    message: report,
                     ...(normalizedAgentName === "frontend-engineer"
                         ? { browserPreflightOutcome: params.browserPreflightOutcome }
                         : {}),

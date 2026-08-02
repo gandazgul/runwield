@@ -454,6 +454,36 @@ Deno.test("HostedSession removes delegated agent display entries by id when comp
     assertEquals(session.getActiveAgentName(), "Router");
 });
 
+Deno.test("HostedSession consumes pending task completion once and clears it on new workflow start", () => {
+    const session = new HostedSession({ id: "task-completion-state", cwd: "/tmp/task-completion-state" });
+    const rootAgentSession = makeDisposableSession("root");
+    const isolatedAgentSession = makeDisposableSession("isolated");
+    session.setRootAgentSession(rootAgentSession);
+    const targetId = session.pushSteeringTargetSession(rootAgentSession);
+    try {
+        session.recordPendingTaskCompletion("engineer", "- Done.", 1234);
+    } finally {
+        session.popSteeringTargetSession(targetId);
+    }
+
+    assertEquals(session.consumePendingTaskCompletion(isolatedAgentSession), null);
+    assertEquals(session.consumePendingTaskCompletion(rootAgentSession), {
+        agentName: "engineer",
+        report: "- Done.",
+        timestampMs: 1234,
+        owningSession: rootAgentSession,
+    });
+    assertEquals(session.consumePendingTaskCompletion(rootAgentSession), null);
+
+    session.recordPendingTaskCompletion("engineer", "- Stale.", 1235);
+    session.setActiveExecutionWorkflow({
+        planName: "next",
+        triageMeta: {},
+        executionAgent: "engineer",
+    });
+    assertEquals(session.consumePendingTaskCompletion(null), null);
+});
+
 Deno.test("two Hosted Sessions do not share workflow context", () => {
     const alpha = new HostedSession({ id: "workflow-alpha", sessionManager: makeSessionManager("workflow-alpha") });
     const beta = new HostedSession({ id: "workflow-beta", sessionManager: makeSessionManager("workflow-beta") });

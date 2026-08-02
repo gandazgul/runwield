@@ -38,6 +38,45 @@ Deno.test("task_completed description uses planned-change workflow terminology",
     assertEquals((tool.description || "").includes("For FEATURE and PROJECT workflows"), false);
 });
 
+Deno.test("task_completed records accepted completion on hosted session only after ownership checks", async () => {
+    const hostedSession = new HostedSession({ id: "task-completed-records-accepted", cwd: Deno.cwd() });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "implementation-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+    });
+    const tool = createTaskCompletedTool({
+        hostedSession,
+        agentName: "Engineer",
+        now: () => 1234,
+        recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
+    });
+
+    const result = await /** @type {any} */ (tool.execute)("call", { message: "- Done." });
+    const completion = hostedSession.consumePendingTaskCompletion(null);
+
+    assertEquals(result.details, { outcome: "task_completed", message: "- Done." });
+    assertEquals(completion, {
+        agentName: "engineer",
+        report: "- Done.",
+        timestampMs: 1234,
+        owningSession: null,
+    });
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "frontend-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "frontend-engineer",
+    });
+    const rejectedTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+
+    const rejected = await /** @type {any} */ (rejectedTool.execute)("call", { message: "- Wrong owner." });
+
+    assertEquals(rejected.details, { outcome: "rejected", reason: "wrong_execution_owner" });
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+});
+
 Deno.test("task_completed rejects a mismatched active workflow owner without side effects", async () => {
     const events = /** @type {any[]} */ ([]);
     const metrics = /** @type {any[]} */ ([]);

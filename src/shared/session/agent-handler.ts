@@ -9,7 +9,6 @@ import {
     executePlan,
     finalizePlanImplementation,
     readLatestPlanOutcome,
-    readLatestTaskCompletedOutcome,
     resolveExecutionOwner,
     runSlicerAgent,
 } from "../workflow/workflow.js";
@@ -43,6 +42,7 @@ type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
 type WorkflowMetricOptions = NonNullable<Parameters<typeof recordWorkflowMetric>[1]>;
 
 interface RootAgentSessionState {
+    dispose?: () => void | Promise<void>;
     agent?: { state?: { messages?: AgentMessage[] } };
 }
 
@@ -430,8 +430,11 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             return { kind: "complete" };
         }
 
-        // If the agent declared they finished an assigned workflow task
-        const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        // If the agent declared they finished an assigned workflow task, consume the session-scoped
+        // completion record produced by task_completed rather than inferring completion from the
+        // root turn's message window. Steering and isolated sessions can both write outside this
+        // handler's returned message slice, so the owning root session is the source of truth.
+        const taskCompleted = hostedSession.consumePendingTaskCompletion(rootAgentSession);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow?.executionStarted === false) {

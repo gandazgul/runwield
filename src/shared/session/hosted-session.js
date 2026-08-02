@@ -138,6 +138,14 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {ThinkingLevel} [thinkingLevel]
  */
 
+/**
+ * @typedef {Object} PendingTaskCompletion
+ * @property {string} agentName
+ * @property {string} report
+ * @property {number} timestampMs
+ * @property {DisposableLike | null} owningSession
+ */
+
 /** @param {unknown} value */
 function getSessionManagerId(value) {
     if (!value || typeof value !== "object" || !("getSessionId" in value) || typeof value.getSessionId !== "function") {
@@ -229,6 +237,8 @@ export class HostedSession {
         );
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
+        /** @type {PendingTaskCompletion | null} */
+        this.pendingTaskCompletion = null;
         this.suppressAgentStoppedAttention = false;
         /** @type {string | null} */
         this.activeTurnId = null;
@@ -405,6 +415,7 @@ export class HostedSession {
         this.delegatedWriterActive = false;
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;
+        this.pendingTaskCompletion = null;
         this.activeTurnId = null;
         this.steeringTargetStack = [];
     }
@@ -484,6 +495,30 @@ export class HostedSession {
         if (!this.suppressAgentStoppedAttention) return false;
         this.suppressAgentStoppedAttention = false;
         return true;
+    }
+
+    /**
+     * @param {string} agentName
+     * @param {string} report
+     * @param {number} timestampMs
+     */
+    recordPendingTaskCompletion(agentName, report, timestampMs = Date.now()) {
+        this.assertActive();
+        this.pendingTaskCompletion = {
+            agentName,
+            report,
+            timestampMs,
+            owningSession: this.getActiveSteeringTargetSession(),
+        };
+    }
+
+    /** @param {DisposableLike | null} owningSession */
+    consumePendingTaskCompletion(owningSession) {
+        if (!this.pendingTaskCompletion) return null;
+        if (this.pendingTaskCompletion.owningSession !== owningSession) return null;
+        const completion = this.pendingTaskCompletion;
+        this.pendingTaskCompletion = null;
+        return completion;
     }
 
     /** @param {DisposableLike} session */
@@ -711,6 +746,7 @@ export class HostedSession {
                 throw new Error("setActiveExecutionWorkflow: pairPauseReason must be stop or canceled");
             }
         }
+        if (workflow) this.pendingTaskCompletion = null;
         this.activeExecutionWorkflow = workflow;
     }
 
@@ -725,6 +761,7 @@ export class HostedSession {
     clearActiveExecutionWorkflow() {
         this.assertActive();
         this.activeExecutionWorkflow = null;
+        this.pendingTaskCompletion = null;
     }
 
     /** @param {string} turnId */
@@ -774,6 +811,7 @@ export class HostedSession {
         this.projectStateContext = "";
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;
+        this.pendingTaskCompletion = null;
         this.activeTurnId = null;
         this.steeringTargetStack = [];
         this.managed = null;

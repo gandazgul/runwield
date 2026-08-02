@@ -240,6 +240,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
         "role:engineer",
         "intent:QUICK_FIX",
         "recovery:workflow-validation",
+        "recovery:steered-task-completion",
         "block:validation-handoff",
         "durable:quick-fix-delivery",
     ],
@@ -265,6 +266,16 @@ export const engineerQuickFixMechanicalValidationScenario = {
         { type: "type", text: "make a tiny quick fix" },
         { type: "enter" },
         {
+            type: "waitForEvent",
+            event: "runtime:agent:engineer",
+            timeoutMs: 8000,
+        },
+        {
+            type: "type",
+            text: "while you are there, keep the fix minimal",
+        },
+        { type: "enter" },
+        {
             type: "waitForIdle",
             timeoutMs: 15000,
         },
@@ -281,11 +292,12 @@ export const engineerQuickFixMechanicalValidationScenario = {
         assertRuntimeEvent("role:engineer", "runtime:agent:engineer"),
         assertsGoldenCoverage("intent:QUICK_FIX", (result) => {
             assertEventIncludes(result, "runtime:tool:start:task_completed");
-            assertScreenIncludes(result, "Mechanical Validation passed after QUICK_FIX.");
+            assertScreenIncludes(result, "QUICK_FIX Mechanical Validation passed.");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
             assertScreenIncludes(result, "Saved validation command: 'true'");
         }),
+        assertRuntimeEvent("recovery:steered-task-completion", "runtime:queue"),
         // QUICK_FIX drives the mechanical panel. Asserting a `task_completed` tool
         // start here proved nothing about the panel; the heading does.
         assertsGoldenCoverage("block:validation-handoff", (result) => {
