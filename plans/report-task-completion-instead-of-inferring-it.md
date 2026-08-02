@@ -17,7 +17,7 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-01T01:47:01-04:00"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Report Task Completion Instead of Inferring It
