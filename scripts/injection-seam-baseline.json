@@ -86,15 +86,6 @@
                 "updateWorktreeRegistryEntry"
             ]
         },
-        "src/cmd/models/index.js": {
-            "seams": [
-                "getModelRegistry",
-                "parseProviderModel",
-                "printCommandHelp",
-                "setActiveModel"
-            ],
-            "machinery": []
-        },
         "src/cmd/plans/index.js": {
             "seams": [
                 "listPlans",
@@ -213,13 +204,6 @@
                 "now",
                 "parseArgs",
                 "resolveCompatibleSecretRecord"
-            ],
-            "machinery": []
-        },
-        "src/cmd/resume/index.js": {
-            "seams": [
-                "getCompactThresholdPercent",
-                "getResumeModelSelection"
             ],
             "machinery": []
         },

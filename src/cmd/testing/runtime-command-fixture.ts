@@ -1,3 +1,4 @@
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { join } from "@std/path";
 import { __resetSettingsForTests } from "../../shared/settings.js";
@@ -9,6 +10,7 @@ export interface RuntimeCommandFixture {
     homeDir: string;
     projectRoot: string;
     settingsPath: string;
+    setModelResponse(text: string): void;
 }
 
 const TEST_PROVIDER = "runtime-command-fixture";
@@ -85,6 +87,9 @@ export async function withRuntimeCommandFixture(
                 homeDir,
                 projectRoot: canonicalProjectRoot,
                 settingsPath,
+                setModelResponse: (response) => {
+                    fauxProvider.setResponses([() => fauxAssistantMessage(fauxText(response))]);
+                },
             });
         } finally {
             fauxProvider.unregister?.();

@@ -3,15 +3,50 @@
  * Browse and resume a persisted conversation through SessionRuntime.
  */
 
-import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
 const DEFAULT_COMPACT_ON_RESUME_PCT = 50;
 const DEFAULT_CONTEXT_WINDOW = 128000;
 
-/** @returns {number} */
-function getCurrentModelContextWindow() {
+interface PersistedModelSelection {
+    provider: string;
+    modelId: string;
+}
+
+interface ResumeModelSelection {
+    modelOverride: string | undefined;
+    contextWindow: number;
+}
+
+interface ResumeSelectItem {
+    value: string;
+    label: string;
+    description?: string;
+}
+
+interface ResumeCommandUi {
+    appendSystemMessage(message: string): void;
+    promptSelect(title: string, options: ResumeSelectItem[]): Promise<string | null>;
+    clearMessages?(): void;
+}
+
+interface ResumeCommandEditor {
+    disableSubmit: boolean;
+    setText(text: string): void;
+}
+
+interface ResumeCommandOptions {
+    uiAPI?: ResumeCommandUi;
+    editor?: ResumeCommandEditor;
+    sessionRuntime?: SessionRuntime;
+    sessionId?: string;
+    replaceRuntimeSession?(sessionId: string): void;
+}
+
+function getCurrentModelContextWindow(): number {
     try {
         const settingsManager = getSettingsManager();
         const provider = settingsManager.getDefaultProvider();
@@ -26,11 +61,7 @@ function getCurrentModelContextWindow() {
     return DEFAULT_CONTEXT_WINDOW;
 }
 
-/**
- * @param {{ provider: string, modelId: string } | null} sessionModel
- * @returns {{ modelOverride: string | undefined, contextWindow: number }}
- */
-export function getResumeModelSelection(sessionModel) {
+export function getResumeModelSelection(sessionModel: PersistedModelSelection | null): ResumeModelSelection {
     if (sessionModel?.provider && sessionModel.modelId) {
         try {
             const registry = getModelRegistry();
@@ -50,8 +81,7 @@ export function getResumeModelSelection(sessionModel) {
     return { modelOverride: undefined, contextWindow: getCurrentModelContextWindow() };
 }
 
-/** @returns {number} */
-export function getCompactThresholdPercent() {
+export function getCompactThresholdPercent(): number {
     try {
         const value = getMergedCustomSetting("compactOnResumeThresholdPercent");
         if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100) return value;
@@ -61,17 +91,7 @@ export function getCompactThresholdPercent() {
     return DEFAULT_COMPACT_ON_RESUME_PCT;
 }
 
-/**
- * @typedef {Object} ResumeCommandDependencies
- * @property {typeof getResumeModelSelection} [getResumeModelSelection]
- * @property {typeof getCompactThresholdPercent} [getCompactThresholdPercent]
- */
-
-/**
- * @param {string[]} _argv
- * @param {import('../registry.js').CommandContext & { __testDeps?: ResumeCommandDependencies }} [options]
- */
-export async function runResumeCommand(_argv, options = {}) {
+export async function runResumeCommand(_argv: string[], options: ResumeCommandOptions = {}): Promise<void> {
     const { uiAPI, editor, sessionRuntime, sessionId, replaceRuntimeSession } = options;
     if (!uiAPI || !editor) {
         console.error("The /resume command is only available inside an interactive session.");
@@ -116,11 +136,8 @@ export async function runResumeCommand(_argv, options = {}) {
         sessionId: selected.id,
         sessionPath: selected.path,
     });
-    const deps = options.__testDeps || {};
-    const selectModel = deps.getResumeModelSelection || getResumeModelSelection;
-    const readThreshold = deps.getCompactThresholdPercent || getCompactThresholdPercent;
-    const { modelOverride, contextWindow } = selectModel(inspection.model);
-    const thresholdTokens = contextWindow * (readThreshold() / 100);
+    const { modelOverride, contextWindow } = getResumeModelSelection(inspection.model);
+    const thresholdTokens = contextWindow * (getCompactThresholdPercent() / 100);
     let compact = false;
 
     if (inspection.estimatedTokens > thresholdTokens) {
