@@ -22,29 +22,74 @@ import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/pl
 import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.ts";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
+import type { BrowserPort } from "../../shared/browser-port.ts";
 
-// Browser opening lives in review-launcher.js and is imported here for dependency injection types.
+interface ReviewImageInput {
+    path?: string;
+    name?: string;
+}
 
-// ─── Types ────────────────────────────────────────────────────────────
+interface ReviewAnnotationInput {
+    images?: ReviewImageInput[];
+}
 
-/**
- * @typedef {Object} PlanReviewResult
- * @property {boolean} approved - Whether the plan was approved
- * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
- * @property {string} [cancellationReason] - Machine-readable reason for an unanswered review.
- * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
- * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
- * @property {import('../../plan-store.js').PlanFrontMatter} [planAttrs] - Canonical post-review Plan attributes.
- * @property {string} [revision] - Revision of the committed reviewed Plan.
- * @property {string} [savedPath] - Optional path where plan was saved (if available)
- * @property {Array<{base64: string, mimeType: string, name: string}>} [images] - Annotated feedback images for the agent
- */
+interface LoadedReviewImage {
+    base64: string;
+    mimeType: string;
+    name: string;
+}
 
-/**
- * @typedef {Object} ReviewServerOutput
- * @property {"stdout" | "stderr"} stream
- * @property {string} text
- */
+interface PlanReviewDecision {
+    approved?: boolean;
+    canceled?: boolean;
+    exit?: boolean;
+    _cancelled?: boolean;
+    feedback?: string;
+    approvalAction?: PlanApprovalAction;
+    plan?: string;
+    savedPath?: string;
+    executionAgent?: "engineer" | "frontend-engineer";
+    collaborationRecommendation?: "autonomous" | "pair";
+    images?: ReviewImageInput[];
+    globalAttachments?: ReviewImageInput[];
+    annotations?: ReviewAnnotationInput[];
+}
+
+export interface PlanReviewResult {
+    [key: string]: string | boolean | PlanApprovalAction | PlanFrontMatter | LoadedReviewImage[] | undefined;
+    approved: boolean;
+    canceled?: boolean;
+    cancellationReason?: string;
+    feedback?: string;
+    approvalAction?: PlanApprovalAction;
+    planAttrs?: PlanFrontMatter;
+    revision?: string;
+    savedPath?: string;
+    images?: LoadedReviewImage[];
+}
+
+interface ReviewServerOutput {
+    stream: "stdout" | "stderr";
+    text: string;
+}
+
+interface ReviewSurfaceReady {
+    url: string;
+    opened: boolean;
+}
+
+interface SubmitPlanForReviewOptions {
+    cwd: string;
+    planName: string;
+    planPath: string;
+    triageMeta?: Partial<PlanFrontMatter>;
+    onOutput?(output: ReviewServerOutput): void;
+    onSurfaceReady?(surface: ReviewSurfaceReady): void;
+    signal?: AbortSignal;
+    browser?: BrowserPort;
+}
 
 const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -52,14 +97,13 @@ const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
  * Read image attachments while the review decision and its temp files are
  * still available. Invalid attachments stay fail-soft so text feedback is not
  * lost when one image cannot be loaded.
- *
- * @param {any} decision
- * @param {string} cwd
- * @returns {Promise<Array<{base64: string, mimeType: string, name: string}>>}
  */
-async function loadReviewFeedbackImages(decision, cwd) {
+async function loadReviewFeedbackImages(
+    decision: PlanReviewDecision,
+    cwd: string,
+): Promise<LoadedReviewImage[]> {
     const attachments = collectReviewImageAttachments(decision);
-    const images = [];
+    const images: LoadedReviewImage[] = [];
     for (const attachment of attachments) {
         try {
             const path = isAbsolute(attachment.path) ? attachment.path : resolve(cwd, attachment.path);
@@ -80,14 +124,13 @@ async function loadReviewFeedbackImages(decision, cwd) {
     return images;
 }
 
-/** @param {any} decision */
-function collectReviewImageAttachments(decision) {
+function collectReviewImageAttachments(decision: PlanReviewDecision): Array<{ path: string; name: string }> {
     const candidates = [
         ...readReviewImageAttachments(decision?.images),
         ...readReviewImageAttachments(decision?.globalAttachments),
         ...(Array.isArray(decision?.annotations) ? decision.annotations.flatMap(readAnnotationImageAttachments) : []),
     ];
-    const seen = new Set();
+    const seen = new Set<string>();
     return candidates.filter((image) => {
         if (seen.has(image.path)) return false;
         seen.add(image.path);
@@ -95,36 +138,32 @@ function collectReviewImageAttachments(decision) {
     });
 }
 
-/** @param {any} annotation */
-function readAnnotationImageAttachments(annotation) {
+function readAnnotationImageAttachments(annotation: ReviewAnnotationInput): Array<{ path: string; name: string }> {
     return readReviewImageAttachments(annotation?.images);
 }
 
-/** @param {any} value */
-function readReviewImageAttachments(value) {
+function readReviewImageAttachments(value?: ReviewImageInput[]): Array<{ path: string; name: string }> {
     if (!Array.isArray(value)) return [];
     return value.flatMap((image) => {
-        const path = typeof image?.path === "string" ? image.path.trim() : "";
+        const path = typeof image.path === "string" ? image.path.trim() : "";
         if (!path) return [];
         const name = typeof image?.name === "string" && image.name.trim() ? image.name.trim() : "image";
         return [{ path, name }];
     });
 }
 
-/** @param {Uint8Array} bytes */
-function bytesToBase64(bytes) {
-    const chunks = [];
+function bytesToBase64(bytes: Uint8Array): string {
+    const chunks: string[] = [];
     for (let offset = 0; offset < bytes.length; offset += 0x8000) {
         chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
     }
     return btoa(chunks.join(""));
 }
 
-/**
- * @param {any} decision
- * @returns {{ executionAgent: "engineer" | "frontend-engineer", collaborationRecommendation: "autonomous" | "pair" } | null}
- */
-function readApprovedExecutionPolicy(decision) {
+/** */
+function readApprovedExecutionPolicy(
+    decision: PlanReviewDecision,
+): { executionAgent: "engineer" | "frontend-engineer"; collaborationRecommendation: "autonomous" | "pair" } | null {
     const executionAgent = decision?.executionAgent;
     const collaborationRecommendation = decision?.collaborationRecommendation;
     if (executionAgent !== "engineer" && executionAgent !== "frontend-engineer") return null;
@@ -136,22 +175,6 @@ function readApprovedExecutionPolicy(decision) {
 
 /**
  * Submit a plan for interactive review via the browser review surface.
- *
- * @param {Object} opts
- * @param {string} opts.cwd - Project root
- * @param {string} opts.planName - Plan filename (without .md)
- * @param {string} opts.planPath - Absolute path to the plan .md file
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {(output: { stream: "stdout" | "stderr", text: string }) => void} [opts.onOutput]
- * @param {(surface: { url: string, opened: boolean }) => void} [opts.onSurfaceReady]
- * @param {AbortSignal} [opts.signal]
- * @param {{
- *   startPlanReviewSurface?: typeof startPlanReviewSurface,
- *   startPlanReviewServer?: (options: object) => Promise<any>,
- *   openInDefaultBrowser?: typeof import("./review-launcher.js").openInDefaultBrowser,
- *   htmlContent?: string,
- * }} [opts.__deps]
- * @returns {Promise<PlanReviewResult>}
  */
 export async function submitPlanForReview({
     cwd,
@@ -161,10 +184,8 @@ export async function submitPlanForReview({
     onOutput,
     onSurfaceReady,
     signal,
-    __deps,
-}) {
-    const startPlanReviewSurfaceImpl = __deps?.startPlanReviewSurface || startPlanReviewSurface;
-
+    browser,
+}: SubmitPlanForReviewOptions): Promise<PlanReviewResult> {
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
     const planRevision = await getPlanRevisionForText(planContent);
@@ -172,8 +193,7 @@ export async function submitPlanForReview({
     // 2. Ensure front matter is present and up to date
     const { attrs, body } = parsePlanFrontMatter(planContent);
     assertSharedPlanWriteAllowed(attrs);
-    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-    const fmOverrides = {
+    const fmOverrides: Partial<PlanFrontMatter> = {
         ...attrs,
         updatedAt: new Date().toISOString(),
     };
@@ -194,27 +214,31 @@ export async function submitPlanForReview({
     const trustedWorkKind = fmOverrides.workKind;
     const planWithFm = injectFrontMatter(body, fmOverrides);
 
-    // 4. Start the review surface through an adapter seam.
-    const server = await startPlanReviewSurfaceImpl({
+    // 4. Start the real review surface; only browser opening crosses the port.
+    const server = await startPlanReviewSurface({
         cwd,
         plan: planWithFm,
         planPath,
-        htmlContent: __deps?.htmlContent,
-        startPlanReviewServer: __deps?.startPlanReviewServer,
-        openInDefaultBrowser: __deps?.openInDefaultBrowser,
+        openInDefaultBrowser: browser ? (url: string) => browser.open(url) : undefined,
         onOutput,
         onSurfaceReady,
     });
 
     try {
-        const canceled = new Promise((resolve) => {
-            signal?.addEventListener("abort", () => resolve({ _cancelled: true }), { once: true });
+        const canceled = new Promise<PlanReviewDecision>((resolveCanceled) => {
+            if (signal?.aborted) {
+                resolveCanceled({ _cancelled: true });
+                return;
+            }
+            signal?.addEventListener("abort", () => resolveCanceled({ _cancelled: true }), { once: true });
         });
-        const decision = await (signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision());
+        const decision: PlanReviewDecision = await (
+            signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision()
+        );
 
         // Handle cancellation triggered from the TUI or review timeout/exit before
         // writing edited review content or recording Plan Review lifecycle events.
-        if (decision && typeof decision === "object" && "_cancelled" in decision) {
+        if (decision._cancelled) {
             return {
                 approved: false,
                 canceled: true,
@@ -238,6 +262,7 @@ export async function submitPlanForReview({
             };
         }
 
+        const approved = decision.approved === true;
         let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFm;
         const approvedPolicy = readApprovedExecutionPolicy(decision);
         const canonicalReviewOverrides = {
@@ -246,27 +271,27 @@ export async function submitPlanForReview({
         };
         if (trustedClassification === "PROJECT") {
             Object.assign(canonicalReviewOverrides, {
-                executionAgent: /** @type {any} */ (null),
-                collaborationRecommendation: /** @type {any} */ (null),
-                frontend: /** @type {any} */ (null),
+                executionAgent: null,
+                collaborationRecommendation: null,
+                frontend: null,
             });
-        } else if (decision.approved && approvedPolicy) {
+        } else if (approved && approvedPolicy) {
             Object.assign(canonicalReviewOverrides, {
                 executionAgent: approvedPolicy.executionAgent,
                 collaborationRecommendation: approvedPolicy.collaborationRecommendation,
-                frontend: /** @type {any} */ (null),
+                frontend: null,
             });
         }
         reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
         const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
         const canonicalPlanPath = getStoredPlanPath(cwd, planName);
-        let lifecycleMeta = reviewedAttrs;
-        let committedRevision;
+        let lifecycleMeta: PlanFrontMatter = reviewedAttrs;
+        let committedRevision: string | undefined;
         if (resolve(canonicalPlanPath) === resolve(planPath)) {
             const reviewTransition = await runPlanReviewDecisionTransition({
                 projectRoot: cwd,
                 planName,
-                approved: decision.approved,
+                approved,
                 expectedRevision: planRevision,
                 decide: async ({ beforePlan }) => {
                     if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
@@ -286,7 +311,7 @@ export async function submitPlanForReview({
                         nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
                         status = "feedback";
                     }
-                    const event = decision.approved ? "review_approved" : "review_feedback";
+                    const event = approved ? "review_approved" : "review_feedback";
                     const eventUpdates = buildPlanEventUpdates(event, status, {
                         triageMeta: nextAttrs,
                         failureReason: decision.feedback,
@@ -309,11 +334,11 @@ export async function submitPlanForReview({
                     cancellationReason: "stale_plan_review",
                 };
             }
-            const transitionValue =
-                /** @type {{ attrs?: import('../../plan-store.js').PlanFrontMatter, revision?: string }} */ (reviewTransition
-                    .value || {});
-            lifecycleMeta = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transitionValue.attrs);
-            committedRevision = transitionValue.revision;
+            const transitionValue = reviewTransition.value as
+                | { attrs?: PlanFrontMatter; revision?: string }
+                | undefined;
+            lifecycleMeta = transitionValue?.attrs || reviewedAttrs;
+            committedRevision = transitionValue?.revision;
         } else {
             try {
                 committedRevision = await writePlanMarkdownWithRevision(planPath, reviewedPlan, planRevision);
@@ -344,7 +369,7 @@ export async function submitPlanForReview({
                 if (reopenedMeta) lifecycleMeta = { ...lifecycleMeta, ...reopenedMeta };
             }
             const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
-            if (decision.approved) {
+            if (approved) {
                 const approvedMeta = await recordPlanEvent({
                     cwd,
                     planName,
@@ -371,10 +396,10 @@ export async function submitPlanForReview({
 
         const images = await loadReviewFeedbackImages(decision, cwd);
         return {
-            approved: decision.approved,
+            approved,
             feedback: decision.feedback,
             ...(decision.approvalAction && { approvalAction: decision.approvalAction }),
-            ...(decision.approved && { planAttrs: lifecycleMeta }),
+            ...(approved && { planAttrs: lifecycleMeta }),
             ...(committedRevision && { revision: committedRevision }),
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),

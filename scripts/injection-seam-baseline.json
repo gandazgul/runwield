@@ -399,24 +399,6 @@
             ],
             "machinery": []
         },
-        "src/ui/review/code-review.js": {
-            "seams": [
-                "loadReviewEditorHtml",
-                "openInDefaultBrowser",
-                "startCodeReviewSurface",
-                "startReviewServer"
-            ],
-            "machinery": []
-        },
-        "src/ui/review/plan-review.js": {
-            "seams": [
-                "htmlContent",
-                "openInDefaultBrowser",
-                "startPlanReviewServer",
-                "startPlanReviewSurface"
-            ],
-            "machinery": []
-        },
         "src/ui/tui/boot-banner.js": {
             "seams": [
                 "getSettingsManager",

@@ -152,8 +152,6 @@
     "src/ui/design-system/components/index.js",
     "src/ui/design-system/components/react/RunWieldPrimitives.jsx",
     "src/ui/design-system/theme-bridge.js",
-    "src/ui/review/code-review.js",
-    "src/ui/review/plan-review.js",
     "src/ui/review/review-launcher.js",
     "src/ui/theme/theme-discovery.js",
     "src/ui/theme/theme-json.js",

@@ -8,9 +8,10 @@ import { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
+import { findPlansByParent, loadPlan, parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
-import { submitPlanForReview } from "../../review/plan-review.js";
+import { submitPlanForReview } from "../../review/plan-review.ts";
+import { createScriptedReviewBrowser } from "../../review/review-test-fixture.ts";
 import { createFauxMessageForTurn, GoldenScenarioActor } from "./scenario-actor.js";
 import {
     createGoldenIsolatedEnvironment,
@@ -28,6 +29,47 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
  * success path and turns a loaded CI runner into a flake.
  */
 const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
+
+/**
+ * Keep the browser external while driving the real review launcher, server,
+ * token check, and decision transport.
+ *
+ * @param {ScriptedReviewSurface} reviewSurface
+ * @param {Record<string, unknown>} request
+ * @param {unknown} reviewedPlan
+ */
+function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan) {
+    const response = reviewSurface.submit(request);
+    const plan = typeof reviewedPlan === "string"
+        ? reviewedPlan
+        : typeof response.plan === "string"
+        ? response.plan
+        : typeof request.plan === "string"
+        ? request.plan
+        : "# Plan\n";
+    const triageMeta = request.triageMeta && typeof request.triageMeta === "object"
+        ? /** @type {Record<string, unknown>} */ (request.triageMeta)
+        : {};
+    const policy = resolvePlanExecutionPolicy({ ...parsePlanFrontMatter(plan).attrs, ...triageMeta });
+    /** @type {"run" | "decompose" | "later" | undefined} */
+    const approvalAction = response.approvalAction === "run" || response.approvalAction === "decompose" ||
+            response.approvalAction === "later"
+        ? response.approvalAction
+        : undefined;
+    const body = {
+        approved: response.approved,
+        feedback: response.feedback,
+        approvalAction,
+        plan,
+        ...(response.approved && policy.ok
+            ? {
+                executionAgent: policy.policy.executionAgent,
+                collaborationRecommendation: policy.policy.collaborationRecommendation,
+            }
+            : {}),
+    };
+    return createScriptedReviewBrowser(response.approved ? "decision" : "deny", body).browser;
+}
 
 /**
  * @typedef {Object} GoldenScenario
@@ -309,31 +351,21 @@ export async function runGoldenScenario(scenario, options = {}) {
                 const lifecycleEvents = [];
                 try {
                     for (let reviewIndex = 0; reviewIndex < decisions.length; reviewIndex += 1) {
+                        const triageMeta = typed.triageMeta || {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Golden Plan Review contract",
+                        };
                         const result = await submitPlanForReview({
                             cwd: planDir,
                             planName: "plan",
                             planPath,
-                            triageMeta: typed.triageMeta || {
-                                classification: "FEATURE",
-                                complexity: "LOW",
-                                summary: "Golden Plan Review contract",
-                            },
-                            __deps: {
-                                startPlanReviewSurface: (request) => {
-                                    const response = reviewSurface.submit(
-                                        /** @type {Record<string, unknown>} */ (request),
-                                    );
-                                    return Promise.resolve({
-                                        url: "http://127.0.0.1:0/review",
-                                        opened: true,
-                                        waitForDecision: () =>
-                                            Promise.resolve({ ...response, plan: typed.reviewedPlan }),
-                                        stop: () => {
-                                            events.push("plan-review:surface-stopped");
-                                        },
-                                    });
-                                },
-                            },
+                            triageMeta,
+                            browser: createGoldenReviewBrowser(
+                                reviewSurface,
+                                { cwd: planDir, planName: "plan", planPath, triageMeta },
+                                typed.reviewedPlan,
+                            ),
                         });
                         const lifecycleEvent = result.approved ? "review_approved" : "review_feedback";
                         lifecycleEvents.push({ event: lifecycleEvent });
@@ -700,25 +732,11 @@ async function runComposedTuiScenario(scenario, options) {
                         submitPlanForReview: async (request) => {
                             const result = await submitPlanForReview({
                                 ...request,
-                                __deps: {
-                                    startPlanReviewSurface: (surfaceRequest) => {
-                                        const response = reviewSurface.submit(
-                                            /** @type {Record<string, unknown>} */ (surfaceRequest),
-                                        );
-                                        return Promise.resolve({
-                                            url: "http://127.0.0.1:0/review",
-                                            opened: true,
-                                            waitForDecision: () =>
-                                                Promise.resolve({
-                                                    ...response,
-                                                    plan: scenario.reviewedPlan || response.plan,
-                                                }),
-                                            stop: () => {
-                                                events.push("plan-review:surface-stopped");
-                                            },
-                                        });
-                                    },
-                                },
+                                browser: createGoldenReviewBrowser(
+                                    reviewSurface,
+                                    { ...request },
+                                    scenario.reviewedPlan,
+                                ),
                             });
                             const persistedPlan = await Deno.readTextFile(request.planPath);
                             const persistedAttrs = parsePlanFrontMatter(persistedPlan).attrs;

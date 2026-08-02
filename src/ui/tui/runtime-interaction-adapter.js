@@ -8,8 +8,8 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../../shared/session/session-runtime-interactions.js";
-import { runCodeReview } from "../review/code-review.js";
-import { submitPlanForReview } from "../review/plan-review.js";
+import { runCodeReview } from "../review/code-review.ts";
+import { submitPlanForReview } from "../review/plan-review.ts";
 
 /**
  * @typedef {Object} TuiInteractionDependencies
