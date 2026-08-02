@@ -1,8 +1,10 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
 import { loadPlan, savePlan } from "../../plan-store.js";
+
+/** @typedef {{ type: string, message?: string }} CapturedRuntimeEvent */
 
 /**
  * @param {string} [id]
@@ -776,6 +778,123 @@ Deno.test("agent-handler preserves workflow and skips validation when delayed ch
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => true,
         finalizePlanImplementation: () => Promise.reject(new Error("checkpoint rejected")),
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("continue", [], /** @type {any} */ (undefined));
+
+    assertEquals(validationCount, 0);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), workflow);
+});
+
+Deno.test("agent-handler retries implementation checkpoint after missing main Plan is restored", async () => {
+    let finalizeCount = 0;
+    let validationCount = 0;
+    /** @type {any[]} */
+    const interactions = [];
+    /** @type {string[]} */
+    const statuses = [];
+    const hostedSession = makeHostedSession();
+    /** @type {import('./hosted-session.js').ActiveExecutionWorkflow} */
+    const workflow = {
+        planName: "native-terminal-notifications",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: hostedSession.cwd,
+        executionCwd: "/worktree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/native-terminal-notifications-wt-1",
+    };
+    hostedSession.setActiveExecutionWorkflow(workflow);
+    hostedSession.setEventSink((/** @type {CapturedRuntimeEvent} */ event) => {
+        if (event.type === "system_status" && typeof event.message === "string") statuses.push(event.message);
+    });
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (request) => {
+            interactions.push(request);
+            return Promise.resolve({ outcome: "selected", value: "retry" });
+        },
+    });
+
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        finalizePlanImplementation: () => {
+            finalizeCount++;
+            if (finalizeCount === 1) {
+                return Promise.reject(new Error("Plan not found: native-terminal-notifications"));
+            }
+            return Promise.resolve({});
+        },
+        runValidationLoop: () => {
+            validationCount++;
+            hostedSession.clearActiveExecutionWorkflow();
+            return Promise.resolve();
+        },
+    });
+
+    await handler("continue", [], /** @type {any} */ (undefined));
+
+    assertEquals(finalizeCount, 2, "Retry must repeat the checkpoint without another Engineer turn");
+    assertEquals(validationCount, 1);
+    assertEquals(interactions.length, 1);
+    assertStringIncludes(
+        interactions[0].prompt,
+        '"plans/native-terminal-notifications.md" is missing from the main checkout',
+    );
+    assertStringIncludes(interactions[0].prompt, "Restore it in the main checkout");
+    assertEquals(statuses, [interactions[0].prompt], "Recovery guidance must also be written to the transcript");
+    assertEquals(interactions[0].options, [
+        { value: "retry", label: "Retry" },
+        { value: "stop", label: "Stop" },
+    ]);
+});
+
+Deno.test("agent-handler Stop leaves missing-main-Plan workflow available for recovery", async () => {
+    let validationCount = 0;
+    const hostedSession = makeHostedSession();
+    /** @type {import('./hosted-session.js').ActiveExecutionWorkflow} */
+    const workflow = {
+        planName: "new-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: hostedSession.cwd,
+        executionCwd: "/worktree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/new-plan-wt-1",
+    };
+    hostedSession.setActiveExecutionWorkflow(workflow);
+    hostedSession.setInteractionAdapter({
+        requestInteraction: () => Promise.resolve({ outcome: "selected", value: "stop" }),
+    });
+
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        finalizePlanImplementation: () => Promise.reject(new Error("Plan not found: new-plan")),
         runValidationLoop: () => {
             validationCount++;
             return Promise.resolve();

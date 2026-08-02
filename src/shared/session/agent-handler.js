@@ -29,6 +29,7 @@ import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
 import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 
@@ -57,6 +58,41 @@ function isDeliberateExecutionResume(userRequest) {
         "proceed",
         "keep going",
     ].includes(normalized);
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} planName
+ * @returns {boolean}
+ */
+function isMissingPrimaryPlanError(error, planName) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return reason === `Plan not found: ${planName}` ||
+        reason === `Plan not found in primary checkout: ${planName}`;
+}
+
+/**
+ * Ask the user to restore a newly-created Plan that was stashed out of the
+ * primary checkout while its execution worktree was active.
+ *
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {string} planName
+ * @returns {Promise<boolean>}
+ */
+async function requestMissingPrimaryPlanRetry(hostedSession, planName) {
+    const planPath = `plans/${planName}.md`;
+    const message =
+        `The Plan file "${planPath}" is missing from the main checkout. Restore it in the main checkout, then come back and pick Retry.`;
+    emitSystemStatus(hostedSession, message, { level: "warning", header: "RunWield" });
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: message,
+        options: [
+            { value: "retry", label: "Retry" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "retry";
 }
 
 /**
@@ -459,27 +495,38 @@ export function createAgentHandler(agentName, __deps) {
             if (workflow) {
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     if (!workflow.validationContinuation) {
-                        try {
-                            await finalizePlanImplementation({
-                                projectRoot,
-                                planName: workflow.planName,
-                                triageMeta: workflow.triageMeta,
-                                executionContext: workflow,
-                                hostedSession,
-                                __deps: {
-                                    recordPlanEvent: recordPlanEventFn,
-                                    recordWorkflowMetric: recordWorkflowMetricImpl,
-                                },
-                            });
-                        } catch (error) {
-                            const reason = error instanceof Error ? error.message : String(error);
-                            emitSystemStatus(
-                                hostedSession,
-                                `Workflow halted before validation because the implementation checkpoint failed: ${reason}`,
-                                { level: "error", header: "RunWield" },
-                            );
-                            requestAgentStoppedAttention();
-                            return { kind: "complete" };
+                        while (true) {
+                            try {
+                                await finalizePlanImplementation({
+                                    projectRoot,
+                                    planName: workflow.planName,
+                                    triageMeta: workflow.triageMeta,
+                                    executionContext: workflow,
+                                    hostedSession,
+                                    __deps: {
+                                        recordPlanEvent: recordPlanEventFn,
+                                        recordWorkflowMetric: recordWorkflowMetricImpl,
+                                    },
+                                });
+                                break;
+                            } catch (error) {
+                                if (isMissingPrimaryPlanError(error, workflow.planName)) {
+                                    const retry = await requestMissingPrimaryPlanRetry(
+                                        hostedSession,
+                                        workflow.planName,
+                                    );
+                                    if (retry) continue;
+                                } else {
+                                    const reason = error instanceof Error ? error.message : String(error);
+                                    emitSystemStatus(
+                                        hostedSession,
+                                        `Workflow halted before validation because the implementation checkpoint failed: ${reason}`,
+                                        { level: "error", header: "RunWield" },
+                                    );
+                                }
+                                requestAgentStoppedAttention();
+                                return { kind: "complete" };
+                            }
                         }
                     }
                 }
