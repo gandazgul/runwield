@@ -44,6 +44,10 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         // promise is only kept if the menu actually reaches the screen and the
         // answer actually resumes the run, which only an end-to-end scenario shows.
         "recovery:user-pause",
+        // The Engineer reports success and the check disagrees. Everything after that
+        // point — repair rounds, the round limit, the menu — only matters if it reaches
+        // a person, so the guarantee is end-to-end or it is nothing.
+        "recovery:objective-check-unmet",
     ],
     durableOutcomes: [
         "durable:plan-lifecycle",
@@ -53,6 +57,9 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "durable:epic-evidence",
         "durable:work-record",
         "durable:mutation-policy",
+        // A Project has the most to lose when one child fails, because every child
+        // behind it waits. Continuing past an unverified child is worse than stopping.
+        "durable:epic-child-halted",
     ],
 });
 

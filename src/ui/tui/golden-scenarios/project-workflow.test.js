@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import {
+    projectChildObjectiveCheckStopScenario,
     projectPlanReviewScenario,
     projectWorkflowScenarios,
     twoChildProjectContinuationScenario,
@@ -9,6 +10,7 @@ const scenarioExportNames = new Map(
     /** @type {Array<[unknown, string]>} */ ([
         [projectPlanReviewScenario, "projectPlanReviewScenario"],
         [twoChildProjectContinuationScenario, "twoChildProjectContinuationScenario"],
+        [projectChildObjectiveCheckStopScenario, "projectChildObjectiveCheckStopScenario"],
     ]),
 );
 
