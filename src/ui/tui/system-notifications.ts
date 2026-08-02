@@ -51,18 +51,22 @@ export interface TerminalIdentity {
     pid?: number;
 }
 
-interface SystemNotificationDeps {
-    env?: Record<string, string | undefined>;
-    pid?: number;
-    getMergedCustomSetting?: (key: string) => NonNullable<ReturnType<typeof getMergedCustomSetting>> | undefined;
-    writeTerminal?: (bytes: Uint8Array) => void;
+export interface SystemNotificationPort {
+    readEnvironment(): Record<string, string | undefined>;
+    getProcessId(): number;
+    readNotificationSetting(): ReturnType<typeof getMergedCustomSetting>;
+    writeTerminal(bytes: Uint8Array): void;
 }
 
 interface NotifyRunWieldEventOptions {
     sessionName?: string;
     agentName?: string;
-    __deps?: SystemNotificationDeps;
 }
+
+export type RunWieldEventNotifier = (
+    eventName: string,
+    options?: NotifyRunWieldEventOptions,
+) => Promise<NotificationResult>;
 
 export interface NotificationResult {
     sent: boolean;
@@ -76,92 +80,89 @@ export interface NotificationResult {
     oscEmitted: boolean;
 }
 
-interface RequiredSystemNotificationDeps {
+interface TerminalProcessSnapshot {
     env: Record<string, string | undefined>;
     pid: number;
-    getMergedCustomSetting: (key: string) => NonNullable<ReturnType<typeof getMergedCustomSetting>> | undefined;
-    writeTerminal: (bytes: Uint8Array) => void;
 }
 
 function writeTerminal(bytes: Uint8Array): void {
     Deno.stdout.writeSync(bytes);
 }
 
-const defaultDeps = {
-    get env(): Record<string, string | undefined> {
-        return Deno.env.toObject();
-    },
-    pid: Deno.pid,
-    getMergedCustomSetting,
+const systemNotificationPort: SystemNotificationPort = {
+    readEnvironment: () => Deno.env.toObject(),
+    getProcessId: () => Deno.pid,
+    readNotificationSetting: () => getMergedCustomSetting("notifications"),
     writeTerminal,
 };
 
-export async function notifyRunWieldEvent(
-    eventName: string,
-    options: NotifyRunWieldEventOptions = {},
-): Promise<NotificationResult> {
-    await Promise.resolve();
-    const deps = mergeDeps(options.__deps);
-    const settings = resolveNotificationSettings(deps.getMergedCustomSetting("notifications"));
-    const sessionLabel = normalizeLabel(options.sessionName) || "RunWield";
-    const initialTerminal = {
-        sessionLabel,
-        terminalTitle: formatSessionTerminalTitle(sessionLabel),
-    } satisfies TerminalIdentity;
-    const initialTitle = buildNotificationTitle(eventName, initialTerminal, options.agentName);
-    const initialMessage = buildNotificationMessage(eventName, initialTerminal);
-    const baseResult = {
-        sent: false,
-        reason: "not_sent",
-        eventName,
-        title: initialTitle,
-        message: initialMessage,
-        protocol: "unsupported",
-        terminal: initialTerminal,
-        terminalBellEmitted: false,
-        oscEmitted: false,
-    } satisfies NotificationResult;
+export function createSystemNotificationNotifier(port: SystemNotificationPort): RunWieldEventNotifier {
+    return async (eventName: string, options: NotifyRunWieldEventOptions = {}): Promise<NotificationResult> => {
+        await Promise.resolve();
+        const env = port.readEnvironment();
+        const settings = resolveNotificationSettings(port.readNotificationSetting());
+        const sessionLabel = normalizeLabel(options.sessionName) || "RunWield";
+        const initialTerminal = {
+            sessionLabel,
+            terminalTitle: formatSessionTerminalTitle(sessionLabel),
+        } satisfies TerminalIdentity;
+        const initialTitle = buildNotificationTitle(eventName, initialTerminal, options.agentName);
+        const initialMessage = buildNotificationMessage(eventName, initialTerminal);
+        const baseResult = {
+            sent: false,
+            reason: "not_sent",
+            eventName,
+            title: initialTitle,
+            message: initialMessage,
+            protocol: "unsupported",
+            terminal: initialTerminal,
+            terminalBellEmitted: false,
+            oscEmitted: false,
+        } satisfies NotificationResult;
 
-    if (!isKnownEvent(eventName)) {
-        return { ...baseResult, reason: "unknown_event" };
-    }
+        if (!isKnownEvent(eventName)) {
+            return { ...baseResult, reason: "unknown_event" };
+        }
 
-    if (deps.env.WLD_GOLDEN_TUI || deps.env.WLD_GOLDEN_TUI_CHILD) {
-        return { ...baseResult, reason: "golden_tui" };
-    }
+        if (env.WLD_GOLDEN_TUI || env.WLD_GOLDEN_TUI_CHILD) {
+            return { ...baseResult, reason: "golden_tui" };
+        }
 
-    if (!settings.enabled) {
-        return { ...baseResult, reason: "disabled" };
-    }
+        if (!settings.enabled) {
+            return { ...baseResult, reason: "disabled" };
+        }
 
-    if (settings.events[eventName] === false) {
-        return { ...baseResult, reason: "event_disabled" };
-    }
+        if (settings.events[eventName] === false) {
+            return { ...baseResult, reason: "event_disabled" };
+        }
 
-    const focusState = getCurrentTerminalFocusState();
-    if (shouldSuppressAttentionNotification(settings, focusState)) {
-        return { ...baseResult, reason: "focused" };
-    }
+        const focusState = getCurrentTerminalFocusState();
+        if (shouldSuppressAttentionNotification(settings, focusState)) {
+            return { ...baseResult, reason: "focused" };
+        }
 
-    const terminal = detectTerminalIdentity(sessionLabel, deps);
-    const title = buildNotificationTitle(eventName, terminal, options.agentName);
-    const message = buildNotificationMessage(eventName, terminal);
-    const protocol = selectNativeNotificationProtocol(terminal);
-    const terminalBellEmitted = settings.terminalBell ? emitTerminalBell(deps) : false;
-    const oscEmitted = protocol === "unsupported" ? false : emitNativeNotification(protocol, title, message, deps);
+        const terminal = detectTerminalIdentity(sessionLabel, { env, pid: port.getProcessId() });
+        const title = buildNotificationTitle(eventName, terminal, options.agentName);
+        const message = buildNotificationMessage(eventName, terminal);
+        const protocol = selectNativeNotificationProtocol(terminal);
+        const terminalBellEmitted = settings.terminalBell ? emitTerminalBell(port) : false;
+        const oscEmitted = protocol === "unsupported" ? false : emitNativeNotification(protocol, title, message, port);
 
-    return {
-        ...baseResult,
-        sent: oscEmitted,
-        reason: oscEmitted ? "sent" : protocol === "unsupported" ? "unsupported" : "write_failed",
-        title,
-        message,
-        protocol,
-        terminal,
-        terminalBellEmitted,
-        oscEmitted,
+        return {
+            ...baseResult,
+            sent: oscEmitted,
+            reason: oscEmitted ? "sent" : protocol === "unsupported" ? "unsupported" : "write_failed",
+            title,
+            message,
+            protocol,
+            terminal,
+            terminalBellEmitted,
+            oscEmitted,
+        };
     };
 }
+
+export const notifyRunWieldEvent = createSystemNotificationNotifier(systemNotificationPort);
 
 export function notifyRunWieldEventQuietly(eventName: string, options: NotifyRunWieldEventOptions = {}): void {
     notifyRunWieldEvent(eventName, options).catch(() => {});
@@ -191,9 +192,9 @@ export function resolveNotificationSettings(raw: ReturnType<typeof getMergedCust
 
 export function detectTerminalIdentity(
     sessionLabel: string,
-    deps: Pick<RequiredSystemNotificationDeps, "env" | "pid"> = defaultDeps,
+    process: TerminalProcessSnapshot,
 ): TerminalIdentity {
-    const env = deps.env || {};
+    const env = process.env;
     const terminalTitle = formatSessionTerminalTitle(sessionLabel);
     return {
         sessionLabel,
@@ -205,7 +206,7 @@ export function detectTerminalIdentity(
         kittyListenOn: env.KITTY_LISTEN_ON || undefined,
         kittyWindowId: env.KITTY_WINDOW_ID || undefined,
         windowId: env.WINDOWID || undefined,
-        pid: deps.pid,
+        pid: process.pid,
     };
 }
 
@@ -246,34 +247,25 @@ function emitNativeNotification(
     protocol: NativeNotificationProtocol,
     title: string,
     message: string,
-    deps: RequiredSystemNotificationDeps,
+    terminal: Pick<SystemNotificationPort, "writeTerminal">,
 ): boolean {
     const sequence = buildNativeNotificationSequence(protocol, title, message);
     if (!sequence) return false;
     try {
-        deps.writeTerminal(TEXT_ENCODER.encode(sequence));
+        terminal.writeTerminal(TEXT_ENCODER.encode(sequence));
         return true;
     } catch {
         return false;
     }
 }
 
-function emitTerminalBell(deps: RequiredSystemNotificationDeps): boolean {
+function emitTerminalBell(terminal: Pick<SystemNotificationPort, "writeTerminal">): boolean {
     try {
-        deps.writeTerminal(TERMINAL_BELL_BYTES);
+        terminal.writeTerminal(TERMINAL_BELL_BYTES);
         return true;
     } catch {
         return false;
     }
-}
-
-function mergeDeps(overrides: SystemNotificationDeps | undefined): RequiredSystemNotificationDeps {
-    return {
-        env: overrides?.env || defaultDeps.env,
-        pid: overrides?.pid || defaultDeps.pid,
-        getMergedCustomSetting: overrides?.getMergedCustomSetting || defaultDeps.getMergedCustomSetting,
-        writeTerminal: overrides?.writeTerminal || defaultDeps.writeTerminal,
-    };
 }
 
 function normalizeActivation(

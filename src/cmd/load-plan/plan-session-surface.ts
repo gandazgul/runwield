@@ -38,13 +38,19 @@ interface RawReviewPayload {
     reused?: unknown;
 }
 
-/** The subset of load-plan's injectable dependencies this surface forwards. */
-export interface PlanSessionSurfaceDeps {
-    executePlan?: PlanSessionSurface["executePlan"];
-    runPlanningAgent?: PlanSessionSurface["runPlanningAgent"];
-    runValidationLoop?: PlanSessionSurface["runValidation"];
-    runSlicerAgent?: PlanSessionSurface["runSlicerAgent"];
-    resetTuiState?: typeof resetTuiStateFn;
+/**
+ * How the command runs agents.
+ *
+ * Required, not optional. An optional bag would let a caller replace an agent run
+ * and leave this module choosing silently between a stand-in and the runtime;
+ * because these must be supplied, the choice is made where it can be seen, and
+ * this module substitutes nothing.
+ */
+export interface PlanAgentRunners {
+    executePlan: PlanSessionSurface["executePlan"];
+    runPlanningAgent: PlanSessionSurface["runPlanningAgent"];
+    runValidation: PlanSessionSurface["runValidation"];
+    runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
 }
 
 /** Whether an error is the runtime's "managed session unavailable" signal. */
@@ -69,7 +75,7 @@ export function buildManagedUnsupportedLoadPlanMessage(planName: string | null):
 export function createPlanSessionSurface(
     runtime: SessionRuntime,
     sessionId: string,
-    deps: PlanSessionSurfaceDeps,
+    runners: PlanAgentRunners,
 ): PlanSessionSurface {
     const snapshot = runtime.getSessionSnapshot(sessionId);
     if (!snapshot) throw new Error("load-plan requires an active runtime session");
@@ -78,14 +84,10 @@ export function createPlanSessionSurface(
         cwd: snapshot.cwd,
         getActiveAgentName: () => runtime.getRuntimeActiveAgentName(sessionId),
         switchAgent: (agentName, options = {}) => runtime.switchAgent(sessionId, { agentName, ...options }),
-        executePlan: (options) =>
-            deps.executePlan ? deps.executePlan(options) : runtime.executePlan(sessionId, options),
-        runPlanningAgent: (options) =>
-            deps.runPlanningAgent ? deps.runPlanningAgent(options) : runtime.runPlanningAgent(sessionId, options),
-        runValidation: (options) =>
-            deps.runValidationLoop ? deps.runValidationLoop(options) : runtime.runValidation(sessionId, options),
-        runSlicerAgent: (options) =>
-            deps.runSlicerAgent ? deps.runSlicerAgent(options) : runtime.runSlicerAgent(sessionId, options),
+        executePlan: runners.executePlan,
+        runPlanningAgent: runners.runPlanningAgent,
+        runValidation: runners.runValidation,
+        runSlicerAgent: runners.runSlicerAgent,
         getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
         setActiveExecutionWorkflow: (workflow) => {
             runtime.setActiveExecutionWorkflow(sessionId, workflow);

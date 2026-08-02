@@ -39,6 +39,16 @@
  * existing seam to a new name but can never introduce one — the old name has to be
  * there already.
  *
+ * Splitting a module moves seams between files, which looks like a removal in one
+ * and an addition in the other. Declare the move:
+ *
+ *     deno run -A scripts/check-injection-seams.js --update --move src/a.js:name=src/b.ts
+ *
+ * A move relocates a seam already recorded against the source module before
+ * comparing, so it can carry an existing seam to a new home but can never
+ * introduce one — the seam has to be in the source entry already, and the total
+ * cannot rise.
+ *
  * When the scan itself is fixed, modules it could never see before appear all at once
  * and look exactly like a mass regression. Adopt them explicitly:
  *
@@ -219,8 +229,14 @@ export function collectSeamNames(text) {
     // four seams vanish from load-plan/index.js the moment `createPlanSessionSurface`
     // moved to its own file — they were still injected, just out of view. The type
     // name is the tell: a parameter is a dependency bag when it is annotated as one.
+    // A file that names a bag has already declared it takes injected dependencies, so
+    // any bag-typed parameter in it is that bag being passed along — including the
+    // merged, all-required form a `mergeDeps` helper returns. Only files that never
+    // mention one need the shape test below to tell an override bag from ordinary
+    // constructor injection.
+    const declaresBag = /__(?:test)?[Dd]eps/.test(text);
     for (const param of text.matchAll(new RegExp(DEPS_PARAMETER_SOURCE, "g"))) {
-        if (isOverrideBagType(text, param[2])) collectFromBag(param[1]);
+        if (declaresBag || isOverrideBagType(text, param[2])) collectFromBag(param[1]);
     }
     return [...names].sort();
 }
@@ -228,9 +244,9 @@ export function collectSeamNames(text) {
 /**
  * Whether `typeName` describes an override bag rather than injected dependencies.
  *
- * An override bag is entirely optional: every member has a production default the
- * caller may replace, which is the shape a test uses to swap behaviour out from
- * under the code. A type with required members is the opposite — the caller must
+ * Only consulted for files that never name a bag directly. An override bag is
+ * entirely optional: every member has a production default the caller may replace,
+ * which is the shape a test uses to swap behaviour out from under the code. A type with required members is the opposite — the caller must
  * supply them, so nothing is being silently substituted, and that is exactly the
  * capability-port shape this check tells people to move to. Flagging it would
  * punish the fix.
@@ -492,11 +508,60 @@ function applyRenames(baseline, renames) {
     return renamed;
 }
 
+/**
+ * Relocate seams between modules in the baseline before comparing.
+ *
+ * Splitting a file does not add or remove a seam, but a per-module comparison
+ * cannot see that: the seam simply vanishes from one entry and appears in
+ * another. This carries it across, and refuses anything that would invent one —
+ * the seam must already be recorded against the source.
+ *
+ * @param {SeamEntry} baseline
+ * @param {Array<[string, string, string]>} moves `[fromPath, name, toPath]`
+ * @returns {SeamEntry}
+ */
+function applyMoves(baseline, moves) {
+    if (moves.length === 0) return baseline;
+    /** @type {SeamEntry} */
+    const moved = {};
+    for (const [path, entry] of Object.entries(baseline)) {
+        moved[path] = { seams: [...entry.seams], machinery: [...entry.machinery] };
+    }
+    for (const [fromPath, name, toPath] of moves) {
+        const source = moved[fromPath];
+        if (!source || !source.seams.includes(name)) {
+            console.error(`--move cannot carry "${name}": it is not recorded against ${fromPath}.`);
+            Deno.exit(1);
+        }
+        source.seams = source.seams.filter((seam) => seam !== name);
+        source.machinery = source.machinery.filter((seam) => seam !== name);
+        if (source.seams.length === 0) delete moved[fromPath];
+        const target = moved[toPath] || { seams: [], machinery: [] };
+        target.seams = [...new Set([...target.seams, name])].sort();
+        if (isMachinerySeam(name)) target.machinery = [...new Set([...target.machinery, name])].sort();
+        moved[toPath] = target;
+    }
+    return moved;
+}
+
 if (import.meta.main) {
     const update = Deno.args.includes("--update");
     // Only meaningful alongside a fix to the scan itself: it adopts modules the scan
     // could not previously see. It never permits a known module to grow.
     const adopt = Deno.args.includes("--adopt-newly-visible");
+    /** @type {Array<[string, string, string]>} */
+    const moves = [];
+    for (let index = 0; index < Deno.args.length; index++) {
+        if (Deno.args[index] !== "--move") continue;
+        const spec = Deno.args[index + 1] || "";
+        const [source, toPath] = spec.split("=");
+        const separator = source.lastIndexOf(":");
+        if (!toPath || separator < 1) {
+            console.error(`--move expects fromPath:name=toPath, received "${spec}".`);
+            Deno.exit(1);
+        }
+        moves.push([source.slice(0, separator), source.slice(separator + 1), toPath]);
+    }
     /** @type {Array<[string, string]>} */
     const renames = [];
     for (let index = 0; index < Deno.args.length; index++) {
@@ -526,7 +591,7 @@ if (import.meta.main) {
     }
 
     if (update) {
-        const baseline = applyRenames(await readBaseline().catch(() => ({})), renames);
+        const baseline = applyMoves(applyRenames(await readBaseline().catch(() => ({})), renames), moves);
         const regressions = findRegressions(sortedSeams, baseline, adopt);
         if (Object.keys(baseline).length > 0 && regressions.length > 0) {
             console.error(
@@ -552,7 +617,7 @@ if (import.meta.main) {
         Deno.exit(0);
     }
 
-    const baseline = applyRenames(await readBaseline(), renames);
+    const baseline = applyMoves(applyRenames(await readBaseline(), renames), moves);
     const regressions = findRegressions(sortedSeams, baseline);
     const stale = findStaleBaseline(sortedSeams, baseline);
 

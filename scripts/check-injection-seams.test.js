@@ -200,3 +200,19 @@ Deno.test("collectSeamNames does not read a bag name out of a module specifier",
     `);
     assertEquals(names, ["loadPlan"]);
 });
+
+Deno.test("collectSeamNames follows a bag through a merge helper", () => {
+    // The bag is merged into an all-required shape before use, so the parameter type
+    // is not itself optional. The file names `__deps`, which settles it: what travels
+    // through the helper is the bag, and the reads on the far side are seams.
+    const names = collectSeamNames(`
+        interface NotifierDeps { env?: Env; writeTerminal?: (bytes: Uint8Array) => void; }
+        interface RequiredNotifierDeps { env: Env; writeTerminal: (bytes: Uint8Array) => void; }
+        interface Options { __deps?: NotifierDeps; }
+        function emit(deps: RequiredNotifierDeps) {
+            deps.writeTerminal(BELL);
+            return deps.env.TERM;
+        }
+    `);
+    assertEquals(names, ["env", "writeTerminal"]);
+});

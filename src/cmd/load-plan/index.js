@@ -270,7 +270,20 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
     if (!uiAPI) return;
     if (!sessionRuntime || !runtimeSessionId) throw new Error("runLoadPlanCommand requires a runtime session");
-    const session = createPlanSessionSurface(sessionRuntime, runtimeSessionId, deps);
+    // Agent runs are resolved here, where the test bag lives, so the surface itself
+    // is handed finished functions and never chooses between a stand-in and the runtime.
+    const runtime = sessionRuntime;
+    const activeSessionId = runtimeSessionId;
+    const session = createPlanSessionSurface(runtime, activeSessionId, {
+        executePlan: (options) =>
+            deps.executePlan ? deps.executePlan(options) : runtime.executePlan(activeSessionId, options),
+        runPlanningAgent: (options) =>
+            deps.runPlanningAgent ? deps.runPlanningAgent(options) : runtime.runPlanningAgent(activeSessionId, options),
+        runValidation: (options) =>
+            deps.runValidationLoop ? deps.runValidationLoop(options) : runtime.runValidation(activeSessionId, options),
+        runSlicerAgent: (options) =>
+            deps.runSlicerAgent ? deps.runSlicerAgent(options) : runtime.runSlicerAgent(activeSessionId, options),
+    });
     const projectRoot = session.cwd;
     const executePlan = session.executePlan;
     const runPlanningAgent = session.runPlanningAgent;

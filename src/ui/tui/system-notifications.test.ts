@@ -1,11 +1,13 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
     buildNativeNotificationSequence,
+    createSystemNotificationNotifier,
     detectTerminalIdentity,
-    notifyRunWieldEvent,
     resolveNotificationSettings,
+    type RunWieldEventNotifier,
     selectNativeNotificationProtocol,
     shouldSuppressAttentionNotification,
+    type SystemNotificationPort,
 } from "./system-notifications.ts";
 import { installTerminalFocusState, type TerminalFocusStateOwner } from "./terminal-focus-state.ts";
 
@@ -33,6 +35,17 @@ type TerminalWriterOptions = {
     throwOnWrite?: boolean;
 };
 
+interface NotificationFixtureOptions extends TerminalWriterOptions {
+    env?: Record<string, string | undefined>;
+    pid?: number;
+    setting?: ReturnType<SystemNotificationPort["readNotificationSetting"]>;
+}
+
+interface NotificationFixture {
+    notify: RunWieldEventNotifier;
+    terminal: TerminalWriteRecorder;
+}
+
 function makeTerminalWriter(options: TerminalWriterOptions = {}): TerminalWriteRecorder {
     const decoder = new TextDecoder();
     return {
@@ -46,6 +59,17 @@ function makeTerminalWriter(options: TerminalWriterOptions = {}): TerminalWriteR
             }
         },
     };
+}
+
+function makeNotificationFixture(options: NotificationFixtureOptions = {}): NotificationFixture {
+    const terminal = makeTerminalWriter(options);
+    const notify = createSystemNotificationNotifier({
+        readEnvironment: () => options.env ?? {},
+        getProcessId: () => options.pid ?? 1,
+        readNotificationSetting: () => options.setting,
+        writeTerminal: terminal.writeTerminal.bind(terminal),
+    });
+    return { notify, terminal };
 }
 
 Deno.test("resolveNotificationSettings defaults on and normalizes malformed values", () => {
@@ -161,15 +185,11 @@ Deno.test("buildNativeNotificationSequence emits Kitty OSC 99 with unfocused opt
 });
 
 Deno.test("notifyRunWieldEvent never reaches notifications from a Golden TUI run", async () => {
-    const terminal = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("agentStopped", {
+    const { notify, terminal } = makeNotificationFixture({
+        env: { WLD_GOLDEN_TUI: "1", TERM_PROGRAM: "iTerm.app" },
+    });
+    const result = await notify("agentStopped", {
         sessionName: "golden",
-        __deps: {
-            env: { WLD_GOLDEN_TUI: "1", TERM_PROGRAM: "iTerm.app" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
     });
 
     assertEquals(result.sent, false);
@@ -179,34 +199,29 @@ Deno.test("notifyRunWieldEvent never reaches notifications from a Golden TUI run
 });
 
 Deno.test("notifyRunWieldEvent emits unsupported-terminal BEL fallback when enabled", async () => {
-    const terminal = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("agentStopped", {
+    const { notify, terminal } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "Apple_Terminal" },
+        pid: 0,
+    });
+    const result = await notify("agentStopped", {
         sessionName: "demo",
-        __deps: {
-            env: { TERM_PROGRAM: "Apple_Terminal" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
     });
 
     assertEquals(result.sent, false);
     assertEquals(result.reason, "unsupported");
     assertEquals(result.protocol, "unsupported");
+    assertEquals(result.terminal.pid, 0);
     assertEquals(result.terminalBellEmitted, true);
     assertEquals(terminal.writes, [[7]]);
 });
 
 Deno.test("notifyRunWieldEvent respects terminalBell false while preserving OSC delivery", async () => {
-    const terminal = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("userInterview", {
+    const { notify, terminal } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "iTerm.app" },
+        setting: { terminalBell: false },
+    });
+    const result = await notify("userInterview", {
         sessionName: "silent bell",
-        __deps: {
-            env: { TERM_PROGRAM: "iTerm.app" },
-            pid: 1,
-            getMergedCustomSetting: () => ({ terminalBell: false }),
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
     });
 
     assertEquals(result.sent, true);
@@ -219,16 +234,12 @@ Deno.test("notifyRunWieldEvent respects terminalBell false while preserving OSC 
 
 Deno.test("notifyRunWieldEvent suppresses focused terminals before BEL or OSC emission", async () => {
     const focusOwner = installReportedFocusState("\x1b[I");
-    const terminal = makeTerminalWriter();
+    const { notify, terminal } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "WezTerm" },
+    });
     try {
-        const result = await notifyRunWieldEvent("planWritten", {
+        const result = await notify("planWritten", {
             sessionName: "focused",
-            __deps: {
-                env: { TERM_PROGRAM: "WezTerm" },
-                pid: 1,
-                getMergedCustomSetting: () => undefined,
-                writeTerminal: terminal.writeTerminal.bind(terminal),
-            },
         });
 
         assertEquals(result.sent, false);
@@ -243,16 +254,13 @@ Deno.test("notifyRunWieldEvent suppresses focused terminals before BEL or OSC em
 
 Deno.test("notifyRunWieldEvent suppressWhenFocused false restores always-emit behavior", async () => {
     const focusOwner = installReportedFocusState("\x1b[I");
-    const terminal = makeTerminalWriter();
+    const { notify, terminal } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "WezTerm" },
+        setting: { suppressWhenFocused: false },
+    });
     try {
-        const result = await notifyRunWieldEvent("planWritten", {
+        const result = await notify("planWritten", {
             sessionName: "focused",
-            __deps: {
-                env: { TERM_PROGRAM: "WezTerm" },
-                pid: 1,
-                getMergedCustomSetting: () => ({ suppressWhenFocused: false }),
-                writeTerminal: terminal.writeTerminal.bind(terminal),
-            },
         });
 
         assertEquals(result.sent, true);
@@ -266,29 +274,22 @@ Deno.test("notifyRunWieldEvent suppressWhenFocused false restores always-emit be
 });
 
 Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finished text", async () => {
-    const disabledTerminal = makeTerminalWriter();
-    const disabled = await notifyRunWieldEvent("compactionFinished", {
+    const disabledFixture = makeNotificationFixture({
+        env: { TERM_PROGRAM: "Ghostty" },
+        setting: { events: { compactionFinished: false } },
+    });
+    const disabled = await disabledFixture.notify("compactionFinished", {
         sessionName: "disabled compact",
-        __deps: {
-            env: { TERM_PROGRAM: "Ghostty" },
-            pid: 1,
-            getMergedCustomSetting: () => ({ events: { compactionFinished: false } }),
-            writeTerminal: disabledTerminal.writeTerminal.bind(disabledTerminal),
-        },
     });
 
     assertEquals(disabled.reason, "event_disabled");
-    assertEquals(disabledTerminal.writes, []);
+    assertEquals(disabledFixture.terminal.writes, []);
 
-    const terminal = makeTerminalWriter();
-    const sent = await notifyRunWieldEvent("compactionFinished", {
+    const { notify } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "Ghostty" },
+    });
+    const sent = await notify("compactionFinished", {
         sessionName: "compact session",
-        __deps: {
-            env: { TERM_PROGRAM: "Ghostty" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
     });
 
     assertEquals(sent.sent, true);
@@ -298,45 +299,35 @@ Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finis
 });
 
 Deno.test("notifyRunWieldEvent skips bell and OSC for disabled or unknown events", async () => {
-    const disabledTerminal = makeTerminalWriter();
-    const disabled = await notifyRunWieldEvent("agentStopped", {
+    const disabledFixture = makeNotificationFixture({
+        env: { TERM_PROGRAM: "iTerm.app" },
+        setting: { enabled: false },
+    });
+    const disabled = await disabledFixture.notify("agentStopped", {
         sessionName: "disabled",
-        __deps: {
-            env: { TERM_PROGRAM: "iTerm.app" },
-            pid: 1,
-            getMergedCustomSetting: () => ({ enabled: false }),
-            writeTerminal: disabledTerminal.writeTerminal.bind(disabledTerminal),
-        },
     });
 
     assertEquals(disabled.reason, "disabled");
-    assertEquals(disabledTerminal.writes, []);
+    assertEquals(disabledFixture.terminal.writes, []);
 
-    const unknownTerminal = makeTerminalWriter();
-    const unknown = await notifyRunWieldEvent("unknownEvent", {
+    const unknownFixture = makeNotificationFixture({
+        env: { TERM_PROGRAM: "iTerm.app" },
+    });
+    const unknown = await unknownFixture.notify("unknownEvent", {
         sessionName: "unknown",
-        __deps: {
-            env: { TERM_PROGRAM: "iTerm.app" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: unknownTerminal.writeTerminal.bind(unknownTerminal),
-        },
     });
 
     assertEquals(unknown.reason, "unknown_event");
-    assertEquals(unknownTerminal.writes, []);
+    assertEquals(unknownFixture.terminal.writes, []);
 });
 
 Deno.test("notifyRunWieldEvent isolates terminal write failures", async () => {
-    const terminal = makeTerminalWriter({ throwOnWrite: true });
-    const result = await notifyRunWieldEvent("planWritten", {
+    const { notify } = makeNotificationFixture({
+        env: { TERM_PROGRAM: "iTerm.app" },
+        throwOnWrite: true,
+    });
+    const result = await notify("planWritten", {
         sessionName: "write failure",
-        __deps: {
-            env: { TERM_PROGRAM: "iTerm.app" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
     });
 
     assertEquals(result.sent, false);

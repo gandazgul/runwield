@@ -45,7 +45,8 @@ import type {
     findByPlanName as findWorktreeByPlanNameFn,
 } from "../../shared/worktree-registry.js";
 import type { autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn } from "../../shared/work-records/auto-generation.js";
-import type { PlanSessionSurfaceDeps } from "./plan-session-surface.ts";
+import type { PlanSessionSurface } from "./plan-session-types.ts";
+import type { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 
 /** A Plan as the catalogue lists it, with Front Matter possibly partial. */
 export interface ListedPlanSummary {
@@ -58,19 +59,19 @@ export interface LoadPlanTestDeps {
     printCommandHelp?: typeof printCommandHelpFn;
     startInteractiveSession?: typeof startInteractiveSessionFn;
     resolvePlan?: typeof resolvePlanFn;
-    executePlan?: PlanSessionSurfaceDeps["executePlan"];
-    runPlanningAgent?: PlanSessionSurfaceDeps["runPlanningAgent"];
+    executePlan?: PlanSessionSurface["executePlan"];
+    runPlanningAgent?: PlanSessionSurface["runPlanningAgent"];
     decidePostPlanning?: typeof decidePostPlanningFn;
     decidePostExecution?: typeof decidePostExecutionFn;
-    runValidationLoop?: PlanSessionSurfaceDeps["runValidationLoop"];
-    runSlicerAgent?: PlanSessionSurfaceDeps["runSlicerAgent"];
+    runValidationLoop?: PlanSessionSurface["runValidation"];
+    runSlicerAgent?: PlanSessionSurface["runSlicerAgent"];
     finalizePlanImplementation?: typeof finalizePlanImplementationFn;
     loadPlan?: typeof loadPlanFn;
     archivePlan?: typeof archivePlanFn;
     getWorkflowDiff?: typeof getWorkflowDiffFn;
     listCommitsTouchingPathsSince?: typeof listCommitsTouchingPathsSinceFn;
     restoreWorktreeTree?: typeof restoreWorktreeTreeFn;
-    resetTuiState?: PlanSessionSurfaceDeps["resetTuiState"];
+    resetTuiState?: typeof resetTuiStateFn;
     getRootAgentName?: () => string | null;
     listPlans?: (cwd: string) => Promise<ListedPlanSummary[]>;
     findPlansByParent?: typeof findPlansByParentFn;
