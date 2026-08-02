@@ -14,16 +14,63 @@ affectedPaths:
     - "src/shared/workflow/validation-loop-delivery.test.js"
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "docs/plan-lifecycle.md"
+objectiveChecks:
+    - id: "OC1"
+      command: "grep -q \"resumes publication from stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js && deno task test --filter \"stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js"
+      rationale: "The command first requires the new real-Git regression test to exist, then runs only that scenario; it fails today because stored repaired merge worktrees are not resumed across validation calls."
+    - id: "OC2"
+      command: "grep -q \"clears validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js"
+      rationale: "The command requires and runs lifecycle coverage for clearing stale stored merge-repair paths when validation proof or implementation lineage changes."
+    - id: "OC3"
+      command: "grep -q \"validation_merge_repair_worktree\" src/shared/workflow/validation.ts && grep -q \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js"
+      rationale: "The command requires the status-preserving validation metadata transition to exist and runs delivery-state coverage for persisting/clearing the stored merge repair path."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-02T23:03:24.808Z"
+    head: "06e49895b97558081cb95d6f1e1b32af2184ca16"
+    results:
+        - id: "OC1"
+          command: "grep -q \"resumes publication from stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js && deno task test --filter \"stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js"
+          rationale: "The command first requires the new real-Git regression test to exist, then runs only that scenario; it fails today because stored repaired merge worktrees are not resumed across validation calls."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 6
+          output: "\n"
+        - id: "OC2"
+          command: "grep -q \"clears validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js"
+          rationale: "The command requires and runs lifecycle coverage for clearing stale stored merge-repair paths when validation proof or implementation lineage changes."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 5
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q \"validation_merge_repair_worktree\" src/shared/workflow/validation.ts && grep -q \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js"
+          rationale: "The command requires the status-preserving validation metadata transition to exist and runs delivery-state coverage for persisting/clearing the stored merge repair path."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 5
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T13:58:11-04:00"
-updatedAt: "2026-08-01T04:10:38.171Z"
-status: "ready_for_work"
+updatedAt: "2026-08-02T23:03:25.271Z"
+status: "in_progress"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
-worktreeStatus: "abandoned"
+executionMode: "worktree"
+executionBaselineTree: "7343a86707e5cb84544067601194c9b38f1acdb7"
+worktreeId: "7cc0ed40"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-finish-repaired-merge-instead-of-restarting-it-7cc0ed40"
+worktreeBranch: "runwield/worktree/finish-repaired-merge-instead-of-restarting-it-7cc0ed40"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Finish a Repaired Merge Instead of Restarting It
@@ -170,20 +217,40 @@ already canonical terms, and this field is implementation metadata rather than n
   - `deno task test src/shared/workflow`
   - `deno task seams:check` — must not increase.
   - `deno task ci`
-- **Checks that fail if the objective was not met:**
-  - Add a real-Git test that creates a detached merge conflict, resolves it in the merge worktree, saves a Plan at
-    `validated_reviewer` with `validationMergeRepairWorktree` set to that path, starts a fresh `runValidationLoop`, and
-    asserts the target branch contains the repaired merge result and the Plan is `verified`. This fails today because
-    the stored path is ignored and validation starts a fresh conflicting merge.
-  - Add a focused test that saves `validationMergeRepairWorktree: "/tmp/missing-runwield-merge"`, runs publication with
-    a non-conflicting worktree, and asserts the missing path is cleared and `repairMergeWorktreePath` is not used; the
-    Plan should still publish through a fresh merge.
-  - Add lifecycle tests asserting `buildPlanEventUpdates("validation_passed", "validated_reviewer", ...)` and
-    `buildPlanEventUpdates("semantic_review_feedback", "validated_ci", { triageMeta: { validationMergeRepairWorktree:
-    "/tmp/m" } })`
-    both produce `validationMergeRepairWorktree: null`.
-  - Add a persistence test asserting `savePlan`/`loadPlan` preserves a string `validationMergeRepairWorktree` and that
-    the validation metadata helper clears it to `null`.
+
+### Objective-Failing Checks
+
+These checks are red on the current code and can only go green when the repaired-merge continuation behavior is
+implemented and covered:
+
+- `OC1` —
+  `grep -q "resumes publication from stored repaired merge worktree" src/shared/workflow/validation-publication-pause.test.js && deno task test --filter "stored repaired merge worktree" src/shared/workflow/validation-publication-pause.test.js`
+  — proves a fresh validation call publishes the already-repaired detached merge worktree instead of starting a new
+  conflicting merge.
+- `OC2` —
+  `grep -q "clears validationMergeRepairWorktree" src/shared/workflow/plan-lifecycle.test.js && deno task test --filter "validationMergeRepairWorktree" src/shared/workflow/plan-lifecycle.test.js`
+  — proves lifecycle events clear stale merge-repair paths when validation proof or implementation lineage changes.
+- `OC3` —
+  `grep -q "validation_merge_repair_worktree" src/shared/workflow/validation.ts && grep -q "validationMergeRepairWorktree" src/shared/workflow/validation-loop-delivery.test.js && deno task test --filter "validationMergeRepairWorktree" src/shared/workflow/validation-loop-delivery.test.js`
+  — proves the validation metadata transition exists and is exercised by a delivery-state test, including
+  persistence/clearing behavior for the stored path.
+
+The implementation must also add these underlying test scenarios:
+
+- A real-Git test creates a detached merge conflict, resolves it in the merge worktree, saves a Plan at
+  `validated_reviewer` with `validationMergeRepairWorktree` set to that path, starts a fresh `runValidationLoop`, and
+  asserts the target branch contains the repaired merge result and the Plan is `verified`. This fails today because the
+  stored path is ignored and validation starts a fresh conflicting merge.
+- A focused test saves `validationMergeRepairWorktree: "/tmp/missing-runwield-merge"`, runs publication with a
+  non-conflicting worktree, and asserts the missing path is cleared and `repairMergeWorktreePath` is not used; the Plan
+  should still publish through a fresh merge.
+- Lifecycle tests assert `buildPlanEventUpdates("validation_passed", "validated_reviewer", ...)` and
+  `buildPlanEventUpdates("semantic_review_feedback", "validated_ci", { triageMeta: { validationMergeRepairWorktree:
+  "/tmp/m" } })`
+  both produce `validationMergeRepairWorktree: null`.
+- A persistence test asserts `savePlan`/`loadPlan` preserves a string `validationMergeRepairWorktree` and that the
+  validation metadata helper clears it to `null`.
+
 - Manual:
   - Force a Direct Delivery merge conflict for a Planned Change, let the execution Agent resolve the merge worktree,
     stop or restart before publication retries, then run the Plan again and confirm RunWield publishes the repaired tree
