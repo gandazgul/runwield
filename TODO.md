@@ -14,6 +14,9 @@
 
 ## Bugs
 
+- [ ] providing feedback and approving a plan now reopens it as if I did send feedback this is wrong, approve feedback
+      should be sent to engineer and start the plan normally.
+- [ ] Implement plannotator's plan diff view after feedback re-writes the plan.
 - [ ] The persistent review loop card above the footer is still gone after the refactors
 - [ ] we need to examine ALL of the lifecycle error messages and revise them:
 

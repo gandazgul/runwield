@@ -1,4 +1,5 @@
 ---
+planId: "069d2ec8-ab4a-47cd-969b-fb3ee4d811ea"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "MEDIUM"
@@ -22,13 +23,6 @@ affectedPaths:
     - "scripts/assert-plan-server-image.test.js"
     - "scripts/build-plan-server-runtime.test.js"
     - "scripts/injection-seam-baseline.json"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-08-01T00:32:24-04:00"
-status: "draft"
 objectiveChecks:
     - id: "OC1"
       command: "test ! -d src/agent-definitions/workflow-prompts"
@@ -42,7 +36,62 @@ objectiveChecks:
     - id: "OC4"
       command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
       rationale: "The focused test file does not exist on the baseline and can only pass once the typed loader and registry are implemented and exercised."
-updatedAt: "2026-08-02T12:43:43.651Z"
+objectiveChecksBaseline:
+    recordedAt: "2026-08-02T12:54:55.793Z"
+    head: "1faf32283e198393ff9e93e79b28dd21755dc0c0"
+    results:
+        - id: "OC1"
+          command: "test ! -d src/agent-definitions/workflow-prompts"
+          rationale: "The old workflow-prompts directory exists on the baseline and can only disappear once the prompt files have been moved rather than duplicated."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 5
+          output: "\n"
+        - id: "OC2"
+          command: "bash -c 'git grep -n workflow-prompts -- src scripts | grep -v \"workflow-prompts\\\\.js\" >/dev/null && exit 1 || exit 0'"
+          rationale: "This fails while source or script files still reference the old workflow prompt asset path, while ignoring legitimate imports of the unrelated workflow-prompts.js module."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 40
+          output: "\n"
+        - id: "OC3"
+          command: "bash -c 'grep -Eq \"ensureBundledAgentDefFile|loadAgentDefFromPath|WORKFLOW_PROMPTS_DIR\" src/shared/workflow/validation-prompts.ts src/tools/delegate-agent.js src/shared/workflow/workflow-slicer.js src/cmd/init/index.js && exit 1 || exit 0'"
+          rationale: "The current hand-rolled call sites import or define these direct loading pieces; the check can only pass when those call sites delegate prompt loading to the new shared loader."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 14
+          output: "\n"
+        - id: "OC4"
+          command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
+          rationale: "The focused test file does not exist on the baseline and can only pass once the typed loader and registry are implemented and exercised."
+          status: "unmet"
+          stdout: ""
+          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/src/shared/session/subagent-definitions.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m91\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m180\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+          exitCode: 1
+          durationMs: 59
+          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/src/shared/session/subagent-definitions.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m91\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m180\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+createdAt: "2026-08-01T00:32:24-04:00"
+updatedAt: "2026-08-02T12:54:56.192Z"
+status: "in_progress"
+origin: "internal"
+userVerifiedAt: null
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "f1afe908fd2a3c790aa8678d2e4ca88faf200e7f"
+worktreeId: "c332e4dd"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd"
+worktreeBranch: "runwield/worktree/formalize-subagent-definitions-c332e4dd"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Formalize Subagent Definitions
