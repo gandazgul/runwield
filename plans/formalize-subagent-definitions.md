@@ -42,7 +42,7 @@ objectiveChecks:
       command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
       rationale: "The focused test file does not exist on the baseline and can only pass once the typed loader and registry are implemented and exercised."
 updatedAt: "2026-08-02T12:43:43.651Z"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Formalize Subagent Definitions
