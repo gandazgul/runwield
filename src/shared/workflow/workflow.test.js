@@ -250,8 +250,15 @@ Deno.test("re-baselines Objective-Failing Checks when head or command set change
 });
 
 Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requested target branch", async () => {
-    const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
+    const projectRoot = await makeWorkflowProject([{
+        name: "targeted-plan",
+        status: "ready_for_work",
+        attrs: {
+            objectiveChecks: [{ id: "OC_TARGET_BASE", command: "test -f current-only-marker" }],
+        },
+    }]);
     const hostedSession = makeHostedSession("targeted-workflow", projectRoot);
+    await Deno.writeTextFile(`${projectRoot}/current-only-marker`, "present only in the current checkout\n");
 
     const result = await startActiveExecutionWorkflow({
         // Padded on purpose: the target branch arrives from Front Matter a user edited.
@@ -268,9 +275,16 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
     const entry = await findWorktreeRegistryEntryById(projectRoot, /** @type {string} */ (result.worktreeId));
     assertEquals(entry?.baseRef, "refs/heads/feature-base");
     assertEquals(entry?.baseBranch, "feature-base");
+    const targetCommit = await git(projectRoot, ["rev-parse", "refs/heads/feature-base"]);
     assertEquals(
-        await git(projectRoot, ["rev-parse", "refs/heads/feature-base"]),
+        targetCommit,
         await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]),
+    );
+    const plan = await loadPlan(projectRoot, "targeted-plan");
+    assertEquals(plan?.attrs.objectiveChecksBaseline?.head, targetCommit);
+    assertEquals(
+        plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
+        [["OC_TARGET_BASE", "test -f current-only-marker", "unmet"]],
     );
 });
 

@@ -376,7 +376,7 @@ export const twoChildProjectContinuationScenario = {
         // `/agent` is the real user-facing way back to the Planner.
         { type: "type", text: "/agent planner" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 15000 },
+        { type: "waitForEvent", event: "runtime:agent:planner", timeoutMs: 15000 },
         // Explicit launch of the first child, as a real user message: Epic approval is
         // not Epic execution. Its Plan Review, execution and validation all run for
         // real, and the Runtime continues into the second child on its own.
@@ -587,7 +587,7 @@ export const projectChildObjectiveCheckStopScenario = {
         { type: "runSlicerDecomposition", planName: "epic" },
         { type: "type", text: "/agent planner" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 15000 },
+        { type: "waitForEvent", event: "runtime:agent:planner", timeoutMs: 15000 },
         { type: "type", text: "finalize and submit the first child planned change for review" },
         { type: "enter" },
         // Two repair rounds and three validation passes run inside this wait, and it
