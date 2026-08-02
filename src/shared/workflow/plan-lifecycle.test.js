@@ -78,6 +78,29 @@ Deno.test("validation retry counters increment and reset on implemented re-entry
     assertEquals(mergeFailed.validationSemanticRounds, 0);
 });
 
+Deno.test("buildPlanEventUpdates clears validationMergeRepairWorktree when validation lineage changes", () => {
+    const validationPassed = buildPlanEventUpdates("validation_passed", "validated_reviewer", {
+        ...TEST_DELIVERY_DETAILS,
+        triageMeta: { validationMergeRepairWorktree: "/tmp/runwield-merge" },
+    });
+    assertEquals(validationPassed.validationMergeRepairWorktree, null);
+
+    const reviewerFeedback = buildPlanEventUpdates("semantic_review_feedback", "validated_ci", {
+        triageMeta: { validationMergeRepairWorktree: "/tmp/runwield-merge" },
+    });
+    assertEquals(reviewerFeedback.validationMergeRepairWorktree, null);
+
+    const executionStarted = buildPlanEventUpdates("execution_started", "ready_for_work", {
+        triageMeta: { validationMergeRepairWorktree: "/tmp/runwield-merge" },
+        executionBaselineTree: "tree",
+        worktreeId: "wt",
+        worktreePath: "/tmp/wt",
+        worktreeBranch: "runwield/worktree/p-wt",
+        worktreeBaseBranch: "main",
+    });
+    assertEquals(executionStarted.validationMergeRepairWorktree, null);
+});
+
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),

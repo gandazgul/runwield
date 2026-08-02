@@ -33,6 +33,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     humanReviewMode: "humanReviewMode",
     humanReviewDecision: "humanReviewDecision",
     humanReviewedAt: "humanReviewedAt",
+    validationMergeRepairWorktree: "validationMergeRepairWorktree",
     epicCompletionMode: "epicCompletionMode",
     epicDoneEnoughAt: "epicDoneEnoughAt",
     epicDoneEnoughSummary: "epicDoneEnoughSummary",
