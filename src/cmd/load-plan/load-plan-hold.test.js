@@ -1,7 +1,9 @@
 import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 
-import { makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
+import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
+
+import { git, makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
 
 Deno.test("runLoadPlanCommand draft Planned Change can be put on hold", async () => {
     const { uiAPI, selections, messages } = makeUi();
@@ -394,14 +396,32 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
 });
 
 Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async () => {
+    // A real repository with a real worktree. Deleting one is the destructive half of
+    // this command, and while it was faked the test proved only that an argument was
+    // passed — against the developer's own checkout, because the session cwd was the
+    // process cwd and the recorded path was a fiction under /tmp.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-hold-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-hold-worktrees-" }));
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", ".gitignore"]);
+    await git(projectRoot, ["commit", "-m", "base"]);
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "held-delete-worktree",
+        planId: "plan-held-delete-worktree",
+        worktreeRoot,
+    });
+
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "reset_delete", "confirm");
     let recorded = null;
-    let removed = null;
     let registryUpdate = null;
 
     await runLoadPlanCommand(["held-delete-worktree"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -418,23 +438,19 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                         affectedPaths: [],
                         status: "on_hold",
                         heldFromStatus: "implemented",
-                        worktreeId: "wt-held-delete-worktree",
-                        worktreePath: "/tmp/wt-held-delete-worktree",
-                        worktreeBranch: "runwield/worktree/held-delete-worktree-12345678",
+                        worktreeId: worktree.id,
+                        worktreePath: worktree.path,
+                        worktreeBranch: worktree.branch,
                     },
                 }),
             findWorktreeById: () =>
                 Promise.resolve({
-                    id: "wt-held-delete-worktree",
-                    path: "/tmp/wt-held-delete-worktree",
-                    branch: "runwield/worktree/held-delete-worktree-12345678",
+                    id: worktree.id,
+                    path: worktree.path,
+                    branch: worktree.branch,
                     status: "in_progress",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeWorktreeGitArtifacts: (/** @type {any} */ args) => {
-                removed = args;
-                return Promise.resolve();
-            },
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _cwd,
                 /** @type {string} */ id,
@@ -452,6 +468,9 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
     });
 
     assertEquals(/** @type {any} */ (recorded).event, "hold_reset_to_draft");
-    assertEquals(/** @type {any} */ (removed).force, true);
+    // The worktree is really gone from Git, not merely reported as removed.
+    assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktree.path), false);
     assertEquals(/** @type {any} */ (registryUpdate).patch.status, "abandoned");
+    await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
 });

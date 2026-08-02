@@ -160,7 +160,6 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof isCommitAncestorOfBranch} [isCommitAncestorOfBranch]
  * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
  * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
- * @property {typeof removeWorktreeGitArtifactsFn} [removeWorktreeGitArtifacts]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {typeof probeGitRepositoryFn} [probeGitRepository]
@@ -3636,7 +3635,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
         isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
         preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
         restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
-        removeWorktreeGitArtifacts: removeWorktreeGitArtifactsDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
         probeGitRepository: probeGitRepositoryDep,
@@ -3681,7 +3679,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
     const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
         restorePrimaryPlanPathAfterMergeFailureFn;
-    const removeWorktreeGitArtifacts = removeWorktreeGitArtifactsDep || removeWorktreeGitArtifactsFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
     const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
@@ -3918,7 +3915,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
                 inspectExecutionWorktreeMergeRisk,
-                removeWorktreeGitArtifacts,
+                removeWorktreeGitArtifacts: removeWorktreeGitArtifactsFn,
             });
             if (result === "handled") return;
         }
@@ -3979,7 +3976,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 isCommitAncestorOfBranch: isCommitAncestorOfBranchImpl,
                 preparePrimaryPlanPathForMerge,
                 restorePrimaryPlanPathAfterMergeFailure,
-                removeWorktreeGitArtifacts,
+                removeWorktreeGitArtifacts: removeWorktreeGitArtifactsFn,
                 removeWorktreeRegistryEntry: removeWorktreeRegistryEntryFn,
                 shouldCleanupMergedWorktrees,
                 recordWorkflowMetric: recordWorkflowMetricForLoadPlan,

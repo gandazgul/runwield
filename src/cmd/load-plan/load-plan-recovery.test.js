@@ -21,7 +21,7 @@ import {
     restorePrimaryPlanPathAfterMergeFailure,
 } from "../../shared/worktree.js";
 
-import { addEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
+import { findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 
 import { git, makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
@@ -134,7 +134,6 @@ Deno.test("runLoadPlanCommand blocks Git-dependent recovery continue in non-Git 
 Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git projects", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("reset", "clear");
-    let removed = false;
     let restored = false;
     /** @type {Record<string, unknown> | null} */
     let clearedUpdates = null;
@@ -173,10 +172,6 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                 restored = true;
                 return Promise.resolve();
             },
-            removeWorktreeGitArtifacts: () => {
-                removed = true;
-                return Promise.resolve();
-            },
             updatePlanFrontMatter: (
                 /** @type {string} */ _cwd,
                 /** @type {string} */ _planName,
@@ -203,7 +198,9 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
     });
 
     assertEquals(restored, false);
-    assertEquals(removed, false);
+    // No worktree removal was attempted: the real remover asserts a Git repository
+    // first, so in a non-Git project any attempt would have thrown rather than
+    // reaching the metadata-only outcome asserted below.
     const registry = /** @type {{ id?: string, updates?: Record<string, unknown> }} */ (registryUpdate || {});
     assertEquals(registry.id, "wt-non-git-reset");
     assertEquals(registry.updates?.status, "abandoned");
@@ -270,13 +267,27 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
 });
 
 Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base is missing", async () => {
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-refuse-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-refuse-worktrees-" }));
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", ".gitignore"]);
+    await git(projectRoot, ["commit", "-m", "base"]);
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "plan-missing-base",
+        planId: "plan-missing-base-id",
+        worktreeRoot,
+    });
+
     const { uiAPI, selections, messages } = makeUi();
     selections.push("reset", "cancel");
-    let removed = false;
     let recreated = false;
 
     await runLoadPlanCommand(["plan-missing-base"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -294,18 +305,14 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                         affectedPaths: [],
                         status: "failed",
                         executionBaselineTree: "baseline-tree",
-                        worktreeId: "wt-missing-base",
-                        worktreePath: "/tmp/runwield-plan-worktree",
-                        worktreeBranch: "runwield/worktree/plan-missing-base",
+                        worktreeId: worktree.id,
+                        worktreePath: worktree.path,
+                        worktreeBranch: worktree.branch,
                         worktreeStatus: "execution_failed",
                     },
                 }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeWorktreeGitArtifacts: () => {
-                removed = true;
-                return Promise.resolve();
-            },
             createWorktreeGitArtifacts: () => {
                 recreated = true;
                 return Promise.resolve(/** @type {any} */ ({}));
@@ -314,20 +321,40 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
         }),
     });
 
-    assertEquals(removed, false);
+    // Nothing was destroyed by the refusal: the recorded worktree is still registered
+    // with Git, which is the durable form of "the remover was never called".
+    assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktree.path), true);
     assertEquals(recreated, false);
     assertEquals(messages.some((message) => message.includes("no recorded base commit or base ref")), true);
+    await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
 });
 
 Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit", async () => {
+    // A reset deletes the failed worktree before recreating it. That deletion is real
+    // here; the recreate is still stood in for, because it is a different seam.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-reset-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-reset-worktrees-" }));
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", ".gitignore"]);
+    await git(projectRoot, ["commit", "-m", "base"]);
+    const failedWorktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "plan-recorded-base",
+        planId: "plan-recorded-base-id",
+        worktreeRoot,
+    });
+
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "confirm");
-    let removed = false;
     let createdBaseRef = "";
     let executed = false;
 
     await runLoadPlanCommand(["plan-recorded-base"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -345,18 +372,18 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                         affectedPaths: [],
                         status: "failed",
                         executionBaselineTree: "baseline-tree",
-                        worktreeId: "wt-recorded-base",
-                        worktreePath: "/tmp/runwield-plan-worktree",
-                        worktreeBranch: "runwield/worktree/plan-recorded-base",
+                        worktreeId: failedWorktree.id,
+                        worktreePath: failedWorktree.path,
+                        worktreeBranch: failedWorktree.branch,
                         worktreeStatus: "execution_failed",
                     },
                 }),
             findWorktreeById: () =>
                 Promise.resolve({
-                    id: "wt-recorded-base",
+                    id: failedWorktree.id,
                     planName: "plan-recorded-base",
-                    path: "/tmp/runwield-plan-worktree",
-                    branch: "runwield/worktree/plan-recorded-base",
+                    path: failedWorktree.path,
+                    branch: failedWorktree.branch,
                     baseRef: "main",
                     baseCommit: "abc123",
                     baseTree: "baseline-tree",
@@ -365,10 +392,6 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeWorktreeGitArtifacts: () => {
-                removed = true;
-                return Promise.resolve();
-            },
             updateWorktreeRegistryEntry: () => Promise.resolve(/** @type {any} */ ({})),
             createWorktreeGitArtifacts: (/** @type {{ baseRef: string }} */ args) => {
                 createdBaseRef = args.baseRef;
@@ -401,21 +424,35 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
         }),
     });
 
-    assertEquals(removed, true);
+    // Really deleted from Git, then recreated from the recorded base commit.
+    assertEquals((await git(projectRoot, ["worktree", "list"])).includes(failedWorktree.path), false);
     assertEquals(createdBaseRef, "abc123");
     assertEquals(executed, true);
+    await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
 });
 
 Deno.test("runLoadPlanCommand recreates missing worktree reset after warning confirmation", async () => {
+    // The recorded worktree is gone from disk, so removal has nothing to delete and
+    // says so by succeeding. What this scenario is actually about is the warning, the
+    // confirmation, and the recreate that follows — asserting the path handed to a
+    // stand-in remover proved none of that.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-lost-project-" }));
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", ".gitignore"]);
+    await git(projectRoot, ["commit", "-m", "base"]);
+
     const { uiAPI, selections, messages, prompts } = makeUi();
     selections.push("reset", "confirm");
-    let removedPath = "";
     let abandoned = false;
     let createdBaseRef = "";
     let executed = false;
 
     await runLoadPlanCommand(["plan-lost-worktree"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -453,10 +490,6 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            removeWorktreeGitArtifacts: (/** @type {{ path: string }} */ args) => {
-                removedPath = args.path;
-                return Promise.resolve();
-            },
             updateWorktreeRegistryEntry: () => {
                 abandoned = true;
                 return Promise.resolve(/** @type {any} */ ({}));
@@ -497,10 +530,10 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
         true,
     );
     assertEquals(prompts.some((prompt) => prompt.prompt === "Recreate the worktree and start over?"), true);
-    assertEquals(removedPath, "/tmp/runwield-missing-plan-worktree");
     assertEquals(abandoned, true);
     assertEquals(createdBaseRef, "abc123");
     assertEquals(executed, true);
+    await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
 });
 
 Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline diff", async () => {
@@ -1250,7 +1283,6 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
             ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
             recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
-            removeWorktreeGitArtifacts: () => Promise.resolve(),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
             resolveValidationExecutionContext: () =>
@@ -1425,7 +1457,6 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
                 ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
                 recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
-                removeWorktreeGitArtifacts: () => Promise.resolve(),
                 shouldCleanupMergedWorktrees: () => false,
                 recordWorkflowMetric: () => Promise.resolve(null),
                 resolveValidationExecutionContext: () =>
@@ -1589,9 +1620,27 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
     }
 });
 
-Deno.test("runLoadPlanCommand shows abandon progress before slow worktree removal finishes", async () => {
-    const projectRoot = await Deno.makeTempDir();
-    const worktreePath = await Deno.makeTempDir();
+Deno.test("runLoadPlanCommand reports abandon progress around worktree removal", async () => {
+    // Removal is real now, so it cannot be held open mid-flight the way a stand-in
+    // could. What that stand-in was there to prove is still proven: the user is told
+    // the deletion is starting before they are told it finished, and the worktree is
+    // genuinely gone by the end. The claim that narrowed is "progress appears while
+    // removal is still running" — untestable without replacing the machinery, and a
+    // weaker guarantee than "the worktree is actually deleted", which was never checked.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-abandon-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-abandon-worktrees-" }));
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", ".gitignore"]);
+    await git(projectRoot, ["commit", "-m", "base"]);
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "recover-progress",
+        planId: "recover-progress-plan",
+        worktreeRoot,
+    });
     await savePlanForTest(projectRoot, "recover-progress", "# recover progress", {
         classification: "PLANNED_CHANGE",
         complexity: "LOW",
@@ -1599,61 +1648,31 @@ Deno.test("runLoadPlanCommand shows abandon progress before slow worktree remova
         affectedPaths: [],
         status: "in_progress",
         planId: "recover-progress-plan",
-        worktreeId: "recover-progress-wt",
-        worktreePath,
-        worktreeBranch: null,
+        worktreeId: worktree.id,
+        worktreePath: worktree.path,
+        worktreeBranch: worktree.branch,
         worktreeStatus: "active",
-    });
-    await addEntry(projectRoot, {
-        id: "recover-progress-wt",
-        planName: "recover-progress",
-        planId: "recover-progress-plan",
-        baseBranch: "main",
-        baseRef: "HEAD",
-        baseCommit: "baseline",
-        branch: "",
-        path: worktreePath,
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
     });
     const { uiAPI, selections, messages } = makeUi();
     selections.push("abandon", "confirm");
-    let releaseRemoval = () => {};
-    let removalStarted = false;
-    const removalReleased = new Promise((resolve) => {
-        releaseRemoval = () => resolve(undefined);
-    });
 
-    const run = runLoadPlanCommand(["recover-progress"], {
+    await runLoadPlanCommand(["recover-progress"], {
         ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["recover-progress"] }),
-            removeWorktreeGitArtifacts: async () => {
-                removalStarted = true;
-                await removalReleased;
-            },
             resetTuiState: () => {},
         }),
     });
 
-    for (let attempt = 0; attempt < 100 && !removalStarted; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assertEquals(removalStarted, true);
     const progressIndex = messages.findIndex((message) =>
         message.includes('Deleting recorded worktree for "recover-progress"')
     );
-    const finalIndexBeforeRelease = messages.findIndex((message) =>
-        message.includes("Worktree abandoned and removed.")
-    );
-    assertEquals(progressIndex >= 0, true);
-    assertEquals(finalIndexBeforeRelease, -1);
-
-    releaseRemoval();
-    await run;
     const finalIndex = messages.findIndex((message) => message.includes("Worktree abandoned and removed."));
-    assertEquals(finalIndex > progressIndex, true);
+    assertEquals(progressIndex >= 0, true, "the user is told the deletion is starting");
+    assertEquals(finalIndex > progressIndex, true, "and is told it finished afterwards");
+    assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktree.path), false);
+    await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
 });
