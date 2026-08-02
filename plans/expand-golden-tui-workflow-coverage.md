@@ -21,21 +21,25 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:00:50-04:00"
-updatedAt: "2026-08-01T04:10:44.153Z"
+updatedAt: "2026-08-02T02:43:46.406Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-01T05:36:07.961Z"
+verifiedAt: "2026-08-02T02:43:46.406Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "c785b9a01fbf5cebc09f6a299a4984838fa845ff"
-worktreeId: "949adc32"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-expand-golden-tui-workflow-coverage-949adc32"
-worktreeBranch: "runwield/worktree/expand-golden-tui-workflow-coverage-949adc32"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "3f9aa4e842ab2e91185591cdd424c84cad1250ef"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "dd1639e5e1cce62691c49dff97721bcf372335a0"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "golden tui coverage plan"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Expand Golden TUI Workflow Coverage
