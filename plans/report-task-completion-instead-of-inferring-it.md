@@ -29,11 +29,11 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:47:01-04:00"
-updatedAt: "2026-08-02T22:48:24.438Z"
+updatedAt: "2026-08-02T23:05:42.557Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T02:37:54.851Z"
-verifiedAt: "2026-08-02T22:48:24.438Z"
+verifiedAt: "2026-08-02T23:05:42.557Z"
 userVerifiedAt: null
 executionReport: "- Implemented HostedSession pending task-completion records: accepted `task_completed` calls now record agent/report/timestamp/owning session and consume exactly once; active workflow set/clear paths clear stale completions.\n- Updated `createAgentHandler` to consume the root-session-owned completion record instead of scanning the root turn message window; removed the obsolete task-completion reader seam and tightened `scripts/injection-seam-baseline.json`.\n- Preserved isolated-session behavior: `readLatestTaskCompletedReport`/message-stream readers remain for isolated callers, and root workflow advancement ignores completions owned by isolated steering targets.\n- Added/updated tests for accepted-vs-rejected recording, consume-once follow-up turns, steered QUICK_FIX completion through `SessionRuntime.steerSession`, isolated completion isolation, and stale-completion clearing; test-count delta: +5 tests, 0 removed.\n- Updated QUICK_FIX golden role journey to include queued steering coverage and declared `recovery:steered-task-completion` in the coverage matrix.\n- Verification passed: objective checks OC1–OC4, `deno task test src/shared/session src/shared/workflow src/tools`, `deno task test src/ui/tui/golden-scenarios/role-journeys.test.js`, `deno task seams:check`, and final `deno task ci` all pass. One full CI attempt hit a transient golden PROJECT timeout; the failing filtered scenario passed on rerun, and a subsequent full `deno task ci` passed."
 humanReviewMode: "ask"
@@ -42,9 +42,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "316c55eacb9ffc5a2d7d2695fa44f932e216138a"
+    executionCommit: "4888f0895dd0036e7ff4161d97de248c230db1a0"
     targetBranch: "main"
-    targetHeadBeforeMerge: "06e49895b97558081cb95d6f1e1b32af2184ca16"
+    targetHeadBeforeMerge: "cae662d2ff1e49908ac350ed5de4648301ee39b1"
 validationCiAttempts: 0
 validationSemanticRounds: 0
 ---
