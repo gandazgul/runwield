@@ -6,7 +6,9 @@ import { AGENTS } from "../../constants.js";
 import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
 import { loadPlan } from "../../plan-store.js";
 
-const VERIFIED_ATTRS = /** @type {const} */ ({
+/** @typedef {import('../../plan-store.js').PlanFrontMatterInput} PlanFrontMatterInput */
+
+const VERIFIED_ATTRS = /** @type {PlanFrontMatterInput} */ ({
     classification: "FEATURE",
     complexity: "LOW",
     summary: "s",

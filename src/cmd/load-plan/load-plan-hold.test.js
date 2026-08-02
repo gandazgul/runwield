@@ -296,7 +296,9 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
         status: "on_hold",
         heldFromStatus: "implemented",
         worktreeId: "missing-worktree",
-        worktreeStatus: "in_progress",
+        // The faked Plan this replaced said "in_progress", which is not a
+        // worktreeStatus the store will ever write. A live attempt is "active".
+        worktreeStatus: "active",
     });
 
     await runLoadPlanCommand(["held-fail"], {

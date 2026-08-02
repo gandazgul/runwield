@@ -9,8 +9,10 @@ import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from 
 import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 
+/** @typedef {import('../../plan-store.js').PlanFrontMatterInput} PlanFrontMatterInput */
+
 /** The Plan shape most of these review journeys start from. */
-const APPROVED_FEATURE = /** @type {const} */ ({
+const APPROVED_FEATURE = /** @type {PlanFrontMatterInput} */ ({
     classification: "FEATURE",
     complexity: "LOW",
     summary: "s",
@@ -19,7 +21,7 @@ const APPROVED_FEATURE = /** @type {const} */ ({
 });
 
 /** The Epic equivalent of {@link APPROVED_FEATURE}. */
-const APPROVED_PROJECT = /** @type {const} */ ({
+const APPROVED_PROJECT = /** @type {PlanFrontMatterInput} */ ({
     classification: "PROJECT",
     complexity: "HIGH",
     summary: "s",

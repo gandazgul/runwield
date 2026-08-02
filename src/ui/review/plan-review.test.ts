@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { getStoredPlanPath, loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
+import type { PlanFrontMatter } from "../../plan-store.js";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 import { submitPlanForReview } from "./plan-review.ts";
 import { createScriptedReviewBrowser, type ReviewDecisionBody } from "./review-test-fixture.ts";
@@ -304,7 +305,7 @@ Deno.test("submitPlanForReview cancellation stops the real review surface withou
  * Build a Plan that already ran, together with the registry entry recording the
  * execution generation it owns.
  */
-async function makeExecutedPlanWithWorktree(status: string): Promise<PlanReviewFixture> {
+async function makeExecutedPlanWithWorktree(status: PlanFrontMatter["status"]): Promise<PlanReviewFixture> {
     const dir = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-plan-review-executed-" }));
     await addRegistryEntry(dir, {
         id: "wt-prior",
