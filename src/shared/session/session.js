@@ -55,7 +55,7 @@ import cymbalExtension, {
 } from "../../extensions/cymbal/index.js";
 import snipExtension from "../../extensions/snip/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.js";
-import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
+import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
 import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.js";

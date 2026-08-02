@@ -17,20 +17,30 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../constants.js";
+import type { HostedSession } from "../shared/session/hosted-session.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
-/**
- * Core logic for returning the active conversation to Router.
- *
- * @param {Object} params
- * @param {string} params.reason
- * @param {import('../shared/session/hosted-session.js').HostedSession | null | undefined} hostedSession
- * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric }} [__deps]
- * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentToolResult<{ agentName: string, reason: string } | null>>}
- */
-export async function executeReturnToRouter(params, hostedSession, __deps) {
+export interface ReturnToRouterParams {
+    reason: string;
+}
+
+export interface ReturnToRouterDetails {
+    agentName: string;
+    reason: string;
+}
+
+interface ReturnToRouterToolContext {
+    hostedSession?: HostedSession;
+}
+
+/** Core logic for returning the active conversation to Router. */
+export async function executeReturnToRouter(
+    params: ReturnToRouterParams,
+    hostedSession: HostedSession | null | undefined,
+): Promise<AgentToolResult<ReturnToRouterDetails | null>> {
     const { reason } = params;
 
     if (!hostedSession) {
@@ -45,13 +55,15 @@ export async function executeReturnToRouter(params, hostedSession, __deps) {
         };
     }
 
-    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
-    await recordWorkflowMetricImpl({
-        category: "routing",
-        event: "return_to_router",
-        agentName: AGENTS.ROUTER,
-        details: { targetAgent: AGENTS.ROUTER, hasReason: Boolean(reason) },
-    });
+    await recordWorkflowMetric(
+        {
+            category: "routing",
+            event: "return_to_router",
+            agentName: AGENTS.ROUTER,
+            details: { targetAgent: AGENTS.ROUTER, hasReason: Boolean(reason) },
+        },
+        { cwd: hostedSession.cwd },
+    );
 
     return {
         content: [],
@@ -93,12 +105,7 @@ export const returnToRouterTool = defineTool({
         }),
     }),
     execute(_toolCallId, params, _signal, _onUpdate, context) {
-        const toolContext =
-            /** @type {{ hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} */ (context ||
-                {});
-        return executeReturnToRouter(
-            /** @type {{ reason: string }} */ (params),
-            toolContext.hostedSession,
-        );
+        const toolContext = (context || {}) as ReturnToRouterToolContext;
+        return executeReturnToRouter(params, toolContext.hostedSession);
     },
 });

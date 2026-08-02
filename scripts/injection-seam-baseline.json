@@ -265,12 +265,6 @@
                 "recordPlanEvent"
             ]
         },
-        "src/tools/return-to-router.js": {
-            "seams": [
-                "recordWorkflowMetric"
-            ],
-            "machinery": []
-        },
         "src/ui/review/code-review.js": {
             "seams": [
                 "loadReviewEditorHtml",

@@ -152,7 +152,6 @@
     "src/tools/plan-written.js",
     "src/tools/read.js",
     "src/tools/registry.js",
-    "src/tools/return-to-router.js",
     "src/tools/review-complete.js",
     "src/tools/see-image.js",
     "src/tools/task-completed.js",
