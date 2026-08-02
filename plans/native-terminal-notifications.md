@@ -74,14 +74,15 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T09:29:18-04:00"
-updatedAt: "2026-08-02T16:26:02.067Z"
-status: "validated_ci"
+updatedAt: "2026-08-02T20:49:40.233Z"
+status: "validated_reviewer"
 origin: "internal"
 implementedAt: "2026-08-02T14:12:11.124Z"
 userVerifiedAt: null
 executionReport: "- Implemented native terminal OSC notifications in `src/ui/tui/system-notifications.ts`: Kitty OSC 99 (`o=unfocused`), WezTerm/Ghostty OSC 777, iTerm2 OSC 9, unsupported BEL fallback, text sanitization, focused-terminal suppression, and `suppressWhenFocused` default `true`; command-based notifier helpers and imports were removed.\n- Added `src/ui/tui/terminal-focus-state.ts` and wired production TUI lifecycle cleanup to enable/disable xterm focus reporting and filter focus input; explicit test pairs stay opt-in, and Golden TUI env skips focus-reporting bytes.\n- Updated runtime/slash-dispatch imports and `docs/settings.md`; `scripts/injection-seam-baseline.json` was not changed because `deno task seams:check` still holds the existing baseline.\n- Test coverage changed from 19 replaced system-notification JS tests to 21 TS tests (+2): command-delivery tests for terminal-notifier grouping, osascript fallback, sender/activation scripts, exact-tab activation, command failure fallback, and desktop delivery were replaced because those command behaviors no longer exist; defaults/settings, terminal identity, Golden suppression, disabled/unknown events, bell behavior, compaction text, context text, write failures, protocol selection, sanitization, focus suppression, and unsupported fallback were rewritten against the native OSC/BEL shape; five new focus-state tests cover enable/disable, state transitions, filtering, passthrough, and idempotent disposal.\n- Verification passed: targeted tests (`deno run -A scripts/run-tests.js src/ui/tui/system-notifications.test.ts src/ui/tui/terminal-focus-state.test.ts`), objective checks OC1-OC3, `deno task check`, `deno task lint`, `deno task seams:check`, and rerun of initially failing golden/workspace files.\n- Verification did not pass cleanly overall: final `deno task test` failed on `src/ui/tui/golden-scenarios/concurrent-workflow.test.ts` with a Golden child idle timeout after 120000ms, although that file passed when rerun with the other initially failing files.\n- Manual terminal checks in iTerm2, Ghostty, WezTerm, Kitty, and Terminal.app were not run in this environment; native click-to-focus remains manually unverified."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "always"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-02T20:49:40.195Z"
 executionMode: "worktree"
 executionBaselineTree: "b93ede2a546fff98bfcf8e53176eb00c25dfe63b"
 worktreeId: "00cfd77f"
