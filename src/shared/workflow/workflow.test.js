@@ -2145,8 +2145,6 @@ Deno.test("beginSlicerContextPhase persists a clean model-context boundary", () 
 
 Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     let captured = /** @type {any} */ (null);
-    /** @type {string[]} */
-    const loadedPaths = [];
     /** @type {any[]} */
     const boundaries = [];
     /** @type {string[]} */
@@ -2167,12 +2165,6 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
         hostedSession,
         __deps: {
             ...slicerPlanDeps(),
-            ensureBundledAgentDefFile: (relativePath) =>
-                Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-            loadAgentDefFromPath: (path, opts) => {
-                loadedPaths.push(`${path}:${opts?.agentName}`);
-                return Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" }));
-            },
             runActiveAgentTurn: (/** @type {any} */ opts) => {
                 order.push("activeTurn");
                 captured = opts;
@@ -2182,7 +2174,6 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     });
     assertEquals(result.ok, true);
     assertEquals(order, ["activeTurn"]);
-    assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
     assertEquals(captured.sessionManager, sessionManager);
@@ -2251,8 +2242,6 @@ Deno.test("runSlicerAgent includes existing child Ticket References in resumed h
                         tickets: [{ url: "https://tracker.example/TICKET-1" }],
                     },
                 }]),
-            ensureBundledAgentDefFile: (relativePath) => Promise.resolve(`/tmp/${relativePath}`),
-            loadAgentDefFromPath: () => Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" })),
             runActiveAgentTurn: (/** @type {any} */ opts) => {
                 userRequest = opts.userRequest;
                 return Promise.resolve([]);

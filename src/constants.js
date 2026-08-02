@@ -331,27 +331,13 @@ export function getHomeDir() {
  * via `getAgentDisplayName()` from `shared/session/agents.js` — never
  * hardcoded.
  *
- * `INIT` is a special pseudo-agent loaded from
- * `src/agent-definitions/workflow-prompts/init-agent-prompt.md` by path rather
- * than top-level agent discovery, so it does not appear in `/agent` listings.
+ * `INIT`, `SLICER`, `REVIEWER`, `REVIEWER_FEEDBACK_ENGINEER`, and `DELEGATED`
+ * are workflow-dispatched runtime agent identifiers. Their definitions live in
+ * the hidden `SUBAGENTS` registry, not top-level agent discovery, so they do not
+ * appear in `/agent` listings or `return_to_router` targets.
  *
- * `SLICER` is a workflow-only pseudo-agent loaded from
- * `src/agent-definitions/workflow-prompts/slicer-prompt.md`, so it also does
- * not appear in `/agent` listings or return_to_router targets.
- *
- * `REVIEWER` is also workflow-only and is loaded from
- * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` (discovery
- * rounds) or `reviewer-verify-prompt.md` (verification rounds) as a bare
- * prompt, without shared skills or extra tools.
- *
- * `REVIEWER_FEEDBACK_ENGINEER` is workflow-only and repairs review findings in
- * a fresh isolated session. It is dispatched by Workflow Validation rather than
- * chosen by the user, so it does not appear in `/agent` listings or
- * `return_to_router` targets.
- *
- * `DELEGATED` is workflow-only and is loaded from
- * `src/agent-definitions/workflow-prompts/delegated-agent-prompt.md` as a bare
- * prompt by the `delegate_agent` tool.
+ * Manual QA is also dispatched through `SUBAGENTS`, but it intentionally uses
+ * the normal `OPERATOR` runtime agent identifier for its isolated prompt.
  */
 /** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
 export const AGENTS = Object.freeze({
@@ -369,6 +355,22 @@ export const AGENTS = Object.freeze({
     IDEATOR: "ideator",
     INIT: "init",
     DELEGATED: "delegated",
+});
+
+/**
+ * Hidden workflow-dispatched subagent definition identifiers. These are loader
+ * registry keys, not necessarily the runtime `AgentDefinition.name` returned by
+ * the registry entry.
+ *
+ * @type {Readonly<{DELEGATED: string, INIT: string, MANUAL_QA: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string}>}
+ */
+export const SUBAGENTS = Object.freeze({
+    DELEGATED: "delegated",
+    INIT: "init",
+    MANUAL_QA: "manual-qa",
+    REVIEWER: "reviewer",
+    REVIEWER_FEEDBACK_ENGINEER: "reviewer-feedback-engineer",
+    SLICER: "slicer",
 });
 
 /** Max concurrent read-only Delegated Agent Sessions per HostedSession. */

@@ -153,9 +153,9 @@ export function getAgentDisplayName(internalName, projectRoot) {
         return fromFile;
     }
 
-    // Workflow-only agents live under `agent-definitions/workflow-prompts/`, which
-    // the layered lookup above deliberately does not search — they must stay out
-    // of `/agent` listings. Their display names are pinned here instead.
+    // Workflow-only subagent definitions live outside the top-level agent files,
+    // which the layered lookup above deliberately does not search — they must
+    // stay out of `/agent` listings. Their display names are pinned here instead.
     const workflowOnlyDisplayName = {
         [AGENTS.SLICER]: "Slicer",
         [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: "Reviewer-Feedback Engineer",

@@ -76,10 +76,6 @@ Deno.test("runInitCommand no-ops in empty project directory without recording in
                 },
                 recordInitOffered: () => events.push("offered"),
                 recordInitDone: () => events.push("done"),
-                loadAgentDefFromPath: () => {
-                    events.push("loaded");
-                    return Promise.resolve({});
-                },
                 runAgentSession: () => {
                     events.push("ran");
                     return Promise.resolve();
@@ -191,7 +187,6 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
     let sessionArgs;
     /** @type {string[]} */
     const closed = [];
-    const agentDef = { name: "init-agent" };
     const originalLog = console.log;
     console.log = (msg = "") => events.push(String(msg));
 
@@ -214,15 +209,6 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
                     extractBundledSkills: () => {
                         events.push("skills");
                         return Promise.resolve("/tmp/bundled-skills");
-                    },
-                    ensureBundledAgentDefFile: (/** @type {string} */ relativePath) =>
-                        Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-                    loadAgentDefFromPath: (
-                        /** @type {string} */ path,
-                        /** @type {{ agentName: string }} */ opts,
-                    ) => {
-                        events.push(`${path}:${opts.agentName}`);
-                        return Promise.resolve(agentDef);
                     },
                     recordInitOffered: () => {
                         events.push("offered");
@@ -248,14 +234,13 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
 
     assertEquals(events, [
         "skills",
-        "/tmp/bundled-agent-definitions/workflow-prompts/init-agent-prompt.md:init",
         "offered",
         "ran",
         "done",
         "\n[RunWield] ✅ Init complete for /tmp/project.",
     ]);
     assertEquals(/** @type {any} */ (sessionArgs).sessionId, "runtime-init");
-    assertEquals(/** @type {any} */ (sessionArgs).args.agentDef, agentDef);
+    assertEquals(/** @type {any} */ (sessionArgs).args.agentDef.name, "init");
     assertEquals(/** @type {any} */ (sessionArgs).args.agentName, "init");
     assertEquals(closed, ["runtime-init"]);
 });
@@ -284,7 +269,6 @@ Deno.test("runInitCommand reports failure and does not record completion", async
                                 getDefaultModel: () => "model",
                                 getDefaultProvider: () => "configured",
                             }),
-                            loadAgentDefFromPath: () => Promise.resolve({}),
                             recordInitOffered: () => {},
                             createRuntime: () => ({
                                 createInteractiveSession: () => Promise.resolve({ sessionId: "runtime-init" }),

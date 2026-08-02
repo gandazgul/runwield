@@ -4,16 +4,12 @@
  */
 
 import { join } from "@std/path";
-import { extractYaml } from "@std/front-matter";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { AGENTS } from "../constants.js";
+import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.js";
-import { ensureBundledAgentDefFile } from "../shared/session/agent-assets.js";
+import { loadSubAgentDefinition } from "../shared/session/subagent-definitions.ts";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
-
-const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
-const DELEGATED_PROMPT_FILE = "delegated-agent-prompt.md";
 
 const READ_TOOLS = Object.freeze([
     "read",
@@ -58,7 +54,7 @@ const TOOL_PARAMS = Type.Object({
  * @typedef {Object} DelegateAgentDeps
  * @property {typeof import('../shared/session/session.js').runIsolatedAgentSession} runIsolatedAgentSession
  * @property {(path: string | URL) => Promise<string>} [readTextFile]
- * @property {typeof ensureBundledAgentDefFile} [ensurePromptFile]
+ * @property {(relativePath: string) => Promise<string>} [ensurePromptFile]
  * @property {(cwd: string) => Promise<DelegatedChangeSnapshot | null>} [captureChangeSnapshot]
  * @property {(cwd: string) => Promise<string[] | null>} [captureChangedPaths]
  * @property {string} [modelOverride]
@@ -118,26 +114,17 @@ export function resolveDelegatedToolNames(parentTools, mode) {
 
 /**
  * @param {(path: string | URL) => Promise<string>} [readTextFile]
- * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
+ * @param {(relativePath: string) => Promise<string>} [ensurePromptFile]
  * @returns {Promise<import('../shared/session/types.js').AgentDefinition>}
  */
 export async function loadDelegatedAgentPrompt(
     readTextFile = Deno.readTextFile,
-    ensurePromptFile = ensureBundledAgentDefFile,
+    ensurePromptFile,
 ) {
-    const promptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, DELEGATED_PROMPT_FILE));
-    const raw = await readTextFile(promptPath);
-    const { attrs, body } = extractYaml(raw);
-    const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Delegated Agent";
-    const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
-    return {
-        name: AGENTS.DELEGATED,
-        displayName,
-        model: "",
-        description,
-        tools: [],
-        systemPrompt: body.trim(),
-    };
+    return await loadSubAgentDefinition(SUBAGENTS.DELEGATED, {
+        readTextFile: (path) => readTextFile(path),
+        ensurePromptFile,
+    });
 }
 
 /**

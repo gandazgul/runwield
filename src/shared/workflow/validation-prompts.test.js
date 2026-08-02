@@ -26,7 +26,7 @@ Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
         (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
     );
 
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/manual-qa-prompt.md"]);
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/manual-qa-prompt.md"]);
     assertEquals(promptDef.name, "operator");
     assertEquals(promptDef.displayName, "Manual QA");
     assertEquals(promptDef.tools, []);
@@ -35,7 +35,7 @@ Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
 
 Deno.test("bundled Manual QA prompt requires the user checklist shape", async () => {
     const prompt = await Deno.readTextFile(
-        new URL("../../agent-definitions/workflow-prompts/manual-qa-prompt.md", import.meta.url),
+        new URL("../../agent-definitions/subagent-definitions/manual-qa-prompt.md", import.meta.url),
     );
 
     assertStringIncludes(prompt, "Manual verification steps for <plan name>");
@@ -158,7 +158,7 @@ Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
         (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
     );
 
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/reviewer-prompt.md"]);
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/reviewer-prompt.md"]);
     assertEquals(reviewerDef.name, "reviewer");
     assertEquals(reviewerDef.displayName, "Reviewer");
     assertEquals(reviewerDef.tools, []);
@@ -187,7 +187,7 @@ Deno.test("loadReviewerPrompt loads the verification prompt for later rounds", a
         (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
     );
 
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/reviewer-verify-prompt.md"]);
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/reviewer-verify-prompt.md"]);
     assertEquals(reviewerDef.systemPrompt, "Verify the open findings.");
 });
 
@@ -216,8 +216,8 @@ Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed
     );
 
     assertEquals(ensuredPaths, [
-        "workflow-prompts/reviewer-prompt.md",
-        "workflow-prompts/reviewer-prompt.md",
+        "subagent-definitions/reviewer-prompt.md",
+        "subagent-definitions/reviewer-prompt.md",
     ]);
     assertEquals(readAttempts, 2);
     assertStringIncludes(reviewerDef.systemPrompt, "Recovered prompt");
@@ -248,7 +248,7 @@ Deno.test("loadReviewerPrompt retries transient partial prompt reads", async () 
 
 /** @param {string} name */
 function readBundledPrompt(name) {
-    return Deno.readTextFile(new URL(`../../agent-definitions/workflow-prompts/${name}`, import.meta.url));
+    return Deno.readTextFile(new URL(`../../agent-definitions/subagent-definitions/${name}`, import.meta.url));
 }
 
 Deno.test("bundled discovery reviewer prompt states an approval default", async () => {

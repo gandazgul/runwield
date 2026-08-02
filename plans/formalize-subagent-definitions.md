@@ -28,7 +28,6 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-01T00:32:24-04:00"
-status: "draft"
 objectiveChecks:
     - id: "OC1"
       command: "test ! -d src/agent-definitions/workflow-prompts"
@@ -43,6 +42,7 @@ objectiveChecks:
       command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
       rationale: "The focused test file does not exist on the baseline and can only pass once the typed loader and registry are implemented and exercised."
 updatedAt: "2026-08-02T12:43:43.651Z"
+status: "ready_for_work"
 ---
 
 # Formalize Subagent Definitions

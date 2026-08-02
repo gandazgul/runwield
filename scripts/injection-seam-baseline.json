@@ -21,13 +21,11 @@
             "seams": [
                 "createRuntime",
                 "cwd",
-                "ensureBundledAgentDefFile",
                 "extractBundledSkills",
                 "getModelRegistry",
                 "getSettingsManager",
                 "isEmptyProjectDirectory",
                 "isInitDone",
-                "loadAgentDefFromPath",
                 "parseArgs",
                 "printCommandHelp",
                 "recordInitDone",
