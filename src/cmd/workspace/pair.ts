@@ -5,27 +5,24 @@ import { openOwnerCoordinationStore } from "../../shared/owner-coordination/inde
 import { normalizePairingCode } from "../../shared/owner-coordination/crypto.js";
 import { stripTerminalControlCharacters } from "../../shared/owner-coordination/pairing.js";
 
-export function printWorkspacePairHelp() {
+export function printWorkspacePairHelp(): void {
     console.log(`Usage: ${CLI_BIN} workspace pair <code>`);
     console.log("Approves a pending browser-initiated owner Workspace pairing request on this machine.");
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: any }} [options]
- */
-export function runWorkspacePairCommand(argv, options = {}) {
-    const deps = options.__testDeps || {};
+export function runWorkspacePairCommand(argv: string[]): void {
     if (argv.includes("--help") || argv.includes("-h")) {
-        return (deps.printWorkspacePairHelp || printWorkspacePairHelp)();
+        printWorkspacePairHelp();
+        return;
     }
     const code = normalizePairingCode(argv[0] || "");
     if (!code) {
-        console.error(`[RunWield] Pairing code is required.`);
+        console.error("[RunWield] Pairing code is required.");
         console.error(`Run '${CLI_BIN} workspace pair --help' for usage.`);
         return;
     }
-    const store = deps.store || openOwnerCoordinationStore({ dbPath: deps.dbPath });
+
+    const store = openOwnerCoordinationStore();
     try {
         const approved = store.approvePairingRequest(code);
         const safeDeviceLabel = stripTerminalControlCharacters(approved.deviceLabel);
@@ -34,6 +31,6 @@ export function runWorkspacePairCommand(argv, options = {}) {
     } catch (error) {
         console.error(`[RunWield] ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-        if (!deps.store) store.close?.();
+        store.close();
     }
 }

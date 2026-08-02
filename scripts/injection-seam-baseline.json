@@ -10,13 +10,6 @@
             ],
             "machinery": []
         },
-        "src/cmd/help/index.js": {
-            "seams": [
-                "exit",
-                "parseArgs"
-            ],
-            "machinery": []
-        },
         "src/cmd/init/index.js": {
             "seams": [
                 "createRuntime",
@@ -64,7 +57,6 @@
                 "probeGitRepository",
                 "recordPlanEvent",
                 "recordWorkflowMetric",
-                "removeWorktreeGitArtifacts",
                 "resolvePlan",
                 "resolveSiblingChildPlanDependencies",
                 "resolveValidationExecutionContext",
@@ -87,7 +79,6 @@
                 "mergeExecutionWorktree",
                 "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
-                "removeWorktreeGitArtifacts",
                 "restorePrimaryPlanPathAfterMergeFailure",
                 "settleWorktreeAttempt",
                 "stageValidationPassedInExecutionWorktree",
@@ -225,14 +216,6 @@
             ],
             "machinery": []
         },
-        "src/cmd/quit/index.js": {
-            "seams": [
-                "exit",
-                "setTimeout",
-                "stopTUI"
-            ],
-            "machinery": []
-        },
         "src/cmd/resume/index.js": {
             "seams": [
                 "getCompactThresholdPercent",
@@ -275,26 +258,6 @@
                 "makeTempDir",
                 "remove",
                 "writeTextFile"
-            ],
-            "machinery": []
-        },
-        "src/cmd/workspace/pair.js": {
-            "seams": [
-                "dbPath",
-                "printWorkspacePairHelp",
-                "store"
-            ],
-            "machinery": []
-        },
-        "src/cmd/workspace/serve.js": {
-            "seams": [
-                "dbPath",
-                "installShutdownHandlers",
-                "openBrowser",
-                "parseWorkspaceServeArgs",
-                "printWorkspaceServeHelp",
-                "startWorkspaceServer",
-                "store"
             ],
             "machinery": []
         },

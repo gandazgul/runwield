@@ -11,10 +11,17 @@ import { isLoopbackHost, openBrowser, parsePort } from "../plans/ui.js";
 export const WORKSPACE_DEFAULT_HOST = "127.0.0.1";
 export const WORKSPACE_DEFAULT_PORT = 8787;
 
-/** @typedef {{ host: string, port: number, publicOrigin: string, trustTlsTerminator: boolean, noOpen: boolean, enableSessionActivation: boolean, help: boolean }} WorkspaceServeOptions */
+export interface WorkspaceServeOptions {
+    host: string;
+    port: number;
+    publicOrigin: string;
+    trustTlsTerminator: boolean;
+    noOpen: boolean;
+    enableSessionActivation: boolean;
+    help: boolean;
+}
 
-/** @param {string} value */
-export function normalizePublicOrigin(value) {
+export function normalizePublicOrigin(value: string): string {
     const url = new URL(value);
     if (url.pathname !== "/" || url.search || url.hash) {
         throw new Error("--public-origin must be an origin only, with no path, query, or fragment.");
@@ -22,8 +29,7 @@ export function normalizePublicOrigin(value) {
     return url.origin;
 }
 
-/** @param {string[]} argv */
-export function parseWorkspaceServeArgs(argv) {
+export function parseWorkspaceServeArgs(argv: string[]): WorkspaceServeOptions {
     const parsed = parseArgs(argv, {
         boolean: ["help", "no-open", "trust-tls-terminator", "enable-session-activation"],
         string: ["bind", "host", "port", "public-origin"],
@@ -56,7 +62,7 @@ export function parseWorkspaceServeArgs(argv) {
     };
 }
 
-export function printWorkspaceServeHelp() {
+export function printWorkspaceServeHelp(): void {
     console.log(
         `Usage: ${CLI_BIN} workspace serve [--bind <host>|--host <host>] [--port <port>] [--public-origin <origin>] [--trust-tls-terminator] [--enable-session-activation] [--no-open]`,
     );
@@ -64,47 +70,41 @@ export function printWorkspaceServeHelp() {
     console.log("Defaults: --bind 127.0.0.1 --port 8787.");
 }
 
-/** @param {AbortController} controller */
-function installShutdownHandlers(controller) {
+function installShutdownHandlers(controller: AbortController): () => void {
     const handler = () => controller.abort();
-    const signals = ["SIGINT", "SIGTERM"];
-    for (const signal of signals) Deno.addSignalListener(/** @type {Deno.Signal} */ (signal), handler);
+    const signals: Deno.Signal[] = ["SIGINT", "SIGTERM"];
+    for (const signal of signals) Deno.addSignalListener(signal, handler);
     return () => {
-        for (const signal of signals) Deno.removeSignalListener(/** @type {Deno.Signal} */ (signal), handler);
+        for (const signal of signals) Deno.removeSignalListener(signal, handler);
     };
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: any }} [options]
- */
-export async function runWorkspaceServeCommand(argv, options = {}) {
-    const deps = options.__testDeps || {};
-    let parsed;
+export async function runWorkspaceServeCommand(argv: string[]): Promise<void> {
+    let parsed: WorkspaceServeOptions;
     try {
-        parsed = (deps.parseWorkspaceServeArgs || parseWorkspaceServeArgs)(argv);
+        parsed = parseWorkspaceServeArgs(argv);
     } catch (error) {
         console.error(`[RunWield] ${error instanceof Error ? error.message : String(error)}`);
         console.error(`Run '${CLI_BIN} workspace serve --help' for usage.`);
         return;
     }
-    if (parsed.help) return (deps.printWorkspaceServeHelp || printWorkspaceServeHelp)();
+    if (parsed.help) {
+        printWorkspaceServeHelp();
+        return;
+    }
 
     const controller = new AbortController();
-    const removeShutdownHandlers = deps.installShutdownHandlers
-        ? deps.installShutdownHandlers(controller)
-        : installShutdownHandlers(controller);
-    const store = deps.store || openOwnerCoordinationStore({ dbPath: deps.dbPath });
+    const removeShutdownHandlers = installShutdownHandlers(controller);
+    const store = openOwnerCoordinationStore();
     try {
         if (parsed.enableSessionActivation) {
             console.error(
                 "[RunWield] Enabling Session Activation protocol. Confirm all pre-v3 TUI, ACP, and Workspace processes are stopped and will not run concurrently.",
             );
-            store.acknowledgeActivationProtocol?.();
+            store.acknowledgeActivationProtocol();
         }
-        const startWorkspaceServer = deps.startWorkspaceServer ||
-            (await import("../../ui/workspace/server.js")).startWorkspaceServer;
-        const server = await startWorkspaceServer({
+        const { startWorkspaceServer } = await import("../../ui/workspace/server.js");
+        const server = startWorkspaceServer({
             mode: "owner",
             host: parsed.host,
             port: parsed.port,
@@ -116,15 +116,15 @@ export async function runWorkspaceServeCommand(argv, options = {}) {
         const url = parsed.publicOrigin;
         console.log(`[RunWield] Owner Workspace: ${url}`);
         console.log(`[RunWield] Owner database: ${store.path || getOwnerCoordinationDatabasePath()}`);
-        if (!store.getActivationProtocolStatus?.().enabled) {
+        if (!store.getActivationProtocolStatus().enabled) {
             console.log(
                 "[RunWield] Session continuation disabled. Restart with --enable-session-activation after stopping incompatible processes.",
             );
         }
-        if (!parsed.noOpen) await (deps.openBrowser || openBrowser)(url);
-        if (server?.finished) await server.finished;
+        if (!parsed.noOpen) await openBrowser(url);
+        await server.finished;
     } finally {
-        removeShutdownHandlers?.();
-        if (!deps.store) store.close?.();
+        removeShutdownHandlers();
+        store.close();
     }
 }

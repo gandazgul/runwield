@@ -1,0 +1,211 @@
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { fromFileUrl, join } from "@std/path";
+import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { parseWorkspaceServeArgs } from "./serve.ts";
+
+interface WorkspaceCommandFixture {
+    databasePath: string;
+    homeDir: string;
+    origin: string;
+    port: number;
+    projectRoot: string;
+}
+
+interface PairingRequestBody {
+    code: string;
+    expiresAt: string;
+    state: string;
+}
+
+interface PairingStatusBody {
+    state: string;
+}
+
+const decoder = new TextDecoder();
+const workspaceModuleUrl = import.meta.resolve("./index.ts");
+const denoConfigPath = fromFileUrl(new URL("../../../deno.json", import.meta.url));
+
+async function withWorkspaceCommandFixture(
+    run: (fixture: WorkspaceCommandFixture) => Promise<void>,
+): Promise<void> {
+    const fixtureRoot = await Deno.makeTempDir({ prefix: "runwield-workspace-command-" });
+    const homeDir = join(fixtureRoot, "home");
+    const projectRoot = join(fixtureRoot, "project");
+    await Promise.all([
+        Deno.mkdir(homeDir, { recursive: true }),
+        Deno.mkdir(projectRoot, { recursive: true }),
+    ]);
+    const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+    const port = (listener.addr as Deno.NetAddr).port;
+    listener.close();
+    try {
+        await run({
+            databasePath: join(homeDir, ".wld", "owner-coordination.sqlite3"),
+            homeDir,
+            origin: `http://127.0.0.1:${port}`,
+            port,
+            projectRoot,
+        });
+    } finally {
+        await Deno.remove(fixtureRoot, { recursive: true }).catch(() => {});
+    }
+}
+
+function workspaceCommandSource(argv: string[]): string {
+    return `import { runWorkspaceCommand } from ${JSON.stringify(workspaceModuleUrl)};\n` +
+        `await runWorkspaceCommand(${JSON.stringify(argv)});\n`;
+}
+
+function workspaceCommandOptions(fixture: WorkspaceCommandFixture, argv: string[]): Deno.CommandOptions {
+    return {
+        args: ["eval", "--config", denoConfigPath, workspaceCommandSource(argv)],
+        cwd: fixture.projectRoot,
+        env: {
+            HOME: fixture.homeDir,
+            WLD_TEST_SANDBOX_HOME: fixture.homeDir,
+        },
+        stdout: "piped",
+        stderr: "piped",
+    };
+}
+
+async function runWorkspaceChild(
+    fixture: WorkspaceCommandFixture,
+    argv: string[],
+): Promise<Deno.CommandOutput> {
+    return await new Deno.Command(Deno.execPath(), workspaceCommandOptions(fixture, argv)).output();
+}
+
+async function waitForWorkspace(origin: string): Promise<Response> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 200; attempt++) {
+        try {
+            const response = await fetch(`${origin}/pair`);
+            if (response.ok) return response;
+        } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    throw lastError || new Error(`Owner Workspace did not start at ${origin}.`);
+}
+
+Deno.test("workspace serve parser defaults to loopback and rejects unsafe non-loopback", () => {
+    assertEquals(parseWorkspaceServeArgs([]), {
+        host: "127.0.0.1",
+        port: 8787,
+        publicOrigin: "http://127.0.0.1:8787",
+        trustTlsTerminator: false,
+        noOpen: false,
+        enableSessionActivation: false,
+        help: false,
+    });
+    const safe = parseWorkspaceServeArgs([
+        "--bind",
+        "0.0.0.0",
+        "--trust-tls-terminator",
+        "--public-origin",
+        "https://runwield.example.test:443",
+    ]);
+    assertEquals(safe.host, "0.0.0.0");
+    assertEquals(safe.publicOrigin, "https://runwield.example.test");
+
+    let message = "";
+    try {
+        parseWorkspaceServeArgs(["--bind", "0.0.0.0"]);
+    } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+    }
+    assertStringIncludes(message, "Non-loopback owner Workspace bind requires");
+});
+
+Deno.test("workspace help and validation use isolated command processes without creating owner state", async () => {
+    await withWorkspaceCommandFixture(async (fixture) => {
+        const help = await runWorkspaceChild(fixture, ["--help"]);
+        assertEquals(help.code, 0);
+        assertStringIncludes(decoder.decode(help.stdout), "workspace <command>");
+
+        const missingPairCode = await runWorkspaceChild(fixture, ["pair"]);
+        assertEquals(missingPairCode.code, 0);
+        assertStringIncludes(decoder.decode(missingPairCode.stderr), "Pairing code is required");
+
+        const unsafeServe = await runWorkspaceChild(fixture, ["serve", "--bind", "0.0.0.0", "--no-open"]);
+        assertEquals(unsafeServe.code, 0);
+        assertStringIncludes(decoder.decode(unsafeServe.stderr), "Non-loopback owner Workspace bind requires");
+        assertEquals(await Deno.stat(fixture.databasePath).then(() => true).catch(() => false), false);
+    });
+});
+
+Deno.test("workspace serve and pair complete the real browser pairing lifecycle", async () => {
+    await withWorkspaceCommandFixture(async (fixture) => {
+        const serveArgs = [
+            "serve",
+            "--port",
+            String(fixture.port),
+            "--no-open",
+            "--enable-session-activation",
+        ];
+        const serverChild = new Deno.Command(Deno.execPath(), workspaceCommandOptions(fixture, serveArgs)).spawn();
+        let serverOutput: Deno.CommandOutput | undefined;
+        try {
+            const pairPage = await waitForWorkspace(fixture.origin);
+            assertStringIncludes(await pairPage.text(), "Pair this browser with owner Workspace");
+
+            const request = await fetch(`${fixture.origin}/api/owner/pairing/request`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    origin: fixture.origin,
+                },
+                body: JSON.stringify({ deviceLabel: "Device \u001b[31mRed\u0007" }),
+            });
+            assertEquals(request.status, 201);
+            const pairing = await request.json() as PairingRequestBody;
+            assertEquals(pairing.state, "pending");
+            assertEquals(/^[A-Z2-9]{6}$/.test(pairing.code), true);
+            assertEquals(typeof pairing.expiresAt, "string");
+            const proofCookie = (request.headers.get("set-cookie") || "").split(";", 1)[0];
+            assertStringIncludes(proofCookie, "rw_pairing_proof=");
+
+            const pair = await runWorkspaceChild(fixture, ["pair", pairing.code.toLowerCase()]);
+            const pairStdout = decoder.decode(pair.stdout);
+            assertEquals(pair.code, 0);
+            assertStringIncludes(pairStdout, "Approved Workspace pairing request for Device Red.");
+            assertEquals(pairStdout.includes("\u001b"), false);
+            assertEquals(pairStdout.includes("\u0007"), false);
+
+            const statusResponse = await fetch(`${fixture.origin}/api/owner/pairing/status`, {
+                headers: { cookie: proofCookie },
+            });
+            assertEquals(statusResponse.status, 200);
+            assertEquals((await statusResponse.json() as PairingStatusBody).state, "approved");
+
+            const claim = await fetch(`${fixture.origin}/api/owner/pairing/claim`, {
+                method: "POST",
+                headers: { cookie: proofCookie, origin: fixture.origin },
+            });
+            assertEquals(claim.status, 201);
+            assertStringIncludes(claim.headers.get("set-cookie") || "", "rw_owner_device=");
+        } finally {
+            try {
+                serverChild.kill("SIGINT");
+            } catch {
+                // The child already stopped; output below reports its result.
+            }
+            serverOutput = await serverChild.output();
+        }
+
+        assertEquals(serverOutput.code, 0);
+        assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner Workspace: ${fixture.origin}`);
+        assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner database: ${fixture.databasePath}`);
+        assertStringIncludes(decoder.decode(serverOutput.stderr), "Enabling Session Activation protocol");
+
+        const store = openOwnerCoordinationStore({ dbPath: fixture.databasePath });
+        try {
+            assertEquals(store.getActivationProtocolStatus().enabled, true);
+            assertEquals(store.listDevices().length, 1);
+        } finally {
+            store.close();
+        }
+    });
+});

@@ -12,7 +12,7 @@ import { runHelpCommand } from "./help/index.js";
 import { getAgentCompletions, runAgentsCommand } from "./agents/index.js";
 import { getModelCompletions, runModelsCommand } from "./models/index.js";
 import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.js";
-import { runQuitCommand } from "./quit/index.js";
+import { runQuitCommand } from "./quit/index.ts";
 import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.js";
 import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
@@ -33,7 +33,7 @@ import { runVersionCommand } from "./version/index.js";
 import { runUpdateCommand } from "./update/index.js";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
 import { runAcpCommand } from "./acp/index.js";
-import { runWorkspaceCommand } from "./workspace/index.js";
+import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
