@@ -24,6 +24,7 @@ import {
 } from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
+import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import {
     assertSharedPlanWriteAllowed,
     COLLABORATION_FRONT_MATTER_KEYS,
@@ -285,20 +286,6 @@ function pickKnownPlanFrontMatter(attrs) {
 }
 
 const HIDDEN_PLAN_DIRS = new Set(["archived"]);
-
-/**
- * Escape a scalar for YAML double-quoted style.
- * @param {unknown} value
- * @returns {string}
- */
-function escapeYamlDoubleQuoted(value) {
-    return String(value)
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, '\\"')
-        .replace(/\r/g, "\\r")
-        .replace(/\n/g, "\\n")
-        .replace(/\t/g, "\\t");
-}
 
 /**
  * @param {unknown} value
