@@ -5,28 +5,18 @@
 
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import { createTuiCrashGuards } from "./tui-crash-guards.js";
-import { createTuiManager } from "./tui-manager.js";
-import { installTerminalFocusState } from "./terminal-focus-state.ts";
+import { createTuiManager } from "./tui-manager.ts";
 
 const tuiManager = createTuiManager({
     TerminalCtor: ProcessTerminal,
     TuiCtor: TUI,
     installCrashGuards: () => crashGuards.install(),
     uninstallCrashGuards: () => crashGuards.uninstall(),
-    installFocusState: installProductionTerminalFocusState,
 });
 
 const crashGuards = createTuiCrashGuards({
     stop: () => tuiManager.stopTUI(),
 });
-
-/** @param {{ write(data: string): void, start(onInput: (data: string) => void, onResize?: (size: { columns: number, rows: number }) => void): void }} terminal */
-function installProductionTerminalFocusState(terminal) {
-    if (Deno.env.get("WLD_GOLDEN_TUI") || Deno.env.get("WLD_GOLDEN_TUI_CHILD")) {
-        return { dispose() {} };
-    }
-    return installTerminalFocusState(terminal);
-}
 
 /**
  * Initialize the TUI singleton if not already running.

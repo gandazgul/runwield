@@ -7,6 +7,21 @@ import {
     selectNativeNotificationProtocol,
     shouldSuppressAttentionNotification,
 } from "./system-notifications.ts";
+import { installTerminalFocusState, type TerminalFocusStateOwner } from "./terminal-focus-state.ts";
+
+type FocusInputHandler = (data: string) => void;
+
+class NotificationFocusTerminal {
+    write(_data: string): void {}
+
+    start(_onInput: FocusInputHandler): void {}
+}
+
+function installReportedFocusState(report: "\x1b[I" | "\x1b[O"): TerminalFocusStateOwner {
+    const owner = installTerminalFocusState(new NotificationFocusTerminal());
+    owner.filterInput(report);
+    return owner;
+}
 
 type TerminalWriteRecorder = {
     writes: number[][];
@@ -14,7 +29,11 @@ type TerminalWriteRecorder = {
     writeTerminal(bytes: Uint8Array): void;
 };
 
-function makeTerminalWriter(options: { throwOnWrite?: boolean } = {}): TerminalWriteRecorder {
+type TerminalWriterOptions = {
+    throwOnWrite?: boolean;
+};
+
+function makeTerminalWriter(options: TerminalWriterOptions = {}): TerminalWriteRecorder {
     const decoder = new TextDecoder();
     return {
         writes: [],
@@ -134,12 +153,11 @@ Deno.test("buildNativeNotificationSequence emits WezTerm and Ghostty OSC 777 saf
 
 Deno.test("buildNativeNotificationSequence emits Kitty OSC 99 with unfocused option and encoded text", () => {
     const sequence = buildNativeNotificationSequence("osc99", "Title;\x1b", "Message\x07\x1b\\done");
-    assert(sequence);
-    assertStringIncludes(sequence, "\x1b]99;");
-    assertStringIncludes(sequence, "o=unfocused");
-    assertEquals(sequence.includes("Title;"), false);
-    assertEquals(sequence.includes("Message\x07"), false);
-    assertEquals(sequence.endsWith("\x1b\\"), true);
+    assertEquals(
+        sequence,
+        "\x1b]99;i=runwield:d=0:e=1:o=unfocused:p=title;VGl0bGU7Gw==\x1b\\" +
+            "\x1b]99;i=runwield:d=1:e=1:o=unfocused:p=body;TWVzc2FnZQcbXGRvbmU=\x1b\\",
+    );
 });
 
 Deno.test("notifyRunWieldEvent never reaches notifications from a Golden TUI run", async () => {
@@ -164,7 +182,6 @@ Deno.test("notifyRunWieldEvent emits unsupported-terminal BEL fallback when enab
     const terminal = makeTerminalWriter();
     const result = await notifyRunWieldEvent("agentStopped", {
         sessionName: "demo",
-        terminalFocusState: "unknown",
         __deps: {
             env: { TERM_PROGRAM: "Apple_Terminal" },
             pid: 1,
@@ -184,7 +201,6 @@ Deno.test("notifyRunWieldEvent respects terminalBell false while preserving OSC 
     const terminal = makeTerminalWriter();
     const result = await notifyRunWieldEvent("userInterview", {
         sessionName: "silent bell",
-        terminalFocusState: "unknown",
         __deps: {
             env: { TERM_PROGRAM: "iTerm.app" },
             pid: 1,
@@ -202,43 +218,51 @@ Deno.test("notifyRunWieldEvent respects terminalBell false while preserving OSC 
 });
 
 Deno.test("notifyRunWieldEvent suppresses focused terminals before BEL or OSC emission", async () => {
+    const focusOwner = installReportedFocusState("\x1b[I");
     const terminal = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("planWritten", {
-        sessionName: "focused",
-        terminalFocusState: "focused",
-        __deps: {
-            env: { TERM_PROGRAM: "WezTerm" },
-            pid: 1,
-            getMergedCustomSetting: () => undefined,
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
-    });
+    try {
+        const result = await notifyRunWieldEvent("planWritten", {
+            sessionName: "focused",
+            __deps: {
+                env: { TERM_PROGRAM: "WezTerm" },
+                pid: 1,
+                getMergedCustomSetting: () => undefined,
+                writeTerminal: terminal.writeTerminal.bind(terminal),
+            },
+        });
 
-    assertEquals(result.sent, false);
-    assertEquals(result.reason, "focused");
-    assertEquals(result.terminalBellEmitted, false);
-    assertEquals(result.oscEmitted, false);
-    assertEquals(terminal.writes, []);
+        assertEquals(result.sent, false);
+        assertEquals(result.reason, "focused");
+        assertEquals(result.terminalBellEmitted, false);
+        assertEquals(result.oscEmitted, false);
+        assertEquals(terminal.writes, []);
+    } finally {
+        focusOwner.dispose();
+    }
 });
 
 Deno.test("notifyRunWieldEvent suppressWhenFocused false restores always-emit behavior", async () => {
+    const focusOwner = installReportedFocusState("\x1b[I");
     const terminal = makeTerminalWriter();
-    const result = await notifyRunWieldEvent("planWritten", {
-        sessionName: "focused",
-        terminalFocusState: "focused",
-        __deps: {
-            env: { TERM_PROGRAM: "WezTerm" },
-            pid: 1,
-            getMergedCustomSetting: () => ({ suppressWhenFocused: false }),
-            writeTerminal: terminal.writeTerminal.bind(terminal),
-        },
-    });
+    try {
+        const result = await notifyRunWieldEvent("planWritten", {
+            sessionName: "focused",
+            __deps: {
+                env: { TERM_PROGRAM: "WezTerm" },
+                pid: 1,
+                getMergedCustomSetting: () => ({ suppressWhenFocused: false }),
+                writeTerminal: terminal.writeTerminal.bind(terminal),
+            },
+        });
 
-    assertEquals(result.sent, true);
-    assertEquals(result.protocol, "osc777");
-    assertEquals(result.terminalBellEmitted, true);
-    assertEquals(terminal.writes[0], [7]);
-    assertStringIncludes(terminal.strings[1], "\x1b]777;notify;");
+        assertEquals(result.sent, true);
+        assertEquals(result.protocol, "osc777");
+        assertEquals(result.terminalBellEmitted, true);
+        assertEquals(terminal.writes[0], [7]);
+        assertStringIncludes(terminal.strings[1], "\x1b]777;notify;");
+    } finally {
+        focusOwner.dispose();
+    }
 });
 
 Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finished text", async () => {
@@ -259,7 +283,6 @@ Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finis
     const terminal = makeTerminalWriter();
     const sent = await notifyRunWieldEvent("compactionFinished", {
         sessionName: "compact session",
-        terminalFocusState: "unfocused",
         __deps: {
             env: { TERM_PROGRAM: "Ghostty" },
             pid: 1,
@@ -308,7 +331,6 @@ Deno.test("notifyRunWieldEvent isolates terminal write failures", async () => {
     const terminal = makeTerminalWriter({ throwOnWrite: true });
     const result = await notifyRunWieldEvent("planWritten", {
         sessionName: "write failure",
-        terminalFocusState: "unknown",
         __deps: {
             env: { TERM_PROGRAM: "iTerm.app" },
             pid: 1,

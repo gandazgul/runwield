@@ -3,21 +3,20 @@ import {
     createTerminalFocusStateOwner,
     getCurrentTerminalFocusState,
     installTerminalFocusState,
+    type TerminalInputHandler,
+    type TerminalResizeHandler,
 } from "./terminal-focus-state.ts";
-
-type InputHandler = (data: string) => void;
-type ResizeHandler = (size: { columns: number; rows: number }) => void;
 
 class FocusTestTerminal {
     writes: string[] = [];
-    onInput: InputHandler | null = null;
-    onResize: ResizeHandler | null = null;
+    onInput: TerminalInputHandler | null = null;
+    onResize: TerminalResizeHandler | null = null;
 
     write(data: string): void {
         this.writes.push(data);
     }
 
-    start(onInput: InputHandler, onResize?: ResizeHandler): void {
+    start(onInput: TerminalInputHandler, onResize?: TerminalResizeHandler): void {
         this.onInput = onInput;
         this.onResize = onResize || null;
     }
@@ -50,11 +49,35 @@ Deno.test("filterInput consumes focus reports and updates state", () => {
     assertEquals(owner.getState(), "unfocused");
 });
 
+Deno.test("filterInput consumes split focus reports and updates state", () => {
+    const terminal = new FocusTestTerminal();
+    const owner = createTerminalFocusStateOwner(terminal);
+
+    assertEquals(owner.filterInput("a\x1b["), "a");
+    assertEquals(owner.getState(), "unknown");
+    assertEquals(owner.filterInput("Ib"), "b");
+    assertEquals(owner.getState(), "focused");
+    assertEquals(owner.filterInput("c\x1b["), "c");
+    assertEquals(owner.filterInput("Od"), "d");
+    assertEquals(owner.getState(), "unfocused");
+});
+
+Deno.test("filterInput passes standalone ESC through without pending", () => {
+    const terminal = new FocusTestTerminal();
+    const owner = createTerminalFocusStateOwner(terminal);
+
+    assertEquals(owner.filterInput("\x1b"), "\x1b");
+    assertEquals(owner.filterInput("x"), "x");
+    assertEquals(owner.getState(), "unknown");
+});
+
 Deno.test("filterInput passes non-focus input through unchanged and in order", () => {
     const terminal = new FocusTestTerminal();
     const owner = createTerminalFocusStateOwner(terminal);
 
     assertEquals(owner.filterInput("\x1b[Ahello\r\x1b[B"), "\x1b[Ahello\r\x1b[B");
+    assertEquals(owner.filterInput("\x1b["), "");
+    assertEquals(owner.filterInput("Az"), "\x1b[Az");
     assertEquals(owner.getState(), "unknown");
 });
 

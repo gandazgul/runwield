@@ -5,8 +5,13 @@ const FOCUS_OUT = "\x1b[O";
 
 export type TerminalFocusState = "unknown" | "focused" | "unfocused";
 
-type TerminalInputHandler = (data: string) => void;
-type TerminalResizeHandler = (size: { columns: number; rows: number }) => void;
+export type TerminalSize = {
+    columns: number;
+    rows: number;
+};
+
+export type TerminalInputHandler = (data: string) => void;
+export type TerminalResizeHandler = (size: TerminalSize) => void;
 
 export interface FocusReportingTerminal {
     write(data: string): void;
@@ -18,6 +23,12 @@ export interface TerminalFocusStateOwner {
     filterInput(data: string): string;
     dispose(): void;
 }
+
+type FocusFilterResult = {
+    filtered: string;
+    pending: string;
+    nextState: TerminalFocusState;
+};
 
 let currentTerminalFocusState: TerminalFocusStateOwner | null = null;
 
@@ -33,6 +44,7 @@ export function createTerminalFocusStateOwner(
     terminal: Pick<FocusReportingTerminal, "write">,
 ): TerminalFocusStateOwner {
     let state: TerminalFocusState = "unknown";
+    let pendingInput = "";
     let disposed = false;
     terminal.write(ENABLE_FOCUS_REPORTING);
 
@@ -41,9 +53,10 @@ export function createTerminalFocusStateOwner(
             return state;
         },
         filterInput(data: string): string {
-            const { filtered, nextState } = filterFocusReportInput(data, state);
-            state = nextState;
-            return filtered;
+            const result = filterFocusReportInput(pendingInput + data, state);
+            pendingInput = result.pending;
+            state = result.nextState;
+            return result.filtered;
         },
         dispose(): void {
             if (disposed) return;
@@ -59,8 +72,8 @@ export function createTerminalFocusStateOwner(
 }
 
 export function installTerminalFocusState(terminal: FocusReportingTerminal): TerminalFocusStateOwner {
-    const owner = createTerminalFocusStateOwner(terminal);
     const originalStart = terminal.start.bind(terminal);
+    const owner = createTerminalFocusStateOwner(terminal);
     terminal.start = (onInput: TerminalInputHandler, onResize?: TerminalResizeHandler): void => {
         originalStart((data: string) => {
             const filtered = owner.filterInput(data);
@@ -74,7 +87,7 @@ export function installTerminalFocusState(terminal: FocusReportingTerminal): Ter
 function filterFocusReportInput(
     data: string,
     initialState: TerminalFocusState,
-): { filtered: string; nextState: TerminalFocusState } {
+): FocusFilterResult {
     let nextState = initialState;
     let filtered = "";
     for (let index = 0; index < data.length;) {
@@ -88,8 +101,16 @@ function filterFocusReportInput(
             index += FOCUS_OUT.length;
             continue;
         }
+        const rest = data.slice(index);
+        if (isPartialFocusReport(rest)) {
+            return { filtered, pending: rest, nextState };
+        }
         filtered += data[index];
         index += 1;
     }
-    return { filtered, nextState };
+    return { filtered, pending: "", nextState };
+}
+
+function isPartialFocusReport(data: string): boolean {
+    return data.length > 1 && (FOCUS_IN.startsWith(data) || FOCUS_OUT.startsWith(data));
 }

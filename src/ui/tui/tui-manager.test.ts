@@ -1,25 +1,30 @@
 import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
-import { createTuiManager } from "./tui-manager.js";
+import { createTuiManager } from "./tui-manager.ts";
+
+type InputHandler = (data: string) => void;
 
 Deno.test("createTuiManager initializes once and returns the same running TUI", () => {
-    /** @type {string[]} */
-    const events = [];
+    const events: string[] = [];
 
     class FakeTerminal {
         constructor() {
             events.push("terminal");
         }
+
+        write(_data: string): void {}
+        start(_onInput: InputHandler): void {}
     }
 
     class FakeTui {
-        /** @param {any} terminal */
-        constructor(terminal) {
+        terminal: FakeTerminal;
+        starts = 0;
+
+        constructor(terminal: FakeTerminal) {
             this.terminal = terminal;
-            this.starts = 0;
             events.push("tui");
         }
 
-        start() {
+        start(): void {
             this.starts++;
             events.push("start");
         }
@@ -45,17 +50,19 @@ Deno.test("createTuiManager initializes once and returns the same running TUI", 
 });
 
 Deno.test("createTuiManager throws before initialization and clears state on stop", () => {
-    /** @type {string[]} */
-    const events = [];
+    const events: string[] = [];
 
-    class FakeTerminal {}
+    class FakeTerminal {
+        write(_data: string): void {}
+        start(_onInput: InputHandler): void {}
+    }
 
     class FakeTui {
-        start() {
+        start(): void {
             events.push("start");
         }
 
-        stop() {
+        stop(): void {
             events.push("stop");
         }
     }
@@ -86,13 +93,15 @@ Deno.test("createTuiManager throws before initialization and clears state on sto
 });
 
 Deno.test("createTuiManager stop is safe before init and with TUI lacking stop", () => {
-    /** @type {string[]} */
-    const events = [];
+    const events: string[] = [];
 
-    class FakeTerminal {}
+    class FakeTerminal {
+        write(_data: string): void {}
+        start(_onInput: InputHandler): void {}
+    }
 
     class FakeTui {
-        start() {
+        start(): void {
             events.push("start");
         }
     }
@@ -113,18 +122,20 @@ Deno.test("createTuiManager stop is safe before init and with TUI lacking stop",
 });
 
 Deno.test("createTuiManager clears partial state when TUI start fails", () => {
-    /** @type {string[]} */
-    const events = [];
+    const events: string[] = [];
 
-    class FakeTerminal {}
+    class FakeTerminal {
+        write(_data: string): void {}
+        start(_onInput: InputHandler): void {}
+    }
 
     class FakeTui {
-        start() {
+        start(): void {
             events.push("start");
             throw new Error("boom");
         }
 
-        stop() {
+        stop(): void {
             events.push("stop");
         }
     }
@@ -141,4 +152,66 @@ Deno.test("createTuiManager clears partial state when TUI start fails", () => {
     assertThrows(() => manager.getTUI(), Error, "TUI not initialized");
     manager.stopTUI();
     assertEquals(events, ["start", "stop", "restoreTitle"]);
+});
+
+Deno.test("createTuiManager enables and disables production terminal focus reporting", () => {
+    const writes: string[] = [];
+
+    class FakeTerminal {
+        write(data: string): void {
+            writes.push(data);
+        }
+
+        start(_onInput: InputHandler): void {}
+    }
+
+    class FakeTui {
+        start(): void {}
+        stop(): void {}
+    }
+
+    const manager = createTuiManager({
+        TerminalCtor: FakeTerminal,
+        TuiCtor: FakeTui,
+        installCrashGuards: () => {},
+        uninstallCrashGuards: () => {},
+        restoreTitle: () => {},
+    });
+
+    manager.initTUI();
+    manager.stopTUI();
+
+    assertEquals(writes, ["\x1b[?1004h", "\x1b[?1004l"]);
+});
+
+Deno.test("createTuiManager disables focus reporting when crash-guard cleanup fails", () => {
+    const writes: string[] = [];
+
+    class FakeTerminal {
+        write(data: string): void {
+            writes.push(data);
+        }
+
+        start(_onInput: InputHandler): void {}
+    }
+
+    class FakeTui {
+        start(): void {}
+        stop(): void {}
+    }
+
+    const manager = createTuiManager({
+        TerminalCtor: FakeTerminal,
+        TuiCtor: FakeTui,
+        installCrashGuards: () => {},
+        uninstallCrashGuards: () => {
+            throw new Error("cleanup failed");
+        },
+        restoreTitle: () => {},
+    });
+
+    manager.initTUI();
+    manager.stopTUI();
+
+    assertEquals(writes, ["\x1b[?1004h", "\x1b[?1004l"]);
 });

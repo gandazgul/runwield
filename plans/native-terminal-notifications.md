@@ -11,7 +11,8 @@ affectedPaths:
     - "src/ui/tui/terminal-focus-state.ts"
     - "src/ui/tui/terminal-focus-state.test.ts"
     - "src/ui/tui/tui.js"
-    - "src/ui/tui/tui-manager.js"
+    - "src/ui/tui/tui-manager.ts"
+    - "src/ui/tui/tui-manager.test.ts"
     - "src/ui/tui/runtime-adapter.js"
     - "src/ui/tui/slash-dispatch.js"
     - "docs/settings.md"
@@ -35,10 +36,10 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T09:29:18-04:00"
 updatedAt: "2026-08-02T13:32:56.193Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 planId: "7525b0d3-0dbe-4b0b-a3fa-ce7cacb8de1a"
+status: "validated_reviewer"
 ---
 
 # Native Terminal Notifications
@@ -127,7 +128,7 @@ notifications.
   `ESC[O`, state transitions, passthrough of normal input, and idempotent disposal.
 - `src/ui/tui/tui.js` — wire production TUI construction to install the terminal focus tracker before pi-tui starts
   reading input.
-- `src/ui/tui/tui-manager.js` — carry and dispose focus-tracking lifecycle state alongside crash guards and terminal
+- `src/ui/tui/tui-manager.ts` — carry and dispose focus-tracking lifecycle state alongside crash guards and terminal
   title restoration; keep explicit test pairs deterministic.
 - `src/ui/tui/runtime-adapter.js` — update imports from `./system-notifications.js` to `./system-notifications.ts` if
   the migrated module extension changes.
@@ -143,7 +144,7 @@ notifications.
 - `src/ui/tui/system-notifications.js` — reuse existing event labels/messages, settings merge behavior, Golden TUI
   suppression, terminal identity detection from environment variables, message formatting, and best-effort result
   semantics.
-- `src/ui/tui/tui-manager.js` — reuse the existing single TUI lifecycle boundary so focus reporting is enabled and
+- `src/ui/tui/tui-manager.ts` — reuse the existing single TUI lifecycle boundary so focus reporting is enabled and
   disabled in the same place as crash guards and terminal title restoration.
 - `src/ui/tui/testing/virtual-terminal.js` — reuse the fake terminal surface for focus-state tests and to assert escape
   sequences without touching the developer's real terminal.

@@ -1,62 +1,71 @@
 /**
  * @module ui/tui/tui-manager
- * Injectable TUI singleton lifecycle.
+ * TUI singleton lifecycle.
  */
+
+import {
+    type FocusReportingTerminal,
+    installTerminalFocusState,
+    type TerminalFocusStateOwner,
+} from "./terminal-focus-state.ts";
+
+interface ManagedTui {
+    start?(): void;
+    stop?(): void;
+}
+
+type TerminalConstructor<TTerminal extends FocusReportingTerminal> = new () => TTerminal;
+type TuiConstructor<TTerminal extends FocusReportingTerminal, TTui extends ManagedTui> = new (
+    terminal: TTerminal,
+) => TTui;
+
+interface TuiManagerDeps<TTerminal extends FocusReportingTerminal, TTui extends ManagedTui> {
+    TerminalCtor: TerminalConstructor<TTerminal>;
+    TuiCtor: TuiConstructor<TTerminal, TTui>;
+    installCrashGuards(): void;
+    uninstallCrashGuards(): void;
+    restoreTitle?: () => void;
+}
+
+interface TuiPair<TTerminal extends FocusReportingTerminal, TTui extends ManagedTui> {
+    terminal: TTerminal;
+    tui: TTui;
+}
 
 /**
  * Restore the terminal window/tab title to its default by writing an empty
  * OSC 0 sequence (`\x1b]0;\x07`). Most terminal emulators interpret this as
  * "reset to default title".
  */
-function defaultRestoreTitle() {
+function defaultRestoreTitle(): void {
     try {
         Deno.stdout.writeSync(new TextEncoder().encode("\x1b]0;\x07"));
-    } catch (_e) {
+    } catch {
         // Terminal title restoration is cosmetic — never crash on it.
     }
 }
 
-/**
- * @param {{
- *     TerminalCtor: new () => any,
- *     TuiCtor: new (terminal: any) => any,
- *     installCrashGuards: () => void,
- *     uninstallCrashGuards: () => void,
- *     restoreTitle?: () => void,
- *     installFocusState?: (terminal: any) => { dispose: () => void },
- * }} deps
- */
-export function createTuiManager({
-    TerminalCtor,
-    TuiCtor,
-    installCrashGuards,
-    uninstallCrashGuards,
-    restoreTitle = defaultRestoreTitle,
-    installFocusState,
-}) {
-    /** @type {any | null} */
-    let tuiInstance = null;
-    /** @type {any | null} */
-    let terminalInstance = null;
+export function createTuiManager<TTerminal extends FocusReportingTerminal, TTui extends ManagedTui>(
+    deps: TuiManagerDeps<TTerminal, TTui>,
+) {
+    const {
+        TerminalCtor,
+        TuiCtor,
+        installCrashGuards,
+        uninstallCrashGuards,
+        restoreTitle = defaultRestoreTitle,
+    } = deps;
+    let tuiInstance: TTui | null = null;
+    let terminalInstance: TTerminal | null = null;
     let started = false;
     let crashGuardsInstalled = false;
-    /** @type {{ dispose: () => void } | null} */
-    let focusStateOwner = null;
+    let focusStateOwner: TerminalFocusStateOwner | null = null;
 
-    /**
-     * @param {{ terminal: any, tui: any }} pair
-     * @param {{ installFocusState?: boolean }} [options]
-     */
-    function startPair(pair, options = {}) {
+    function startPair(pair: TuiPair<TTerminal, TTui>): TTui {
         terminalInstance = pair.terminal;
-        if (options.installFocusState && typeof installFocusState === "function") {
-            focusStateOwner = installFocusState(terminalInstance);
-        }
         tuiInstance = pair.tui;
         try {
-            if (typeof tuiInstance.start === "function") {
-                tuiInstance.start();
-            }
+            tuiInstance.start?.();
             started = true;
             installCrashGuards();
             crashGuardsInstalled = true;
@@ -70,7 +79,7 @@ export function createTuiManager({
                 }
             }
             try {
-                if (typeof tuiInstance?.stop === "function") tuiInstance.stop();
+                tuiInstance?.stop?.();
             } catch {
                 // Preserve the original construction/start failure.
             }
@@ -88,31 +97,36 @@ export function createTuiManager({
         }
     }
 
-    function initTUI() {
+    function initTUI(): TTui {
         if (tuiInstance) return tuiInstance;
         const terminal = new TerminalCtor();
-        const tui = new TuiCtor(terminal);
-        return startPair({ terminal, tui }, { installFocusState: true });
+        if (!Deno.env.get("WLD_GOLDEN_TUI") && !Deno.env.get("WLD_GOLDEN_TUI_CHILD")) {
+            focusStateOwner = installTerminalFocusState(terminal);
+        }
+        try {
+            const tui = new TuiCtor(terminal);
+            return startPair({ terminal, tui });
+        } catch (error) {
+            focusStateOwner?.dispose();
+            focusStateOwner = null;
+            throw error;
+        }
     }
 
-    /**
-     * Install an explicit Terminal/TUI pair, primarily for deterministic tests.
-     *
-     * @param {{ terminal: any, tui: any }} pair
-     */
-    function initTUIWithPair(pair) {
+    /** Install an explicit Terminal/TUI pair, primarily for deterministic tests. */
+    function initTUIWithPair(pair: TuiPair<TTerminal, TTui>): TTui {
         if (tuiInstance) return tuiInstance;
         return startPair(pair);
     }
 
-    function getTUI() {
+    function getTUI(): TuiPair<TTerminal, TTui> {
         if (!tuiInstance || !terminalInstance) {
             throw new Error("TUI not initialized. Call initTUI() first.");
         }
         return { tui: tuiInstance, terminal: terminalInstance };
     }
 
-    function stopTUI() {
+    function stopTUI(): void {
         try {
             restoreTitle();
         } catch {
@@ -121,6 +135,8 @@ export function createTuiManager({
         if (crashGuardsInstalled) {
             try {
                 uninstallCrashGuards();
+            } catch {
+                // Crash guard cleanup must not prevent terminal restoration.
             } finally {
                 crashGuardsInstalled = false;
             }
@@ -137,8 +153,8 @@ export function createTuiManager({
         } catch {
             // Focus reporting cleanup is best effort.
         }
-        if (tui && wasStarted && typeof tui.stop === "function") {
-            tui.stop();
+        if (tui && wasStarted) {
+            tui.stop?.();
         }
     }
 

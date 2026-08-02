@@ -56,13 +56,11 @@ interface SystemNotificationDeps {
     pid?: number;
     getMergedCustomSetting?: (key: string) => NonNullable<ReturnType<typeof getMergedCustomSetting>> | undefined;
     writeTerminal?: (bytes: Uint8Array) => void;
-    getTerminalFocusState?: () => TerminalFocusState;
 }
 
 interface NotifyRunWieldEventOptions {
     sessionName?: string;
     agentName?: string;
-    terminalFocusState?: TerminalFocusState;
     __deps?: SystemNotificationDeps;
 }
 
@@ -83,7 +81,6 @@ interface RequiredSystemNotificationDeps {
     pid: number;
     getMergedCustomSetting: (key: string) => NonNullable<ReturnType<typeof getMergedCustomSetting>> | undefined;
     writeTerminal: (bytes: Uint8Array) => void;
-    getTerminalFocusState: () => TerminalFocusState;
 }
 
 function writeTerminal(bytes: Uint8Array): void {
@@ -97,7 +94,6 @@ const defaultDeps = {
     pid: Deno.pid,
     getMergedCustomSetting,
     writeTerminal,
-    getTerminalFocusState: getCurrentTerminalFocusState,
 };
 
 export async function notifyRunWieldEvent(
@@ -142,7 +138,7 @@ export async function notifyRunWieldEvent(
         return { ...baseResult, reason: "event_disabled" };
     }
 
-    const focusState = options.terminalFocusState ?? deps.getTerminalFocusState();
+    const focusState = getCurrentTerminalFocusState();
     if (shouldSuppressAttentionNotification(settings, focusState)) {
         return { ...baseResult, reason: "focused" };
     }
@@ -233,7 +229,9 @@ export function buildNativeNotificationSequence(
     message: string,
 ): string | null {
     if (protocol === "osc99") {
-        return `\x1b]99;i=runwield:d=0:o=unfocused:${base64Url(title)};${base64Url(message)}\x1b\\`;
+        const titleSequence = `\x1b]99;i=runwield:d=0:e=1:o=unfocused:p=title;${base64(title)}\x1b\\`;
+        const bodySequence = `\x1b]99;i=runwield:d=1:e=1:o=unfocused:p=body;${base64(message)}\x1b\\`;
+        return titleSequence + bodySequence;
     }
     if (protocol === "osc777") {
         return `\x1b]777;notify;${sanitizeOscField(title)};${sanitizeOscField(message)}\x07`;
@@ -275,7 +273,6 @@ function mergeDeps(overrides: SystemNotificationDeps | undefined): RequiredSyste
         pid: overrides?.pid || defaultDeps.pid,
         getMergedCustomSetting: overrides?.getMergedCustomSetting || defaultDeps.getMergedCustomSetting,
         writeTerminal: overrides?.writeTerminal || defaultDeps.writeTerminal,
-        getTerminalFocusState: overrides?.getTerminalFocusState || defaultDeps.getTerminalFocusState,
     };
 }
 
@@ -315,8 +312,8 @@ function sanitizeOscField(value: string): string {
     return sanitized.replace(/\s+/g, " ").trim();
 }
 
-function base64Url(value: string): string {
-    return btoa(unescape(encodeURIComponent(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+function base64(value: string): string {
+    return btoa(unescape(encodeURIComponent(value)));
 }
 
 function isITerm(terminal: TerminalIdentity): boolean {
