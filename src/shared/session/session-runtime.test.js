@@ -92,7 +92,7 @@ function makeRuntime(options = {}) {
     const switchActiveAgent = options.switchActiveAgent ||
         ((session, activationOptions) =>
             switchActiveAgentFn(session, activationOptions, {
-                createAgentHandler,
+                createAgentHandler: /** @type {any} */ (createAgentHandler),
                 ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ rootOptions) => {
                     rootOptions.hostedSession.setRootAgentName(rootOptions.agentName);
                     rootOptions.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });

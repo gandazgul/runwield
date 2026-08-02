@@ -5,7 +5,7 @@
 
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import { createTuiCrashGuards } from "./tui-crash-guards.js";
-import { createTuiManager } from "./tui-manager.js";
+import { createTuiManager } from "./tui-manager.ts";
 
 const tuiManager = createTuiManager({
     TerminalCtor: ProcessTerminal,

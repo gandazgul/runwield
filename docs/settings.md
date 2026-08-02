@@ -350,7 +350,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
-| `notifications`                            | object            | enabled by default                              | global + project | Terminal bell and desktop attention notifications for agent stops, `plan_written`, `user_interview` prompts, and `/compact` completion. Desktop banners require a supported notifier; terminal BEL is TUI-only.                                       |
+| `notifications`                            | object            | enabled by default                              | global + project | Terminal bell and native terminal OSC attention notifications for agent stops, `plan_written`, `user_interview` prompts, and `/compact` completion. Focused TUI terminals stay quiet by default.                                                      |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                                                                                        |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                                                                                           |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
@@ -446,20 +446,23 @@ structured prompt, and when an interactive `/compact` command finishes.
 
 Defaults:
 
-- `enabled`: `true`; disables both terminal BEL and desktop notification delivery when set to `false`.
-- `terminalBell`: `true`; emits one ASCII BEL byte from the RunWield TUI for each enabled attention event. Your terminal
-  emulator and multiplexer settings decide whether that becomes a sound, visual flash, urgency marker, tab badge, or no
-  visible effect.
-- `activation`: `tab`; desktop notification clicks try exact tab/pane activation where the terminal supports it, then
-  fall back to activating the terminal app or showing session context in the notification.
+- `enabled`: `true`; disables both terminal BEL and native OSC notification delivery when set to `false`.
+- `terminalBell`: `true`; emits one ASCII BEL byte from the RunWield TUI for each enabled attention event that is not
+  suppressed by terminal focus. Your terminal emulator and multiplexer settings decide whether BEL becomes a sound,
+  visual flash, urgency marker, tab badge, or no visible effect.
+- `suppressWhenFocused`: `true`; when RunWield has received terminal focus reporting that proves the TUI terminal is
+  focused, attention events emit no BEL and no OSC notification. Unknown focus is not treated as focused. Set this to
+  `false` to restore always-alert behavior for enabled events.
+- `activation`: `tab`; kept for compatibility with existing config, but RunWield no longer executes activation commands.
+  Native terminal OSC notifications own click-to-focus behavior where the terminal implements it.
 - `events.agentStopped`, `events.planWritten`, `events.userInterview`, `events.compactionFinished`: all `true`.
 
-macOS click-to-return support uses the optional `terminal-notifier` command when it is installed. Without it, RunWield
-can still use system notifications where available, but those notifications may not run a click action. Exact tab
-activation is terminal-specific: Terminal.app and iTerm2 can use the current TTY, WezTerm can use its pane id, and Kitty
-requires remote-control environment support; otherwise the notification includes the RunWield session name so you can
-identify the source manually. Desktop notification commands do not request their own sound; RunWield uses terminal BEL
-for audio/tab attention so one event does not request duplicate sounds.
+RunWield no longer shells out to `terminal-notifier`, `osascript`, or AppleScript activation helpers for TUI attention
+notifications. Native terminal support is selected conservatively: Kitty receives OSC 99 notifications with
+`o=unfocused`, WezTerm and Ghostty receive OSC 777 notifications, and iTerm2 receives OSC 9 notifications. Terminal.app,
+unknown terminals, and terminals behind multiplexers without OSC passthrough fall back to BEL only when `terminalBell`
+is enabled. tmux, screen, and zellij may require terminal passthrough configuration for OSC notifications. VS Code
+integrated-terminal notifications are out of scope for now.
 
 Example:
 
@@ -468,6 +471,7 @@ Example:
     "notifications": {
         "enabled": true,
         "terminalBell": true,
+        "suppressWhenFocused": true,
         "activation": "tab",
         "events": {
             "agentStopped": true,
@@ -479,12 +483,22 @@ Example:
 }
 ```
 
-To suppress all BEL-derived terminal effects while keeping desktop notifications:
+To suppress all BEL-derived terminal effects while keeping native OSC notifications:
 
 ```jsonc
 {
     "notifications": {
         "terminalBell": false
+    }
+}
+```
+
+To keep alerts active even when RunWield knows the TUI terminal is focused:
+
+```jsonc
+{
+    "notifications": {
+        "suppressWhenFocused": false
     }
 }
 ```

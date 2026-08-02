@@ -1,124 +1,55 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
-import { __resetSettingsForTests } from "../../shared/settings.js";
-import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
-    buildActivationCommand,
-    buildAppleTerminalActivationScript,
-    buildExactActivationCommand,
-    buildITermActivationScript,
-    buildNotificationCommand,
+    buildNativeNotificationSequence,
     detectTerminalIdentity,
-    inferTerminalSenderBundleId,
-    type NotificationSettings,
-    type NotificationSystemPort,
     notifyRunWieldEvent,
     resolveNotificationSettings,
+    selectNativeNotificationProtocol,
+    shouldSuppressAttentionNotification,
 } from "./system-notifications.ts";
+import { installTerminalFocusState, type TerminalFocusStateOwner } from "./terminal-focus-state.ts";
 
-interface CommandInvocation {
-    cmd: string;
-    args: string[];
+type FocusInputHandler = (data: string) => void;
+
+class NotificationFocusTerminal {
+    write(_data: string): void {}
+
+    start(_onInput: FocusInputHandler): void {}
 }
 
-interface FixtureSettings {
-    enabled?: boolean;
-    activation?: "tab" | "app" | "none";
-    events?: {
-        agentStopped?: boolean;
-        planWritten?: boolean;
-        userInterview?: boolean;
-        compactionFinished?: boolean;
-    };
-    terminalBell?: boolean;
+function installReportedFocusState(report: "\x1b[I" | "\x1b[O"): TerminalFocusStateOwner {
+    const owner = installTerminalFocusState(new NotificationFocusTerminal());
+    owner.filterInput(report);
+    return owner;
 }
 
-interface PortFixtureOptions {
-    os?: string;
-    env?: Record<string, string>;
-    commands?: Record<string, boolean | "fail" | "throw">;
-    throwOnWrite?: boolean;
-}
-
-function makeSystemPort(options: PortFixtureOptions = {}): {
-    calls: CommandInvocation[];
+type TerminalWriteRecorder = {
     writes: number[][];
-    port: NotificationSystemPort;
-} {
-    const calls: CommandInvocation[] = [];
-    const writes: number[][] = [];
-    const commands = options.commands || {};
+    strings: string[];
+    writeTerminal(bytes: Uint8Array): void;
+};
+
+type TerminalWriterOptions = {
+    throwOnWrite?: boolean;
+};
+
+function makeTerminalWriter(options: TerminalWriterOptions = {}): TerminalWriteRecorder {
+    const decoder = new TextDecoder();
     return {
-        calls,
-        writes,
-        port: {
-            os: options.os || "darwin",
-            env: options.env || {},
-            pid: 42,
-            runCommand(cmd, args = []) {
-                calls.push({ cmd, args: [...args] });
-                if (cmd === "command" && args[0] === "-v") {
-                    const state = commands[args[1]];
-                    const exists = state === true || state === "fail" || state === "throw";
-                    return Promise.resolve({
-                        success: exists,
-                        stdout: exists ? `/usr/bin/${args[1]}\n` : "",
-                        stderr: "",
-                    });
-                }
-                if (cmd === "tty") {
-                    return Promise.resolve({ success: true, stdout: "/dev/ttys123\n", stderr: "" });
-                }
-                if (commands[cmd] === "throw") throw new Error(`${cmd} exploded`);
-                return Promise.resolve({ success: commands[cmd] !== "fail", stdout: "", stderr: "" });
-            },
-            writeTerminal(bytes) {
-                writes.push([...bytes]);
-                if (options.throwOnWrite) throw new Error("bell failed");
-            },
+        writes: [],
+        strings: [],
+        writeTerminal(bytes: Uint8Array): void {
+            this.writes.push([...bytes]);
+            this.strings.push(decoder.decode(bytes));
+            if (options.throwOnWrite) {
+                throw new Error("write failed");
+            }
         },
     };
 }
 
-async function withNotificationSettings(
-    settings: FixtureSettings | undefined,
-    run: (projectRoot: string) => Promise<void>,
-): Promise<void> {
-    await withProcessGlobalTestLock(async () => {
-        const previousHome = Deno.env.get("HOME");
-        const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
-        const previousCwd = Deno.cwd();
-        const root = await Deno.makeTempDir({ prefix: "system-notification-" });
-        const home = join(root, "home");
-        const projectRoot = join(root, "project");
-        await Deno.mkdir(join(home, ".wld"), { recursive: true });
-        await Deno.mkdir(projectRoot, { recursive: true });
-        await Deno.writeTextFile(
-            join(home, ".wld", "settings.json"),
-            JSON.stringify(settings ? { notifications: settings } : {}),
-        );
-        try {
-            Deno.env.set("HOME", home);
-            Deno.env.set("WLD_TEST_SANDBOX_HOME", home);
-            Deno.chdir(projectRoot);
-            __resetSettingsForTests();
-            await run(projectRoot);
-        } finally {
-            __resetSettingsForTests();
-            Deno.chdir(previousCwd);
-            if (previousHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", previousHome);
-            if (previousSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
-            else Deno.env.set("WLD_TEST_SANDBOX_HOME", previousSandboxHome);
-            await Deno.remove(root, { recursive: true }).catch(() => {});
-        }
-    });
-}
-
-const DEFAULT_SETTINGS: NotificationSettings = resolveNotificationSettings(undefined);
-
-Deno.test("notification settings default on and normalize persisted values", () => {
-    assertEquals(DEFAULT_SETTINGS, {
+Deno.test("resolveNotificationSettings defaults on and normalizes malformed values", () => {
+    assertEquals(resolveNotificationSettings(undefined), {
         enabled: true,
         activation: "tab",
         events: {
@@ -128,7 +59,9 @@ Deno.test("notification settings default on and normalize persisted values", () 
             compactionFinished: true,
         },
         terminalBell: true,
+        suppressWhenFocused: true,
     });
+
     assertEquals(
         resolveNotificationSettings({ enabled: false, activation: "invalid", events: { planWritten: false } }),
         {
@@ -141,195 +74,289 @@ Deno.test("notification settings default on and normalize persisted values", () 
                 compactionFinished: true,
             },
             terminalBell: true,
+            suppressWhenFocused: true,
         },
     );
-});
 
-Deno.test("terminal identity and activation target the actual terminal tab when possible", async () => {
-    const system = makeSystemPort({ env: { TERM_PROGRAM: "iTerm.app", ITERM_SESSION_ID: "w0t0p0" } });
-    const identity = await detectTerminalIdentity("demo", system.port);
-    assertEquals(identity.tty, "/dev/ttys123");
-    assertEquals(identity.termProgram, "iTerm.app");
-    assertEquals(identity.pid, 42);
-
-    const exact = buildExactActivationCommand(identity);
-    assert(exact);
-    assertStringIncludes(exact, "iTerm2");
-    assertStringIncludes(exact, "/dev/ttys123");
-    assertEquals(buildActivationCommand(identity, "none"), null);
-    assertStringIncludes(buildAppleTerminalActivationScript("/dev/ttys123"), 'tty of t is "/dev/ttys123"');
-    assertStringIncludes(buildITermActivationScript("/dev/ttys123"), 'tty of s is "/dev/ttys123"');
-});
-
-Deno.test("terminal-specific activation supports WezTerm, kitty, and reliable sender bundles", () => {
+    assertEquals(resolveNotificationSettings({ terminalBell: false, suppressWhenFocused: false }).terminalBell, false);
     assertEquals(
-        buildExactActivationCommand({ sessionLabel: "s", terminalTitle: "wld - s", weztermPane: "9" }),
-        "wezterm cli activate-pane --pane-id '9'",
+        resolveNotificationSettings({ terminalBell: false, suppressWhenFocused: false }).suppressWhenFocused,
+        false,
+    );
+});
+
+Deno.test("detectTerminalIdentity captures terminal environment without subprocess tty lookup", () => {
+    const identity = detectTerminalIdentity("demo", {
+        env: {
+            TERM_PROGRAM: "iTerm.app",
+            TERM: "xterm-256color",
+            ITERM_SESSION_ID: "w0t0p0",
+        },
+        pid: 42,
+    });
+
+    assertEquals(identity.sessionLabel, "demo");
+    assertEquals(identity.terminalTitle, "wld - demo");
+    assertEquals(identity.termProgram, "iTerm.app");
+    assertEquals(identity.itermSessionId, "w0t0p0");
+    assertEquals(identity.pid, 42);
+});
+
+Deno.test("selectNativeNotificationProtocol maps supported terminal families conservatively", () => {
+    assertEquals(
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", term: "xterm-kitty" }),
+        "osc99",
     );
     assertEquals(
-        buildExactActivationCommand({
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "WezTerm" }),
+        "osc777",
+    );
+    assertEquals(
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "Ghostty" }),
+        "osc777",
+    );
+    assertEquals(
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "iTerm.app" }),
+        "osc9",
+    );
+    assertEquals(
+        selectNativeNotificationProtocol({
             sessionLabel: "s",
             terminalTitle: "wld - s",
-            term: "xterm-kitty",
-            kittyListenOn: "unix:/tmp/kitty",
-            kittyWindowId: "11",
-        }),
-        "kitty @ --to 'unix:/tmp/kitty' focus-window --match 'id:11'",
-    );
-    assertEquals(
-        inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "Apple_Terminal" }),
-        "com.apple.Terminal",
-    );
-    assertEquals(
-        inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "ghostty" }),
-        "com.mitchellh.ghostty",
-    );
-});
-
-Deno.test("notification command prefers grouped terminal-notifier and falls back to osascript", async () => {
-    const notifier = makeSystemPort({ commands: { "terminal-notifier": true, osascript: true } });
-    const command = await buildNotificationCommand({
-        eventName: "agentStopped",
-        title: "Agent stopped — demo",
-        message: "The agent stopped.\nSession: wld - demo",
-        terminal: {
-            sessionLabel: "demo",
-            terminalTitle: "wld - demo",
             termProgram: "Apple_Terminal",
-            tty: "/dev/ttys123",
+        }),
+        "unsupported",
+    );
+    assertEquals(selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s" }), "unsupported");
+});
+
+Deno.test("shouldSuppressAttentionNotification suppresses only known focused terminals by default", () => {
+    assertEquals(shouldSuppressAttentionNotification({ suppressWhenFocused: true }, "focused"), true);
+    assertEquals(shouldSuppressAttentionNotification({ suppressWhenFocused: true }, "unfocused"), false);
+    assertEquals(shouldSuppressAttentionNotification({ suppressWhenFocused: true }, "unknown"), false);
+    assertEquals(shouldSuppressAttentionNotification({ suppressWhenFocused: false }, "focused"), false);
+});
+
+Deno.test("buildNativeNotificationSequence emits iTerm2 OSC 9 safely", () => {
+    const sequence = buildNativeNotificationSequence("osc9", "Hello\x1b]bad\x07;title", "Line\nmessage");
+    assert(sequence);
+    assertStringIncludes(sequence, "\x1b]9;");
+    assertStringIncludes(sequence, "Hello");
+    assertEquals(sequence.includes("\x1b]bad"), false);
+    assertEquals(sequence.includes(";title"), false);
+});
+
+Deno.test("buildNativeNotificationSequence emits WezTerm and Ghostty OSC 777 safely", () => {
+    const sequence = buildNativeNotificationSequence("osc777", "Title;part", "Message\x07part");
+    assertEquals(sequence, "\x1b]777;notify;Title part;Message part\x07");
+});
+
+Deno.test("buildNativeNotificationSequence emits Kitty OSC 99 with unfocused option and encoded text", () => {
+    const sequence = buildNativeNotificationSequence("osc99", "Title;\x1b", "Message\x07\x1b\\done");
+    assertEquals(
+        sequence,
+        "\x1b]99;i=runwield:d=0:e=1:o=unfocused:p=title;VGl0bGU7Gw==\x1b\\" +
+            "\x1b]99;i=runwield:d=1:e=1:o=unfocused:p=body;TWVzc2FnZQcbXGRvbmU=\x1b\\",
+    );
+});
+
+Deno.test("notifyRunWieldEvent never reaches notifications from a Golden TUI run", async () => {
+    const terminal = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "golden",
+        __deps: {
+            env: { WLD_GOLDEN_TUI: "1", TERM_PROGRAM: "iTerm.app" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            writeTerminal: terminal.writeTerminal.bind(terminal),
         },
-        settings: DEFAULT_SETTINGS,
-    }, notifier.port);
-    assertEquals(command?.cmd, "terminal-notifier");
-    assertEquals(command?.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-demo");
-    assertEquals(command?.args[command.args.indexOf("-sender") + 1], "com.apple.Terminal");
-
-    const fallback = makeSystemPort({ commands: { osascript: true } });
-    const fallbackCommand = await buildNotificationCommand({
-        eventName: "userInterview",
-        title: "Input requested — demo",
-        message: "Question waiting.\nSession: wld - demo",
-        terminal: { sessionLabel: "demo", terminalTitle: "wld - demo" },
-        settings: DEFAULT_SETTINGS,
-    }, fallback.port);
-    assertEquals(fallbackCommand?.cmd, "osascript");
-    assertStringIncludes(fallbackCommand?.args.join(" ") || "", "display notification");
-});
-
-Deno.test("Golden TUI guard prevents every external notification effect", async () => {
-    await withNotificationSettings(undefined, async () => {
-        const system = makeSystemPort({
-            env: { WLD_GOLDEN_TUI: "1", TERM_PROGRAM: "Apple_Terminal" },
-            commands: { "terminal-notifier": true, osascript: true },
-        });
-        const result = await notifyRunWieldEvent("agentStopped", { sessionName: "golden", port: system.port });
-        assertEquals(result.reason, "golden_tui");
-        assertEquals(result.terminalBellEmitted, false);
-        assertEquals(system.calls, []);
-        assertEquals(system.writes, []);
     });
+
+    assertEquals(result.sent, false);
+    assertEquals(result.reason, "golden_tui");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(terminal.writes, []);
 });
 
-Deno.test("real project notification settings disable one event before external effects", async () => {
-    await withNotificationSettings(undefined, async (projectRoot) => {
-        await Deno.mkdir(join(projectRoot, ".wld"));
-        await Deno.writeTextFile(
-            join(projectRoot, ".wld", "settings.json"),
-            JSON.stringify({ notifications: { events: { planWritten: false } } }),
-        );
-        __resetSettingsForTests();
-        const system = makeSystemPort({ commands: { osascript: true } });
-        const result = await notifyRunWieldEvent("planWritten", { sessionName: "demo", port: system.port });
-        assertEquals(result.reason, "event_disabled");
-        assertEquals(system.calls, []);
-        assertEquals(system.writes, []);
-    });
-});
-
-Deno.test("unsupported operating systems still emit the configured terminal bell", async () => {
-    await withNotificationSettings(undefined, async () => {
-        const system = makeSystemPort({ os: "linux" });
-        const result = await notifyRunWieldEvent("agentStopped", { sessionName: "demo", port: system.port });
-        assertEquals(result.reason, "unsupported");
-        assertEquals(result.terminalBellEmitted, true);
-        assertEquals(system.writes, [[7]]);
-        assertEquals(system.calls.filter((call) => call.cmd === "tty").length, 1);
-    });
-});
-
-Deno.test("failed terminal-notifier delivery uses the real osascript fallback policy", async () => {
-    await withNotificationSettings(undefined, async () => {
-        const system = makeSystemPort({
+Deno.test("notifyRunWieldEvent emits unsupported-terminal BEL fallback when enabled", async () => {
+    const terminal = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "demo",
+        __deps: {
             env: { TERM_PROGRAM: "Apple_Terminal" },
-            commands: { "terminal-notifier": "fail", osascript: true },
-        });
-        const result = await notifyRunWieldEvent("agentStopped", { sessionName: "demo", port: system.port });
-        assertEquals(result.sent, true);
-        assertEquals(result.reason, "sent:terminal_notifier_failed");
-        assertEquals(result.command?.cmd, "osascript");
-        assertEquals(system.writes, [[7]]);
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            writeTerminal: terminal.writeTerminal.bind(terminal),
+        },
     });
+
+    assertEquals(result.sent, false);
+    assertEquals(result.reason, "unsupported");
+    assertEquals(result.protocol, "unsupported");
+    assertEquals(result.terminalBellEmitted, true);
+    assertEquals(terminal.writes, [[7]]);
 });
 
-Deno.test("desktop command failures remain best-effort results", async () => {
-    await withNotificationSettings({ activation: "none", terminalBell: false }, async () => {
-        const failed = makeSystemPort({ commands: { osascript: "fail" } });
-        const failedResult = await notifyRunWieldEvent("agentStopped", { port: failed.port });
-        assertEquals(failedResult.sent, false);
-        assertEquals(failedResult.reason, "command_failed");
-
-        const thrown = makeSystemPort({ commands: { osascript: "throw" } });
-        const thrownResult = await notifyRunWieldEvent("agentStopped", { port: thrown.port });
-        assertEquals(thrownResult.sent, false);
-        assertEquals(thrownResult.reason, "command_error:osascript exploded");
+Deno.test("notifyRunWieldEvent respects terminalBell false while preserving OSC delivery", async () => {
+    const terminal = makeTerminalWriter();
+    const result = await notifyRunWieldEvent("userInterview", {
+        sessionName: "silent bell",
+        __deps: {
+            env: { TERM_PROGRAM: "iTerm.app" },
+            pid: 1,
+            getMergedCustomSetting: () => ({ terminalBell: false }),
+            writeTerminal: terminal.writeTerminal.bind(terminal),
+        },
     });
+
+    assertEquals(result.sent, true);
+    assertEquals(result.reason, "sent");
+    assertEquals(result.protocol, "osc9");
+    assertEquals(result.terminalBellEmitted, false);
+    assertEquals(terminal.writes.length, 1);
+    assertStringIncludes(terminal.strings[0], "\x1b]9;");
 });
 
-Deno.test("persisted terminalBell false preserves desktop delivery without writing stdout", async () => {
-    await withNotificationSettings({ activation: "none", terminalBell: false }, async () => {
-        const system = makeSystemPort({ commands: { osascript: true } });
-        const result = await notifyRunWieldEvent("userInterview", {
-            sessionName: "silent bell",
-            port: system.port,
+Deno.test("notifyRunWieldEvent suppresses focused terminals before BEL or OSC emission", async () => {
+    const focusOwner = installReportedFocusState("\x1b[I");
+    const terminal = makeTerminalWriter();
+    try {
+        const result = await notifyRunWieldEvent("planWritten", {
+            sessionName: "focused",
+            __deps: {
+                env: { TERM_PROGRAM: "WezTerm" },
+                pid: 1,
+                getMergedCustomSetting: () => undefined,
+                writeTerminal: terminal.writeTerminal.bind(terminal),
+            },
         });
-        assertEquals(result.sent, true);
-        assertEquals(result.command?.cmd, "osascript");
+
+        assertEquals(result.sent, false);
+        assertEquals(result.reason, "focused");
         assertEquals(result.terminalBellEmitted, false);
-        assertEquals(system.writes, []);
-    });
+        assertEquals(result.oscEmitted, false);
+        assertEquals(terminal.writes, []);
+    } finally {
+        focusOwner.dispose();
+    }
 });
 
-Deno.test("compaction notification includes persisted session context", async () => {
-    await withNotificationSettings({ activation: "none" }, async () => {
-        const system = makeSystemPort({ commands: { osascript: true } });
-        const result = await notifyRunWieldEvent("compactionFinished", {
-            sessionName: "compact session",
-            port: system.port,
+Deno.test("notifyRunWieldEvent suppressWhenFocused false restores always-emit behavior", async () => {
+    const focusOwner = installReportedFocusState("\x1b[I");
+    const terminal = makeTerminalWriter();
+    try {
+        const result = await notifyRunWieldEvent("planWritten", {
+            sessionName: "focused",
+            __deps: {
+                env: { TERM_PROGRAM: "WezTerm" },
+                pid: 1,
+                getMergedCustomSetting: () => ({ suppressWhenFocused: false }),
+                writeTerminal: terminal.writeTerminal.bind(terminal),
+            },
         });
+
         assertEquals(result.sent, true);
-        assertStringIncludes(result.title, "Compaction finished");
-        assertStringIncludes(result.message, "The /compact command finished. Return to view the result.");
-        assertStringIncludes(result.message, "wld - compact session");
-    });
+        assertEquals(result.protocol, "osc777");
+        assertEquals(result.terminalBellEmitted, true);
+        assertEquals(terminal.writes[0], [7]);
+        assertStringIncludes(terminal.strings[1], "\x1b]777;notify;");
+    } finally {
+        focusOwner.dispose();
+    }
 });
 
-Deno.test("unknown events and terminal write failures remain isolated", async () => {
-    await withNotificationSettings({ activation: "none" }, async () => {
-        const unknownSystem = makeSystemPort({ commands: { osascript: true } });
-        const unknown = await notifyRunWieldEvent("unknown", { sessionName: "unknown", port: unknownSystem.port });
-        assertEquals(unknown.reason, "unknown_event");
-        assertEquals(unknownSystem.calls, []);
-        assertEquals(unknownSystem.writes, []);
-
-        const bellFailure = makeSystemPort({ commands: { osascript: true }, throwOnWrite: true });
-        const delivered = await notifyRunWieldEvent("userInterview", {
-            sessionName: "bell failure",
-            agentName: "Planner",
-            port: bellFailure.port,
-        });
-        assertEquals(delivered.sent, true);
-        assertEquals(delivered.terminalBellEmitted, false);
-        assertStringIncludes(delivered.title, "Planner");
-        assertEquals(bellFailure.writes, [[7]]);
+Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finished text", async () => {
+    const disabledTerminal = makeTerminalWriter();
+    const disabled = await notifyRunWieldEvent("compactionFinished", {
+        sessionName: "disabled compact",
+        __deps: {
+            env: { TERM_PROGRAM: "Ghostty" },
+            pid: 1,
+            getMergedCustomSetting: () => ({ events: { compactionFinished: false } }),
+            writeTerminal: disabledTerminal.writeTerminal.bind(disabledTerminal),
+        },
     });
+
+    assertEquals(disabled.reason, "event_disabled");
+    assertEquals(disabledTerminal.writes, []);
+
+    const terminal = makeTerminalWriter();
+    const sent = await notifyRunWieldEvent("compactionFinished", {
+        sessionName: "compact session",
+        __deps: {
+            env: { TERM_PROGRAM: "Ghostty" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            writeTerminal: terminal.writeTerminal.bind(terminal),
+        },
+    });
+
+    assertEquals(sent.sent, true);
+    assertStringIncludes(sent.title, "Compaction finished");
+    assertStringIncludes(sent.message, "The /compact command finished. Return to view the result.");
+    assertStringIncludes(sent.message, "wld - compact session");
+});
+
+Deno.test("notifyRunWieldEvent skips bell and OSC for disabled or unknown events", async () => {
+    const disabledTerminal = makeTerminalWriter();
+    const disabled = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "disabled",
+        __deps: {
+            env: { TERM_PROGRAM: "iTerm.app" },
+            pid: 1,
+            getMergedCustomSetting: () => ({ enabled: false }),
+            writeTerminal: disabledTerminal.writeTerminal.bind(disabledTerminal),
+        },
+    });
+
+    assertEquals(disabled.reason, "disabled");
+    assertEquals(disabledTerminal.writes, []);
+
+    const unknownTerminal = makeTerminalWriter();
+    const unknown = await notifyRunWieldEvent("unknownEvent", {
+        sessionName: "unknown",
+        __deps: {
+            env: { TERM_PROGRAM: "iTerm.app" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            writeTerminal: unknownTerminal.writeTerminal.bind(unknownTerminal),
+        },
+    });
+
+    assertEquals(unknown.reason, "unknown_event");
+    assertEquals(unknownTerminal.writes, []);
+});
+
+Deno.test("notifyRunWieldEvent isolates terminal write failures", async () => {
+    const terminal = makeTerminalWriter({ throwOnWrite: true });
+    const result = await notifyRunWieldEvent("planWritten", {
+        sessionName: "write failure",
+        __deps: {
+            env: { TERM_PROGRAM: "iTerm.app" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            writeTerminal: terminal.writeTerminal.bind(terminal),
+        },
+    });
+
+    assertEquals(result.sent, false);
+    assertEquals(result.reason, "write_failed");
+    assertEquals(result.terminalBellEmitted, false);
+});
+
+Deno.test("command-based notification helpers are removed from active source", async () => {
+    const source = await Deno.readTextFile(new URL("./system-notifications.ts", import.meta.url));
+    const removedTerms = [
+        "CommandSpec",
+        "run" + "Command",
+        "command" + "Exists",
+        "build" + "Notification" + "Command",
+        "build" + "Osascript" + "Notification" + "Command",
+        "build" + "Activation" + "Command",
+        "terminal" + "-" + "notifier",
+        "display" + " notification",
+    ];
+    for (const term of removedTerms) {
+        assertEquals(source.includes(term), false);
+    }
 });

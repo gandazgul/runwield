@@ -125,8 +125,6 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
     // root/handler pair untouched.
     const handler = createAgentHandlerImpl(agentName, {
         hostedSession,
-        allowReturnToRouter: nextMetadata.allowReturnToRouter,
-        _agentDefOverride: options.agentDef,
         customTools: options.customTools,
     });
     handlerMetadata.set(handler, {

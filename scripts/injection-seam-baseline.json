@@ -129,30 +129,6 @@
             ],
             "machinery": []
         },
-        "src/shared/session/agent-handler.js": {
-            "seams": [
-                "_agentDefOverride",
-                "allowReturnToRouter",
-                "customTools",
-                "decidePostExecution",
-                "decidePostPlanning",
-                "dispatchPostTriage",
-                "executePlan",
-                "finalizePlanImplementation",
-                "hostedSession",
-                "readLatestPlanOutcome",
-                "readLatestTaskCompletedOutcome",
-                "readLatestTriageOutcome",
-                "recordWorkflowMetric",
-                "requestAttention",
-                "runMechanicalValidation",
-                "runRootTurn",
-                "runSlicerAgent",
-                "runValidationLoop",
-                "switchActiveAgent"
-            ],
-            "machinery": []
-        },
         "src/shared/workflow/epic-continuation.js": {
             "seams": [
                 "decidePostExecution",

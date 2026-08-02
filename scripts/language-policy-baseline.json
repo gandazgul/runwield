@@ -174,7 +174,6 @@
     "src/ui/tui/testing/subprocess-runner.js",
     "src/ui/tui/testing/virtual-terminal.js",
     "src/ui/tui/tui-crash-guards.js",
-    "src/ui/tui/tui-manager.js",
     "src/ui/tui/tui.js",
     "src/ui/tui/types.js",
     "src/ui/workspace/astro.config.mjs",

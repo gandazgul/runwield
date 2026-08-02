@@ -1,0 +1,138 @@
+import { assertEquals, assertRejects } from "@std/assert";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { type AgentHandler, createAgentHandler } from "./agent-handler.ts";
+import { HostedSession } from "./hosted-session.js";
+import { ensureRootAgentSession } from "./session.js";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
+
+interface CapturedRuntimeEvent {
+    type: string;
+    agentName?: string;
+    reason?: string;
+    workflowMessage?: string;
+}
+
+interface ActiveHandlerFixture {
+    handler: AgentHandler;
+    hostedSession: HostedSession;
+    sessionManager: SessionManager;
+}
+
+async function activateHandler(
+    projectRoot: string,
+    agentName: string,
+    events: CapturedRuntimeEvent[],
+): Promise<ActiveHandlerFixture> {
+    const sessionManager = SessionManager.inMemory(projectRoot);
+    const hostedSession = new HostedSession({
+        id: `agent-handler-${crypto.randomUUID()}`,
+        cwd: projectRoot,
+        eventSink: { emit: (event: CapturedRuntimeEvent) => events.push(event) },
+    });
+    const handler = createAgentHandler(agentName, { hostedSession });
+    await ensureRootAgentSession({
+        hostedSession,
+        agentName,
+        activeHandler: handler,
+        sessionManager,
+    });
+    return { handler, hostedSession, sessionManager };
+}
+
+Deno.test("agent handler completes a real root turn and requests user attention", async () => {
+    await withRuntimeCommandFixture("agent-handler-turn-", async ({ projectRoot, setModelResponse }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelResponse("Fixture answer from the real Guide root session.");
+        const fixture = await activateHandler(projectRoot, "guide", events);
+
+        const result = await fixture.handler("Explain the fixture.", [], fixture.sessionManager);
+
+        assertEquals(result, { kind: "complete" });
+        assertEquals(
+            events.some((event) =>
+                event.type === RuntimeEventTypes.ATTENTION_REQUESTED &&
+                event.reason === "agentStopped" &&
+                event.agentName === "guide"
+            ),
+            true,
+        );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler routes a real triage tool outcome through Operator completion", async () => {
+    await withRuntimeCommandFixture("agent-handler-operation-", async ({ projectRoot, setModelMessages }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("triage_report", {
+                routingIntent: "OPERATION",
+                complexity: "LOW",
+                summary: "Inspect the fixture state without changing code.",
+                sessionName: "Inspect fixture state",
+                affectedPaths: [],
+            })),
+            fauxAssistantMessage(fauxToolCall("task_completed", {
+                message: "- Inspected the isolated fixture state.",
+            })),
+        ]);
+        const fixture = await activateHandler(projectRoot, "router", events);
+
+        const result = await fixture.handler("Inspect the fixture state.", [], fixture.sessionManager);
+
+        assertEquals(result, { kind: "complete" });
+        assertEquals(fixture.hostedSession.getRootAgentName(), "operator");
+        assertEquals(
+            events.some((event) => event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "operator"),
+            true,
+        );
+        assertEquals(
+            events.some((event) =>
+                event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA &&
+                event.workflowMessage === "task_completed"
+            ),
+            true,
+        );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler rejects a handler whose root Agent changed", async () => {
+    await withRuntimeCommandFixture("agent-handler-drift-", async ({ projectRoot }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        const fixture = await activateHandler(projectRoot, "guide", events);
+        const staleRouterHandler = createAgentHandler("router", { hostedSession: fixture.hostedSession });
+
+        await assertRejects(
+            () => staleRouterHandler("Continue.", [], fixture.sessionManager),
+            Error,
+            'active handler "router" does not match root agent "guide"',
+        );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler resumes a paused Pair workflow before the real root turn", async () => {
+    await withRuntimeCommandFixture("agent-handler-pair-", async ({ projectRoot, setModelResponse }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelResponse("Continuing the isolated Pair execution.");
+        const fixture = await activateHandler(projectRoot, "engineer", events);
+        fixture.hostedSession.setActiveExecutionWorkflow({
+            planName: "fixture-plan",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            collaborationStyle: "pair",
+            pairCheckpointCount: 1,
+            pairPauseReason: "stop",
+            pairStopRequested: true,
+        });
+
+        await fixture.handler("resume execution", [], fixture.sessionManager);
+
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, undefined);
+        fixture.hostedSession.dispose();
+    });
+});

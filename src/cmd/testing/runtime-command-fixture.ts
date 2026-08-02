@@ -10,8 +10,11 @@ export interface RuntimeCommandFixture {
     homeDir: string;
     projectRoot: string;
     settingsPath: string;
+    setModelMessages(messages: RuntimeModelMessage[]): void;
     setModelResponse(text: string): void;
 }
+
+export type RuntimeModelMessage = ReturnType<typeof fauxAssistantMessage>;
 
 const TEST_PROVIDER = "runtime-command-fixture";
 const TEST_MODEL = "fixture-model";
@@ -89,6 +92,9 @@ export async function withRuntimeCommandFixture(
                 homeDir,
                 projectRoot: canonicalProjectRoot,
                 settingsPath,
+                setModelMessages: (messages) => {
+                    fauxProvider.setResponses(messages.map((message) => () => message));
+                },
                 setModelResponse: (response) => {
                     fauxProvider.setResponses([() => fauxAssistantMessage(fauxText(response))]);
                 },

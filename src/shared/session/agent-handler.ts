@@ -1,0 +1,532 @@
+/**
+ * @module shared/session/agent-handler
+ * Workflow-aware handler for the active Agent. It runs one Agent turn, then
+ * lets workflow tool outcomes decide whether any follow-up workflow step runs.
+ */
+
+import { runRootTurn } from "./session.js";
+import {
+    executePlan,
+    finalizePlanImplementation,
+    readLatestPlanOutcome,
+    readLatestTaskCompletedOutcome,
+    resolveExecutionOwner,
+    runSlicerAgent,
+} from "../workflow/workflow.js";
+import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
+import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.js";
+import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "../workflow/decisions.js";
+import { recordWorkflowMetric } from "../workflow/metrics.js";
+import {
+    runMechanicalValidation,
+    runValidationLoop,
+    shouldRunWorkflowValidation,
+    type WorkflowValidationResult,
+} from "../workflow/validation.ts";
+import { switchActiveAgent } from "./agent-switching.js";
+import { getAgentDisplayName } from "./agents.js";
+import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
+import { join } from "@std/path";
+import { AGENTS } from "../../constants.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+
+type ActiveExecutionWorkflow = import("./hosted-session.js").ActiveExecutionWorkflow;
+type HostedSession = import("./hosted-session.js").HostedSession;
+type ImageAttachment = import("./types.js").ImageAttachment;
+type SessionManager = import("@earendil-works/pi-coding-agent").SessionManager;
+type AgentTurnHandoffResult = import("./types.js").AgentTurnHandoffResult;
+type TriageMeta = import("../../tools/plan-written.js").TriageMeta;
+type PlanExecutionResult = import("../workflow/workflow.js").PlanExecutionResult;
+type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
+type WorkflowMetricOptions = NonNullable<Parameters<typeof recordWorkflowMetric>[1]>;
+
+interface RootAgentSessionState {
+    agent?: { state?: { messages?: AgentMessage[] } };
+}
+
+interface AgentHandlerCompleteResult {
+    kind: "complete";
+    validationResult?: WorkflowValidationResult;
+}
+
+type AgentHandlerTurnResult = AgentHandlerCompleteResult | AgentTurnHandoffResult;
+
+export interface AgentHandlerOptions {
+    hostedSession: HostedSession;
+    customTools?: ToolDefinition[];
+}
+
+export type AgentHandler = (
+    userRequest: string,
+    images: ImageAttachment[],
+    sessionManager: SessionManager,
+) => Promise<AgentHandlerTurnResult>;
+
+/**
+ * @param {string} agentName
+ * @param {import('./hosted-session.js').ActiveExecutionWorkflow} workflow
+ * @returns {boolean}
+ */
+function canCompleteActiveExecutionWorkflow(agentName: string, workflow: ActiveExecutionWorkflow): boolean {
+    return agentName === workflow.executionAgent;
+}
+
+/**
+ * @param {string} userRequest
+ * @returns {boolean}
+ */
+function isDeliberateExecutionResume(userRequest: string): boolean {
+    const normalized = userRequest.trim().toLowerCase().replaceAll(/\s+/g, " ");
+    return [
+        "continue",
+        "continue execution",
+        "continue pair execution",
+        "resume",
+        "resume execution",
+        "resume pair execution",
+        "proceed",
+        "keep going",
+    ].includes(normalized);
+}
+
+/**
+ * @param {string} planName
+ * @returns {boolean}
+ */
+function isMissingPrimaryPlanError(error: Error | string, planName: string): boolean {
+    const reason = error instanceof Error ? error.message : String(error);
+    return reason === `Plan not found: ${planName}` ||
+        reason === `Plan not found in primary checkout: ${planName}`;
+}
+
+/**
+ * Ask the user to restore a newly-created Plan that was stashed out of the
+ * primary checkout while its execution worktree was active.
+ *
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {string} planName
+ * @returns {Promise<boolean>}
+ */
+async function requestMissingPrimaryPlanRetry(hostedSession: HostedSession, planName: string): Promise<boolean> {
+    const planPath = `plans/${planName}.md`;
+    const message =
+        `The Plan file "${planPath}" is missing from the main checkout. Restore it in the main checkout, then come back and pick Retry.`;
+    emitSystemStatus(hostedSession, message, { level: "warning", header: "RunWield" });
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: message,
+        options: [
+            { value: "retry", label: "Retry" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "retry";
+}
+
+/**
+ * Create an onMessage handler for the active Agent.
+ *
+ * The returned function produces the typed turn result consumed by
+ * `SessionRuntime` prompt handling.
+ *
+ * After the Agent finishes, the handler checks the message stream for workflow
+ * Custom Tool outcomes. The tool outcome, not the Agent name, decides whether
+ * RunWield starts Triage dispatch, Plan execution, or Workflow Validation.
+ *
+ * The only options are the HostedSession it owns and any custom tools already
+ * installed in that root session. Workflow machinery is always RunWield's real
+ * implementation; tests control model output through the provider boundary.
+ */
+export function createAgentHandler(agentName: string, options: AgentHandlerOptions): AgentHandler {
+    if (!options?.hostedSession) throw new Error("createAgentHandler: hostedSession is required");
+    const { hostedSession, customTools } = options;
+
+    return async (userRequest, images, sessionManager) => {
+        const projectRoot = hostedSession.cwd;
+        const resumedWorkflow = hostedSession.getActiveExecutionWorkflow();
+        if (
+            (resumedWorkflow?.pairPauseReason || resumedWorkflow?.pairStopRequested) &&
+            isDeliberateExecutionResume(userRequest)
+        ) {
+            const resumed = { ...resumedWorkflow };
+            delete resumed.pairPauseReason;
+            delete resumed.pairStopRequested;
+            hostedSession.setActiveExecutionWorkflow(resumed);
+        }
+        function recordWorkflowMetricImpl(metric: WorkflowMetric, metricOptions: WorkflowMetricOptions = {}) {
+            return recordWorkflowMetric(metric, { cwd: projectRoot, ...metricOptions });
+        }
+
+        // Interactive handlers must match the live root. A mismatched handler
+        // would make the UI's active agent label and the callable tool set
+        // diverge, so fail before any model turn can run.
+        const rootAgentName = hostedSession.getRootAgentName();
+        if (!rootAgentName) {
+            throw new Error(`createAgentHandler: active handler "${agentName}" has no root Agent`);
+        }
+        if (rootAgentName && rootAgentName !== agentName) {
+            throw new Error(
+                `createAgentHandler: active handler "${agentName}" does not match root agent "${rootAgentName}"`,
+            );
+        }
+        // Capture the pre-turn message count so we only consider plan_written outcomes
+        // from the current turn. Stale outcomes from earlier turns (e.g. an already-executed
+        // approved_execute) would otherwise trigger duplicate executePlan calls on
+        // follow-up questions.
+        const rootAgentSession = hostedSession.getRootAgentSession() as RootAgentSessionState | null;
+        const preTurnCount = rootAgentSession?.agent?.state?.messages?.length ?? 0;
+        let agentStoppedAttentionRequested = false;
+        const requestAgentStoppedAttention = () => {
+            if (agentStoppedAttentionRequested) return;
+            if (hostedSession.consumeSuppressedAgentStoppedAttention()) return;
+            agentStoppedAttentionRequested = true;
+            emitHostedSessionRuntimeEvent(hostedSession, {
+                type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                reason: "agentStopped",
+                agentName: hostedSession.getRootAgentName() || agentName,
+            });
+        };
+
+        const messages = await runRootTurn({ hostedSession, agentName, userRequest, images, customTools });
+
+        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
+        if (routerHandoff) {
+            return {
+                kind: "handoff",
+                agentName: routerHandoff.agentName,
+                userRequest: routerHandoff.reason,
+            };
+        }
+
+        const triage = readLatestTriageOutcome(messages, preTurnCount);
+        if (triage) {
+            const validationResult = await dispatchPostTriage({
+                hostedSession,
+                triage,
+                userRequest,
+                images,
+                sessionManager,
+            });
+            if (validationResult?.kind === "handoff") {
+                return validationResult;
+            }
+            if (validationResult?.epicContinuation) {
+                return { kind: "complete", validationResult };
+            }
+            return { kind: "complete" };
+        }
+
+        // If the agent's plan_written returned approved_execute, dispatch the plan.
+        // Other outcomes (saved/feedback/canceled/repair_required) self-terminate
+        // appropriately inside plan_written.
+        const outcome = readLatestPlanOutcome(messages, preTurnCount);
+        const planningDecision = decidePostPlanning(outcome, {
+            planningAgentName: agentName,
+            fallbackTriageMeta: {},
+        });
+        await recordWorkflowMetricImpl({
+            category: "planning",
+            event: "decision",
+            agentName,
+            planName: typeof planningDecision.payload.planName === "string"
+                ? planningDecision.payload.planName
+                : undefined,
+            details: summarizeWorkflowDecision(planningDecision),
+        });
+        if (planningDecision.kind === "start_slicer") {
+            const planName = typeof planningDecision.payload.planName === "string"
+                ? planningDecision.payload.planName
+                : "";
+            const triageMeta = (planningDecision.payload.triageMeta || {}) as TriageMeta;
+            const reviewFeedback = typeof planningDecision.payload.reviewFeedback === "string"
+                ? planningDecision.payload.reviewFeedback
+                : undefined;
+            const reviewImages = (Array.isArray(planningDecision.payload.reviewImages)
+                ? planningDecision.payload.reviewImages
+                : undefined) as ImageAttachment[] | undefined;
+            const slicerResult = await runSlicerAgent({
+                planName,
+                triageMeta,
+                reviewFeedback,
+                reviewImages,
+                hostedSession,
+                sessionManager,
+            });
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName: slicerResult.ok ? AGENTS.SLICER : agentName,
+                planName,
+                details: {
+                    transition: slicerResult.ok ? "start_slicer" : "slicer_start_failed",
+                    decisionKind: planningDecision.kind,
+                },
+            });
+            if (!slicerResult.ok) {
+                await switchActiveAgent(hostedSession, { agentName });
+            }
+            requestAgentStoppedAttention();
+            return { kind: "complete" };
+        }
+        if (planningDecision.kind === "execute_plan") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                planName: typeof planningDecision.payload.planName === "string"
+                    ? planningDecision.payload.planName
+                    : undefined,
+                details: { transition: "execute_plan", decisionKind: planningDecision.kind },
+            });
+            const planName = typeof planningDecision.payload.planName === "string"
+                ? planningDecision.payload.planName
+                : "";
+            const triageMeta = (planningDecision.payload.triageMeta || {}) as TriageMeta;
+            const reviewFeedback = typeof planningDecision.payload.reviewFeedback === "string"
+                ? planningDecision.payload.reviewFeedback
+                : undefined;
+            const reviewImages = (Array.isArray(planningDecision.payload.reviewImages)
+                ? planningDecision.payload.reviewImages
+                : undefined) as ImageAttachment[] | undefined;
+            let executionResult: PlanExecutionResult;
+            try {
+                executionResult = await executePlan({
+                    planName,
+                    triageMeta,
+                    sessionManager,
+                    hostedSession,
+                    reviewFeedback,
+                    reviewImages,
+                });
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
+                    resolveExecutionOwner(triageMeta);
+                emitSystemStatus(
+                    hostedSession,
+                    `Plan execution failed: ${reason}. ${
+                        getAgentDisplayName(executionOwner, projectRoot)
+                    } may need manual intervention.`,
+                    { level: "error", header: "RunWield" },
+                );
+                await switchActiveAgent(hostedSession, { agentName: executionOwner });
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+
+            let planContent = "";
+            try {
+                planContent = await Deno.readTextFile(join(projectRoot, "plans", `${planName}.md`));
+            } catch {
+                // Ignore in tests or if the file doesn't exist
+            }
+
+            const activeWorkflowAfterExecution = hostedSession.getActiveExecutionWorkflow();
+            const executionCanceledBeforeStart = executionResult?.canceled && !activeWorkflowAfterExecution;
+            const executionOwner = executionCanceledBeforeStart
+                ? agentName
+                : activeWorkflowAfterExecution?.executionAgent ||
+                    resolveExecutionOwner(triageMeta);
+            const executionDecision = decidePostExecution(executionResult, {
+                planName,
+                triageMeta,
+                executionAgentName: executionOwner,
+            });
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "decision",
+                agentName: executionOwner,
+                planName,
+                details: summarizeWorkflowDecision(executionDecision),
+            });
+
+            if (executionDecision.kind === "complete_session") {
+                if (typeof executionDecision.payload.message === "string" && executionDecision.payload.message) {
+                    emitSystemStatus(hostedSession, executionDecision.payload.message, { header: "RunWield" });
+                }
+                requestAgentStoppedAttention();
+            } else if (executionDecision.kind === "run_validation") {
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: executionOwner,
+                    planName,
+                    details: { transition: "run_validation", decisionKind: executionDecision.kind },
+                });
+                const validationResult = await runValidationLoop({
+                    hostedSession,
+                    planName,
+                    planContent,
+                    triageMeta,
+                    sessionManager,
+                    executionContext: executionResult.executionContext,
+                    finalAgentName: agentName,
+                });
+                if (validationResult?.epicContinuation) {
+                    return { kind: "complete", validationResult };
+                }
+                requestAgentStoppedAttention();
+            } else if (executionDecision.kind === "stay_with_agent") {
+                if (executionCanceledBeforeStart) {
+                    requestAgentStoppedAttention();
+                    return { kind: "complete" };
+                }
+                const nextAgentName = typeof executionDecision.payload.agentName === "string"
+                    ? executionDecision.payload.agentName
+                    : AGENTS.ENGINEER;
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: nextAgentName,
+                    planName,
+                    details: { transition: "stay_with_agent", decisionKind: executionDecision.kind },
+                });
+                await switchActiveAgent(hostedSession, { agentName: nextAgentName });
+                requestAgentStoppedAttention();
+            } else {
+                // halt — stay with the execution owner for manual recovery
+                const reason = executionDecision.payload?.reason || "unknown";
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: executionOwner,
+                    planName,
+                    details: {
+                        transition: executionDecision.kind === "halt" ? "halt" : "stay_with_agent",
+                        decisionKind: executionDecision.kind,
+                        hasReason: Boolean(reason),
+                    },
+                });
+                emitSystemStatus(
+                    hostedSession,
+                    `Execution stopped: ${reason}. Staying with ${executionOwner} for manual intervention.`,
+                    { level: "error", header: "RunWield" },
+                );
+                await switchActiveAgent(hostedSession, { agentName: executionOwner });
+                requestAgentStoppedAttention();
+            }
+            return { kind: "complete" };
+        }
+
+        if (planningDecision.kind === "stay_with_agent" || planningDecision.kind === "save_plan") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                details: { transition: "stay_with_agent", decisionKind: planningDecision.kind },
+            });
+        } else if (planningDecision.kind === "halt") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                details: { transition: "halt", decisionKind: planningDecision.kind },
+            });
+        }
+
+        if (outcome) {
+            return { kind: "complete" };
+        }
+
+        // If the agent declared they finished an assigned workflow task
+        const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        if (taskCompleted) {
+            const workflow = hostedSession.getActiveExecutionWorkflow();
+            if (workflow?.executionStarted === false) {
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+            if (workflow?.pairPauseReason || workflow?.pairStopRequested) {
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+            if (workflow && !canCompleteActiveExecutionWorkflow(agentName, workflow)) {
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+
+            if (workflow?.triageMeta?.classification === "QUICK_FIX") {
+                hostedSession.clearActiveExecutionWorkflow();
+                await runMechanicalValidation({
+                    hostedSession,
+                    sessionManager,
+                    cwd: workflow.executionCwd || projectRoot,
+                    manualQaName: workflow.manualQaName,
+                    manualQaContext: workflow.manualQaContext,
+                });
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+
+            if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
+                hostedSession.clearActiveExecutionWorkflow();
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+
+            if (workflow) {
+                if (workflow.planName && workflow.planName !== "quick-fix") {
+                    if (!workflow.validationContinuation) {
+                        while (true) {
+                            try {
+                                await finalizePlanImplementation({
+                                    projectRoot,
+                                    planName: workflow.planName,
+                                    triageMeta: workflow.triageMeta,
+                                    executionContext: workflow,
+                                    hostedSession,
+                                });
+                                break;
+                            } catch (error) {
+                                const failure = error instanceof Error ? error : String(error);
+                                if (isMissingPrimaryPlanError(failure, workflow.planName)) {
+                                    const retry = await requestMissingPrimaryPlanRetry(
+                                        hostedSession,
+                                        workflow.planName,
+                                    );
+                                    if (retry) continue;
+                                } else {
+                                    const reason = error instanceof Error ? error.message : String(error);
+                                    emitSystemStatus(
+                                        hostedSession,
+                                        `Workflow halted before validation because the implementation checkpoint failed: ${reason}`,
+                                        { level: "error", header: "RunWield" },
+                                    );
+                                }
+                                requestAgentStoppedAttention();
+                                return { kind: "complete" };
+                            }
+                        }
+                    }
+                }
+
+                let planContent = "";
+                if (workflow.planName && workflow.planName !== "quick-fix") {
+                    try {
+                        planContent = await Deno.readTextFile(join(projectRoot, "plans", `${workflow.planName}.md`));
+                    } catch {
+                        // Ignore
+                    }
+                }
+
+                const validationResult = await runValidationLoop({
+                    hostedSession,
+                    planName: workflow.planName,
+                    planContent,
+                    triageMeta: workflow.triageMeta,
+                    sessionManager,
+                    finalAgentName: agentName,
+                });
+                if (validationResult?.epicContinuation) {
+                    return { kind: "complete", validationResult };
+                }
+                requestAgentStoppedAttention();
+            }
+        }
+
+        requestAgentStoppedAttention();
+        return { kind: "complete" };
+    };
+}
