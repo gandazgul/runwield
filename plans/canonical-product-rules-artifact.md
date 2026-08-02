@@ -29,6 +29,7 @@ updatedAt: "2026-08-01T05:17:42.853Z"
 status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
+planId: "fc57f6a6-a704-4f7e-88ca-29f0e5d1af9b"
 ---
 
 I havent read therough this and want to think about it more, but I think this is a good start. I want to make sure we

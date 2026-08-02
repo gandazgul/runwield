@@ -52,7 +52,7 @@
 - [ ] 5 plans to execute next, in series:
   - [x] run-objective-checks-in-mechanical-validation
   - [x] baseline-objective-checks-before-execution (depends on 1)
-  - [ ] formalize-subagent-definitions
+  - [x] formalize-subagent-definitions
   - [ ] delegate-agent-roles (depends on 3)
   - [ ] re-anchor-agents-after-compaction (independent)
 

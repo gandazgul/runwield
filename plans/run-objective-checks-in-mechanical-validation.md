@@ -21,12 +21,17 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
-updatedAt: "2026-08-01T20:56:47.371Z"
+updatedAt: "2026-08-02T15:21:28.304Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-01T18:51:26.646Z"
 verifiedAt: "2026-08-01T20:56:47.371Z"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "bc9715b9-5a63-410b-b690-fc596e9a6ca9"
+    path: "docs/work-records/2026-08-01-objective-checks-now-run-in-mechanical-validation.md"
+    lastAttemptAt: "2026-08-02T15:21:28.249Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
