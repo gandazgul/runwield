@@ -168,19 +168,6 @@
             ],
             "machinery": []
         },
-        "src/cmd/plans/ui.js": {
-            "seams": [
-                "command",
-                "cwd",
-                "generateWorkspaceToken",
-                "installShutdownHandler",
-                "openBrowser",
-                "parsePlansUiArgs",
-                "printPlansUiHelp",
-                "startWorkspaceServer"
-            ],
-            "machinery": []
-        },
         "src/cmd/plans/unshare.js": {
             "seams": [
                 "clearPlanCollaborationMetadata",

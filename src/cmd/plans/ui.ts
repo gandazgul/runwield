@@ -10,23 +10,28 @@ import {
     PLAN_UI_DEFAULT_PORT,
     PLAN_UI_TOKEN_QUERY,
 } from "../../constants.js";
+import type { BrowserPort } from "../../shared/browser-port.ts";
+import { startWorkspaceServer } from "../../ui/workspace/server.js";
 
-/** @typedef {{ host: string, port: number, noOpen: boolean, help: boolean, explicitBind: boolean }} PlansUiOptions */
+interface PlansUiOptions {
+    host: string;
+    port: number;
+    noOpen: boolean;
+    help: boolean;
+    explicitBind: boolean;
+}
 
-/**
- * @param {string} value
- * @returns {boolean}
- */
-export function isLoopbackHost(value) {
+interface PlansUiCommandOptions {
+    browser?: BrowserPort;
+    signal?: AbortSignal;
+}
+
+export function isLoopbackHost(value: string): boolean {
     const host = String(value || "").trim().toLowerCase();
     return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
 
-/**
- * @param {string | number} value
- * @returns {number}
- */
-export function parsePort(value) {
+export function parsePort(value: string | number): number {
     const port = Number(value);
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
         throw new Error(`Invalid --port value "${value}". Expected an integer from 0 to 65535.`);
@@ -34,26 +39,19 @@ export function parsePort(value) {
     return port;
 }
 
-/**
- * @param {string[]} argv
- * @returns {PlansUiOptions}
- */
-export function parsePlansUiArgs(argv) {
-    /** @type {PlansUiOptions} */
-    const options = {
+export function parsePlansUiArgs(argv: string[]): PlansUiOptions {
+    const options: PlansUiOptions = {
         host: PLAN_UI_DEFAULT_HOST,
         port: PLAN_UI_DEFAULT_PORT,
         noOpen: false,
         help: false,
         explicitBind: false,
     };
-    /** @type {string | undefined} */
-    let bindValue;
-    /** @type {string | undefined} */
-    let hostValue;
+    let bindValue: string | undefined;
+    let hostValue: string | undefined;
 
-    for (let i = 0; i < argv.length; i += 1) {
-        const arg = argv[i];
+    for (let index = 0; index < argv.length; index += 1) {
+        const arg = argv[index];
         if (arg === "--help" || arg === "-h") {
             options.help = true;
             continue;
@@ -63,11 +61,11 @@ export function parsePlansUiArgs(argv) {
             continue;
         }
         if (arg === "--bind" || arg === "--host") {
-            const value = argv[i + 1];
+            const value = argv[index + 1];
             if (!value || value.startsWith("--")) throw new Error(`${arg} requires a host value.`);
             if (arg === "--bind") bindValue = value;
             else hostValue = value;
-            i += 1;
+            index += 1;
             continue;
         }
         if (arg.startsWith("--bind=")) {
@@ -79,10 +77,10 @@ export function parsePlansUiArgs(argv) {
             continue;
         }
         if (arg === "--port") {
-            const value = argv[i + 1];
+            const value = argv[index + 1];
             if (!value || value.startsWith("--")) throw new Error("--port requires a numeric value.");
             options.port = parsePort(value);
-            i += 1;
+            index += 1;
             continue;
         }
         if (arg.startsWith("--port=")) {
@@ -107,21 +105,21 @@ export function parsePlansUiArgs(argv) {
     return options;
 }
 
-/**
- * @returns {string}
- */
-export function generateWorkspaceToken() {
+export function generateWorkspaceToken(): string {
     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * @param {{ host: string, port: number, token: string, path?: string }} options
- * @returns {string}
- */
-export function buildPlansUiUrl({ host, port, token, path = "/" }) {
+interface PlansUiUrlOptions {
+    host: string;
+    port: number;
+    token: string;
+    path?: string;
+}
+
+export function buildPlansUiUrl({ host, port, token, path = "/" }: PlansUiUrlOptions): string {
     const urlHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
     const bracketedHost = urlHost.includes(":") && !urlHost.startsWith("[") ? `[${urlHost}]` : urlHost;
     const url = new URL(`http://${bracketedHost}:${port}${path}`);
@@ -129,57 +127,44 @@ export function buildPlansUiUrl({ host, port, token, path = "/" }) {
     return url.href;
 }
 
-/**
- * @param {string} url
- * @param {{ command?: typeof Deno.Command }} [deps]
- */
-export async function openBrowser(url, deps = {}) {
-    const Command = deps.command || Deno.Command;
-    const os = Deno.build.os;
-    const command = os === "darwin" ? "open" : os === "windows" ? "cmd" : "xdg-open";
-    const args = os === "windows" ? ["/c", "start", "", url] : [url];
+export async function openBrowser(url: string): Promise<boolean> {
+    const command = Deno.build.os === "darwin" ? "open" : Deno.build.os === "windows" ? "cmd" : "xdg-open";
+    const args = Deno.build.os === "windows" ? ["/c", "start", "", url] : [url];
     try {
-        const child = new Command(command, { args, stdout: "null", stderr: "null" }).spawn();
-        await child.status;
+        const child = new Deno.Command(command, { args, stdout: "null", stderr: "null" }).spawn();
+        return (await child.status).success;
     } catch {
-        // Best effort only.
+        return false;
     }
 }
 
-export function printPlansUiHelp() {
-    console.log(`Usage: wld plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open] [--help]`);
+const SYSTEM_BROWSER: BrowserPort = { open: openBrowser };
+
+export function printPlansUiHelp(): void {
+    console.log("Usage: wld plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open] [--help]");
     console.log("Starts the local read-only Workspace board for Plans in the current checkout.");
     console.log("Defaults: --bind 127.0.0.1 --port 0 (random available port).");
 }
 
-/**
- * @param {AbortController} controller
- * @returns {() => void}
- */
-function installShutdownHandler(controller) {
+function installShutdownHandler(controller: AbortController): () => void {
     const handler = () => controller.abort();
     Deno.addSignalListener("SIGINT", handler);
     return () => Deno.removeSignalListener("SIGINT", handler);
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: any }} [options]
- */
-export async function runPlansUiCommand(argv, options = {}) {
-    const deps = options.__testDeps || {};
-    let parsed;
+export async function runPlansUiCommand(argv: string[], options: PlansUiCommandOptions = {}): Promise<void> {
+    let parsed: PlansUiOptions;
     try {
-        parsed = (deps.parsePlansUiArgs || parsePlansUiArgs)(argv);
+        parsed = parsePlansUiArgs(argv);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[RunWield] ${message}`);
-        console.error(`Run 'wld plans ui --help' for usage.`);
+        console.error("Run 'wld plans ui --help' for usage.");
         return;
     }
 
     if (parsed.help) {
-        (deps.printPlansUiHelp || printPlansUiHelp)();
+        printPlansUiHelp();
         return;
     }
 
@@ -189,28 +174,32 @@ export async function runPlansUiCommand(argv, options = {}) {
         );
     }
 
-    const token = (deps.generateWorkspaceToken || generateWorkspaceToken)();
     const controller = new AbortController();
-    const removeShutdownHandler = deps.installShutdownHandler
-        ? deps.installShutdownHandler(controller)
-        : installShutdownHandler(controller);
+    const removeShutdownHandler = installShutdownHandler(controller);
+    const abortFromExternalSignal = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener("abort", abortFromExternalSignal, { once: true });
 
     try {
-        const startWorkspaceServer = deps.startWorkspaceServer ||
-            (await import("../../ui/workspace/server.js")).startWorkspaceServer;
-        const server = await startWorkspaceServer({
-            cwd: deps.cwd || getCwd(),
+        const token = generateWorkspaceToken();
+        const server = startWorkspaceServer({
+            cwd: getCwd(),
             host: parsed.host,
             port: parsed.port,
             token,
             signal: controller.signal,
         });
-        const actualPort = server?.addr?.port || parsed.port;
-        const url = buildPlansUiUrl({ host: parsed.host, port: actualPort, token });
-        console.log(`[RunWield] Workspace: ${url}`);
-        if (!parsed.noOpen) await (deps.openBrowser || openBrowser)(url);
-        if (server?.finished) await server.finished;
+        try {
+            const url = buildPlansUiUrl({ host: parsed.host, port: server.addr.port, token });
+            console.log(`[RunWield] Workspace: ${url}`);
+            if (!parsed.noOpen) await (options.browser || SYSTEM_BROWSER).open(url);
+            await server.finished;
+        } finally {
+            controller.abort();
+            await server.finished.catch(() => {});
+        }
     } finally {
-        removeShutdownHandler?.();
+        options.signal?.removeEventListener("abort", abortFromExternalSignal);
+        removeShutdownHandler();
     }
 }

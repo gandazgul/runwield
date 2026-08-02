@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN } from "../../constants.js";
 import { getOwnerCoordinationDatabasePath, openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { isLoopbackHost, openBrowser, parsePort } from "../plans/ui.js";
+import { isLoopbackHost, openBrowser, parsePort } from "../plans/ui.ts";
 
 export const WORKSPACE_DEFAULT_HOST = "127.0.0.1";
 export const WORKSPACE_DEFAULT_PORT = 8787;

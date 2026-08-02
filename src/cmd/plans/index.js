@@ -110,8 +110,8 @@ export async function runPlansCommand(argv, options = {}) {
     } = deps;
 
     if (argv[0] === "ui") {
-        const runPlansUiCommand = runPlansUiCommandDep || (await import("./ui.js")).runPlansUiCommand;
-        await runPlansUiCommand(argv.slice(1), options);
+        const runPlansUiCommand = runPlansUiCommandDep || (await import("./ui.ts")).runPlansUiCommand;
+        await runPlansUiCommand(argv.slice(1));
         return;
     }
     if (argv[0] === "archive") {
