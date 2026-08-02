@@ -161,7 +161,6 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
  * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
  * @property {typeof removeWorktreeGitArtifactsFn} [removeWorktreeGitArtifacts]
- * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {typeof probeGitRepositoryFn} [probeGitRepository]
@@ -3638,7 +3637,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
         preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
         restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
         removeWorktreeGitArtifacts: removeWorktreeGitArtifactsDep,
-        removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
         probeGitRepository: probeGitRepositoryDep,
@@ -3684,7 +3682,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
         restorePrimaryPlanPathAfterMergeFailureFn;
     const removeWorktreeGitArtifacts = removeWorktreeGitArtifactsDep || removeWorktreeGitArtifactsFn;
-    const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
     const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
@@ -3983,7 +3980,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 preparePrimaryPlanPathForMerge,
                 restorePrimaryPlanPathAfterMergeFailure,
                 removeWorktreeGitArtifacts,
-                removeWorktreeRegistryEntry,
+                removeWorktreeRegistryEntry: removeWorktreeRegistryEntryFn,
                 shouldCleanupMergedWorktrees,
                 recordWorkflowMetric: recordWorkflowMetricForLoadPlan,
                 findPlansByParent,

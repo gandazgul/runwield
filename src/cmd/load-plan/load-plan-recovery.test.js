@@ -21,10 +21,11 @@ import {
     restorePrimaryPlanPathAfterMergeFailure,
 } from "../../shared/worktree.js";
 
+import { addEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
+
 import { git, makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
-import { addEntry } from "../../shared/worktree-registry.js";
 
 Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without transient Pair style", async () => {
     const { uiAPI, selections } = makeUi();
@@ -963,16 +964,37 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
 });
 
 Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when registry bookkeeping fails", async () => {
-    const worktreePath = await Deno.makeTempDir({ prefix: "runwield-load-plan-merge-" });
+    // A real repository with a real execution worktree, in a project of its own.
+    //
+    // Post-merge cleanup is a sequence — remove the worktree, delete the branch only
+    // once Git proves it merged, then drop the registry entry — and faking its ends
+    // while the middle ran for real meant it had been running against the developer's
+    // own checkout, because `projectRoot` was the process cwd.
+    // Resolved, because Git reports and matches worktree paths after resolving
+    // symlinks: on macOS a temp dir is `/var/...` while Git says `/private/var/...`,
+    // and an unresolved path makes `git worktree remove` fail with "not a working tree".
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-load-plan-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-load-plan-worktrees-" }));
     try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await Deno.writeTextFile(`${projectRoot}/merged.txt`, "base\n");
+        await git(projectRoot, ["add", ".gitignore", "merged.txt"]);
+        await git(projectRoot, ["commit", "-m", "base"]);
+        await git(projectRoot, ["branch", "feature-base"]);
+        const worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "plan-merge-conflict",
+            planId: "plan-merge-conflict-id",
+            worktreeRoot,
+        });
+        const worktreePath = worktree.path;
         const { uiAPI, selections, messages } = makeUi();
         selections.push("merge");
         let mergedBranch = "";
         let mergedTargetBranch = "";
-        let removedPath = "";
-        /** @type {boolean | undefined} */
-        let removedForce;
-        let removedRegistryId = "";
         let registryStatus = "";
         let mergedPlanName = "";
         let mergedPlanDescription = "";
@@ -984,7 +1006,9 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         let lifecycleEvent = null;
 
         await runLoadPlanCommand(["plan-merge-conflict"], {
-            ...makeRuntimeContext(),
+            // Without this the session cwd is the developer's checkout, and post-merge
+            // cleanup runs `git worktree remove` against *that* repository.
+            ...makeRuntimeContext({ cwd: projectRoot }),
             uiAPI,
             editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
             __testDeps: /** @type {any} */ ({
@@ -1040,7 +1064,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                         restoredPlanFile: { relativePath: "plans/plan-merge-conflict.md" },
                         context: {
                             executionMode: "worktree",
-                            projectRoot: getCwd(),
+                            projectRoot,
                             executionCwd: worktreePath,
                             worktreeId: "wt1",
                             worktreeBranch: "runwield/worktree/plan-merge-conflict",
@@ -1081,15 +1105,6 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                     mergedPlanDescription = args.planDescription || "";
                     return Promise.resolve({ updatedPrimaryCheckout: false });
                 },
-                removeWorktreeGitArtifacts: (/** @type {{ path: string, force?: boolean }} */ args) => {
-                    removedPath = args.path;
-                    removedForce = args.force;
-                    return Promise.resolve();
-                },
-                removeWorktreeRegistryEntry: (/** @type {string} */ _cwd, /** @type {string} */ id) => {
-                    removedRegistryId = id;
-                    return Promise.resolve();
-                },
                 updateWorktreeRegistryEntry: (
                     /** @type {string} */ _cwd,
                     /** @type {string} */ _id,
@@ -1126,9 +1141,11 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         assertEquals(mergedPlanName, "plan-merge-conflict");
         assertEquals(mergedPlanDescription, "Resolve a manual merge conflict.");
         assertEquals(primaryPlanRestored, true);
-        assertEquals(removedPath, worktreePath);
-        assertEquals(removedForce, false);
-        assertEquals(removedRegistryId, "wt1");
+        // The worktree really is gone from Git's list, and the registry entry with it.
+        assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktreePath), false);
+        // The registry entry is gone from the real registry, not merely reported as
+        // removed by a stand-in that never wrote anything.
+        assertEquals(await findRegistryEntryById(projectRoot, "wt1"), null);
         assertEquals(registryStatus, "merged");
         assertEquals(lifecycleEvent, null);
         assertEquals(
@@ -1148,7 +1165,8 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
             true,
         );
     } finally {
-        await Deno.remove(worktreePath, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
@@ -1233,7 +1251,6 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
             recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             removeWorktreeGitArtifacts: () => Promise.resolve(),
-            removeWorktreeRegistryEntry: () => Promise.resolve(),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
             resolveValidationExecutionContext: () =>
@@ -1409,7 +1426,6 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
                 recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
                 removeWorktreeGitArtifacts: () => Promise.resolve(),
-                removeWorktreeRegistryEntry: () => Promise.resolve(),
                 shouldCleanupMergedWorktrees: () => false,
                 recordWorkflowMetric: () => Promise.resolve(null),
                 resolveValidationExecutionContext: () =>
