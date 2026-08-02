@@ -410,15 +410,6 @@
             ],
             "machinery": []
         },
-        "src/ui/tui/slash-dispatch.js": {
-            "seams": [
-                "commandRegistry",
-                "expandPromptTemplate",
-                "expandSkillCommand",
-                "getSlashCommandDefinition"
-            ],
-            "machinery": []
-        },
         "src/ui/tui/ui-api-overrides.js": {
             "seams": [
                 "Image",

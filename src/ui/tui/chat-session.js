@@ -60,7 +60,7 @@ import { renderBootBanner } from "./boot-banner.js";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
 import { getHomeDir } from "../../constants.js";
 import { handleBashCommand } from "./bash-interceptor.js";
-import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.js";
+import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.ts";
 import { installKeybindings } from "./keybindings.js";
 import { hasClipboardImage } from "./clipboard.js";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
@@ -1365,7 +1365,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                 tui,
                 sessionStartedAt,
                 originalHandleInput,
-                builtinNames: CHAT_BUILTIN_SLASH_NAMES,
+                initCommandAvailable: CHAT_BUILTIN_SLASH_NAMES.has("init"),
                 promptTemplateByName,
                 skills,
                 chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,

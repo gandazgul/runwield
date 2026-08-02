@@ -177,7 +177,6 @@
     "src/ui/tui/prompts.js",
     "src/ui/tui/runtime-adapter.js",
     "src/ui/tui/runtime-interaction-adapter.js",
-    "src/ui/tui/slash-dispatch.js",
     "src/ui/tui/system-notifications.js",
     "src/ui/tui/terminal-title.js",
     "src/ui/tui/testing/child-protocol.js",

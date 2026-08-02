@@ -1,0 +1,217 @@
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createGenerationGuard } from "./generation-guard.js";
+import {
+    handleSlashCommand,
+    isImmediateBuiltinSlashCommandWhileStreaming,
+    type SkillMeta,
+    type SlashContext,
+} from "./slash-dispatch.ts";
+
+interface SlashFixture {
+    context(userRequest: string): SlashContext;
+    messages: string[];
+    runtime: SessionRuntime;
+    sessionId: string;
+    submittedRequests: string[];
+}
+
+interface SlashFixtureOptions {
+    promptTemplate?: boolean;
+    initPromptTemplate?: boolean;
+    skill?: boolean;
+}
+
+async function writeCatalogFixtures(projectRoot: string, options: SlashFixtureOptions): Promise<void> {
+    if (options.promptTemplate) {
+        const promptDir = join(projectRoot, ".wld", "prompts");
+        await Deno.mkdir(promptDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(promptDir, "review.md"),
+            ["---", 'description: "Review fixture"', "---", "Review the fixture carefully."].join("\n"),
+        );
+    }
+    if (options.initPromptTemplate) {
+        const promptDir = join(projectRoot, ".wld", "prompts");
+        await Deno.mkdir(promptDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(promptDir, "init.md"),
+            ["---", 'description: "Init fixture"', "---", "Initialize from the fixture."].join("\n"),
+        );
+    }
+    if (options.skill) {
+        const skillDir = join(projectRoot, ".wld", "skills", "diagnose-fixture");
+        await Deno.mkdir(skillDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(skillDir, "SKILL.md"),
+            [
+                "---",
+                'name: "diagnose-fixture"',
+                'description: "Diagnose the fixture"',
+                "---",
+                "Inspect the fixture evidence before answering.",
+            ].join("\n"),
+        );
+    }
+}
+
+async function withSlashFixture(
+    options: SlashFixtureOptions,
+    run: (fixture: SlashFixture, projectRoot: string) => Promise<void>,
+): Promise<void> {
+    await withRuntimeCommandFixture(
+        "runwield-slash-dispatch-",
+        async ({ projectRoot, setModelResponse }) => {
+            await writeCatalogFixtures(projectRoot, options);
+            setModelResponse("Fixture turn complete.");
+            const runtime = new SessionRuntime();
+            const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            runtime.renameSession(created.sessionId, "Slash fixture");
+            const messages: string[] = [];
+            const submittedRequests: string[] = [];
+            runtime.subscribeSessionEvents(created.sessionId, (event) => {
+                if (event.type === RuntimeEventTypes.USER_MESSAGE) submittedRequests.push(event.text);
+            });
+
+            const templates = await runtime.listSessionPromptTemplates(created.sessionId);
+            const promptTemplateByName = new Map(templates.map((template) => [template.name, template]));
+            const skills = (await runtime.listSessionSkills(created.sessionId)).map((skill): SkillMeta => ({
+                name: skill.name,
+                description: skill.description,
+                path: skill.path,
+                source: skill.source,
+                disableModelInvocation: skill.disableModelInvocation,
+            }));
+            const uiAPI: SlashContext["uiAPI"] = {
+                appendSystemMessage: (message) => messages.push(message),
+                appendAgentMessageStart: () => ({ appendText: () => {} }),
+                requestRender: () => {},
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve(null),
+                showModelSelector: () => {},
+            };
+            const editor: SlashContext["editor"] = {
+                disableSubmit: false,
+                setText: () => {},
+                setAutocompleteProvider: () => {},
+                handleInput: () => {},
+            };
+            const tui: SlashContext["tui"] = {
+                requestRender: () => {},
+                setFocus: () => {},
+            };
+            const context = (userRequest: string): SlashContext => ({
+                userRequest,
+                savedImages: [],
+                sessionId: created.sessionId,
+                sessionRuntime: runtime,
+                uiAPI,
+                editor,
+                tui,
+                sessionStartedAt: new Date().toISOString(),
+                originalHandleInput: () => {},
+                initCommandAvailable: true,
+                promptTemplateByName,
+                skills,
+                chatPromptAgentName: "operator",
+                resolveTemplateModel: () => ({ ok: false }),
+                dispatchExpandedUserRequest: async (text, images) => {
+                    await runtime.promptSession(created.sessionId, {
+                        initialRequest: text,
+                        initialImages: images,
+                    });
+                },
+                generationGuard: createGenerationGuard(),
+            });
+
+            try {
+                await run({ context, messages, runtime, sessionId: created.sessionId, submittedRequests }, projectRoot);
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+    );
+}
+
+Deno.test("isImmediateBuiltinSlashCommandWhileStreaming recognizes safe one-shot built-ins only", () => {
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/name Project Session"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/context"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/help"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/quit"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/model"), false);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/agent router"), false);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("hello"), false);
+});
+
+Deno.test("handleSlashCommand distinguishes regular input and unknown commands through the real registry", async () => {
+    await withSlashFixture({}, async ({ context, messages }) => {
+        assertEquals(await handleSlashCommand(context("hello")), false);
+        assertEquals(await handleSlashCommand(context("/not-a-runwield-command")), true);
+        assertEquals(messages, ["Unknown command: /not-a-runwield-command"]);
+    });
+});
+
+Deno.test("handleSlashCommand executes built-in help through the real command registry", async () => {
+    await withSlashFixture({}, async ({ context, messages }) => {
+        assertEquals(await handleSlashCommand(context("/help model")), true);
+        assertEquals(messages.length, 1);
+        assertStringIncludes(messages[0], "Usage (model):");
+    });
+});
+
+Deno.test("handleSlashCommand lets a prompt template replace the hidden init command", async () => {
+    await withSlashFixture({ initPromptTemplate: true }, async ({ context, submittedRequests }) => {
+        const slashContext = context("/init use fixture state");
+        slashContext.initCommandAvailable = false;
+
+        assertEquals(await handleSlashCommand(slashContext), true);
+        assertEquals(submittedRequests, ["Initialize from the fixture.\n\nuse fixture state"]);
+    });
+});
+
+Deno.test("handleSlashCommand expands a real prompt template and submits a real Operator turn", async () => {
+    await withSlashFixture({ promptTemplate: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
+        assertEquals(await handleSlashCommand(context("/review focus on tests")), true);
+        assertEquals(submittedRequests, ["Review the fixture carefully.\n\nfocus on tests"]);
+        assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "operator");
+    });
+});
+
+Deno.test("handleSlashCommand reports a real missing prompt-template source", async () => {
+    await withSlashFixture({}, async ({ context, messages }) => {
+        const slashContext = context("/missing-template");
+        slashContext.promptTemplateByName.set("missing-template", {
+            name: "missing-template",
+            path: join("missing", "template.md"),
+        });
+
+        assertEquals(await handleSlashCommand(slashContext), true);
+        assertEquals(messages.length, 1);
+        assertStringIncludes(messages[0], "Error expanding template:");
+        assertStringIncludes(messages[0], "Failed to read prompt template");
+    });
+});
+
+Deno.test("handleSlashCommand expands a real local skill and submits it through the active runtime", async () => {
+    await withSlashFixture({ skill: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
+        await runtime.switchAgent(sessionId, { agentName: "operator" });
+
+        assertEquals(await handleSlashCommand(context("/skill:diagnose-fixture inspect the failure")), true);
+        assertEquals(submittedRequests.length, 1);
+        assertStringIncludes(submittedRequests[0], 'The user has invoked the "diagnose-fixture" skill.');
+        assertStringIncludes(submittedRequests[0], "Inspect the fixture evidence before answering.");
+        assertStringIncludes(submittedRequests[0], "inspect the failure");
+    });
+});
+
+Deno.test("handleSlashCommand reports when a cataloged skill disappears before expansion", async () => {
+    await withSlashFixture({ skill: true }, async ({ context, messages }, projectRoot) => {
+        await Deno.remove(join(projectRoot, ".wld", "skills", "diagnose-fixture"), { recursive: true });
+
+        assertEquals(await handleSlashCommand(context("/skill:diagnose-fixture")), true);
+        assertEquals(messages, ["Error: Unknown skill: diagnose-fixture"]);
+    });
+});
