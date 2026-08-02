@@ -124,7 +124,6 @@
                 "finalizePlanImplementation",
                 "hostedSession",
                 "readLatestPlanOutcome",
-                "readLatestTaskCompletedOutcome",
                 "readLatestTriageOutcome",
                 "recordWorkflowMetric",
                 "requestAttention",

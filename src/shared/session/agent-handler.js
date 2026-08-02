@@ -9,7 +9,6 @@ import {
     executePlan as executePlanFn,
     finalizePlanImplementation as finalizePlanImplementationFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
-    readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
     resolveExecutionOwner,
     runSlicerAgent as runSlicerAgentFn,
 } from "../workflow/workflow.js";
@@ -75,7 +74,6 @@ function isDeliberateExecutionResume(userRequest) {
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   dispatchPostTriage?: typeof dispatchPostTriageFn,
  *   readLatestPlanOutcome?: typeof readLatestPlanOutcomeFn,
- *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcomeFn,
  *   decidePostPlanning?: typeof decidePostPlanningFn,
  *   decidePostExecution?: typeof decidePostExecutionFn,
  *   executePlan?: typeof executePlanFn,
@@ -99,7 +97,6 @@ export function createAgentHandler(agentName, __deps) {
     const readLatestTriageOutcome = __deps?.readLatestTriageOutcome || readLatestTriageOutcomeFn;
     const dispatchPostTriage = __deps?.dispatchPostTriage || dispatchPostTriageFn;
     const readLatestPlanOutcome = __deps?.readLatestPlanOutcome || readLatestPlanOutcomeFn;
-    const readLatestTaskCompletedOutcome = __deps?.readLatestTaskCompletedOutcome || readLatestTaskCompletedOutcomeFn;
     const decidePostPlanning = __deps?.decidePostPlanning || decidePostPlanningFn;
     const decidePostExecution = __deps?.decidePostExecution || decidePostExecutionFn;
     const executePlan = __deps?.executePlan || executePlanFn;
@@ -420,8 +417,11 @@ export function createAgentHandler(agentName, __deps) {
             return { kind: "complete" };
         }
 
-        // If the agent declared they finished an assigned workflow task
-        const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        // If the agent declared they finished an assigned workflow task, consume the session-scoped
+        // completion record produced by task_completed rather than inferring completion from the
+        // root turn's message window. Steering and isolated sessions can both write outside this
+        // handler's returned message slice, so the owning root session is the source of truth.
+        const taskCompleted = hostedSession.consumePendingTaskCompletion(rootAgentSession);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow?.executionStarted === false) {

@@ -223,7 +223,13 @@ export const engineerQuickFixMechanicalValidationScenario = {
     name: "role-engineer-quick-fix-mechanical-validation",
     composedTui: true,
     terminal: { columns: 100, rows: 30 },
-    coverage: ["role:engineer", "intent:QUICK_FIX", "recovery:workflow-validation", "block:validation-handoff"],
+    coverage: [
+        "role:engineer",
+        "intent:QUICK_FIX",
+        "recovery:workflow-validation",
+        "recovery:steered-task-completion",
+        "block:validation-handoff",
+    ],
     scriptedInteractions: [
         { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
     ],
@@ -239,19 +245,34 @@ export const engineerQuickFixMechanicalValidationScenario = {
             toolCalls: [{ name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } }],
         },
     ],
-    actions: [{ type: "type", text: "make a tiny quick fix" }, { type: "enter" }, {
-        type: "waitForIdle",
-        timeoutMs: 10000,
-    }],
+    actions: [
+        { type: "type", text: "make a tiny quick fix" },
+        { type: "enter" },
+        {
+            type: "waitForEvent",
+            event: "runtime:agent:engineer",
+            timeoutMs: 8000,
+        },
+        {
+            type: "type",
+            text: "while you are there, keep the fix minimal",
+        },
+        { type: "enter" },
+        {
+            type: "waitForIdle",
+            timeoutMs: 10000,
+        },
+    ],
     assertions: [
         assertRuntimeEvent("role:engineer", "runtime:agent:engineer"),
         assertsGoldenCoverage("intent:QUICK_FIX", (result) => {
             assertEventIncludes(result, "runtime:tool:start:task_completed");
-            assertScreenIncludes(result, "Mechanical Validation passed after QUICK_FIX.");
+            assertScreenIncludes(result, "QUICK_FIX Mechanical Validation passed.");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
             assertScreenIncludes(result, "Saved validation command: 'true'");
         }),
+        assertRuntimeEvent("recovery:steered-task-completion", "runtime:queue"),
         assertRuntimeEvent("block:validation-handoff", "runtime:tool:start:task_completed"),
     ],
 };

@@ -2,6 +2,8 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
+import { SessionHost } from "./session-host.js";
+import { SessionRuntime } from "./session-runtime.js";
 import { loadPlan, savePlan } from "../../plan-store.js";
 
 /**
@@ -9,6 +11,17 @@ import { loadPlan, savePlan } from "../../plan-store.js";
  */
 function makeHostedSession(id = `agent-handler-test-${crypto.randomUUID()}`, cwd = Deno.cwd()) {
     return new HostedSession({ id, cwd });
+}
+
+/** @param {HostedSession} hostedSession */
+function recordRootTaskCompletion(hostedSession) {
+    const rootAgentSession = hostedSession.getRootAgentSession();
+    const steeringTargetId = hostedSession.pushSteeringTargetSession(/** @type {any} */ (rootAgentSession));
+    try {
+        hostedSession.recordPendingTaskCompletion(hostedSession.getRootAgentName() || "agent", "- Done.", 1234);
+    } finally {
+        hostedSession.popSteeringTargetSession(steeringTargetId);
+    }
 }
 
 /**
@@ -128,7 +141,6 @@ Deno.test("agent-handler passes agent definition overrides and custom tools to r
         },
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => false,
     });
 
     await handler("write the drafts", [], /** @type {any} */ ({ id: "root-session" }));
@@ -410,7 +422,6 @@ Deno.test("agent-handler clears a transient Pair pause when the user resumes", a
             return Promise.resolve([]);
         },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => false,
     });
 
     await handler("continue", [], /** @type {any} */ (undefined));
@@ -441,16 +452,10 @@ Deno.test("agent-handler keeps a Pair pause for unrelated follow-up input", asyn
         runRootTurn: () => {
             assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
             assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, true);
-            return Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            );
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
         },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runValidationLoop: () => {
             validationCount++;
             return Promise.resolve();
@@ -484,16 +489,10 @@ Deno.test("agent-handler does not validate same-turn Task Completion after a Pai
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (!workflow) throw new Error("expected active workflow");
             hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "stop" });
-            return Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            );
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
         },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runValidationLoop: () => {
             validationCount++;
             return Promise.resolve();
@@ -522,16 +521,11 @@ Deno.test("agent-handler ignores Task Completion for execution that never starte
     let validationCount = 0;
     const handler = createAgentHandler("frontend-engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runValidationLoop: () => {
             validationCount++;
             return Promise.resolve();
@@ -707,16 +701,11 @@ Deno.test("agent-handler records delayed implementation finish before continuati
 
         const handler = createAgentHandler("engineer", {
             hostedSession,
-            runRootTurn: () =>
-                Promise.resolve(
-                    /** @type {any} */ ([{
-                        role: "toolResult",
-                        toolName: "task_completed",
-                        details: { outcome: "task_completed" },
-                    }]),
-                ),
+            runRootTurn: () => {
+                recordRootTaskCompletion(hostedSession);
+                return Promise.resolve([]);
+            },
             readLatestPlanOutcome: () => null,
-            readLatestTaskCompletedOutcome: () => true,
             runValidationLoop: () => {
                 events.push("validation_started");
                 workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
@@ -765,16 +754,11 @@ Deno.test("agent-handler preserves workflow and skips validation when delayed ch
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         finalizePlanImplementation: () => Promise.reject(new Error("checkpoint rejected")),
         runValidationLoop: () => {
             validationCount++;
@@ -802,16 +786,11 @@ Deno.test("agent-handler resumes validation continuation without recording imple
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runValidationLoop: () => {
             workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
             hostedSession.clearActiveExecutionWorkflow();
@@ -830,6 +809,124 @@ Deno.test("agent-handler resumes validation continuation without recording imple
         baselineTree: "baseline-tree",
         validationContinuation: true,
     });
+});
+
+Deno.test("agent-handler consumes steered task_completed and runs QUICK_FIX mechanical validation", async () => {
+    let mechanicalValidationCount = 0;
+    const sessionHost = new SessionHost();
+    const hostedSession = sessionHost.createSession({ id: "steered-task-completed", cwd: Deno.cwd() });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
+    });
+    const rootSession = /** @type {any} */ ({
+        isStreaming: true,
+        agent: { state: { messages: [] } },
+        subscribe: () => () => {},
+        steer: () => Promise.resolve(),
+        getSteeringMessages: () => [],
+        dispose: () => {},
+    });
+    hostedSession.setRootAgentName("engineer");
+    hostedSession.setRootAgentSession(rootSession);
+    const runtime = new SessionRuntime({
+        sessionHost,
+        steerActiveSessionWithTarget: (/** @type {string | HostedSession} */ targetSession) => {
+            if (targetSession instanceof HostedSession) recordRootTaskCompletion(targetSession);
+            return Promise.resolve(rootSession);
+        },
+    });
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: async () => {
+            const steered = await runtime.steerSession(hostedSession.id, "adjust the fix", []);
+            assertEquals(steered.queued, true);
+            return [];
+        },
+        readLatestPlanOutcome: () => null,
+        runMechanicalValidation: () => {
+            mechanicalValidationCount++;
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
+        runValidationLoop: () => {
+            throw new Error("QUICK_FIX completion should run mechanical validation");
+        },
+    });
+
+    await handler("fix it", [], /** @type {any} */ ({}));
+
+    assertEquals(mechanicalValidationCount, 1);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+});
+
+Deno.test("agent-handler consumes task_completed exactly once across follow-up turns", async () => {
+    let mechanicalValidationCount = 0;
+    const hostedSession = makeHostedSession("task-completed-once");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
+    });
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
+        readLatestPlanOutcome: () => null,
+        runMechanicalValidation: () => {
+            mechanicalValidationCount++;
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
+    });
+
+    await handler("done", [], /** @type {any} */ ({}));
+    const followUpHandler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: () => Promise.resolve([]),
+        readLatestPlanOutcome: () => null,
+        runMechanicalValidation: () => {
+            mechanicalValidationCount++;
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
+    });
+    await followUpHandler("what happened?", [], /** @type {any} */ ({}));
+
+    assertEquals(mechanicalValidationCount, 1);
+});
+
+Deno.test("agent-handler ignores isolated task_completed records for root workflow advancement", async () => {
+    let mechanicalValidationCount = 0;
+    const hostedSession = makeHostedSession("isolated-task-completed");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
+    });
+    const isolatedSession = /** @type {any} */ ({ dispose: () => {} });
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runRootTurn: () => {
+            const targetId = hostedSession.pushSteeringTargetSession(isolatedSession);
+            try {
+                hostedSession.recordPendingTaskCompletion("engineer", "- Isolated done.", 1234);
+            } finally {
+                hostedSession.popSteeringTargetSession(targetId);
+            }
+            return Promise.resolve([]);
+        },
+        readLatestPlanOutcome: () => null,
+        runMechanicalValidation: () => {
+            mechanicalValidationCount++;
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
+    });
+
+    await handler("root follow-up", [], /** @type {any} */ ({}));
+
+    assertEquals(mechanicalValidationCount, 0);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
 });
 
 Deno.test("agent-handler ignores stale task_completed outcomes from earlier root turns", async () => {
@@ -912,16 +1009,11 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
     });
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
         runValidationLoop: (/** @type {{ hostedSession: HostedSession }} */ args) => {
             validationWorkflow = args.hostedSession.getActiveExecutionWorkflow();
@@ -963,16 +1055,11 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runMechanicalValidation: (/** @type {any} */ args) => {
             mechanicalValidationCount++;
             assertEquals(args.cwd, "/quick-fix-repair");
@@ -1008,16 +1095,11 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
 
     const handler = createAgentHandler("operator", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runMechanicalValidation: () => {
             mechanicalValidationCount++;
             return Promise.resolve({ passed: true, attempts: 0 });
@@ -1052,7 +1134,6 @@ Deno.test("agent-handler requests attention when an ordinary turn returns contro
         runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => false,
         requestAttention: (
             /** @type {HostedSession} */ hostedSession,
             /** @type {string} */ reason,
@@ -1082,7 +1163,6 @@ Deno.test("agent-handler suppresses agent-stopped attention after user cancellat
         runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => false,
         requestAttention: () => {
             attentionCount++;
         },
@@ -1125,16 +1205,11 @@ Deno.test("agent-handler requests attention after validation completes", async (
     });
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
+        runRootTurn: () => {
+            recordRootTaskCompletion(hostedSession);
+            return Promise.resolve([]);
+        },
         readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
         runValidationLoop: () => {
             events.push("validation");
             return Promise.resolve();
@@ -1162,7 +1237,6 @@ Deno.test("agent-handler does not request agent-stopped attention after plan_wri
             ),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: (/** @type {any} */ msgs) => /** @type {any} */ (msgs[0]).details,
-        readLatestTaskCompletedOutcome: () => false,
         requestAttention: () => {
             attentionCount++;
         },
