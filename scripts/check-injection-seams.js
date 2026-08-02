@@ -74,6 +74,15 @@ const SOURCE_FILE_PATTERN = /\.(?:[jt]sx?|mjs|mts)$/;
  * Matched as whole injectable names, so `recordPlanEvent` is caught while an
  * unrelated `recordPlanEventMetric` would not be. Prefix entries end in `*`.
  */
+/**
+ * A parameter or property annotated as a dependency bag: `deps: LoadPlanTestDeps`.
+ *
+ * Global-flagged regexes carry `lastIndex`, so this is rebuilt per use rather than
+ * shared; the constant is the pattern, not a live matcher.
+ */
+const DEPS_PARAMETER_SOURCE = "([A-Za-z_$][\\w$]*)\\s*\\??\\s*:\\s*([A-Za-z_$][\\w$]*Deps)\\b";
+const DEPS_PARAMETER = new RegExp(DEPS_PARAMETER_SOURCE);
+
 const MACHINERY_SEAMS = [
     "recordPlanEvent",
     "updatePlanFrontMatter",
@@ -210,12 +219,35 @@ export function collectSeamNames(text) {
     // four seams vanish from load-plan/index.js the moment `createPlanSessionSurface`
     // moved to its own file — they were still injected, just out of view. The type
     // name is the tell: a parameter is a dependency bag when it is annotated as one.
-    for (
-        const param of text.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*[A-Za-z_$][\w$]*Deps\b/g)
-    ) {
-        collectFromBag(param[1]);
+    for (const param of text.matchAll(new RegExp(DEPS_PARAMETER_SOURCE, "g"))) {
+        if (isOverrideBagType(text, param[2])) collectFromBag(param[1]);
     }
     return [...names].sort();
+}
+
+/**
+ * Whether `typeName` describes an override bag rather than injected dependencies.
+ *
+ * An override bag is entirely optional: every member has a production default the
+ * caller may replace, which is the shape a test uses to swap behaviour out from
+ * under the code. A type with required members is the opposite — the caller must
+ * supply them, so nothing is being silently substituted, and that is exactly the
+ * capability-port shape this check tells people to move to. Flagging it would
+ * punish the fix.
+ *
+ * @param {string} text Source of the file declaring the type.
+ * @param {string} typeName
+ * @returns {boolean}
+ */
+function isOverrideBagType(text, typeName) {
+    const declaration = new RegExp(`(?:interface|type)\\s+${typeName}\\b[^{]*\\{([^}]*)\\}`).exec(text);
+    if (!declaration) return true;
+    const members = declaration[1]
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("//") && !line.startsWith("*") && !line.startsWith("/*"));
+    if (members.length === 0) return false;
+    return members.every((member) => /^[A-Za-z_$][\w$]*\s*\?/.test(member));
 }
 
 /**
@@ -330,7 +362,12 @@ async function collectSeams(rootUrl = SOURCE_ROOT) {
             }
             if (!isProductionSourcePath(relativePath)) continue;
             const text = await Deno.readTextFile(new URL(entry.name, directoryUrl));
-            if (!/__(?:test)?[Dd]eps/.test(text)) continue;
+            // A file is worth scanning if it names a bag directly (`__deps`) or is
+            // handed one as a typed parameter (`deps: SomethingDeps`). Testing only for
+            // the literal skipped whole modules: splitting load-plan moved four seams
+            // into plan-session-surface.ts, which never writes `__deps`, and they
+            // stopped being counted anywhere.
+            if (!/__(?:test)?[Dd]eps/.test(text) && !DEPS_PARAMETER.test(text)) continue;
             const names = collectSeamNames(text);
             const conditionalHits = collectConditionalSeams(text);
             if (conditionalHits.length > 0) conditional[`src/${relativePath}`] = conditionalHits;

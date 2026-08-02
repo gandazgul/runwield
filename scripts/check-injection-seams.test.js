@@ -151,3 +151,52 @@ Deno.test("collectSeamNames does not alias the result of a call that receives th
     `);
     assertEquals(names, ["loadPlan"]);
 });
+
+Deno.test("collectSeamNames follows a bag handed over as a typed parameter", () => {
+    // Splitting a command into modules passes the bag on as an ordinary argument, and
+    // the reads travel with it. Counting only bags literally named `__deps` let four
+    // seams leave load-plan/index.js and stop being counted anywhere at all.
+    const names = collectSeamNames(`
+        interface PlanSessionSurfaceDeps {
+            executePlan?: (options: unknown) => Promise<unknown>;
+            runPlanningAgent?: (options: unknown) => Promise<unknown>;
+        }
+        export function createSurface(runtime: Runtime, deps: PlanSessionSurfaceDeps) {
+            return {
+                executePlan: (options) => deps.executePlan ? deps.executePlan(options) : runtime.executePlan(options),
+                runPlanningAgent: (options) => deps.runPlanningAgent?.(options),
+            };
+        }
+    `);
+    assertEquals(names, ["executePlan", "runPlanningAgent"]);
+});
+
+Deno.test("collectSeamNames leaves required dependencies alone", () => {
+    // A type whose members are required is constructor injection, not an override bag:
+    // the caller must supply them, so nothing is being swapped out from underneath.
+    // That is the shape this check tells people to move to, and flagging it would
+    // punish the fix.
+    const names = collectSeamNames(`
+        interface TuiManagerDeps {
+            TerminalCtor: TerminalConstructor;
+            installCrashGuards(): void;
+            restoreTitle?: () => void;
+        }
+        export function createTuiManager(deps: TuiManagerDeps) {
+            const { TerminalCtor, installCrashGuards, restoreTitle = defaultRestoreTitle } = deps;
+            return { TerminalCtor, installCrashGuards, restoreTitle };
+        }
+    `);
+    assertEquals(names, []);
+});
+
+Deno.test("collectSeamNames does not read a bag name out of a module specifier", () => {
+    // `deps` occurs inside "./load-plan-test-deps.ts". Matching it there invented a
+    // seam called `ts` — a file extension, not anything injected.
+    const names = collectSeamNames(`
+        import type { LoadPlanTestDeps } from "./load-plan-test-deps.ts";
+        const deps = __testDeps || {};
+        const loadPlan = deps.loadPlan || loadPlanFn;
+    `);
+    assertEquals(names, ["loadPlan"]);
+});

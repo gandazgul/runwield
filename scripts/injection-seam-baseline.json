@@ -33,6 +33,15 @@
             ],
             "machinery": []
         },
+        "src/cmd/load-plan/plan-session-surface.ts": {
+            "seams": [
+                "executePlan",
+                "runPlanningAgent",
+                "runSlicerAgent",
+                "runValidationLoop"
+            ],
+            "machinery": []
+        },
         "src/cmd/plans/pull.js": {
             "seams": [
                 "assertCompatiblePullSecretRecord",
