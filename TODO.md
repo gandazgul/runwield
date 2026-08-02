@@ -1,5 +1,17 @@
 # TODO
 
+## Slop trends
+
+- fake tests
+  - tests that do nothing
+  - tests that inject real local dependencies thus hiding real interaction bugs, internal machinery should not be mocked
+    in a test
+  - test that dont fail if you change how the function is called (mutation checks)
+- All things into 1 file
+  - massive files with 1 deep module responsibility but many submodules all cramed into 1 file
+- Bad types
+  - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
+
 ## Bugs
 
 - [ ] The persistent review loop card above the footer is still gone after the refactors

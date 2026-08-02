@@ -6,11 +6,22 @@ summary: "Give the workflow-dispatched subagent prompts one home and one typed l
 affectedPaths:
     - "src/agent-definitions/subagent-definitions/"
     - "src/shared/session/subagent-definitions.ts"
-    - "src/shared/workflow/validation-legacy.ts"
+    - "src/shared/session/subagent-definitions.test.ts"
+    - "src/shared/session/agents.js"
+    - "src/shared/session/session-catalog.test.js"
+    - "src/shared/workflow/validation-prompts.ts"
+    - "src/shared/workflow/validation-prompts.test.js"
     - "src/shared/workflow/workflow-slicer.js"
+    - "src/shared/workflow/workflow.test.js"
     - "src/tools/delegate-agent.js"
+    - "src/tools/__tests__/delegate-agent.test.js"
     - "src/cmd/init/index.js"
+    - "src/cmd/init/index_test.js"
     - "src/constants.js"
+    - "scripts/compile.test.js"
+    - "scripts/assert-plan-server-image.test.js"
+    - "scripts/build-plan-server-runtime.test.js"
+    - "scripts/injection-seam-baseline.json"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: null
@@ -18,140 +29,203 @@ devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-01T00:32:24-04:00"
 status: "draft"
+objectiveChecks:
+    - id: "OC1"
+      command: "test ! -d src/agent-definitions/workflow-prompts"
+      rationale: "The old workflow-prompts directory exists on the baseline and can only disappear once the prompt files have been moved rather than duplicated."
+    - id: "OC2"
+      command: "bash -c 'git grep -n workflow-prompts -- src scripts | grep -v \"workflow-prompts\\\\.js\" >/dev/null && exit 1 || exit 0'"
+      rationale: "This fails while source or script files still reference the old workflow prompt asset path, while ignoring legitimate imports of the unrelated workflow-prompts.js module."
+    - id: "OC3"
+      command: "bash -c 'grep -Eq \"ensureBundledAgentDefFile|loadAgentDefFromPath|WORKFLOW_PROMPTS_DIR\" src/shared/workflow/validation-prompts.ts src/tools/delegate-agent.js src/shared/workflow/workflow-slicer.js src/cmd/init/index.js && exit 1 || exit 0'"
+      rationale: "The current hand-rolled call sites import or define these direct loading pieces; the check can only pass when those call sites delegate prompt loading to the new shared loader."
+    - id: "OC4"
+      command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
+      rationale: "The focused test file does not exist on the baseline and can only pass once the typed loader and registry are implemented and exercised."
+updatedAt: "2026-08-02T12:43:43.651Z"
 ---
 
 # Formalize Subagent Definitions
 
 ## Context
 
-RunWield now dispatches seven prompts that a user never selects: Delegated Agent, Reviewer (discovery), Reviewer
-(verify), Reviewer-Feedback Engineer, Manual QA, Slicer, and Init. They live in
-`src/agent-definitions/workflow-prompts/` — a directory named for where they are used rather than for what they are —
-and each is loaded by its own hand-rolled reader:
+RunWield dispatches seven prompt files that a user never selects directly: Delegated Agent, Reviewer discovery, Reviewer
+verify, Reviewer-Feedback Engineer, Manual QA, Slicer, and Init. They currently live in
+`src/agent-definitions/workflow-prompts/` — a directory named for where the prompts are used rather than what they are —
+and they are still loaded through several separate paths:
 
-- `loadDelegatedAgentPrompt` (`src/tools/delegate-agent.js:124`) — `extractYaml` inline, no retry.
-- `loadReviewerPrompt` (`validation-legacy.ts:305`) and `loadManualQaPrompt` (`validation-legacy.ts:356`) — identical
-  bodies apart from the filename and the fallback display name, both going through the private
-  `readBundledPromptFrontMatter` helper, which has retry and a direct-read fallback that `delegate-agent.js` lacks.
-- `loadReviewerFeedbackEngineerDef` (`validation-legacy.ts:341`) and the Slicer loader (`workflow-slicer.js:465`) — a
-  second shape entirely, going through `loadAgentDefFromPath` for a full agent definition.
-- `src/cmd/init/index.js:158` — a bare `ensureBundledAgentDefFile` call with a comment explaining the identifier is
-  "init" rather than the file's basename.
+- `loadDelegatedAgentPrompt` (`src/tools/delegate-agent.js:124`) parses front matter inline and has no retry/fallback
+  path for a first-use bundled asset cache refresh.
+- `loadReviewerPrompt`, `loadReviewerFeedbackEngineerDef`, and `loadManualQaPrompt`
+  (`src/shared/workflow/validation-prompts.ts`) share a validation-only helper, but that helper is private to Workflow
+  Validation and cannot be reused by Delegated Agent, Slicer, or Init.
+- `loadSlicerAgentDef` (`src/shared/workflow/workflow-slicer.js:465`) loads a full agent definition by joining the old
+  directory literal and calling `loadAgentDefFromPath` directly.
+- `runInitCommand` (`src/cmd/init/index.js:158`) directly calls `ensureBundledAgentDefFile` and then
+  `loadAgentDefFromPath`, with a comment explaining that the canonical runtime identifier is `init` rather than the file
+  basename.
 
-Four of these were written independently, so they already disagree about retry behavior, front-matter defaults, and
-whether a subagent gets the shared system prompt. Adding an eighth (the delegate_agent verification-adversary role)
-means writing a fifth reader, and the composition work in `agent-prompt-architecture-notes.md` needs a single assembly
-seam to hang shared practice on.
+That means the same product concept — a workflow-dispatched prompt hidden from `/agent` — is split across call sites,
+with different retry behavior, different front-matter defaults, and different decisions about whether the shared system
+prompt is applied. Adding another workflow-dispatched role would still require choosing or copying one of these readers.
 
 ## Objective
 
-One directory and one typed loader own every workflow-dispatched subagent prompt, so adding a subagent is a data change
-and the behavior of loading one is defined in exactly one place.
+One directory and one typed loader own every workflow-dispatched subagent prompt, so adding a subagent is a registry
+data change and loading behavior is defined in exactly one place.
 
 This is a pure refactor: no subagent gains, loses, or changes a capability, and no prompt text changes.
 
 ## Approach
 
-Move the prompts to `src/agent-definitions/subagent-definitions/` — nested under the existing agent-definitions tree
-rather than a top-level sibling. `extractBundledAgentDefs` (`agent-assets.js:64`) copies that whole tree into the
-`~/.wld/bundled-agent-definitions` cache, and the compiled-binary and container-image checks
-(`scripts/build-plan-server-runtime.js`, `scripts/assert-plan-server-image.js`) enumerate it. A top-level
-`src/subagent-definitions/` would need a third extraction pipeline alongside agent defs and skills to buy a naming
-preference. The directory name carries the distinction; the location keeps the asset machinery.
+Move the prompts to `src/agent-definitions/subagent-definitions/` using `git mv`. Keeping the directory under
+`src/agent-definitions/` preserves the existing asset pipeline: `extractBundledAgentDefs` copies the whole tree into
+`~/.wld/bundled-agent-definitions`, and `scripts/compile.js` already includes `src/agent-definitions/` in compiled
+binaries. A top-level `src/subagent-definitions/` would require a new extraction/include pipeline just to buy a naming
+preference.
 
-`src/shared/session/subagent-definitions.ts` exports one `loadSubAgentDefinition(id)` plus a `SubAgentDefinition` type
-and a registry keyed by subagent id. The registry entry — not the call site — declares the two things that currently
-vary: which markdown file backs the subagent, and whether it loads as a bare prompt (front matter + body only, no tools,
-no shared system prompt) or as a full agent definition via `loadAgentDefFromPath`. The retry-and-fallback behavior
-currently private to `validation-legacy.ts` becomes the shared path, so `delegate-agent.js` stops being the one loader
-that can fail on a cold cache.
+Add `SUBAGENTS` constants alongside `AGENTS` in `src/constants.js`. `SUBAGENTS` are registry keys for hidden
+workflow-dispatched definitions; they do not replace historical runtime agent names. Each registry entry declares the
+returned `agentName` (`AGENTS.REVIEWER`, `AGENTS.SLICER`, `AGENTS.INIT`, `AGENTS.DELEGATED`,
+`AGENTS.REVIEWER_FEEDBACK_ENGINEER`, or `AGENTS.OPERATOR` for Manual QA), so lifecycle records, metrics, display-name
+fallbacks, and isolated-session ownership keep their current identifiers.
 
-Per the house typing style, the shared shapes are named once in the module and referenced; call sites do not restate
-them inline.
+Create `src/shared/session/subagent-definitions.ts` as the only subagent-side caller of `ensureBundledAgentDefFile`. It
+exports named TypeScript types and `loadSubAgentDefinition(id, options?)`. The registry entry — not the caller —
+declares which markdown file backs the subagent and whether it loads as:
+
+- `barePrompt`: front matter + body only, no tools and no shared system prompt; used by Delegated Agent, Reviewer, and
+  Manual QA.
+- `fullAgent`: a normal agent definition loaded through `loadAgentDefFromPath`, preserving the shared system prompt and
+  front-matter handling; used by Reviewer-Feedback Engineer, Slicer, and Init.
+
+The retry/recoverable-error/direct-source fallback currently inside `validation-prompts.ts` moves into the new loader.
+The Reviewer discovery/verify split remains a mode option on the Reviewer registry entry, not two independent registry
+entries that can drift.
+
+No `CONTEXT.md` update is planned: user-visible Agent, Session, Workflow Validation, and Delegated Agent Session
+language does not change. `subagent-definitions` is an internal asset/module name for prompts RunWield dispatches on a
+user's behalf.
 
 ## Files to Modify
 
-- `src/agent-definitions/subagent-definitions/*.md` — the seven prompts, moved with `git mv`, content unchanged.
-- `src/shared/session/subagent-definitions.ts` — new: `SubAgentDefinition`, the registry, `loadSubAgentDefinition`.
-- `src/shared/workflow/validation-legacy.ts` — the four reviewer/QA loaders delegate to it;
-  `readBundledPromptFrontMatter` and the per-file path constants are removed.
-- `src/shared/workflow/workflow-slicer.js` — Slicer loads through it.
-- `src/tools/delegate-agent.js` — `loadDelegatedAgentPrompt` delegates to it.
-- `src/cmd/init/index.js` — Init loads through it.
-- `src/constants.js` — subagent ids alongside `AGENTS`; the comments at `:335-344` explaining the old path-based loading
-  are reconciled with the registry.
+- `src/agent-definitions/subagent-definitions/*.md` — seven prompt files moved with `git mv`, byte-identical content.
+- `src/shared/session/subagent-definitions.ts` — new typed registry, bare-prompt/full-agent loader, retry and fallback
+  behavior.
+- `src/shared/session/subagent-definitions.test.ts` — new focused tests for the registry, load modes, reviewer variant,
+  prompt invariants, and transient-cache recovery.
+- `src/shared/workflow/validation-prompts.ts` — Workflow Validation wrappers delegate to the shared loader while keeping
+  the public `loadReviewerPrompt`, `loadReviewerFeedbackEngineerDef`, and `loadManualQaPrompt` signatures.
+- `src/shared/workflow/validation-prompts.test.js` — expectations reference the moved prompt path and prove wrapper
+  behavior still matches current bare/full prompt contracts.
+- `src/tools/delegate-agent.js` and `src/tools/__tests__/delegate-agent.test.js` — Delegated Agent prompt loading routes
+  through the shared loader and gains the retry path; tests keep the context-placeholder and tool-filter guarantees.
+- `src/shared/workflow/workflow-slicer.js` and `src/shared/workflow/workflow.test.js` — Slicer loads through the shared
+  loader while preserving `agentName: "slicer"`, `allowReturnToRouter: false`, and current decomposition context.
+- `src/cmd/init/index.js` and `src/cmd/init/index_test.js` — Init loads through the shared loader while preserving the
+  `init` runtime identifier and existing init-session behavior; obsolete init test seams are removed.
+- `src/constants.js` — add typed/readonly `SUBAGENTS` constants and update comments that currently describe path-based
+  workflow prompt loading.
+- `src/shared/session/agents.js` and `src/shared/session/session-catalog.test.js` — comments/tests that name
+  `workflow-prompts` are updated without making subagents discoverable through `/agent`.
+- `scripts/compile.test.js`, `scripts/build-plan-server-runtime.test.js`, and `scripts/assert-plan-server-image.test.js`
+  — assertions reference the moved directory and continue proving compiled binaries include bundled definitions while
+  Plan Server runtime/images exclude hidden subagent prompts.
+- `scripts/injection-seam-baseline.json` — tightened after removing obsolete Init `ensureBundledAgentDefFile` and
+  `loadAgentDefFromPath` test seams.
 
 ## Reuse Opportunities
 
-- `src/shared/session/agent-assets.js` — `ensureBundledAgentDefFile` stays the asset seam; the new module is its only
-  subagent-side caller.
-- `src/shared/workflow/validation-legacy.ts:129` — `readBundledPromptFrontMatter`, including its retry loop, recoverable
-  error test, and `AGENT_DEFS_DIR` direct-read fallback: move it rather than rewrite it.
-- `loadAgentDefFromPath` — unchanged for the two subagents that are real execution agents.
-- `src/shared/session/types.js` — `AgentDefinition` remains the returned shape, so no call site changes what it does
-  with the result.
+- `src/shared/session/agent-assets.js` — reuse `ensureBundledAgentDefFile` and the existing bundled-agent-definitions
+  extraction/cache behavior; do not create a parallel asset pipeline.
+- `src/shared/workflow/validation-prompts.ts` — move the existing retry loop, recoverable-error test, front-matter
+  normalization, and `AGENT_DEFS_DIR` direct-read fallback into the new module instead of reimplementing it.
+- `src/shared/session/agents.js` — reuse `loadAgentDefFromPath` unchanged for full-agent subagents.
+- `src/shared/session/types.js` — keep returning the existing `AgentDefinition` shape so downstream isolated-session
+  callers do not need a new runtime contract.
+- Existing real bundled prompt files — tests should prefer real file fixtures where possible rather than adding new
+  dependency-bag seams.
 
 ## Implementation Steps
 
-- [ ] `src/agent-definitions/subagent-definitions/` contains the seven prompt files moved via `git mv` with
-      byte-identical content, and `src/agent-definitions/workflow-prompts/` no longer exists.
-- [ ] `src/shared/session/subagent-definitions.ts` exports the `SubAgentDefinition` type, a `SUBAGENTS` registry mapping
-      each subagent id to its file and load mode, and `loadSubAgentDefinition(id, deps?)` returning an
-      `AgentDefinition`. The retry, recoverable-error, and direct-read fallback behavior from
-      `readBundledPromptFrontMatter` is in this module.
-- [ ] `loadReviewerPrompt`, `loadReviewerFeedbackEngineerDef`, and `loadManualQaPrompt` in `validation-legacy.ts` are
-      thin wrappers over `loadSubAgentDefinition` that keep their current exported signatures and injectable deps;
-      `readBundledPromptFrontMatter`, `WORKFLOW_PROMPTS_DIR`, and the four prompt-file constants no longer exist in that
-      file.
-- [ ] `loadDelegatedAgentPrompt` in `delegate-agent.js` resolves through `loadSubAgentDefinition` and gains the retry
-      behavior it lacks today; `WORKFLOW_PROMPTS_DIR` and `DELEGATED_PROMPT_FILE` no longer exist in that file.
-- [ ] `workflow-slicer.js` and `cmd/init/index.js` load their prompts through `loadSubAgentDefinition`; neither file
-      contains a `workflow-prompts` path literal.
-- [ ] `src/shared/session/subagent-definitions.test.ts` proves each registered subagent loads, that a bare-prompt
-      subagent returns no tools and a full-definition subagent returns the shared system prompt, and that a cold cache
-      followed by a transient read failure still resolves.
-- [ ] `scripts/build-plan-server-runtime.js`, `scripts/assert-plan-server-image.js`, and any path fixtures in their
-      tests reference the new directory, and the container image still excludes the prompts it excluded before.
+- [ ] `src/agent-definitions/subagent-definitions/` contains exactly `delegated-agent-prompt.md`,
+      `init-agent-prompt.md`, `manual-qa-prompt.md`, `reviewer-feedback-engineer.md`, `reviewer-prompt.md`,
+      `reviewer-verify-prompt.md`, and `slicer-prompt.md`, moved with byte-identical content;
+      `src/agent-definitions/workflow-prompts/` is absent.
+- [ ] `src/constants.js` exports `SUBAGENTS` registry identifiers without changing any existing `AGENTS` string values;
+      comments describe subagents as hidden workflow-dispatched definitions rather than path-loaded pseudo-agents.
+- [ ] `src/shared/session/subagent-definitions.ts` exports named types for subagent ids, load modes, registry entries,
+      loader options, parsed front matter, and `loadSubAgentDefinition`; complex object shapes are named once and reused
+      rather than written inline.
+- [ ] The `SUBAGENT_DEFINITIONS` registry maps every `SUBAGENTS` id to its prompt file, display-name fallback, returned
+      runtime `agentName`, and load mode. The Reviewer entry contains discovery/verify file selection under one id, and
+      Manual QA returns `AGENTS.OPERATOR` without making the normal Operator definition a subagent.
+- [ ] Bare-prompt loading in `subagent-definitions.ts` returns `AgentDefinition` with `model: ""`, `tools: []`, and a
+      trimmed body as `systemPrompt`; it ignores prompt `tools` front matter exactly as the current Reviewer, Manual QA,
+      and Delegated Agent loaders do.
+- [ ] Full-agent loading in `subagent-definitions.ts` resolves the bundled prompt file and calls `loadAgentDefFromPath`
+      with the registry's `agentName`, preserving shared system-prompt composition for Reviewer-Feedback Engineer,
+      Slicer, and Init.
+- [ ] Retry behavior from the current validation prompt helper lives only in `subagent-definitions.ts`: recoverable
+      missing/partial/empty reads are retried, non-recoverable errors are rethrown, and the final fallback reads from
+      `join(AGENT_DEFS_DIR, relativePath)`.
+- [ ] `validation-prompts.ts`, `delegate-agent.js`, `workflow-slicer.js`, and `cmd/init/index.js` no longer import
+      `ensureBundledAgentDefFile`, `loadAgentDefFromPath`, or define `WORKFLOW_PROMPTS_DIR`; they delegate prompt
+      resolution to `loadSubAgentDefinition` and retain their externally used function signatures/agent names.
+- [ ] Tests and comments under `src/` and `scripts/` contain no stale `workflow-prompts` asset-path references except
+      legitimate imports of `src/shared/workflow/workflow-prompts.js`.
+- [ ] `src/shared/session/subagent-definitions.test.ts` proves every registered subagent loads from real moved files,
+      Reviewer discovery and verify choose different prompt bodies under one id, bare prompts are tool-free and do not
+      include shared system-prompt markers, full-agent subagents do include shared system-prompt composition, Manual QA
+      returns `operator`, Init returns `init`, and a transient cold-cache read resolves after retry.
+- [ ] Existing validation, delegation, slicer, init, session-catalog, compile, Plan Server runtime, and image-policy
+      tests are updated to the new directory and still protect the same behavior; `deno task seams:update` tightens the
+      injection-seam baseline after removing obsolete Init seams.
 
 ## Verification Plan
 
 - Automated: `deno task ci`.
 - Automated: `deno task test:golden-tui` — the Golden portfolio exercises Reviewer, Reviewer-Feedback Engineer, Manual
-  QA, Slicer, and Delegated Agent end to end. Those journeys must pass unchanged, which is the real behavioral proof
-  that the loader swap is transparent.
+  QA, Slicer, and Delegated Agent end to end. Those journeys must pass unchanged, proving the loader swap is transparent
+  across workflow-dispatched subagents.
 - Automated:
-  `deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts
-  src/shared/workflow/validation-prompts.test.js src/tools/__tests__/delegate-agent.test.js src/cmd/init/`
+  `deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts src/shared/workflow/validation-prompts.test.js src/tools/__tests__/delegate-agent.test.js src/shared/workflow/workflow.test.js src/cmd/init/index_test.js src/shared/session/session-catalog.test.js scripts/compile.test.js scripts/build-plan-server-runtime.test.js scripts/assert-plan-server-image.test.js`.
+- Automated: `deno task seams:check` after `deno task seams:update` has tightened the baseline for removed Init seams.
 - Manual: run a compiled binary (`deno task compile` output) once with a cleared `~/.wld/bundled-agent-definitions`
-  cache and start a Delegated Agent, to prove asset extraction still finds the moved directory.
-- Existing behavior to preserve: every subagent's prompt text, display name, tool set, `/agent` invisibility, and
-  `return_to_router` exclusion. The Reviewer's discovery/verify mode split stays a parameter, not two registry entries
-  with divergent behavior.
-- Behavior expected to stop existing: `delegate-agent.js` failing on a transient cold-cache read, since it now shares
-  the retry path.
+  cache and start a Delegated Agent, to prove asset extraction still finds the moved directory in a binary install.
+- Existing behavior to preserve: every subagent's prompt text, display name, runtime agent name, tool set, `/agent`
+  invisibility, `return_to_router` exclusion, shared-system-prompt inclusion/exclusion, and reviewer discovery/verify
+  mode selection.
+- Behavior expected to stop existing: `delegate-agent.js` failing on a transient cold-cache or partial prompt read, and
+  call sites resolving subagent prompt files directly instead of going through the shared loader.
+- Glossary check: no `CONTEXT.md` change is expected because no user-visible domain term or relationship changes.
 
 ### Objective-Failing Checks
 
-- `OC1` — `! test -d src/agent-definitions/workflow-prompts` — the old directory is gone, not merely duplicated.
-- `OC2` — `test "$(grep -rl 'workflow-prompts' src --include='*.js' --include='*.ts' | wc -l)" -eq 0` — no call site
-  still resolves a prompt by the old path.
+- `OC1` — `test ! -d src/agent-definitions/workflow-prompts` — the old directory is gone, not merely duplicated.
+- `OC2` —
+  `bash -c 'git grep -n workflow-prompts -- src scripts | grep -v "workflow-prompts\\.js" >/dev/null && exit 1 || exit 0'`
+  — no source or script keeps an old workflow-prompt asset path; legitimate imports of the unrelated
+  `workflow-prompts.js` module are ignored.
 - `OC3` —
-  `! grep -q 'ensureBundledAgentDefFile' src/shared/workflow/validation-legacy.ts src/tools/delegate-agent.js src/shared/workflow/workflow-slicer.js src/cmd/init/index.js`
-  — the four hand-rolled readers route through the loader instead of reaching for the asset seam themselves.
-- `OC4` — `deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts` — the loader
-  exists and its registry is exercised.
+  `bash -c 'grep -Eq "ensureBundledAgentDefFile|loadAgentDefFromPath|WORKFLOW_PROMPTS_DIR" src/shared/workflow/validation-prompts.ts src/tools/delegate-agent.js src/shared/workflow/workflow-slicer.js src/cmd/init/index.js && exit 1 || exit 0'`
+  — the former hand-rolled reader call sites no longer reach for the asset seam or full-agent loader directly.
+- `OC4` — `deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts` — the typed
+  loader exists and its registry behavior is exercised.
 
 ## Edge Cases & Considerations
 
 - **A refactor plan is exactly where placeholder completion hides.** `OC1`–`OC3` are shaped to fail on a rename plus
-  re-export: the old directory must be absent and no file may keep its own reader.
-- `validation-legacy.ts` currently does not type-check cleanly in isolation; the wrappers must not widen its existing
-  looseness into the new module, which is typed properly per the house style.
-- `AGENTS.REVIEWER_FEEDBACK_ENGINEER` and friends are load-bearing identifiers in lifecycle records and metrics.
-  Subagent ids may reuse those constants but must not change their string values, or historical Work Records and metrics
-  stop joining.
-- Init's loader is deliberately keyed "init" rather than the file basename (`cmd/init/index.js:157`). Preserve that
-  mapping in the registry rather than silently renaming the agent identifier.
-- The container-image policy scripts assert which prompt files may ship in the plan-server image. Moving the directory
-  without updating them either breaks the build or silently ships prompts that were previously excluded — check both
-  directions.
+  re-export: the old directory must be absent and the old readers must stop owning path resolution.
+- The current validation prompt helper is TypeScript, but it uses broad parsing shapes. The new module should keep the
+  unavoidable front-matter parsing boundary small, name its shapes, and avoid spreading loose types into callers.
+- `AGENTS.REVIEWER`, `AGENTS.REVIEWER_FEEDBACK_ENGINEER`, `AGENTS.SLICER`, `AGENTS.INIT`, `AGENTS.DELEGATED`, and
+  `AGENTS.OPERATOR` are load-bearing runtime identifiers. Subagent registry keys may point to those names, but the
+  `AGENTS` string values must not change or historical lifecycle records, Work Records, and metrics can stop joining.
+- Init's loader is deliberately keyed to runtime `init` rather than the file basename (`init-agent-prompt`). Preserve
+  that mapping in the registry rather than silently renaming the agent identifier.
+- Manual QA is a workflow-dispatched prompt whose runtime `agentName` remains `operator`; the registry must not make it
+  appear as a normal selectable Operator replacement.
+- The Plan Server runtime intentionally copies only selected passive assets, not hidden subagent prompts. Moving the
+  prompt directory under `src/agent-definitions/` must preserve that exclusion for Plan Server images while compiled
+  local binaries still include the directory through the existing `src/agent-definitions/` include.
