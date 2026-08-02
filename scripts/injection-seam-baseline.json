@@ -34,7 +34,6 @@
                 "archivePlan",
                 "autoGenerateWorkRecordForCompletedPlan",
                 "checkpointExecutionWorktree",
-                "createWorktreeGitArtifacts",
                 "decidePostExecution",
                 "decidePostPlanning",
                 "executePlan",
@@ -66,24 +65,19 @@
                 "runSlicerAgent",
                 "runValidationLoop",
                 "setTerminalTitleForName",
-                "settleWorktreeAttempt",
                 "shouldCleanupMergedWorktrees",
                 "stageValidationPassedInExecutionWorktree",
                 "startInteractiveSession",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
+                "updatePlanFrontMatter"
             ],
             "machinery": [
                 "checkpointExecutionWorktree",
-                "createWorktreeGitArtifacts",
                 "mergeExecutionWorktree",
                 "preparePrimaryPlanPathForMerge",
                 "recordPlanEvent",
                 "restorePrimaryPlanPathAfterMergeFailure",
-                "settleWorktreeAttempt",
                 "stageValidationPassedInExecutionWorktree",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
+                "updatePlanFrontMatter"
             ]
         },
         "src/cmd/plans/index.js": {

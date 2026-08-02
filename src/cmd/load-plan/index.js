@@ -149,10 +149,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof updatePlanFrontMatterFn} [updatePlanFrontMatter]
  * @property {typeof findWorktreeByIdFn} [findWorktreeById]
  * @property {typeof findWorktreeByPlanNameFn} [findWorktreeByPlanName]
- * @property {typeof updateWorktreeRegistryEntryFn} [updateWorktreeRegistryEntry]
  * @property {typeof getWorktreeStatusFn} [getWorktreeStatus]
- * @property {typeof createWorktreeGitArtifacts} [createWorktreeGitArtifacts]
- * @property {typeof settleWorktreeAttempt} [settleWorktreeAttempt]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
  * @property {typeof checkpointExecutionWorktree} [checkpointExecutionWorktree]
@@ -3624,10 +3621,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         updatePlanFrontMatter: updatePlanFrontMatterDep,
         findWorktreeById: findWorktreeByIdDep,
         findWorktreeByPlanName: findWorktreeByPlanNameDep,
-        updateWorktreeRegistryEntry: updateWorktreeRegistryEntryDep,
         getWorktreeStatus: getWorktreeStatusDep,
-        createWorktreeGitArtifacts: createWorktreeGitArtifactsDep,
-        settleWorktreeAttempt: settleWorktreeAttemptDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
         checkpointExecutionWorktree: checkpointExecutionWorktreeDep,
@@ -3665,11 +3659,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const updatePlanFrontMatter = updatePlanFrontMatterDep || updatePlanFrontMatterFn;
     const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
     const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
-    const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryDep || updateWorktreeRegistryEntryFn;
+    const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryFn;
     const getWorktreeStatus = getWorktreeStatusDep || getWorktreeStatusFn;
-    const createWorktreeGitArtifactsImpl = createWorktreeGitArtifactsDep ||
-        createWorktreeGitArtifacts;
-    const settleWorktreeAttemptImpl = settleWorktreeAttemptDep || settleWorktreeAttempt;
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
@@ -3968,8 +3959,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 findWorktreeByPlanName,
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
-                createWorktreeGitArtifacts: createWorktreeGitArtifactsImpl,
-                settleWorktreeAttempt: settleWorktreeAttemptImpl,
+                createWorktreeGitArtifacts,
+                settleWorktreeAttempt,
                 mergeExecutionWorktree,
                 checkpointExecutionWorktree: checkpointExecutionWorktreeImpl,
                 getBranchHead: getBranchHeadImpl,

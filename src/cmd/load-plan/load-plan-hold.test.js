@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 
+import { findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 
 import { git, makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
@@ -418,7 +419,6 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "reset_delete", "confirm");
     let recorded = null;
-    let registryUpdate = null;
 
     await runLoadPlanCommand(["held-delete-worktree"], {
         ...makeRuntimeContext({ cwd: projectRoot }),
@@ -451,14 +451,6 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                     status: "in_progress",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            updateWorktreeRegistryEntry: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ id,
-                /** @type {any} */ patch,
-            ) => {
-                registryUpdate = { id, patch };
-                return Promise.resolve({ id, ...patch });
-            },
             recordPlanEvent: (/** @type {any} */ args) => {
                 recorded = args;
                 return Promise.resolve({ status: "draft", heldFromStatus: null });
@@ -470,7 +462,9 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
     assertEquals(/** @type {any} */ (recorded).event, "hold_reset_to_draft");
     // The worktree is really gone from Git, not merely reported as removed.
     assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktree.path), false);
-    assertEquals(/** @type {any} */ (registryUpdate).patch.status, "abandoned");
+    // The registry itself records the abandonment, rather than a stand-in recording
+    // that it was asked to.
+    assertEquals((await findRegistryEntryById(projectRoot, worktree.id))?.status, "abandoned");
     await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
 });

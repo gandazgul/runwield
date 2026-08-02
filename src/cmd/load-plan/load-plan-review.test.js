@@ -4,6 +4,8 @@ import { runLoadPlanCommand } from "./index.js";
 import { AGENTS } from "../../constants.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 
+import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
+
 import { makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {
@@ -476,10 +478,31 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
 Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
-    const registryUpdates = /** @type {any[]} */ ([]);
+    // The registry write is real now, so this needs a project of its own — the old
+    // assertion recorded `projectRoot: Deno.cwd()`, which is to say the abandonment
+    // would have been written into the developer's own checkout.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-reapproval-project-" }));
+    await addRegistryEntry(
+        projectRoot,
+        /** @type {any} */ ({
+            id: "old-worktree",
+            planName: "plan-reapproval",
+            planId: "plan-reapproval-id",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "recorded",
+            baseTree: "recorded-tree",
+            branch: "runwield/worktree/plan-reapproval",
+            path: `${projectRoot}/old-worktree`,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+    );
     /** @type {any} */
     let reviewMeta = null;
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: (request) => {
             reviewMeta = request._meta?.triageMeta;
             return { outcome: "accepted", _meta: { approved: true } };
@@ -525,14 +548,6 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                     baseBranch: "main",
                     status: "completed",
                 }),
-            updateWorktreeRegistryEntry: (
-                /** @type {string} */ projectRoot,
-                /** @type {string} */ id,
-                /** @type {any} */ updates,
-            ) => {
-                registryUpdates.push({ projectRoot, id, updates });
-                return Promise.resolve({});
-            },
             recordPlanEvent: (/** @type {any} */ event) => {
                 if (event.event === "review_reopened") {
                     return Promise.resolve({
@@ -551,11 +566,7 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
         }),
     });
 
-    assertEquals(registryUpdates, [{
-        projectRoot: Deno.cwd(),
-        id: "old-worktree",
-        updates: { status: "abandoned" },
-    }]);
+    assertEquals((await findRegistryEntryById(projectRoot, "old-worktree"))?.status, "abandoned");
     assertEquals(reviewMeta.worktreeStatus, "completed");
     assertEquals(reviewMeta.worktreeBaseBranch, undefined);
 });
@@ -1104,14 +1115,6 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
                     branch: "runwield/worktree/ready-review-cancel",
                     status: "active",
                 }),
-            updateWorktreeRegistryEntry: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ _id,
-                /** @type {{ status?: string }} */ updates,
-            ) => {
-                registryStatuses.push(String(updates.status));
-                return Promise.resolve(/** @type {any} */ ({ id: "wt-1", status: updates.status }));
-            },
             recordPlanEvent: () => {
                 lifecycleCalled = true;
                 return Promise.resolve(/** @type {any} */ ({}));
