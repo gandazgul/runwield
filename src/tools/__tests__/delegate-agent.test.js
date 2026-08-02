@@ -119,7 +119,7 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
         "..",
         "src",
         "agent-definitions",
-        "workflow-prompts",
+        "subagent-definitions",
         "delegated-agent-prompt.md",
     );
     const prompt = await Deno.readTextFile(promptPath);

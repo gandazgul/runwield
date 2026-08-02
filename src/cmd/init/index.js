@@ -3,25 +3,24 @@
  * Init command handler — bootstraps RunWield into a project.
  *
  * Implements both CLI (`wld init`) and TUI slash (`/init`) dispatch.
- * Uses init-state guard to warn on re-runs. Loads the init agent from the
- * bundled workflow-prompts directory, so it stays invisible to /agent listings
- * and uses its own model/tools.
+ * Uses init-state guard to warn on re-runs. Loads the hidden init subagent
+ * definition, so it stays invisible to /agent listings and uses its own
+ * model/tools.
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS } from "../../constants.js";
+import { dirname, fromFileUrl } from "@std/path";
+import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import {
     EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY,
     isEmptyProjectDirectory as isEmptyProjectDirectoryFn,
 } from "../../shared/project-state.js";
-import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
 import {
-    ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
     extractBundledAgentDefs,
     extractBundledSkills as extractBundledSkillsFn,
 } from "../../shared/session/agent-assets.js";
+import { loadSubAgentDefinition } from "../../shared/session/subagent-definitions.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
 import { getSettingsManager as getSettingsManagerFn } from "../../shared/settings.js";
@@ -60,8 +59,6 @@ function shouldLaunchTuiForModelSetup(registry, settingsManager) {
  * @property {typeof recordInitDoneFn} [recordInitDone]
  * @property {typeof recordInitOfferedFn} [recordInitOffered]
  * @property {() => SessionRuntime} [createRuntime]
- * @property {typeof loadAgentDefFromPathFn} [loadAgentDefFromPath]
- * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
  * @property {typeof extractBundledSkillsFn} [extractBundledSkills]
  * @property {typeof isEmptyProjectDirectoryFn} [isEmptyProjectDirectory]
  * @property {typeof getModelRegistryFn} [getModelRegistry]
@@ -85,8 +82,6 @@ export async function runInitCommand(argv, options = {}) {
         recordInitDone: recordInitDoneDep,
         recordInitOffered: recordInitOfferedDep,
         createRuntime: createRuntimeDep,
-        loadAgentDefFromPath: loadAgentDefFromPathDep,
-        ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
         extractBundledSkills: extractBundledSkillsDep,
         isEmptyProjectDirectory: isEmptyProjectDirectoryDep,
         getModelRegistry: getModelRegistryDep,
@@ -102,8 +97,6 @@ export async function runInitCommand(argv, options = {}) {
     const recordInitOffered = recordInitOfferedDep || recordInitOfferedFn;
 
     const cwd = cwdDep || (() => Deno.cwd());
-    const loadAgentDefFromPath = loadAgentDefFromPathDep || loadAgentDefFromPathFn;
-    const ensureBundledAgentDefFile = ensureBundledAgentDefFileDep || ensureBundledAgentDefFileFn;
     const extractBundledSkills = extractBundledSkillsDep || extractBundledSkillsFn;
     const isEmptyProjectDirectory = isEmptyProjectDirectoryDep || isEmptyProjectDirectoryFn;
     const getModelRegistry = getModelRegistryDep || getModelRegistryFn;
@@ -149,17 +142,15 @@ export async function runInitCommand(argv, options = {}) {
     await extractBundledAgentDefs();
     await extractBundledSkills();
 
-    // ── Load init agent definition directly from bundled path ──────
-    // Pass agentName: AGENTS.INIT so the display-name cache uses the canonical
-    // "init" identifier rather than the file's basename ("init-agent-prompt").
-    const initAgentPath = await ensureBundledAgentDefFile(join("workflow-prompts", "init-agent-prompt.md"));
-
     if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(cwd()))) {
         await startInteractiveSession(`/${COMMAND_NAMES.INIT}`, { initialAgentName: AGENTS.ROUTER });
         return;
     }
 
-    const agentDef = await loadAgentDefFromPath(initAgentPath, { agentName: AGENTS.INIT });
+    // ── Load init subagent definition ──────
+    // The registry maps this prompt to the canonical "init" runtime identifier
+    // rather than the file's basename ("init-agent-prompt").
+    const agentDef = await loadSubAgentDefinition(SUBAGENTS.INIT);
     const sessionRuntime = options.sessionRuntime || (createRuntimeDep || (() => new SessionRuntime()))();
     const ownsRuntimeSession = !options.sessionId;
     const createdSessionId = options.sessionId ||

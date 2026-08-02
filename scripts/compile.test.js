@@ -54,7 +54,7 @@ Deno.test("buildCompileArgs keeps resource includes before the script", () => {
     const args = buildCompileArgs();
 
     assertEquals(args.at(-1), "src/cli.js");
-    assertEquals(args.includes("src/agent-definitions/workflow-prompts"), false);
+    assertEquals(args.includes("src/agent-definitions/subagent-definitions"), false);
 });
 
 Deno.test("buildCompileArgs accepts release target, output, and reload overrides", () => {

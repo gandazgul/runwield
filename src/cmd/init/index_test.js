@@ -4,6 +4,8 @@
  */
 
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
+import { getHomeDir } from "../../constants.js";
 import { runInitCommand } from "./index.js";
 
 Deno.test("runInitCommand warns and exits on duplicate init", async () => {
@@ -76,10 +78,6 @@ Deno.test("runInitCommand no-ops in empty project directory without recording in
                 },
                 recordInitOffered: () => events.push("offered"),
                 recordInitDone: () => events.push("done"),
-                loadAgentDefFromPath: () => {
-                    events.push("loaded");
-                    return Promise.resolve({});
-                },
                 runAgentSession: () => {
                     events.push("ran");
                     return Promise.resolve();
@@ -116,7 +114,7 @@ Deno.test("runInitCommand reports duplicate init through ui when available", asy
     assertStringIncludes(messages[0], "/tmp/project");
 });
 
-Deno.test("runInitCommand extracts bundled assets before launching TUI setup", async () => {
+Deno.test("runInitCommand extracts bundled agent definitions before launching TUI setup", async () => {
     /** @type {string[]} */
     const events = [];
 
@@ -131,10 +129,6 @@ Deno.test("runInitCommand extracts bundled assets before launching TUI setup", a
                 extractBundledSkills: () => {
                     events.push("skills");
                     return Promise.resolve("/tmp/bundled-skills");
-                },
-                ensureBundledAgentDefFile: (/** @type {string} */ relativePath) => {
-                    events.push(`agent:${relativePath}`);
-                    return Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`);
                 },
                 getModelRegistry: () => ({
                     getRegisteredProviderIds: () => [],
@@ -157,9 +151,12 @@ Deno.test("runInitCommand extracts bundled assets before launching TUI setup", a
 
     assertEquals(events, [
         "skills",
-        "agent:workflow-prompts/init-agent-prompt.md",
         "launch:/init:router",
     ]);
+    const extractedInitPrompt = await Deno.readTextFile(
+        join(getHomeDir(), ".wld", "bundled-agent-definitions", "subagent-definitions", "init-agent-prompt.md"),
+    );
+    assertStringIncludes(extractedInitPrompt, "name: Init");
 });
 
 Deno.test("runInitCommand launches TUI setup for CLI init when providers exist without a selected model", async () => {
@@ -175,8 +172,6 @@ Deno.test("runInitCommand launches TUI setup for CLI init when providers exist w
                 cwd: () => "/tmp/project",
                 isEmptyProjectDirectory: () => Promise.resolve(false),
                 extractBundledSkills: () => Promise.resolve("/tmp/bundled-skills"),
-                ensureBundledAgentDefFile: (/** @type {string} */ relativePath) =>
-                    Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
                 getModelRegistry: () => ({
                     getRegisteredProviderIds: () => ["configured"],
                     find: () => undefined,
@@ -206,7 +201,6 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
     let sessionArgs;
     /** @type {string[]} */
     const closed = [];
-    const agentDef = { name: "init-agent" };
     const originalLog = console.log;
     console.log = (msg = "") => events.push(String(msg));
 
@@ -229,15 +223,6 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
                     extractBundledSkills: () => {
                         events.push("skills");
                         return Promise.resolve("/tmp/bundled-skills");
-                    },
-                    ensureBundledAgentDefFile: (/** @type {string} */ relativePath) =>
-                        Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-                    loadAgentDefFromPath: (
-                        /** @type {string} */ path,
-                        /** @type {{ agentName: string }} */ opts,
-                    ) => {
-                        events.push(`${path}:${opts.agentName}`);
-                        return Promise.resolve(agentDef);
                     },
                     recordInitOffered: () => {
                         events.push("offered");
@@ -263,14 +248,13 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
 
     assertEquals(events, [
         "skills",
-        "/tmp/bundled-agent-definitions/workflow-prompts/init-agent-prompt.md:init",
         "offered",
         "ran",
         "done",
         "\n[RunWield] ✅ Init complete for /tmp/project.",
     ]);
     assertEquals(/** @type {any} */ (sessionArgs).sessionId, "runtime-init");
-    assertEquals(/** @type {any} */ (sessionArgs).args.agentDef, agentDef);
+    assertEquals(/** @type {any} */ (sessionArgs).args.agentDef.name, "init");
     assertEquals(/** @type {any} */ (sessionArgs).args.agentName, "init");
     assertEquals(closed, ["runtime-init"]);
 });
@@ -299,7 +283,6 @@ Deno.test("runInitCommand reports failure and does not record completion", async
                                 getDefaultModel: () => "model",
                                 getDefaultProvider: () => "configured",
                             }),
-                            loadAgentDefFromPath: () => Promise.resolve({}),
                             recordInitOffered: () => {},
                             createRuntime: () => ({
                                 createInteractiveSession: () => Promise.resolve({ sessionId: "runtime-init" }),

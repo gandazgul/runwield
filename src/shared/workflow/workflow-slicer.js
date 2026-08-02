@@ -3,10 +3,10 @@
  * Slicer pseudo-agent orchestration for PROJECT plans.
  */
 
-import { dirname, fromFileUrl, join } from "@std/path";
+import { dirname, fromFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification, SUBAGENTS } from "../../constants.js";
 import {
     findPlansByParent,
     loadPlan,
@@ -15,16 +15,13 @@ import {
     withPlanCatalogLock,
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
-import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
-import { loadAgentDefFromPath } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
-const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
-const SLICER_PROMPT_FILE = "slicer-prompt.md";
 const SLICER_CONTEXT_BOUNDARY_SUMMARY = [
     "Slicer phase context boundary.",
     "Earlier Router, Architect, and other-agent conversation was intentionally omitted.",
@@ -455,18 +452,9 @@ function summarizeChild(child) {
     };
 }
 
-/**
- * @param {{
- *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
- *   loadAgentDefFromPath?: typeof loadAgentDefFromPath,
- * }} [deps]
- * @returns {Promise<import('../session/types.js').AgentDefinition>}
- */
-async function loadSlicerAgentDef(deps) {
-    const ensurePromptFile = deps?.ensureBundledAgentDefFile || ensureBundledAgentDefFile;
-    const loadSlicerDef = deps?.loadAgentDefFromPath || loadAgentDefFromPath;
-    const slicerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, SLICER_PROMPT_FILE));
-    return await loadSlicerDef(slicerPromptPath, { agentName: AGENTS.SLICER });
+/** @returns {Promise<import('../session/types.js').AgentDefinition>} */
+async function loadSlicerAgentDef() {
+    return await loadSubAgentDefinition(SUBAGENTS.SLICER);
 }
 
 /**
@@ -494,8 +482,6 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
- *   loadAgentDefFromPath?: typeof loadAgentDefFromPath,
- *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
  *   findPlansByParent?: typeof findPlansByParent,
  *   switchActiveAgent?: typeof import('../session/agent-switching.js').switchActiveAgent,
@@ -519,7 +505,7 @@ export async function runSlicerAgent({
     const agentSwitching = await import("../session/agent-switching.js");
     const runActiveAgentTurn = __deps?.runActiveAgentTurn || agentSwitching.runActiveAgentTurn;
     const switchActive = __deps?.switchActiveAgent || agentSwitching.switchActiveAgent;
-    const slicerAgentDef = await loadSlicerAgentDef(__deps);
+    const slicerAgentDef = await loadSlicerAgentDef();
 
     const slicerDisplay = slicerAgentDef.displayName;
     const previousAgentName = hostedSession.getRootAgentName();

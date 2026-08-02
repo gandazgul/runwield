@@ -247,10 +247,10 @@ Deno.test("listSkills advertises bundled skills from the runtime-readable cache"
 });
 
 Deno.test("ensureBundledAgentDefFile resolves workflow prompt assets", async () => {
-    const path = await ensureBundledAgentDefFile(join("workflow-prompts", "reviewer-prompt.md"));
+    const path = await ensureBundledAgentDefFile(join("subagent-definitions", "reviewer-prompt.md"));
     const prompt = await Deno.readTextFile(path);
 
-    assertStringIncludes(path, "workflow-prompts");
+    assertStringIncludes(path, "subagent-definitions");
     assertStringIncludes(prompt, "Workflow-only semantic review prompt");
 });
 
