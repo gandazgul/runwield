@@ -14,6 +14,9 @@
 
 ## Bugs
 
+- [ ] Add a Golden TUI scenario for a brand-new Plan being stashed out of main during execution: when Engineer calls
+      `task_completed`, verify the missing-Plan guidance and Retry/Stop menu, restore the Plan, choose Retry, and
+      confirm Workflow Validation continues without rerunning Engineer.
 - [ ] providing feedback and approving a plan now reopens it as if I did send feedback this is wrong, approve feedback
       should be sent to engineer and start the plan normally.
 - [ ] Implement plannotator's plan diff view after feedback re-writes the plan.
@@ -282,34 +285,41 @@ effects, make sure this doesnt now break something downstream that required plan
 
 ## Backlog
 
-### P1 - Close the Local Planning Loop
+### P1 - big files
 
-- [ ] Implement Guided Reviews using Plannotator:
-      [plans/guided-review-validation-code-reviews.md](plans/guided-review-validation-code-reviews.md).
-  - Keep Guided Review v1 independent from Work Records.
-  - Later: share review-analysis machinery with Recorder.
+Break up these files into smaller ones, each with a single responsibility. The goal is to make the codebase easier to
+navigate and maintain.
 
-- [ ] Make Plan Objective-Failing Checks executable:
-      [plans/run-objective-checks-in-mechanical-validation.md](plans/run-objective-checks-in-mechanical-validation.md).
-  - Planner submits checks through `plan_written`; RunWield baselines them red against the pre-change tree and requires
-    them green in Mechanical Validation.
-  - Replaces the rejected Plan Finalizer / blocking Plan Quality Gate direction: the defect those were aimed at was
-    unfalsifiable acceptance criteria, not insufficient planning process.
-
-- [x] Slicer child drafts are seeds; Planner owns final executable child Plan detail.
-  - Slicer prompt and the `slicer_finalize_decomposition` `content` description both say a child draft is a seed shaped
-    like a Plan, with un-writable checks left for Planner. There was never any structural validation of child content to
-    loosen — the contract was prompt text in those two places.
-  - No lifecycle risk from loose seeds: children materialize as `draft`, and `actionForStatus` routes `draft` to
-    Planner. `approved`/`ready_for_work` are the only execution entry points, and neither is reachable without Planner
-    calling `plan_written`. The Objective-Failing Check requirement therefore lands on Planner, not Slicer.
-  - Independent of the rejected Finalizer phase; the ownership question was real on its own.
-
-- [ ] Implement Semantic Code Review convergence:
-      [docs/prd/semantic-code-review-convergence-prd.md](docs/prd/semantic-code-review-convergence-prd.md).
-  - Add structured Reviewer results, a validation-owned Review Issue Ledger, stable issue identities, Engineer repair
-    claims, and a two-cycle automatic semantic review limit.
-  - Persist only final advisories into a managed Verified Plan appendix after successful validation/merge-back.
+| Lines | File                                           |
+| ----: | ---------------------------------------------- |
+|  4460 | `src/cmd/load-plan/index.js`                   |
+|  3591 | `src/plan-store.js`                            |
+|  3108 | `src/shared/session/session.js`                |
+|  2931 | `src/shared/session/session-runtime.js`        |
+|  2869 | `src/shared/workflow/workflow.test.js`         |
+|  2773 | `src/plan-store.test.js`                       |
+|  2342 | `src/shared/workflow/validation.ts`            |
+|  2150 | `src/shared/session/session-runtime.test.js`   |
+|  1754 | `src/shared/workflow/workflow.js`              |
+|  1678 | `src/cmd/load-plan/load-plan-recovery.test.js` |
+|  1652 | `src/ui/tui/chat-session.js`                   |
+|  1612 | `src/shared/workflow/state-transition.ts`      |
+|  1580 | `src/ui/tui/testing/scenario-runner.js`        |
+|  1514 | `src/ui/workspace/static/workspace.css`        |
+|  1487 | `src/cmd/load-plan/load-plan-review.test.js`   |
+|  1315 | `src/shared/work-records/work-records.test.js` |
+|  1295 | `src/shared/worktree.js`                       |
+|  1268 | `src/acp/server.test.js`                       |
+|  1254 | `src/shared/workflow/plan-lifecycle.js`        |
+|  1249 | `src/shared/workflow/state-transition.test.js` |
+|  1247 | `src/shared/workflow/plan-lifecycle.test.js`   |
+|  1174 | `src/shared/session/agent-handler.test.js`     |
+|  1166 | `src/ui/workspace/server.js`                   |
+|  1133 | `src/ui/workspace/react/CodeReviewSurface.tsx` |
+|  1090 | `src/ui/tui/blocks.js`                         |
+|  1074 | `src/shared/workflow/orchestrator.test.js`     |
+|  1043 | `docs/architecture.md`                         |
+|  1008 | `src/ui/workspace/server/plan-adapter.js`      |
 
 ### P2 - Frontend Execution UX
 

@@ -79,19 +79,24 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:32:24-04:00"
-updatedAt: "2026-08-02T12:54:56.192Z"
-status: "in_progress"
+updatedAt: "2026-08-02T13:31:45.660Z"
+status: "validated_reviewer"
 origin: "internal"
+implementedAt: "2026-08-02T13:23:57.923Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
+executionReport: "- Implemented: moved all seven workflow-dispatched prompt files to `src/agent-definitions/subagent-definitions/` with 100% rename content preservation, removed the old directory, added `SUBAGENTS` plus the typed `loadSubAgentDefinition` registry/loader.\n- Implemented: validation, delegate-agent, slicer, and init call sites now delegate through the shared loader; obsolete direct prompt-file/loading seams were removed and the injection-seam baseline was tightened.\n- Tests updated/added: added `src/shared/session/subagent-definitions.test.ts` (+6 tests); no test cases were removed. Updated existing validation/delegation/slicer/init/session-catalog/compile/runtime/image tests for the new path and preserved prior behavior assertions.\n- Verification passed: objective checks OC1–OC4; targeted suite (`143 passed`); `deno task seams:check`; `deno task ci` (`233 files passed`); `deno task test:golden-tui` (`56 passed`, after rerunning one initial timeout successfully); `deno task compile`.\n- Manual compiled-binary check: cleared a temp `HOME` bundled-agent-definitions cache and ran `./bin/wld --help` successfully; a live Delegated Agent start remains unverified because this environment has no configured noninteractive model/provider session for that manual flow."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-02T13:31:45.595Z"
 executionMode: "worktree"
 executionBaselineTree: "f1afe908fd2a3c790aa8678d2e4ca88faf200e7f"
 worktreeId: "c332e4dd"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-formalize-subagent-definitions-c332e4dd"
 worktreeBranch: "runwield/worktree/formalize-subagent-definitions-c332e4dd"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Formalize Subagent Definitions

@@ -2,7 +2,9 @@
 
 This document is wld's release policy. It is intentionally repository-specific: the bundled `/release` prompt must read
 this file when releasing this repository, but wld users releasing other repositories must follow their own repository's
-release policy and automation.
+release policy and automation. In particular, wld's permission to release a tagged `HEAD` from a dirty working tree and
+rely on GitHub Actions for qualification is not a general RunWield default; another repository may require a clean tree,
+a protected branch, local qualification, or different release infrastructure.
 
 ## Release operations
 
@@ -40,19 +42,21 @@ Release operators need:
 - `deno` matching the repository toolchain.
 - `gh` authenticated to GitHub with permission to read releases before tagging, verify Candidate releases during
   promotion, and edit release notes after CI publishes assets (`gh auth status` should pass for the target account).
-- Standard build/archive tools used by the release workflow and local checks, including `tar`, `zstd`, and `sha256sum`.
 
-## Required local state
+## Release source
 
-Create Candidate and direct Stable operations run from a clean `main` checkout whose `HEAD` matches its upstream and the
-current `origin/main` tip. Before tagging, the release command must also run the remote submodule pin proof:
+Create Candidate and direct Stable operations release the commit resolved by `HEAD` when the operation begins. The
+current branch does not need to be `main`, `HEAD` does not need to match an upstream branch, and the working tree does
+not need to be clean. Staged, unstaged, and untracked changes are not part of the release because they are not part of
+the tagged commit.
 
-```bash
-deno task submodules:check:remote
-```
+Before confirmation, show the resolved `HEAD` commit and target tag so the operator can verify the source. Create the
+annotated tag at that explicit commit, push it, and monitor the tag-triggered GitHub Actions workflow. GitHub Actions is
+the authoritative release qualification environment and runs the remote submodule pin proof, release checks, builds, and
+publication from the tagged commit.
 
-Promotion can run after `main` has advanced, but it must resolve the Candidate tag and use that tag's peeled commit in a
-clean detached release worktree. It must never promote current `HEAD` by accident.
+Promotion resolves the Candidate tag from `origin` and creates the Stable tag at that tag's peeled commit. It must never
+promote current `HEAD` by accident. GitHub Actions qualifies the promoted Stable identity from that commit.
 
 ## Commands
 
@@ -66,15 +70,17 @@ deno task release:metadata --tag vX.Y.Z[-rc.N]
 deno task release:check --build-version vX.Y.Z[-rc.N]
 ```
 
-Dry runs perform read-only preflight and print the proposed tag target and tag push. They must not create local tags,
-push remote tags, create host releases, or leave repository files behind.
+Dry runs perform read-only tag, version, and source preflight and print the proposed tag target and tag push. They must
+not require a clean working tree, run local release qualification, create local tags, push remote tags, create host
+releases, or leave repository files behind.
 
 ## Candidate creation
 
 1. Choose the next Candidate tag.
 2. Generate cumulative release notes from the previous Stable tag to the current source commit. Later Candidates should
    keep the cumulative upgrade notes and add validation-relevant changes since the previous Candidate when useful.
-3. Run `deno task release:candidate --tag <candidate-tag> --dry-run` and inspect the source commit and proposed tag.
+3. Run `deno task release:candidate --tag <candidate-tag> --dry-run` and inspect the resolved `HEAD` commit and proposed
+   tag.
 4. Confirm the irreversible operation.
 5. Run `deno task release:candidate --tag <candidate-tag>`.
 6. Wait for the tag-triggered GitHub workflow to publish the prerelease assets.
@@ -99,13 +105,14 @@ Promotion creates a Stable tag at the Candidate tag's peeled commit. The Stable 
 ## Direct Stable creation
 
 Direct Stable is an exceptional path. Use it only when explicitly chosen and appropriate for the risk of the change. It
-follows the same local preflight, qualification, tag workflow, and post-publication notes-editing rules as Candidate
-creation, but the target tag is a Stable tag.
+follows the same source selection, tag workflow, GitHub Actions qualification, and post-publication notes-editing rules
+as Candidate creation, but the target tag is a Stable tag.
 
 ## GitHub workflow ownership
 
-The tag-triggered workflow owns GitHub release creation and asset upload. Local release commands create and push tags;
-they must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
+The tag-triggered workflow owns release qualification, builds, GitHub release creation, and asset upload. Local release
+commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
+qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
 
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as
@@ -131,4 +138,4 @@ gh release edit <tag> --notes-file <notes-file>
 - Promoted Stable binaries report the Stable identity, for example `runwield v0.8.12 (...)`.
 - Candidate and promoted Stable tags peel to the same source commit.
 - Candidate publication leaves GitHub latest on the prior Stable.
-- Successful or recoverably incomplete local release commands leave the repository clean.
+- Local working-tree changes remain untouched throughout the release operation.
