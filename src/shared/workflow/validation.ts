@@ -23,7 +23,7 @@ import {
     removeWorktreeGitArtifacts,
 } from "../worktree.js";
 import {
-    removeEntry as removeWorktreeRegistryEntry,
+    pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import {
@@ -2028,15 +2028,15 @@ async function settlePublishedWorktree(
     if (context.worktreeId) {
         await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, { status: "merged" });
     }
+    if (context.worktreeId) {
+        await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
+    }
     if (cleanupMergedWorktrees && context.executionCwd) {
         await removeWorktreeGitArtifacts({ projectRoot: context.projectRoot, path: context.executionCwd, force: false })
             .catch(() => {});
         if (context.worktreeBranch) {
             await deleteMergedWorktreeBranch({ projectRoot: context.projectRoot, branch: context.worktreeBranch })
                 .catch(() => {});
-        }
-        if (context.worktreeId) {
-            await removeWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
         }
     }
 }

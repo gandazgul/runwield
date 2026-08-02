@@ -8,6 +8,9 @@ import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-r
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
+/** @typedef {{ status?: string }} WorkRecordStatus */
+/** @typedef {{ status?: string, epicCompletionMode?: string, workRecord?: WorkRecordStatus }} EpicCompletionAttrs */
+/** @typedef {{ attrs?: { workRecord?: WorkRecordStatus } }} PlanReviewState */
 
 /** @param {GoldenScenarioResult} result @param {string | undefined} capability */
 function assertProjectPlanReviewJourney(result, capability) {
@@ -95,10 +98,6 @@ function assertRuntimeSessionReplacementAndEpicEvidence(result, capability) {
     }
     assert(String(durability?.deliveryLog || "").length > 0, "Expected Git ancestry evidence for child deliveries.");
     assert(
-        Number(durability?.registryEntryCount || 0) >= 2,
-        `Expected a worktree registry attempt per child; got ${durability?.registryEntryCount}`,
-    );
-    assert(
         (durability?.liveRegistryEntries || []).length === 0,
         `Expected every child worktree attempt to reach a terminal state; live=${
             (durability?.liveRegistryEntries || []).join(", ")
@@ -159,7 +158,7 @@ export const twoChildProjectContinuationScenario = {
     // turns. ~95s standalone; `deno task ci` runs 12 files at a time, and this is the
     // outer cap, so it has to clear the contended case or the inner budgets never apply.
     timeoutMs: 420000,
-    coverage: ["durable:session-replaced", "durable:epic-evidence", "durable:work-record"],
+    coverage: ["durable:session-replaced", "durable:epic-evidence", "durable:work-record", "durable:epic-completion"],
     // Three real Plan Reviews: the Architect defers the Epic, then each child is
     // approved for execution. The second child's review is reached only through the
     // Runtime's own Epic continuation.
@@ -403,6 +402,7 @@ export const twoChildProjectContinuationScenario = {
         // composition tracks a Session the Runtime has closed, so idle never settles.
         { type: "captureProjectDurability", planName: "epic" },
         { type: "generateWorkRecord", planName: "epic/02-child-two" },
+        { type: "captureProjectState", planNames: ["epic", "epic/01-child-one", "epic/02-child-two"] },
     ],
     assertions: [
         assertsGoldenCoverage("durable:session-replaced", (result) => {
@@ -418,6 +418,38 @@ export const twoChildProjectContinuationScenario = {
         assertsGoldenCoverage("durable:epic-evidence", (result) => {
             assertEventIncludes(result, "project:epic:evidence");
             assertRuntimeSessionReplacementAndEpicEvidence(result, "durable:epic-evidence");
+        }),
+        assertsGoldenCoverage("durable:epic-completion", (result) => {
+            const projectState =
+                /** @type {{ plans?: Array<{ name?: string, attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[], nonTerminalRegistryEntries?: unknown[], workRecordNames?: string[] } | undefined} */ (result
+                    .state.projectState);
+            const parent = /** @type {EpicCompletionAttrs | undefined} */ (
+                projectState?.plans?.find((plan) => plan.name === "epic")?.attrs || undefined
+            );
+            const planReview = /** @type {PlanReviewState | undefined} */ (result.state.planReview);
+            assert(parent?.status === "verified", `Expected parent Epic verified; got ${parent?.status}`);
+            assert(
+                parent?.epicCompletionMode === "done_enough",
+                `Expected parent Epic done_enough; got ${parent?.epicCompletionMode}`,
+            );
+            assert(
+                (projectState?.registryEntries || []).length === 0,
+                `Expected fully drained project registry; got ${JSON.stringify(projectState?.registryEntries)}`,
+            );
+            assert(
+                (projectState?.nonTerminalRegistryEntries || []).length === 0,
+                `Expected no live project registry entries; got ${
+                    JSON.stringify(projectState?.nonTerminalRegistryEntries)
+                }`,
+            );
+            assert(
+                parent?.workRecord?.status === "generated" ||
+                    planReview?.attrs?.workRecord?.status === "generated" ||
+                    (projectState?.workRecordNames || []).some((name) => name.startsWith("docs/work-records/")),
+                `Expected Work Record storage evidence; got status=${
+                    parent?.workRecord?.status || planReview?.attrs?.workRecord?.status
+                } files=${(projectState?.workRecordNames || []).join(", ")}`,
+            );
         }),
         assertsGoldenCoverage("durable:work-record", (result) => {
             const workRecord =

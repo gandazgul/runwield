@@ -1532,5 +1532,9 @@ async function markActiveWorktreeStatus(status, opts = {}) {
     const workflow = opts.workflow || opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
     if (!workflow.projectRoot) throw new Error("markActiveWorktreeStatus: workflow projectRoot is required");
+    if (status === "merged") {
+        await removeWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId);
+        return;
+    }
     await updateWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId, { status });
 }

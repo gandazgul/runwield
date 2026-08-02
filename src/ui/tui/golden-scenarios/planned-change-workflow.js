@@ -9,6 +9,16 @@ import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
 
+/**
+ * @param {GoldenScenarioResult} result
+ * @param {string} text
+ * @returns {number}
+ */
+function countVisibleOccurrences(result, text) {
+    const haystack = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+    return haystack.split(text).length - 1;
+}
+
 /** @param {GoldenScenarioResult} result */
 function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "interaction:PLAN_REVIEW:feedback");
@@ -537,8 +547,358 @@ export const plannedChangeCiRepairReentryScenario = {
     ],
 };
 
+/** @type {import('../testing/scenario-runner.js').GoldenScenario} */
+export const plannedChangeNonGitInPlaceScenario = {
+    name: "planned-change-non-git-in-place-delivery",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 150000,
+    nonGitProject: true,
+    coverage: ["durable:non-git-in-place"],
+    reviewDecisions: [{ approved: true, feedback: "Approved for non-Git execution.", approvalAction: "run" }],
+    reviewedPlan: "# Non-Git PLANNED_CHANGE\n\nGolden non-Git content.\n",
+    initialProjectFiles: [
+        { path: "deno.json", text: '{"tasks":{"test":"deno eval \\"true\\""}}\n' },
+    ],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "Git is not available for this project", value: "proceed" },
+        { type: "text", promptIncludes: "Enter the command to validate this project", value: "deno task test" },
+    ],
+    script: [
+        {
+            id: "planner-submit-non-git-plan",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            thinking: "Submit non-Git Plan for approval.",
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "non-git-plan",
+                    objectiveChecks: [{ id: "OC1", command: "test -f golden-non-git.txt" }],
+                },
+            }],
+        },
+        {
+            id: "engineer-implements-non-git-plan",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            thinking: "Implement directly in the non-Git project root.",
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf non-git > golden-non-git.txt" } },
+                { name: "task_completed", arguments: { message: "- Implemented non-Git Golden change." } },
+            ],
+        },
+        {
+            id: "engineer-closes-non-git-plan",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 2,
+            text: "Non-Git implementation awaits validation.",
+        },
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/non-git-plan.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden non-Git PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Non-Git PLANNED_CHANGE\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit the non-git planned change for review" },
+        { type: "enter" },
+        {
+            type: "waitForPlanStatus",
+            planName: "non-git-plan",
+            statuses: ["verified", "user_verified"],
+            timeoutMs: 70000,
+        },
+        { type: "assertProjectFile", path: "golden-non-git.txt", exists: true },
+        { type: "captureProjectFileText", path: "golden-non-git.txt", key: "nonGitDeliveredFileText" },
+        { type: "captureProjectState", planNames: ["non-git-plan"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("durable:non-git-in-place", (result) => {
+            const interactions = /** @type {Array<{ interaction?: { value?: string } }> | undefined} */ (result.state
+                .scriptedInteractions);
+            assert(
+                interactions?.some((entry) => entry.interaction?.value === "proceed"),
+                "Expected non-Git execution prompt to be handled through production interaction.",
+            );
+            const projectState =
+                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[] } | undefined} */ (result
+                    .state.projectState);
+            const attrs = projectState?.plans?.[0]?.attrs;
+            assert(
+                attrs?.executionMode === "non_git_in_place",
+                `Expected non_git_in_place; got ${attrs?.executionMode}`,
+            );
+            const deliveryEvidence = /** @type {{ mode?: string } | undefined} */ (attrs?.deliveryEvidence);
+            assert(deliveryEvidence?.mode === "non_git_in_place", "Expected non-Git Delivery Evidence.");
+            assert(
+                result.state.nonGitDeliveredFileText === "non-git",
+                `Expected delivered non-Git file contents; got ${result.state.nonGitDeliveredFileText}`,
+            );
+            assert((projectState?.registryEntries || []).length === 0, "Expected no worktree registry entries.");
+        }),
+    ],
+};
+
+/** @type {import('../testing/scenario-runner.js').GoldenScenario} */
+export const plannedChangeValidationFailureRetryScenario = {
+    name: "planned-change-validation-ci-failure-repair-retry-success",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 180000,
+    coverage: ["recovery:validation-failure-retry"],
+    committedProjectFiles: [
+        {
+            path: ".wld/settings.json",
+            text: `${
+                JSON.stringify(
+                    { verification_command: 'test "$(cat golden-validation-retry.txt)" = repaired' },
+                    null,
+                    4,
+                )
+            }\n`,
+        },
+    ],
+    reviewDecisions: [{ approved: true, feedback: "Approved for retry coverage.", approvalAction: "run" }],
+    reviewedPlan: "# Validation retry\n\nGolden validation retry content.\n",
+    script: [
+        {
+            id: "planner-submits-validation-retry-plan",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "validation-retry",
+                    objectiveChecks: [{ id: "OC1", command: "test -f golden-validation-retry.txt" }],
+                },
+            }],
+        },
+        {
+            id: "engineer-implements-validation-retry-failing",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "validation-retry",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf broken > golden-validation-retry.txt" } },
+                {
+                    name: "task_completed",
+                    arguments: { message: "- Implemented retry fixture with a failing CI state." },
+                },
+            ],
+        },
+        {
+            id: "engineer-closes-validation-retry-first",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "validation-retry",
+            ordinal: 2,
+            text: "Awaiting CI.",
+        },
+        {
+            id: "engineer-repairs-validation-retry",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "validation-retry",
+            ordinal: 3,
+            requiredTools: ["bash", "task_completed"],
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf repaired > golden-validation-retry.txt" } },
+                { name: "task_completed", arguments: { message: "- Repaired retry fixture after CI failure." } },
+            ],
+        },
+        {
+            id: "engineer-closes-validation-retry-repair",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "validation-retry",
+            ordinal: 4,
+            text: "Awaiting retry validation.",
+        },
+        {
+            id: "reviewer-approves-validation-retry",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "validation-retry",
+            ordinal: 1,
+            requiredTools: ["review_diff", "review_complete"],
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_complete", arguments: { approved: true, feedback: "Retry repair approved." } },
+            ],
+        },
+        {
+            id: "reviewer-closes-validation-retry",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "validation-retry",
+            ordinal: 2,
+            text: "Approved retry repair.",
+        },
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/validation-retry.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Validation retry\naffectedPaths: []\nstatus: draft\n---\n# Validation retry\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit validation retry plan for review" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForPlanStatus", planName: "validation-retry", statuses: ["implemented"], timeoutMs: 90000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
+        { type: "waitForPlanStatus", planName: "validation-retry", statuses: ["verified"], timeoutMs: 90000 },
+        { type: "captureProjectState", planNames: ["validation-retry"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("recovery:validation-failure-retry", (result) => {
+            assertScreenIncludes(result, "Running CI Validation");
+            assertScreenIncludes(result, "Dispatching");
+            const projectState =
+                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }> }} */ (result.state
+                    .projectState);
+            const attrs = projectState.plans?.[0]?.attrs;
+            const ciRuns = countVisibleOccurrences(result, "Running CI Validation");
+            assert(ciRuns >= 2, `Expected failed CI plus retry CI; saw ${ciRuns} CI runs.`);
+            const completedTurns = result.events.filter((event) =>
+                event === "runtime:tool:start:task_completed"
+            ).length;
+            assert(
+                completedTurns >= 2,
+                `Expected initial implementation and repair task_completed turns; saw ${completedTurns}.`,
+            );
+            assert(attrs?.status === "verified", `Expected retry scenario verified after repair; got ${attrs?.status}`);
+            assert(attrs?.planId, "Expected Plan identity to remain populated after validation retry.");
+            assert(
+                Number(attrs?.validationCiAttempts || 0) === 0,
+                `Expected CI attempts reset after success; got ${attrs?.validationCiAttempts}`,
+            );
+        }),
+    ],
+};
+
+/** @type {import('../testing/scenario-runner.js').GoldenScenario} */
+export const plannedChangeValidationExhaustedScenario = {
+    name: "planned-change-validation-ci-exhausted-recoverable",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 180000,
+    coverage: ["recovery:validation-exhausted"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "false" }, null, 4)}\n` },
+    ],
+    reviewDecisions: [{
+        approved: true,
+        feedback: "Approved for exhausted validation coverage.",
+        approvalAction: "run",
+    }],
+    reviewedPlan: "# Validation exhausted\n\nGolden exhausted validation content.\n",
+    scriptedInteractions: [{ type: "select", promptIncludes: "tests for", value: "stop" }],
+    script: [
+        {
+            id: "planner-submits-validation-exhausted-plan",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "validation-exhausted",
+                    objectiveChecks: [{ id: "OC1", command: "test -f golden-validation-exhausted.txt" }],
+                },
+            }],
+        },
+        ...[1, 2, 3].flatMap((attempt) => [
+            {
+                id: `engineer-validation-exhausted-attempt-${attempt}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName: "validation-exhausted",
+                ordinal: attempt * 2 - 1,
+                requiredTools: ["bash", "task_completed"],
+                toolCalls: [
+                    {
+                        name: "bash",
+                        arguments: { command: `printf attempt-${attempt} > golden-validation-exhausted.txt` },
+                    },
+                    { name: "task_completed", arguments: { message: `- Attempt ${attempt} still cannot satisfy CI.` } },
+                ],
+            },
+            {
+                id: `engineer-validation-exhausted-closes-${attempt}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName: "validation-exhausted",
+                ordinal: attempt * 2,
+                text: `Attempt ${attempt} awaits CI.`,
+            },
+        ]),
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "plans/validation-exhausted.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Validation exhausted\naffectedPaths: []\nstatus: draft\n---\n# Validation exhausted\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit validation exhausted plan for review" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 3, timeoutMs: 150000 },
+        { type: "waitForPlanStatus", planName: "validation-exhausted", statuses: ["implemented"], timeoutMs: 90000 },
+        { type: "sleep", ms: 1000 },
+        { type: "captureProjectState", planNames: ["validation-exhausted"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("recovery:validation-exhausted", (result) => {
+            assertScreenIncludes(result, "Build failed");
+            assertScreenIncludes(result, "tests for");
+            const projectState =
+                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[] }} */ (result
+                    .state.projectState);
+            const attrs = projectState.plans?.[0]?.attrs;
+            const completedTurns = result.events.filter((event) =>
+                event === "runtime:tool:start:task_completed"
+            ).length;
+            assert(
+                completedTurns >= 3,
+                `Expected all exhausted implementation attempts before recoverability capture; saw ${completedTurns}.`,
+            );
+            assert(
+                attrs?.status === "implemented",
+                `Expected exhausted validation to remain implemented/recoverable; got ${attrs?.status}`,
+            );
+            assert(
+                String(attrs?.worktreeStatus || "") === "validation_failed",
+                `Expected recoverable validation_failed worktree status; got ${attrs?.worktreeStatus}`,
+            );
+            assert(attrs?.planId, "Expected exhausted recoverable state to preserve Plan identity.");
+            const ciRuns = countVisibleOccurrences(result, "Running CI Validation");
+            assert(ciRuns >= 3, `Expected exhausted scenario to show at least three CI attempts; saw ${ciRuns}.`);
+        }),
+    ],
+};
+
 export const plannedChangeWorkflowScenarios = [
     plannedChangeReviewRepairValidationScenario,
     plannedChangeBlockedMergePauseScenario,
     plannedChangeCiRepairReentryScenario,
+    plannedChangeNonGitInPlaceScenario,
+    plannedChangeValidationFailureRetryScenario,
+    plannedChangeValidationExhaustedScenario,
 ];

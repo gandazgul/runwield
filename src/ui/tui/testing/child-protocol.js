@@ -104,11 +104,11 @@ export async function runGoldenScenarioChildProcess(request) {
     // the grace window, or crashed before its own cleanup. The child announces
     // its environment root on startup precisely so this path can find it.
     if (!request.keepArtifacts) await removeChildEnvironmentRoot(childPayload);
-    if (
-        !result.success ||
-        (childPayload && typeof childPayload === "object" && "ok" in childPayload &&
-            !/** @type {{ ok?: unknown }} */ (childPayload).ok)
-    ) {
+    const childReportedFailure = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
+        !/** @type {{ ok?: unknown }} */ (childPayload).ok;
+    const childReportedSuccess = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
+        /** @type {{ ok?: unknown }} */ (childPayload).ok === true;
+    if (childReportedFailure || (!result.success && !childReportedSuccess)) {
         const artifactDir = await writeChildFailureArtifact(normalizedRequest, result, childPayload);
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`

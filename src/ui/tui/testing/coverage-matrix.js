@@ -10,7 +10,12 @@ import { assert } from "@std/assert";
 export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
     roles: ["role:guide", "role:ideator", "role:operator", "role:engineer"],
     routingIntents: ["intent:INQUIRY", "intent:IDEATION", "intent:OPERATION", "intent:QUICK_FIX"],
-    workflows: ["workflow:PLANNED_CHANGE", "workflow:PROJECT"],
+    workflows: [
+        "workflow:PLANNED_CHANGE",
+        "workflow:PROJECT",
+        "workflow:load-plan",
+        "workflow:concurrent-plans",
+    ],
     presentation: [
         "block:user",
         "block:thinking",
@@ -26,6 +31,7 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "block:managed-sync",
         "block:queued-steering",
         "block:image",
+        "block:abandon-progress",
     ],
     terminal: [
         "terminal:ctrl-c",
@@ -52,6 +58,11 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         // Every other scenario commits a CI command that cannot fail, so this path had
         // no end-to-end coverage at all.
         "recovery:ci-repair",
+        "recovery:interrupted-execution",
+        "recovery:load-plan-worktree",
+        "recovery:validation-failure-retry",
+        "recovery:validation-exhausted",
+        "recovery:malformed-plan-front-matter",
     ],
     durableOutcomes: [
         "durable:plan-lifecycle",
@@ -64,6 +75,9 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         // A Project has the most to lose when one child fails, because every child
         // behind it waits. Continuing past an unverified child is worse than stopping.
         "durable:epic-child-halted",
+        "durable:epic-completion",
+        "durable:quick-fix-delivery",
+        "durable:non-git-in-place",
     ],
 });
 
