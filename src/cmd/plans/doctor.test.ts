@@ -259,11 +259,37 @@ Deno.test("plans doctor command --repair applies safe repairs through the real d
     await withDoctorCommandFixture(async ({ projectRoot }) => {
         await seedMissingSettledWorktree(projectRoot, "wt-command-repair");
 
-        await captureConsoleLog(async () => {
+        const output = await captureConsoleLog(async () => {
             await runPlansDoctorCommand(["--repair"]);
         });
 
         assertEquals(await findById(projectRoot, "wt-command-repair"), null);
+        assertEquals(output.includes("Applied 1 safe repair."), true);
+        assertEquals(output.includes("0 problems remain."), true);
+        assertEquals(output.includes("For the full diagnosis, run: wld plans doctor"), true);
+        assertEquals(output.includes("Worktree registry"), false);
+        assertEquals(output.includes("Diagnosis:"), false);
+        assertEquals(output.includes("Next steps:"), false);
+    });
+});
+
+Deno.test("plans doctor command --repair summarizes remaining problems without repeating their details", async () => {
+    await withDoctorCommandFixture(async ({ projectRoot }) => {
+        await seedMissingSettledWorktree(projectRoot, "wt-command-partial-repair");
+        await Deno.writeTextFile(join(projectRoot, "plans", "broken.md"), "---\nstatus: [\n---\n# Broken\n");
+
+        const output = await captureConsoleLog(async () => {
+            await runPlansDoctorCommand(["--repair"]);
+        });
+
+        assertEquals(output.includes("Applied 1 safe repair."), true);
+        assertEquals(output.includes("1 problem remains."), true);
+        assertEquals(output.includes("Summary: Critical: 1 · Needs attention: 0 · Cleanup: 0"), true);
+        assertEquals(output.includes("For the full diagnosis, run: wld plans doctor"), true);
+        assertEquals(output.includes("broken"), false);
+        assertEquals(output.includes("Plan files"), false);
+        assertEquals(output.includes("Diagnosis:"), false);
+        assertEquals(output.includes("Next steps:"), false);
     });
 });
 
