@@ -79,11 +79,11 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:32:24-04:00"
-updatedAt: "2026-08-02T13:31:46.886Z"
+updatedAt: "2026-08-02T14:55:42.121Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T13:23:57.923Z"
-verifiedAt: "2026-08-02T13:31:46.886Z"
+verifiedAt: "2026-08-02T14:55:42.121Z"
 userVerifiedAt: null
 executionReport: "- Implemented: moved all seven workflow-dispatched prompt files to `src/agent-definitions/subagent-definitions/` with 100% rename content preservation, removed the old directory, added `SUBAGENTS` plus the typed `loadSubAgentDefinition` registry/loader.\n- Implemented: validation, delegate-agent, slicer, and init call sites now delegate through the shared loader; obsolete direct prompt-file/loading seams were removed and the injection-seam baseline was tightened.\n- Tests updated/added: added `src/shared/session/subagent-definitions.test.ts` (+6 tests); no test cases were removed. Updated existing validation/delegation/slicer/init/session-catalog/compile/runtime/image tests for the new path and preserved prior behavior assertions.\n- Verification passed: objective checks OC1–OC4; targeted suite (`143 passed`); `deno task seams:check`; `deno task ci` (`233 files passed`); `deno task test:golden-tui` (`56 passed`, after rerunning one initial timeout successfully); `deno task compile`.\n- Manual compiled-binary check: cleared a temp `HOME` bundled-agent-definitions cache and ran `./bin/wld --help` successfully; a live Delegated Agent start remains unverified because this environment has no configured noninteractive model/provider session for that manual flow."
 humanReviewMode: "ask"
@@ -93,9 +93,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "8581e1342b910e3673634d8641ae76fe91759503"
+    executionCommit: "9c04dec46483674931a16e6d7c538f80466cbf3b"
     targetBranch: "main"
-    targetHeadBeforeMerge: "cea02829de80ed7b84702577f3714a0c1466fc8c"
+    targetHeadBeforeMerge: "92bf9a7eac8132f04cfa62755bf7ae210d059f0d"
 validationCiAttempts: 0
 validationSemanticRounds: 0
 ---
