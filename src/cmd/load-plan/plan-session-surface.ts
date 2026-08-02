@@ -1,0 +1,160 @@
+/**
+ * @module cmd/load-plan/plan-session-surface
+ * The command-local view of a runtime session, and the agent handoffs around it.
+ *
+ * load-plan never touches a core session object: it is handed a SessionRuntime
+ * and builds the narrow surface below, so the command can only do what this
+ * file lets it do.
+ */
+
+import { AGENTS, CLI_BIN } from "../../constants.js";
+import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
+import {
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+} from "../../shared/session/session-runtime-interactions.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { UiAPI } from "../../ui/tui/types.js";
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
+import type { PlanSessionSurface } from "./plan-session-types.ts";
+
+/**
+ * The review payload as it arrives from the runtime: unvalidated, so every
+ * field below is checked before it is trusted.
+ */
+interface RawReviewPayload {
+    approved?: unknown;
+    feedback?: unknown;
+    cancellationReason?: unknown;
+    approvalAction?: PlanApprovalAction;
+    planAttrs?: unknown;
+    images?: unknown;
+    remoteReview?: unknown;
+    reviewerUrl?: unknown;
+    spaceId?: unknown;
+    serverUrl?: unknown;
+    revision?: unknown;
+    reused?: unknown;
+}
+
+/** The subset of load-plan's injectable dependencies this surface forwards. */
+export interface PlanSessionSurfaceDeps {
+    executePlan?: PlanSessionSurface["executePlan"];
+    runPlanningAgent?: PlanSessionSurface["runPlanningAgent"];
+    runValidationLoop?: PlanSessionSurface["runValidation"];
+    runSlicerAgent?: PlanSessionSurface["runSlicerAgent"];
+    resetTuiState?: typeof resetTuiStateFn;
+}
+
+/** Whether an error is the runtime's "managed session unavailable" signal. */
+export function isManagedUnsupportedError(error: unknown): boolean {
+    return error instanceof Error ? error.message === "managed_unsupported" : String(error) === "managed_unsupported";
+}
+
+/** Explain that lifecycle actions are unavailable without a managed session. */
+export function buildManagedUnsupportedLoadPlanMessage(planName: string | null): string {
+    const command = planName ? `${CLI_BIN} load-plan ${planName}` : `${CLI_BIN} load-plan <plan-name>`;
+    return [
+        "Cannot continue this Plan because the managed session could not be activated (managed_unsupported).",
+        "The Plan was loaded for viewing, but RunWield could not attach the underlying agent session needed for Plan lifecycle actions such as resume planning, execution, validation, or workflow state updates.",
+        `Try again from a fresh RunWield TUI or Workspace session with: ${command}`,
+    ].join("\n");
+}
+
+/**
+ * Build the command-local view of the public SessionRuntime surface. No core
+ * session object or persistence manager crosses this boundary.
+ */
+export function createPlanSessionSurface(
+    runtime: SessionRuntime,
+    sessionId: string,
+    deps: PlanSessionSurfaceDeps,
+): PlanSessionSurface {
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    if (!snapshot) throw new Error("load-plan requires an active runtime session");
+    return {
+        id: sessionId,
+        cwd: snapshot.cwd,
+        getActiveAgentName: () => runtime.getRuntimeActiveAgentName(sessionId),
+        switchAgent: (agentName, options = {}) => runtime.switchAgent(sessionId, { agentName, ...options }),
+        executePlan: (options) =>
+            deps.executePlan ? deps.executePlan(options) : runtime.executePlan(sessionId, options),
+        runPlanningAgent: (options) =>
+            deps.runPlanningAgent ? deps.runPlanningAgent(options) : runtime.runPlanningAgent(sessionId, options),
+        runValidation: (options) =>
+            deps.runValidationLoop ? deps.runValidationLoop(options) : runtime.runValidation(sessionId, options),
+        runSlicerAgent: (options) =>
+            deps.runSlicerAgent ? deps.runSlicerAgent(options) : runtime.runSlicerAgent(sessionId, options),
+        getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
+        setActiveExecutionWorkflow: (workflow) => {
+            runtime.setActiveExecutionWorkflow(sessionId, workflow);
+        },
+        clearActiveExecutionWorkflow: () => {
+            runtime.clearActiveExecutionWorkflow(sessionId);
+        },
+        reviewPlan: async (meta) => {
+            const response = await runtime.requestInteraction(sessionId, {
+                type: RuntimeInteractionTypes.PLAN_REVIEW,
+                prompt: `Review plan "${meta.planName}"`,
+                _meta: { cwd: snapshot.cwd, ...meta },
+            });
+            const responseAny = response as { _meta?: Record<string, unknown>; message?: unknown };
+            const review = (responseAny._meta || {}) as RawReviewPayload;
+            const hasReviewPayload = responseAny._meta && typeof responseAny._meta === "object" &&
+                Object.keys(responseAny._meta).length > 0;
+            const runtimeCanceled = response.outcome === RuntimeInteractionOutcomes.CANCELED && !hasReviewPayload;
+            return {
+                canceled: response.outcome === RuntimeInteractionOutcomes.CANCELED,
+                cancellationReason: typeof review.cancellationReason === "string"
+                    ? review.cancellationReason
+                    : runtimeCanceled
+                    ? "runtime_cancel"
+                    : undefined,
+                approved: review.approved === true,
+                feedback: typeof review.feedback === "string" ? review.feedback : undefined,
+                approvalAction: review.approvalAction,
+                planAttrs: review.planAttrs && typeof review.planAttrs === "object"
+                    ? (review.planAttrs as PlanFrontMatter)
+                    : undefined,
+                images: Array.isArray(review.images) ? review.images : undefined,
+                remoteReview: review.remoteReview === true,
+                reviewerUrl: typeof review.reviewerUrl === "string" ? review.reviewerUrl : undefined,
+                spaceId: typeof review.spaceId === "string" ? review.spaceId : undefined,
+                serverUrl: typeof review.serverUrl === "string" ? review.serverUrl : undefined,
+                revision: typeof review.revision === "string" ? review.revision : undefined,
+                reused: typeof review.reused === "boolean" ? review.reused : undefined,
+                message: typeof response.message === "string" ? response.message : undefined,
+            };
+        },
+        rename: (name) => {
+            runtime.renameSession(sessionId, name);
+        },
+    };
+}
+
+/**
+ * Restore the agent that owned the session before load-plan command work.
+ */
+export async function restorePreviousAgentFlow(
+    uiAPI: UiAPI,
+    agentName: string,
+    session: PlanSessionSurface,
+): Promise<void> {
+    resetTuiStateFn(undefined, uiAPI, undefined);
+    const workflow = session.getActiveExecutionWorkflow?.() || null;
+    const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
+    if (executionAgent) {
+        await session.switchAgent(executionAgent, { allowReturnToRouter: false });
+        return;
+    }
+    await session.switchAgent(agentName);
+}
+
+/**
+ * If a plan command was entered from Router, the plan owner should become the
+ * follow-up agent. Otherwise restore the specialist the user was already using.
+ */
+export function selectPlanFlowRestoreAgent(initialAgentName: string, planAgentName: string): string {
+    return initialAgentName === AGENTS.ROUTER ? planAgentName : initialAgentName;
+}

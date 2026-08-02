@@ -151,7 +151,15 @@ export function collectSeamNames(text) {
     const collectFromBag = (bag) => {
         const source = bag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         // Member reads: `bag.name`, `bag?.name`.
-        for (const read of text.matchAll(new RegExp(`${source}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"))) {
+        //
+        // The bag name must start a word. Without that, a bag called `deps` matches
+        // inside the module specifier `"./load-plan-test-deps.ts"` and invents a seam
+        // named `ts` — a filename, not something anyone injects.
+        for (
+            const read of text.matchAll(
+                new RegExp(`(?<![\\w$-])${source}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"),
+            )
+        ) {
             names.add(read[1]);
         }
         // Destructured reads: `const { a, b: bLocal } = bag`. The declared name is the
@@ -193,6 +201,19 @@ export function collectSeamNames(text) {
         )
     ) {
         collectFromBag(alias[1]);
+    }
+
+    // Bags that arrive as a typed parameter: `function f(deps: LoadPlanTestDeps)`.
+    //
+    // Splitting a command into modules hands the bag onward as an ordinary
+    // argument, and the reads move with it. Counting only `__deps`-named bags let
+    // four seams vanish from load-plan/index.js the moment `createPlanSessionSurface`
+    // moved to its own file — they were still injected, just out of view. The type
+    // name is the tell: a parameter is a dependency bag when it is annotated as one.
+    for (
+        const param of text.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*[A-Za-z_$][\w$]*Deps\b/g)
+    ) {
+        collectFromBag(param[1]);
     }
     return [...names].sort();
 }

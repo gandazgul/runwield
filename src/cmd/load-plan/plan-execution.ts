@@ -1,0 +1,638 @@
+/**
+ * @module cmd/load-plan/plan-execution
+ * Driving a Plan from approved through execution to validation.
+ *
+ * The Readiness Gate, the post-execution checkpoint, and the repair loop that
+ * sits between them. Lifecycle writes go through `recordPlanEvent`; this module
+ * decides *when* they happen, never how they are persisted.
+ */
+
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { loadPlan as loadPlanFn, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { isGitRepositoryRequiredError } from "../../shared/git.js";
+import { isEpicPlan, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
+import {
+    decidePostExecution as decidePostExecutionFn,
+    decidePostPlanning as decidePostPlanningFn,
+} from "../../shared/workflow/decisions.js";
+import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
+import { listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn } from "../../shared/workflow/git-snapshot.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import { formatCommitHeadsUp } from "./plan-presentation.ts";
+import { reportInvalidRecoveryPolicy } from "./plan-recovery-worktree.ts";
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { UiAPI } from "../../ui/tui/types.js";
+import type { PlanSessionSurface, RecoveryWorktreeContext, ReviewImage } from "./plan-session-types.ts";
+import type { WorkflowDecision } from "../../shared/workflow/decisions.js";
+
+/** The execution workflow the session is told about when execution starts. */
+export interface ExecutionWorkflowState {
+    planName: string;
+    triageMeta: PlanFrontMatter;
+    executionAgent: "engineer" | "frontend-engineer";
+    projectRoot: string;
+    executionStarted: boolean;
+    executionMode?: "worktree" | "non_git_in_place";
+    executionCwd?: string;
+    baselineTree?: string;
+    worktreeId?: string;
+    worktreeBranch?: string;
+    worktreeBaseBranch?: string;
+    worktreeBaseRef?: string;
+    worktreeBaseCommit?: string;
+    nonGitInPlace?: boolean;
+}
+
+/** A Plan loaded far enough to execute. */
+export interface ExecutablePlan {
+    planName: string;
+    body: string;
+    markdown?: string;
+    attrs: PlanFrontMatter;
+}
+
+/** The optional overrides every execution entry point accepts. */
+export interface ExecutionLifecycleOverrides {
+    finalizePlanImplementation?: typeof finalizePlanImplementationFn;
+    recordPlanEvent?: typeof recordPlanEventFn;
+    resolveValidationExecutionContextForRecovery?: typeof resolveValidationExecutionContext;
+}
+
+export interface ConfirmAffectedPathChangesOptions {
+    projectRoot: string;
+    planName: string;
+    triageMeta: Partial<PlanFrontMatter>;
+    uiAPI: UiAPI;
+    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
+}
+
+export interface ValidatePostExecutionDecisionOptions extends ExecutionLifecycleOverrides {
+    executionDecision: WorkflowDecision;
+    executionResult: unknown;
+    fallbackPlanContent: string;
+    runValidationLoop: PlanSessionSurface["runValidation"];
+    loadPlan: typeof loadPlanFn;
+    session: PlanSessionSurface;
+    uiAPI?: UiAPI;
+}
+
+export interface ExecutePostPlanningDecisionOptions extends ExecutionLifecycleOverrides {
+    decision: WorkflowDecision;
+    fallbackPlanContent: string;
+    uiAPI: UiAPI;
+    executePlan: PlanSessionSurface["executePlan"];
+    decidePostExecution: typeof decidePostExecutionFn;
+    runValidationLoop: PlanSessionSurface["runValidation"];
+    runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
+    loadPlan: typeof loadPlanFn;
+    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
+    session: PlanSessionSurface;
+}
+
+export interface ExecuteReadyPlanOptions extends ExecutionLifecycleOverrides {
+    projectRoot: string;
+    plan: ExecutablePlan;
+    agentName: string;
+    uiAPI: UiAPI;
+    executePlan: PlanSessionSurface["executePlan"];
+    runPlanningAgent?: PlanSessionSurface["runPlanningAgent"];
+    decidePostPlanning?: typeof decidePostPlanningFn;
+    decidePostExecution: typeof decidePostExecutionFn;
+    runValidationLoop: PlanSessionSurface["runValidation"];
+    loadPlan: typeof loadPlanFn;
+    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
+    session: PlanSessionSurface;
+}
+
+/**
+ * Warn when affected paths have changed after the plan timestamp, and confirm
+ * before execution starts.
+ *
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {string} opts.planName
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
+ * @returns {Promise<boolean>}
+ */
+export async function confirmAffectedPathChangesBeforeExecution({
+    projectRoot,
+    planName,
+    triageMeta,
+    uiAPI,
+    listCommitsTouchingPathsSince,
+}: ConfirmAffectedPathChangesOptions): Promise<boolean> {
+    const affectedPaths = Array.isArray(triageMeta.affectedPaths) ? triageMeta.affectedPaths : [];
+    const timestamp = triageMeta.updatedAt || triageMeta.createdAt;
+    if (!timestamp || affectedPaths.length === 0) return true;
+
+    let commits = [];
+    try {
+        commits = await listCommitsTouchingPathsSince(projectRoot, timestamp, affectedPaths);
+    } catch (error) {
+        if (isGitRepositoryRequiredError(error)) {
+            uiAPI.appendSystemMessage(
+                "Skipping affected path history check because this project is not a Git repository.",
+                false,
+                "RunWield",
+            );
+            return true;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        uiAPI.appendSystemMessage(
+            `Could not check affected path history before execution: ${message}`,
+            true,
+            "RunWield",
+        );
+        return true;
+    }
+
+    if (commits.length === 0) return true;
+
+    const timestampLabel = triageMeta.updatedAt ? "updatedAt" : "createdAt";
+    uiAPI.appendSystemMessage(
+        [
+            `Heads up: ${commits.length} commit(s) touched affected paths since this plan's ${timestampLabel} (${timestamp}).`,
+            "",
+            "Affected paths:",
+            ...affectedPaths.map((path) => `  - ${path}`),
+            "",
+            "Commits:",
+            ...formatCommitHeadsUp(commits),
+        ].join("\n"),
+        true,
+        "RunWield",
+    );
+
+    const answer = await uiAPI.promptSelect(`Proceed with execution for "${planName}" anyway?`, [
+        { value: "proceed", label: "Proceed with execution" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    if (answer === "proceed") return true;
+    uiAPI.appendSystemMessage("Execution canceled.", false, "RunWield");
+    return false;
+}
+
+/**
+ * @param {unknown} executionResult
+ * @param {string} planName
+ * @param {string} fallbackPlanContent
+ * @param {import('../../plan-store.js').PlanFrontMatter} triageMeta
+ * @param {PlanSessionSurface["runValidation"]} runValidationLoop
+ * @param {typeof loadPlanFn} loadPlan
+ * @param {RecoveryWorktreeContext | null} worktreeContext
+ * @param {PlanSessionSurface} session
+ * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @param {typeof finalizePlanImplementationFn} [finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
+ * @returns {Promise<boolean>}
+ */
+export async function validateCompletedExecution(
+    executionResult: unknown,
+    planName: string,
+    fallbackPlanContent: string,
+    triageMeta: PlanFrontMatter,
+    runValidationLoop: PlanSessionSurface["runValidation"],
+    loadPlan: typeof loadPlanFn,
+    worktreeContext: RecoveryWorktreeContext | null,
+    session: PlanSessionSurface,
+    uiAPI?: UiAPI,
+    finalizePlanImplementation: typeof finalizePlanImplementationFn = finalizePlanImplementationFn,
+    recordPlanEvent: typeof recordPlanEventFn = recordPlanEventFn,
+    resolveValidationExecutionContextForRecovery: typeof resolveValidationExecutionContext =
+        resolveValidationExecutionContext,
+): Promise<boolean> {
+    const projectRoot = session.cwd;
+    if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) {
+        return false;
+    }
+    if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return false;
+    let planContent = fallbackPlanContent;
+    let effectiveMeta = triageMeta;
+    let latestPlan = null;
+    try {
+        latestPlan = await loadPlan(projectRoot, planName);
+        planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
+        if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
+    } catch {
+        // Keep fallback content in tests or if the plan was removed.
+    }
+    const policy = resolvePlanExecutionPolicy(effectiveMeta);
+    if (!policy.ok) {
+        if (uiAPI) {
+            reportInvalidRecoveryPolicy("validate", planName, policy.error, uiAPI);
+            return false;
+        }
+        throw new Error(policy.error);
+    }
+    const returnedExecutionContext =
+        (executionResult as { executionContext?: Record<string, unknown> }).executionContext;
+    const explicitContext = returnedExecutionContext || {
+        planName,
+        triageMeta: effectiveMeta,
+        executionMode: effectiveMeta.executionMode,
+        baselineTree: effectiveMeta.executionBaselineTree || worktreeContext?.executionBaselineTree ||
+            worktreeContext?.baseTree || worktreeContext?.baseCommit,
+        worktreeId: worktreeContext?.id || effectiveMeta.worktreeId,
+        worktreeBranch: worktreeContext?.branch || effectiveMeta.worktreeBranch,
+        worktreeBaseBranch: worktreeContext?.baseBranch || effectiveMeta.worktreeBaseBranch,
+        worktreeBaseRef: worktreeContext?.baseRef,
+        worktreeBaseCommit: worktreeContext?.baseCommit,
+        executionCwd: worktreeContext?.path || effectiveMeta.worktreePath,
+        nonGitInPlace: effectiveMeta.executionMode === "non_git_in_place",
+    };
+    const buildWorkflow = (context: Record<string, unknown>): ExecutionWorkflowState => {
+        const workflow: ExecutionWorkflowState = {
+            planName,
+            triageMeta: effectiveMeta,
+            executionAgent: policy.policy.executionAgent as "engineer" | "frontend-engineer",
+            executionMode: context.executionMode as ExecutionWorkflowState["executionMode"],
+            projectRoot,
+            executionCwd: typeof context.executionCwd === "string" ? context.executionCwd : undefined,
+            executionStarted: true,
+        };
+        if (context.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
+        if (context.executionMode === "worktree") {
+            workflow.baselineTree = typeof context.baselineTree === "string" ? context.baselineTree : undefined;
+            workflow.worktreeId = typeof context.worktreeId === "string" ? context.worktreeId : undefined;
+            workflow.worktreeBranch = typeof context.worktreeBranch === "string" ? context.worktreeBranch : undefined;
+            workflow.worktreeBaseBranch = typeof context.worktreeBaseBranch === "string"
+                ? context.worktreeBaseBranch
+                : undefined;
+            workflow.worktreeBaseRef = typeof context.worktreeBaseRef === "string"
+                ? context.worktreeBaseRef
+                : undefined;
+            workflow.worktreeBaseCommit = typeof context.worktreeBaseCommit === "string"
+                ? context.worktreeBaseCommit
+                : undefined;
+        }
+        return workflow;
+    };
+    const initialWorkflow = buildWorkflow(explicitContext);
+    const needsImplementationCheckpoint = isPlannedChangeClassification(effectiveMeta.classification) &&
+        effectiveMeta.status !== "implemented" &&
+        effectiveMeta.status !== "verified" &&
+        effectiveMeta.status !== "user_verified";
+    if (needsImplementationCheckpoint) {
+        const completionReport = (executionResult as { completionReport?: unknown }).completionReport;
+        session.setActiveExecutionWorkflow(initialWorkflow);
+        try {
+            await finalizePlanImplementation({
+                projectRoot,
+                planName,
+                triageMeta: effectiveMeta,
+                executionContext: initialWorkflow,
+                executionReport: typeof completionReport === "string" ? completionReport : undefined,
+                __deps: { recordPlanEvent },
+            });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            if (uiAPI) {
+                uiAPI.appendSystemMessage(
+                    `Validation blocked: implementation checkpoint failed before Workflow Validation: ${reason}`,
+                    true,
+                    "RunWield",
+                );
+                return false;
+            }
+            throw error;
+        }
+        try {
+            latestPlan = await loadPlan(projectRoot, planName);
+            planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
+            if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
+        } catch {
+            // Keep the pre-checkpoint content/metadata in tests or if the Plan was removed.
+        }
+    }
+    const resolution = await resolveValidationExecutionContextForRecovery({
+        projectRoot,
+        planName,
+        triageMeta: effectiveMeta,
+        explicitContext,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    latestPlan || {
+                        path: `plans/${planName}.md`,
+                        markdown: planContent,
+                        body: planContent,
+                        attrs: effectiveMeta,
+                    },
+                ),
+        },
+    });
+    if (resolution.kind === "blocked") {
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(`Validation blocked: ${resolution.message}`, false, "RunWield");
+            return false;
+        }
+        throw new Error(resolution.message);
+    }
+    if (resolution.restoredPlanFile && uiAPI) {
+        uiAPI.appendSystemMessage(
+            `Restored missing execution worktree Plan file from the canonical Project Plan: ${resolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+            false,
+            "RunWield",
+        );
+    }
+    for (const notice of resolution.selfHealNotices || []) {
+        if (uiAPI) uiAPI.appendSystemMessage(notice, false, "RunWield");
+    }
+    const resolvedContext = resolution.context;
+    const workflow = buildWorkflow(resolvedContext);
+    session.setActiveExecutionWorkflow(workflow);
+    await runValidationLoop({
+        planName,
+        planContent,
+        triageMeta: effectiveMeta,
+        executionContext: workflow,
+    });
+    for (let phase = 0; phase < 2; phase += 1) {
+        const latestPlan = await loadPlan(resolvedContext.projectRoot, planName).catch(() => null);
+        if (!latestPlan) break;
+        const latestStatus = latestPlan.attrs?.status;
+        if (latestStatus !== "validated_ci" && latestStatus !== "validated_reviewer") break;
+        await runValidationLoop({
+            planName,
+            planContent: latestPlan.markdown || latestPlan.body || planContent,
+            triageMeta: { ...effectiveMeta, ...latestPlan.attrs },
+            executionContext: workflow,
+        });
+    }
+    return true;
+}
+
+/**
+ * @param {Object} opts
+ * @param {import('../../shared/workflow/decisions.js').WorkflowDecision} opts.executionDecision
+ * @param {unknown} opts.executionResult
+ * @param {string} opts.fallbackPlanContent
+ * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {PlanSessionSurface} opts.session
+ * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
+ * @returns {Promise<void>}
+ */
+export async function validatePostExecutionDecision({
+    executionDecision,
+    executionResult,
+    fallbackPlanContent,
+    runValidationLoop,
+    loadPlan,
+    session,
+    uiAPI,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
+}: ValidatePostExecutionDecisionOptions): Promise<void> {
+    if (executionDecision.kind !== "run_validation") return;
+
+    const planName = executionDecision.payload.planName as string;
+    const triageMeta = executionDecision.payload.triageMeta as PlanFrontMatter;
+
+    await validateCompletedExecution(
+        executionResult,
+        planName,
+        fallbackPlanContent,
+        triageMeta,
+        runValidationLoop,
+        loadPlan,
+        null,
+        session,
+        uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
+    );
+}
+
+/**
+ * Execute an approved post-planning decision and run validation when execution
+ * completes. Returns true when the decision was handled as execution.
+ *
+ * @param {Object} opts
+ * @param {import('../../shared/workflow/decisions.js').WorkflowDecision} opts.decision
+ * @param {string} opts.fallbackPlanContent
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {PlanSessionSurface["executePlan"]} opts.executePlan
+ * @param {typeof decidePostExecutionFn} opts.decidePostExecution
+ * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
+ * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
+ * @param {PlanSessionSurface} opts.session
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
+ * @returns {Promise<boolean>}
+ */
+export async function executePostPlanningDecision({
+    decision,
+    fallbackPlanContent,
+    uiAPI,
+    executePlan,
+    decidePostExecution,
+    runValidationLoop,
+    runSlicerAgent,
+    loadPlan,
+    listCommitsTouchingPathsSince,
+    session,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
+}: ExecutePostPlanningDecisionOptions): Promise<boolean> {
+    const projectRoot = session.cwd;
+    if (decision.kind === "start_slicer") {
+        await runSlicerAgent({
+            planName: /** @type {string} */ (decision.payload.planName),
+            triageMeta: /** @type {import('../../plan-store.js').PlanFrontMatter} */ (
+                decision.payload.triageMeta
+            ),
+            reviewFeedback: /** @type {string | undefined} */ (decision.payload.reviewFeedback),
+            reviewImages: /** @type {Array<{base64: string, mimeType: string}> | undefined} */ (
+                decision.payload.reviewImages
+            ),
+        });
+        return true;
+    }
+    if (decision.kind !== "execute_plan") return false;
+
+    const planName = decision.payload.planName as string;
+    const triageMeta = decision.payload.triageMeta as PlanFrontMatter;
+    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        projectRoot,
+        planName,
+        triageMeta,
+        uiAPI,
+        listCommitsTouchingPathsSince,
+    });
+    if (!confirmed) return true;
+
+    const execRes = await executePlan({
+        planName,
+        triageMeta,
+        reviewFeedback: decision.payload.reviewFeedback as string | undefined,
+        reviewImages: decision.payload.reviewImages as ReviewImage[] | undefined,
+    });
+    const policy = resolvePlanExecutionPolicy(triageMeta);
+    const executionDecision = decidePostExecution(execRes, {
+        planName,
+        triageMeta,
+        executionAgentName: policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER,
+    });
+    await validatePostExecutionDecision({
+        executionDecision,
+        executionResult: execRes,
+        fallbackPlanContent,
+        runValidationLoop,
+        loadPlan,
+        session,
+        uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
+    });
+    return true;
+}
+
+/**
+ * @param {import('../../shared/workflow/decisions.js').WorkflowDecision} decision
+ * @returns {boolean}
+ */
+export function shouldKeepPlanningAgentActive(decision: WorkflowDecision): boolean {
+    return decision.kind === "stay_with_agent" || decision.kind === "start_slicer" || decision.kind === "halt";
+}
+
+/**
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @returns {boolean}
+ */
+export function validatePlanExecutionPolicyForReadiness(plan: { attrs: PlanFrontMatter }, uiAPI: UiAPI): boolean {
+    const policy = resolvePlanExecutionPolicy(plan.attrs);
+    if (!policy.ok && policy.reason !== "project_epic") {
+        uiAPI.appendSystemMessage(`Plan policy invalid: ${policy.error}`, true, "RunWield");
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Run the Readiness Gate for an approved Plan.
+ *
+ * @param {string} projectRoot
+ * @param {{ planName: string, path: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {typeof recordPlanEventFn} recordPlanEvent
+ * @returns {Promise<boolean>}
+ */
+export async function prepareApprovedPlanForWork(
+    projectRoot: string,
+    plan: { planName: string; path?: string; attrs: PlanFrontMatter },
+    uiAPI: UiAPI,
+    recordPlanEvent: typeof recordPlanEventFn,
+): Promise<boolean> {
+    if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) return false;
+    if (isEpicPlan(plan.attrs)) {
+        await recordPlanEvent({
+            cwd: projectRoot,
+            planName: plan.planName,
+            event: "epic_readiness_passed",
+            currentStatus: "approved",
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs.status = "ready_for_decomposition";
+        uiAPI.appendSystemMessage(
+            `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+            false,
+            "RunWield",
+        );
+        return false;
+    }
+
+    await recordPlanEvent({
+        cwd: projectRoot,
+        planName: plan.planName,
+        event: "readiness_passed",
+        currentStatus: "approved",
+        details: { triageMeta: plan.attrs },
+    });
+    plan.attrs.status = "ready_for_work";
+    return true;
+}
+
+/**
+ * Execute a ready Plan and run validation if execution completes.
+ *
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {{ planName: string, markdown?: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
+ * @param {string} opts.agentName
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {PlanSessionSurface["executePlan"]} opts.executePlan
+ * @param {PlanSessionSurface["runPlanningAgent"]} opts.runPlanningAgent
+ * @param {typeof decidePostPlanningFn} opts.decidePostPlanning
+ * @param {typeof decidePostExecutionFn} opts.decidePostExecution
+ * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
+ * @param {PlanSessionSurface} opts.session
+ * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
+ * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
+ * @returns {Promise<void>}
+ */
+export async function executeReadyPlanWithRepair({
+    projectRoot,
+    plan,
+    agentName,
+    executePlan,
+    decidePostExecution,
+    runValidationLoop,
+    loadPlan,
+    listCommitsTouchingPathsSince,
+    session,
+    uiAPI,
+    finalizePlanImplementation,
+    recordPlanEvent,
+    resolveValidationExecutionContextForRecovery,
+}: ExecuteReadyPlanOptions): Promise<void> {
+    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        projectRoot,
+        planName: plan.planName,
+        triageMeta: plan.attrs,
+        uiAPI,
+        listCommitsTouchingPathsSince,
+    });
+    if (!confirmed) return;
+
+    const execRes = await executePlan({
+        planName: plan.planName,
+        triageMeta: plan.attrs,
+    });
+    const policy = resolvePlanExecutionPolicy(plan.attrs);
+    const executionOwner = policy.ok ? policy.policy.executionAgent : agentName;
+    const executionDecision = decidePostExecution(execRes, {
+        planName: plan.planName,
+        triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (plan.attrs),
+        executionAgentName: executionOwner,
+    });
+    await validatePostExecutionDecision({
+        executionDecision,
+        executionResult: execRes,
+        fallbackPlanContent: plan.markdown || plan.body || "",
+        runValidationLoop,
+        loadPlan,
+        session,
+        uiAPI,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery,
+    });
+}

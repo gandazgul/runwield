@@ -7,7 +7,6 @@
                 "autoGenerateWorkRecordForCompletedPlan",
                 "decidePostExecution",
                 "decidePostPlanning",
-                "executePlan",
                 "finalizePlanImplementation",
                 "findPlansByParent",
                 "findWorktreeById",
@@ -28,9 +27,6 @@
                 "resolveSiblingChildPlanDependencies",
                 "resolveValidationExecutionContext",
                 "restoreWorktreeTree",
-                "runPlanningAgent",
-                "runSlicerAgent",
-                "runValidationLoop",
                 "setTerminalTitleForName",
                 "shouldCleanupMergedWorktrees",
                 "startInteractiveSession"
@@ -242,6 +238,15 @@
                 "recordWorkflowMetric",
                 "requestPlanReview",
                 "stat"
+            ],
+            "machinery": []
+        },
+        "src/ui/tui/system-notifications.ts": {
+            "seams": [
+                "env",
+                "getMergedCustomSetting",
+                "pid",
+                "writeTerminal"
             ],
             "machinery": []
         }
