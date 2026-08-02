@@ -12,7 +12,7 @@
 
 import { basename } from "@std/path";
 import { setTerminalTitleForName } from "./terminal-title.js";
-import { notifyRunWieldEventQuietly } from "./system-notifications.js";
+import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const OPERATOR_AGENT = "operator";
 

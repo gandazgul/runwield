@@ -7,7 +7,7 @@ import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.j
 import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.js";
-import { notifyRunWieldEventQuietly } from "./system-notifications.js";
+import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
 

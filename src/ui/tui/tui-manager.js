@@ -23,6 +23,7 @@ function defaultRestoreTitle() {
  *     installCrashGuards: () => void,
  *     uninstallCrashGuards: () => void,
  *     restoreTitle?: () => void,
+ *     installFocusState?: (terminal: any) => { dispose: () => void },
  * }} deps
  */
 export function createTuiManager({
@@ -31,6 +32,7 @@ export function createTuiManager({
     installCrashGuards,
     uninstallCrashGuards,
     restoreTitle = defaultRestoreTitle,
+    installFocusState,
 }) {
     /** @type {any | null} */
     let tuiInstance = null;
@@ -38,12 +40,18 @@ export function createTuiManager({
     let terminalInstance = null;
     let started = false;
     let crashGuardsInstalled = false;
+    /** @type {{ dispose: () => void } | null} */
+    let focusStateOwner = null;
 
     /**
      * @param {{ terminal: any, tui: any }} pair
+     * @param {{ installFocusState?: boolean }} [options]
      */
-    function startPair(pair) {
+    function startPair(pair, options = {}) {
         terminalInstance = pair.terminal;
+        if (options.installFocusState && typeof installFocusState === "function") {
+            focusStateOwner = installFocusState(terminalInstance);
+        }
         tuiInstance = pair.tui;
         try {
             if (typeof tuiInstance.start === "function") {
@@ -66,6 +74,12 @@ export function createTuiManager({
             } catch {
                 // Preserve the original construction/start failure.
             }
+            try {
+                focusStateOwner?.dispose();
+            } catch {
+                // Preserve the original construction/start failure.
+            }
+            focusStateOwner = null;
             tuiInstance = null;
             terminalInstance = null;
             started = false;
@@ -78,7 +92,7 @@ export function createTuiManager({
         if (tuiInstance) return tuiInstance;
         const terminal = new TerminalCtor();
         const tui = new TuiCtor(terminal);
-        return startPair({ terminal, tui });
+        return startPair({ terminal, tui }, { installFocusState: true });
     }
 
     /**
@@ -112,10 +126,17 @@ export function createTuiManager({
             }
         }
         const tui = tuiInstance;
+        const focusState = focusStateOwner;
         tuiInstance = null;
         terminalInstance = null;
+        focusStateOwner = null;
         const wasStarted = started;
         started = false;
+        try {
+            focusState?.dispose();
+        } catch {
+            // Focus reporting cleanup is best effort.
+        }
         if (tui && wasStarted && typeof tui.stop === "function") {
             tui.stop();
         }
