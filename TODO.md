@@ -12,6 +12,11 @@
 - Bad types
   - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
 
+## followup for claude
+
+- plan-recovery-flow.ts split the function what is it?
+- move load-plan modules to a plans module and keep load-plan as a command module that calls into plans module
+
 ## Bugs
 
 - [ ] Add a Golden TUI scenario for a brand-new Plan being stashed out of main during execution: when Engineer calls
