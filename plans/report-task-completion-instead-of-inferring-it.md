@@ -1,23 +1,52 @@
 ---
+planId: "08ebe9a4-346e-445a-81b8-136443d56f53"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
 summary: "Have task_completed report the completion to the session instead of the handler inferring it by scanning a turn's messages, so steering mid-execution no longer strands the workflow."
 affectedPaths:
     - "src/tools/task-completed.js"
+    - "src/tools/__tests__/task-completed.test.js"
     - "src/shared/session/hosted-session.js"
     - "src/shared/session/agent-handler.js"
     - "src/shared/workflow/workflow-results.js"
     - "src/shared/session/agent-handler.test.js"
     - "src/ui/tui/golden-scenarios/role-journeys.js"
     - "src/ui/tui/testing/coverage-matrix.js"
+objectiveChecks:
+    - id: "OC1"
+      command: "grep -q 'agent-handler consumes steered task_completed and runs QUICK_FIX mechanical validation' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler consumes steered task_completed and runs QUICK_FIX mechanical validation'"
+      rationale: "This can only pass after the steered completion path has a targeted regression test and the handler notices a task_completed call made outside its own turn window."
+    - id: "OC2"
+      command: "grep -q 'agent-handler consumes task_completed exactly once across follow-up turns' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler consumes task_completed exactly once across follow-up turns'"
+      rationale: "This can only pass after completion is represented as consume-once session state rather than a stale message that can be rediscovered on later turns."
+    - id: "OC3"
+      command: "grep -q 'task_completed records accepted completion on hosted session only after ownership checks' src/tools/__tests__/task-completed.test.js && deno task test src/tools/__tests__/task-completed.test.js --filter 'task_completed records accepted completion on hosted session only after ownership checks'"
+      rationale: "This can only pass after task_completed writes a pending session completion for accepted calls and rejected calls leave no completion that a later workflow could consume."
+    - id: "OC4"
+      command: "grep -q 'agent-handler ignores isolated task_completed records for root workflow advancement' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler ignores isolated task_completed records for root workflow advancement'"
+      rationale: "This can only pass after completions from isolated Agent sessions are scoped away from root workflow advancement."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-01T01:47:01-04:00"
-status: "validated_reviewer"
+updatedAt: "2026-08-02T22:37:50.379Z"
+status: "verified"
+origin: "internal"
+implementedAt: "2026-08-02T02:37:54.851Z"
+verifiedAt: "2026-08-02T22:37:50.379Z"
+userVerifiedAt: null
+executionReport: "- Implemented HostedSession pending task-completion records: accepted `task_completed` calls now record agent/report/timestamp/owning session and consume exactly once; active workflow set/clear paths clear stale completions.\n- Updated `createAgentHandler` to consume the root-session-owned completion record instead of scanning the root turn message window; removed the obsolete task-completion reader seam and tightened `scripts/injection-seam-baseline.json`.\n- Preserved isolated-session behavior: `readLatestTaskCompletedReport`/message-stream readers remain for isolated callers, and root workflow advancement ignores completions owned by isolated steering targets.\n- Added/updated tests for accepted-vs-rejected recording, consume-once follow-up turns, steered QUICK_FIX completion through `SessionRuntime.steerSession`, isolated completion isolation, and stale-completion clearing; test-count delta: +5 tests, 0 removed.\n- Updated QUICK_FIX golden role journey to include queued steering coverage and declared `recovery:steered-task-completion` in the coverage matrix.\n- Verification passed: objective checks OC1–OC4, `deno task test src/shared/session src/shared/workflow src/tools`, `deno task test src/ui/tui/golden-scenarios/role-journeys.test.js`, `deno task seams:check`, and final `deno task ci` all pass. One full CI attempt hit a transient golden PROJECT timeout; the failing filtered scenario passed on rerun, and a subsequent full `deno task ci` passed."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "53ef063cccc85b3f63a2e2ad410a4f5eab451b5a"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "9e4c2645b6e653e8bdc2b751de7f1d8fbc2b5ae9"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Report Task Completion Instead of Inferring It
@@ -77,6 +106,8 @@ later — see Edge Cases.
 
 - `src/tools/task-completed.js` — record the completion on the session after the existing ownership checks pass and the
   message is emitted.
+- `src/tools/__tests__/task-completed.test.js` — prove accepted completions record a pending session completion and
+  rejected completions leave no pending record.
 - `src/shared/session/hosted-session.js` — hold the pending completion (agent name, report, timestamp, owning session)
   and expose a consume-once reader beside `consumeSuppressedAgentStoppedAttention()`.
 - `src/shared/session/agent-handler.js` — consume the completion instead of calling
@@ -106,6 +137,8 @@ later — see Edge Cases.
 - [ ] `HostedSession` holds at most one pending task completion and returns it exactly once; a second read returns
       nothing.
 - [ ] `task_completed` records the completion when it runs, carrying the reporting Agent's name and report text.
+- [ ] Rejected `task_completed` calls (`execution_not_started`, Pair pause, wrong owner) emit the same rejection result
+      as today and leave no pending completion to be consumed later.
 - [ ] `createAgentHandler` advances the workflow from the consumed record rather than from `preTurnCount`, and every
       existing branch after it — `executionStarted === false`, Pair pause/stop, ownership refusal, QUICK_FIX Mechanical
       Validation, `shouldRunWorkflowValidation`, `finalizePlanImplementation`, Workflow Validation, Epic continuation —
@@ -120,19 +153,34 @@ later — see Edge Cases.
 - Automated:
   - `deno task test src/shared/session src/shared/workflow src/tools`
   - `deno task test src/ui/tui/golden-scenarios/role-journeys.test.js`
-  - `deno task ci`
   - `deno task seams:check` — must not increase.
-- **Checks that fail if the objective was not met:**
-  - Drive a QUICK_FIX to the point of execution, call `steerSession` with a message, let the Agent answer and then call
-    `task_completed`, and assert Mechanical Validation ran. This fails today: the completion lands outside the handler's
-    window and is never seen.
-  - Assert the workflow advances exactly once when the Agent completes and then answers a follow-up question in a
-    further turn. This protects the regression `fromIndex` was added for, and must fail if the consume is dropped.
-  - Run a semantic repair in an isolated session that calls `task_completed`, and assert the root workflow did not
-    advance from it.
-  - Golden scenario: on the QUICK_FIX role journey, steer mid-execution, then complete, and assert the validation
-    handoff reaches the screen and the Plan/working tree reach their post-validation state.
-  - Break each on purpose once and confirm it goes red.
+  - `deno task ci`
+- Behavior that must remain protected after reshaping this code:
+  - `task_completed` still owns the visible completion report and tool-result details used by Work Records.
+  - Ownership refusal, `execution_not_started`, Pair pause, Frontend Engineer preflight telemetry, and Reviewer-Feedback
+    Engineer completion on the owner's behalf keep their current user-visible results.
+  - Isolated execution callers still read task-completion reports from their own returned message stream.
+- Behavior expected to stop existing:
+  - The root handler no longer treats the root turn's starting message count as the source of truth for whether an
+    execution workflow completed.
+
+### Objective-Failing Checks
+
+- `OC1` —
+  `grep -q 'agent-handler consumes steered task_completed and runs QUICK_FIX mechanical validation' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler consumes steered task_completed and runs QUICK_FIX mechanical validation'`
+  — proves a steered completion advances QUICK_FIX Mechanical Validation; it fails today because no test covers the
+  steered completion path and the handler cannot see that completion.
+- `OC2` —
+  `grep -q 'agent-handler consumes task_completed exactly once across follow-up turns' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler consumes task_completed exactly once across follow-up turns'`
+  — protects the stale-completion regression that `preTurnCount` originally avoided, while requiring the new
+  consume-once behavior.
+- `OC3` —
+  `grep -q 'task_completed records accepted completion on hosted session only after ownership checks' src/tools/__tests__/task-completed.test.js && deno task test src/tools/__tests__/task-completed.test.js --filter 'task_completed records accepted completion on hosted session only after ownership checks'`
+  — proves the producer writes only accepted completions, so a rejected tool call cannot advance a later workflow.
+- `OC4` —
+  `grep -q 'agent-handler ignores isolated task_completed records for root workflow advancement' src/shared/session/agent-handler.test.js && deno task test src/shared/session/agent-handler.test.js --filter 'agent-handler ignores isolated task_completed records for root workflow advancement'`
+  — proves completions from isolated Agent sessions remain local to their callers and cannot advance the root workflow.
+
 - Manual:
   - Start a QUICK_FIX, send a steering message while the Engineer is working, let it answer and finish, and confirm CI
     runs without further prompting.
