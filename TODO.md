@@ -14,6 +14,21 @@
 
 - [x] LLMs are completly ignoring ! bash commands, ensure they are being seen - verified
 
+- [ ] Split Golden TUI scenarios into smaller scheduling units
+
+  Hypothesis: The test runner parallelizes by file, but each golden scenario file runs several expensive child-process
+  scenarios serially. The slowest file creates the critical path.
+
+  Experiment: Run each golden scenario as its own scheduler unit without weakening process isolation. Options:
+
+  - generate one Deno test file per scenario, or
+  - teach run-tests.js a “scenario unit” adapter for golden TUI exports.
+
+  Expected win: Large. If the 85s planned-change file is really 3 serial scenarios, wall time could drop toward the
+  slowest individual scenario instead of the sum.
+
+  Risk: Must preserve subprocess isolation and cleanup semantics. Don’t revert to shared in-process TUI tests.
+
 - [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
 
 - [ ] 5 plans to execute next, in series:

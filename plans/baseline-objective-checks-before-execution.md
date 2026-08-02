@@ -1,22 +1,54 @@
 ---
+planId: "c3890fc4-66e3-4c47-99bb-af609e2b4047"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
 summary: "Run each Plan's Objective-Failing Checks against the unmodified tree before execution starts and require every one to fail, so a check that cannot discriminate the objective is rejected back to Planner."
 affectedPaths:
     - "src/shared/workflow/workflow.js"
-    - "src/plan-store.js"
+    - "src/shared/workflow/workflow.test.js"
     - "src/shared/workflow/objective-checks.ts"
+    - "src/shared/workflow/objective-checks.test.ts"
+    - "src/plan-front-matter.js"
+    - "src/plan-store.js"
+    - "src/plan-store.test.js"
     - "src/agent-definitions/planner.md"
-dependencies:
-    - "run-objective-checks-in-mechanical-validation"
+    - "CONTEXT.md"
+objectiveChecks:
+    - id: "OC1"
+      command: "grep -q \"objectiveChecksBaseline\" src/shared/workflow/workflow.js"
+      rationale: "The baseline must run on the execution path, not just in a helper nothing calls."
+    - id: "OC2"
+      command: "grep -q \"objectiveChecksBaseline\" src/plan-store.js"
+      rationale: "The baseline result must be durable Plan Front Matter so resumed Plans can compare the recorded head/check set."
+    - id: "OC3"
+      command: "grep -q \"baseline rejects already-met Objective-Failing Checks before Engineer starts\" src/shared/workflow/workflow.test.js && deno run -A scripts/run-tests.js -A --no-check --filter \"baseline rejects already-met Objective-Failing Checks before Engineer starts\" src/shared/workflow/workflow.test.js"
+      rationale: "This focused behavior test only passes when an already-green baseline is rejected before Engineer ownership or lifecycle start."
+    - id: "OC4"
+      command: "grep -q \"re-baselines Objective-Failing Checks when head or command set changes\" src/shared/workflow/workflow.test.js && deno run -A scripts/run-tests.js -A --no-check --filter \"re-baselines Objective-Failing Checks when head or command set changes\" src/shared/workflow/workflow.test.js"
+      rationale: "This focused behavior test only passes when stale baseline evidence is not trusted after the execution base or check commands change."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-01T01:39:35-04:00"
-status: "draft"
+updatedAt: "2026-08-02T03:23:11.498Z"
+status: "validated_reviewer"
+origin: "internal"
+dependencies:
+    - "run-objective-checks-in-mechanical-validation"
+implementedAt: "2026-08-02T02:44:05.146Z"
+userVerifiedAt: null
+executionReport: "- Implemented baseline Objective-Failing Check support: normalized/persisted `objectiveChecksBaseline`, baseline classification/matching helpers, workflow pre-execution baselining for worktree and non-Git execution, stale-baseline re-run logic, and Planner rejection routing for already-met/broken checks.\n- Added/updated coverage in `objective-checks.test.ts`, `workflow.test.js`, and `plan-store.test.js`, including the required tests `baseline rejects already-met Objective-Failing Checks before Engineer starts` and `re-baselines Objective-Failing Checks when head or command set changes`.\n- Updated Planner and context docs to describe mechanically observed red-before-execution and green-during-validation checks.\n- Verification passed: `deno task ci`; `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/shared/workflow/workflow.test.js src/plan-store.test.js`; `deno task test:golden-tui` (first attempt timed out at 180s, rerun with 360s passed).\n- Manual verification from the plan was not performed interactively; automated workflow/golden coverage exercises the same already-green rejection and normal execution paths."
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "86a617856112cbe1796134d1ec32aa6c1f215f24"
+worktreeId: "06e4344b"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-baseline-objective-checks-before-execution-06e4344b"
+worktreeBranch: "runwield/worktree/baseline-objective-checks-before-execution-06e4344b"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Baseline Objective-Failing Checks Before Execution
@@ -46,32 +78,58 @@ rather than decorative: there is no phrasing that satisfies both endpoints witho
 
 ## Approach
 
-`executePlan` runs the check set in the resolved execution cwd before the Engineer turn starts, and persists the results
-to Front Matter as `objectiveChecksBaseline` alongside the `head` they were measured against.
+`executePlan` / `startActiveExecutionWorkflow` run the check set after readiness and execution-target selection but
+before the Engineer turn, `execution_started` Plan Event, or active execution workflow. For Git worktree execution, this
+means the checks run in the prepared execution worktree at the same base commit the worktree will execute from; for
+non-Git in-place execution, they run in the project root after the explicit in-place consent step and before the
+execution-start lifecycle event.
+
+The result is persisted to canonical Plan Front Matter as `objectiveChecksBaseline: { recordedAt, head, results }`. For
+Git worktrees, `head` is the execution base commit (`worktree.baseCommit` / registry `baseCommit`) rather than the
+mutable target branch name. For non-Git execution there is no durable `head`, so RunWield records no head and
+re-baselines on every execution attempt. The `results` include each result's ID and command, so a baseline is reusable
+only when both the recorded `head` and the normalized check ID/command set still match the current Plan.
 
 Three outcomes, and they route differently because they mean different things:
 
-- **All unmet** — the checks discriminate. Execution proceeds.
+- **All unmet** — the checks discriminate. The baseline is persisted, execution preparation continues, and the Engineer
+  turn starts normally.
 - **Any met** — the Plan returns to Planner with the offending check IDs. This is a Plan defect, and the message should
   say the check is already satisfied rather than implying the Plan is wrong overall, because the honest cause is often
   that the user partially implemented the work by hand.
-- **Any broken** — surfaced to the user as a Plan defect. A command that cannot run tells us nothing about the
-  objective, and silently treating it as red would let a typo'd check pass the baseline and then fail validation.
+- **Any broken** — surfaced as a Plan defect with the command, exit status or timeout/spawn reason, and captured output.
+  A command that cannot run tells us nothing about the objective, and silently treating it as red would let a typo'd
+  check pass the baseline and then fail validation. It must not route to Engineer repair.
 
-The baseline is bound to a commit. A resumed or re-reviewed Plan whose recorded `head` no longer matches the execution
-tree is re-baselined, because a check that was red against an old commit proves nothing about the current one.
+A failed baseline must unwind execution preparation cleanly. If RunWield created a fresh worktree to prove the baseline,
+that worktree and registry entry are rolled back; if it was reusing existing recoverable evidence, the evidence is
+preserved but execution is not marked started. The user-visible invariant is that no Engineer turn starts, no active
+execution workflow is installed, and the Plan does not move to `in_progress`.
 
-No new module: `runObjectiveChecks` and `summarizeObjectiveChecks` already exist from the dependency Plan, and that Plan
-deliberately keeps `objective-checks.ts` free of validation imports so the execution path can call it.
+No new runner module: `runObjectiveChecks` and `summarizeObjectiveChecks` already exist from the dependency Plan, and
+that Plan deliberately keeps `objective-checks.ts` free of validation imports so the execution path can call it. Add
+only a small baseline classifier/helper if keeping the routing predicates out of `workflow.js` makes the code clearer.
 
 ## Files to Modify
 
-- `src/shared/workflow/workflow.js` — baseline in `executePlan` before the Engineer turn; route the three outcomes.
-- `src/plan-store.js` — `objectiveChecksBaseline` as `{ recordedAt, head, results }` in Plan Front Matter.
+- `src/shared/workflow/workflow.js` — baseline during execution preparation before `execution_started` and the Engineer
+  turn; route already-met and broken baseline outcomes back to planning/user-facing Plan-defect handling instead of
+  Engineer repair.
+- `src/shared/workflow/workflow.test.js` — cover the execution-path routing and lifecycle/worktree invariants for
+  all-unmet, any-met, broken, stale-baseline, and legacy no-check Plans.
 - `src/shared/workflow/objective-checks.ts` — a baseline-specific classifier over existing results, if the routing logic
   does not fit naturally at the call site.
+- `src/shared/workflow/objective-checks.test.ts` — cover the baseline classifier/helper if one is added.
+- `src/plan-front-matter.js` — add `objectiveChecksBaseline` to the ordered Plan Front Matter keys if the field is
+  formatted as known metadata rather than preserved as an unknown key.
+- `src/plan-store.js` — `objectiveChecksBaseline` as `{ recordedAt, head, results }` in Plan Front Matter, with result
+  normalization strict enough to detect stale head/check-set evidence.
+- `src/plan-store.test.js` — round-trip, normalization, invalid-entry, and legacy compatibility coverage for
+  `objectiveChecksBaseline`.
 - `src/agent-definitions/planner.md` — state that RunWield verifies redness before execution, so Planner knows an
   already-green check comes back.
+- `CONTEXT.md` — update Objective-Failing Check language to say RunWield now verifies the pre-implementation red state
+  before execution and the post-implementation green state during Mechanical Validation.
 
 ## Reuse Opportunities
 
@@ -79,27 +137,54 @@ deliberately keeps `objective-checks.ts` free of validation imports so the execu
   Plan; the rejection message reuses that summary format so baseline and validation failures read the same.
 - `src/shared/workflow/workflow.js` — the existing plan-load-failure recovery path in `executePlan` is the model for
   returning a Plan to Planner without starting execution.
-- `src/shared/workflow/plan-lifecycle.js` — `recordPlanEvent` for the baseline outcome transition.
-- `src/shared/git-snapshot.js` — resolving the `head` the baseline is bound to.
+- `src/shared/workflow/state-transition.ts` — `runExecutionPreparationTransition` already owns the atomic boundary for
+  worktree creation, Plan materialization, baseline-tree capture, registry settlement, and `execution_started`; use its
+  rollback/journal behavior rather than adding a second lock.
+- `src/shared/worktree.js` / worktree registry entries — worktree creation already records `baseCommit`, which is the
+  Git `head` the Objective-Failing Check baseline should bind to.
+- `src/plan-store.js` — `updatePlanFrontMatter` and Front Matter merge helpers are the existing route for durable
+  RunWield-owned Plan metadata writes.
 
 ## Implementation Steps
 
 - [ ] `src/plan-store.js` accepts, validates, normalizes, and round-trips `objectiveChecksBaseline` as
-      `{ recordedAt, head, results }`. Plans without the field load unchanged.
-- [ ] `executePlan` runs the Plan's checks against the unmodified execution tree before the Engineer turn starts and
-      persists the results as `objectiveChecksBaseline` with the measured `head`.
-- [ ] A baseline where every check is `"unmet"` proceeds to execution unchanged from today's behavior.
+      `{ recordedAt, head, results }`. Plans without the field load unchanged, and malformed baseline metadata
+      normalizes away rather than blocking legacy Plan loading.
+- [ ] `objectiveChecksBaseline.results` preserve each check result's `id`, `command`, `status`, exit/spawn/timeout
+      detail, bounded stdout/stderr, and duration from `runObjectiveChecks`; the stored result data is sufficient to
+      name already-met and broken checks without re-running them.
+- [ ] `startActiveExecutionWorkflow` runs the Plan's checks against the unmodified execution tree before it records
+      `execution_started`, installs an active execution workflow, or allows the Engineer turn to start.
+- [ ] For Git worktree execution, the baseline runs in the prepared execution worktree and records the base commit that
+      the worktree was created from or safely reused at; for non-Git in-place execution, the baseline runs in the
+      project root and records no `head`.
+- [ ] A baseline where every check is `"unmet"` persists `objectiveChecksBaseline`, then proceeds to execution unchanged
+      from today's behavior.
 - [ ] A baseline where any check is `"met"` returns the Plan to Planner with the offending check IDs and the reason that
-      an already-green check cannot discriminate the objective. Execution does not start and no worktree is created.
-- [ ] A baseline where any check is `"broken"` surfaces the command, exit status, and captured output to the user as a
-      Plan defect and does not silently proceed or route to Engineer repair.
-- [ ] A Plan whose recorded `objectiveChecksBaseline.head` differs from the current execution tree is re-baselined
-      rather than trusted, so a resumed or rebased Plan cannot execute on stale evidence.
+      an already-green check cannot discriminate the objective. No Engineer turn starts, no active execution workflow is
+      installed, and the Plan does not reach `in_progress`.
+- [ ] A baseline where any check is `"broken"` surfaces the command, exit status or spawn/timeout reason, and captured
+      output as a Plan defect and does not silently proceed or route to Engineer repair.
+- [ ] If a fresh worktree or registry entry was created only to run a baseline that is met/broken, preparation rollback
+      removes that fresh evidence; if existing recoverable worktree evidence was reused, it is preserved but not marked
+      active or started.
+- [ ] A recorded `objectiveChecksBaseline` is trusted only when the recorded `head` matches the current execution base
+      commit and the recorded result IDs/commands exactly match the current normalized `objectiveChecks`. Otherwise the
+      Plan is re-baselined rather than executing on stale evidence.
 - [ ] A legacy Plan with no `objectiveChecks` skips baselining and executes as it does today.
+- [ ] `executePlan` handles the typed baseline-rejection outcome by reopening/routing to Planner rather than returning a
+      generic execution-incomplete result that would leave the session owned by Engineer.
 - [ ] `planner.md` states that RunWield runs the checks against the unmodified tree before execution and that an
       already-green check is returned, replacing the current self-check wording.
-- [ ] `src/shared/workflow/objective-checks.test.ts` and the `executePlan` suite cover all-unmet, any-met, any-broken,
-      stale-head re-baseline, and the legacy skip.
+- [ ] `CONTEXT.md` describes Objective-Failing Checks as mechanically observed red before execution and green during
+      Mechanical Validation.
+- [ ] `src/shared/workflow/workflow.test.js` contains behavior tests named
+      `baseline rejects already-met Objective-Failing Checks before Engineer starts` and
+      `re-baselines Objective-Failing Checks when head or command set changes`; these tests fail against today's code
+      and prove the lifecycle/worktree invariants above.
+- [ ] `src/shared/workflow/objective-checks.test.ts`, `src/shared/workflow/workflow.test.js`, and
+      `src/plan-store.test.js` cover all-unmet, any-met, any-broken, stale-head or changed-command re-baseline, and the
+      legacy skip.
 
 ## Verification Plan
 
@@ -107,13 +192,14 @@ deliberately keeps `objective-checks.ts` free of validation imports so the execu
 - Automated:
   `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/shared/workflow/workflow.test.js src/plan-store.test.js`
 - Automated: `deno task test:golden-tui` — a Golden scenario approves a Plan whose only check is already green and
-  asserts it returns to Planner with no worktree created.
+  asserts it returns to Planner with no Engineer turn, no active execution workflow, and no durable in-progress Plan.
 - Manual: submit a Plan whose only check is `true` and confirm Planner receives the rejection rather than execution
   starting.
 - Manual: approve a normal Plan and confirm the baseline adds no user-visible delay beyond the check commands
   themselves.
 - Existing behavior to preserve: execution of legacy Plans with no `objectiveChecks`, worktree creation and the
-  Readiness Gate for Plans that pass the baseline, and every Mechanical Validation behavior from the dependency Plan.
+  Readiness Gate for Plans that pass the baseline, rollback/preservation behavior for execution preparation failures,
+  and every Mechanical Validation behavior from the dependency Plan.
 - Behavior expected to stop existing: a Plan executing on checks that were already satisfied before any work began.
 
 ### Objective-Failing Checks
@@ -122,8 +208,18 @@ deliberately keeps `objective-checks.ts` free of validation imports so the execu
   not just in a helper nothing calls.
 - `OC2` — `grep -q "objectiveChecksBaseline" src/plan-store.js` — the result is durable Front Matter, so a resumed Plan
   can tell whether it was baselined and against what.
-- `OC3` — `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts` — the any-met
-  rejection and stale-head re-baseline are exercised.
+- `OC3` —
+  `grep -q "baseline rejects already-met Objective-Failing Checks before Engineer starts" src/shared/workflow/workflow.test.js && deno run -A scripts/run-tests.js -A --no-check --filter "baseline rejects already-met Objective-Failing Checks before Engineer starts" src/shared/workflow/workflow.test.js`
+  — an already-green baseline is rejected before Engineer ownership or lifecycle start.
+- `OC4` —
+  `grep -q "re-baselines Objective-Failing Checks when head or command set changes" src/shared/workflow/workflow.test.js && deno run -A scripts/run-tests.js -A --no-check --filter "re-baselines Objective-Failing Checks when head or command set changes" src/shared/workflow/workflow.test.js`
+  — stale baseline evidence cannot be trusted when the execution base or check commands changed.
+
+## Execution Policy
+
+- `executionAgent: "engineer"`
+- `collaborationRecommendation: "autonomous"`
+- No dev server or browser verification is required; this is workflow/lifecycle behavior, not browser UI work.
 
 ## Edge Cases & Considerations
 
@@ -131,11 +227,11 @@ deliberately keeps `objective-checks.ts` free of validation imports so the execu
   of the work. Say which check is already satisfied and let Planner narrow it, rather than implying the Plan is wrong.
 - Baselining runs model-authored shell commands before any Engineer work, on the user's machine, under the same
   authority as CI. Enforce the same per-check timeout the dependency Plan sets.
-- The baseline runs in the resolved execution cwd. For a worktree-based execution this must happen before or against the
-  same baseline commit the worktree is cut from, or the two endpoints are not comparable.
+- The baseline runs in the resolved execution cwd. For a worktree-based execution this must happen against the same base
+  commit the worktree is cut from, or the two endpoints are not comparable.
 - A `deno test`-shaped check is slower at baseline than a grep, and now runs twice per Plan. Acceptable, but if baseline
   latency becomes visible the fix is fewer or cheaper checks, not skipping the baseline.
 - Non-Git in-place execution has no `head`. Record the baseline without one and re-baseline on every execution attempt,
   rather than trusting a baseline that cannot be invalidated.
-- A Plan returned to Planner for a green check must not lose its approval history or leave a half-created worktree
-  registry entry.
+- A Plan returned to Planner for a green check must not lose its approval history, install Engineer as the active owner,
+  or leave a half-created worktree registry entry.

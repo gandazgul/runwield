@@ -21,14 +21,13 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:00:50-04:00"
-updatedAt: "2026-08-01T19:55:45.859Z"
-status: "implemented"
+updatedAt: "2026-08-02T02:43:45.205Z"
+status: "validated_reviewer"
 origin: "internal"
-failureReason: "- [R1-1] Concurrent Golden coverage still does not execute two Plans concurrently\n  Plan: The concurrent Plans scenario must start two Plans under one Project before either finishes, let both run through implementation and validation, and assert Plan IDs, registry identity/order, delivery evidence, and final registry drain.\n  Evidence: `src/ui/tui/golden-scenarios/concurrent-workflow.ts` still scripts Engineer/Reviewer turns only for `concurrent-a`; its assertions accept `concurrent-b` remaining `ready_for_work` and never assert `golden-concurrent-b.txt` delivery/tracking or final full registry drain.\n- [R1-4] Validation exhausted-round coverage still stops after the first failure instead of proving exhaustion\n  Plan: Validation Golden scenarios must cover a separate exhausted-round path that leaves the Plan in the documented failed/recoverable state with visible guidance; assertions must count attempts and confirm workflow/Plan state does not silently reset.\n  Evidence: `src/ui/tui/golden-scenarios/planned-change-workflow.js` defines three scripted exhausted attempts, but the scenario actions wait only for the first `task_completed`/`implemented` state and immediately capture project state; its assertion only requires `completedTurns >= 1` and `validationCiAttempts >= 0`, so it does not prove exhausted rounds or count exhaustion attempts.\n- [R1-6] Epic completion assertion still does not require a fully empty registry\n  Plan: The Epic Golden scenario must prove `.wld/worktrees.json` has zero remaining entries after final child completion.\n  Evidence: `src/ui/tui/golden-scenarios/project-workflow.js` `durable:epic-completion` still asserts only `(projectState?.nonTerminalRegistryEntries || []).length === 0`; it never requires `(projectState?.registryEntries || []).length === 0`, so terminal/stale registry entries remain allowed.\n- `/load-plan` re-review coverage cancels instead of exercising re-review\n  Plan: `/load-plan` Golden scenarios must cover re-review via typed slash commands and assert visible TUI feedback plus durable Front Matter outcome.\n  Evidence: `src/ui/tui/golden-scenarios/load-plan-workflow.ts` `loadPlanResetReviewArchiveScenario` loads `re-review` but the scripted interaction for that prompt uses `value: \"cancel\"`, and the durable assertion accepts a broad set of statuses rather than proving a re-review transition or feedback.\n- QUICK_FIX scenario does not prove no Plan file was created\n  Plan: QUICK_FIX Golden coverage must assert no Plan file is created.\n  Evidence: `src/ui/tui/golden-scenarios/role-journeys.js` only calls `{ type: \"assertNoPlanFile\", planName: \"quick-fix\" }`, and `src/ui/tui/testing/scenario-runner.js` implements that as a check for exactly `plans/quick-fix.md`; any other Plan file under `plans/` would pass.\n- Non-Git in-place scenario does not assert delivered file contents\n  Plan: Non-Git in-place PLANNED_CHANGE Golden coverage must assert delivered file contents.\n  Evidence: `src/ui/tui/golden-scenarios/planned-change-workflow.js` `plannedChangeNonGitInPlaceScenario` only uses `assertProjectFile` with `exists: true` for `golden-non-git.txt`; neither the action nor assertions verify the file contains the Engineer-produced `non-git` content."
 implementedAt: "2026-08-01T05:36:07.961Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
 executionBaselineTree: "c785b9a01fbf5cebc09f6a299a4984838fa845ff"
 worktreeId: "949adc32"
@@ -39,7 +38,7 @@ worktreeStatus: "validation_failed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "golden tui coverage plan"
 validationCiAttempts: 0
-validationSemanticRounds: 1
+validationSemanticRounds: 2
 ---
 
 # Expand Golden TUI Workflow Coverage
