@@ -21,12 +21,17 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:00:50-04:00"
-updatedAt: "2026-08-02T04:15:18.180Z"
+updatedAt: "2026-08-02T04:16:00.481Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-01T05:36:07.961Z"
 verifiedAt: "2026-08-02T04:15:18.180Z"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "ea5577c7-d380-459c-987b-2a409ee9f509"
+    path: "docs/work-records/2026-08-02-expanded-golden-tui-workflow-coverage.md"
+    lastAttemptAt: "2026-08-02T04:15:54.670Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"

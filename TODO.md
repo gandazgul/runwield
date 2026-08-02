@@ -32,11 +32,11 @@
 - [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
 
 - [ ] 5 plans to execute next, in series:
-  1. run-objective-checks-in-mechanical-validation
-  2. baseline-objective-checks-before-execution (depends on 1)
-  3. formalize-subagent-definitions
-  4. delegate-agent-roles (depends on 3)
-  5. re-anchor-agents-after-compaction (independent)
+  - [x] run-objective-checks-in-mechanical-validation
+  - [x] baseline-objective-checks-before-execution (depends on 1)
+  - [ ] formalize-subagent-definitions
+  - [ ] delegate-agent-roles (depends on 3)
+  - [ ] re-anchor-agents-after-compaction (independent)
 
 - [ ] P0
 

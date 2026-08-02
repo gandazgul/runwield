@@ -79,10 +79,23 @@ export const guideInquiryRoleJourneyScenario = {
         assertsGoldenCoverage("durable:mutation-policy", (result) => {
             assert(result.state.projectMutation === "clean", "Guide scenario must leave project unchanged.");
         }),
-        assertRuntimeEvent("block:user", "terminal:type:explain the routing flow"),
-        assertRuntimeEvent("block:thinking", "runtime:assistant:thinking"),
-        assertRuntimeEvent("block:assistant", "runtime:assistant:text"),
-        assertRuntimeEvent("block:tool", "runtime:tool:start:read"),
+        // Four rendered blocks, asserted on the render. These were claimed by
+        // `runtime:*` events, which prove the runtime emitted something — not that
+        // any of it reached a terminal. The leading indentation on the user prompt is
+        // load-bearing: it is what the block's padding produces, and it distinguishes
+        // the rendered block from the raw keystroke echo of the same words.
+        assertsGoldenCoverage("block:user", (result) => {
+            assertScreenIncludes(result, "  explain the routing flow");
+        }),
+        assertsGoldenCoverage("block:thinking", (result) => {
+            assertScreenIncludes(result, "Read project context before answering.");
+        }),
+        assertsGoldenCoverage("block:assistant", (result) => {
+            assertScreenIncludes(result, "Guide:");
+        }),
+        assertsGoldenCoverage("block:tool", (result) => {
+            assertScreenIncludes(result, "read README.md");
+        }),
     ],
 };
 

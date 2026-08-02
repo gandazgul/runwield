@@ -1305,6 +1305,7 @@ async function runComposedTuiScenario(scenario, options) {
                     state.planFiles = planFiles;
                     events.push("project:plan-file-absent");
                 } else if (typed.type === "uiPresentationState") {
+                    const beforePresentation = terminal.getScreenText();
                     composition.uiAPI.setBusy?.(true);
                     events.push("ui:spinner:busy");
                     composition.uiAPI.setManagedSyncStatus?.({ status: "stale", owningSurfaceKind: "tui" });
@@ -1313,7 +1314,28 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push("ui:queued-steering:add");
                     composition.uiAPI.appendImage?.("iVBORw0KGgo=", "image/png");
                     events.push("ui:image:png");
-                    await terminal.flush();
+                    // Capture while the blocks are still up. Every one of them is torn
+                    // down a few lines below, so the run's final screen cannot show
+                    // them — which is how these capabilities came to be "covered" by
+                    // events that never proved anything reached a terminal.
+                    //
+                    // One flush is not enough: `requestRender` is scheduled, so a
+                    // single macrotask yield captures the screen from before the blocks
+                    // were drawn. Wait for the screen to actually change.
+                    for (let attempt = 0; attempt < 50; attempt += 1) {
+                        await terminal.flush();
+                        if (terminal.getScreenText() !== beforePresentation) break;
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    state.presentationScreen = terminal.getScreenText();
+                    // A block appended to the message list scrolls above the viewport
+                    // as soon as anything follows it, so the proof includes scrollback.
+                    state.presentationScrollback = terminal.getScrollbackText();
+                    // An image has no text form, so the proof is that its bytes were
+                    // actually written to the terminal rather than that a method ran.
+                    state.presentationImageEmitted = String(
+                        /** @type {{ writes?: string }} */ (terminal).writes || "",
+                    ).includes("iVBORw0KGgo=");
                     composition.uiAPI.removeQueuedMessage?.("golden-queued");
                     events.push("ui:queued-steering:remove");
                     composition.uiAPI.setBusy?.(false);

@@ -255,7 +255,6 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
 /**
  * @typedef {Object} PlanWrittenDeps
  * @property {typeof requestHostedSessionInteraction} [requestPlanReview]
- * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
@@ -415,7 +414,6 @@ export function createPlanWrittenTool(
             updateToolBlock("Opening browser review UI.");
 
             const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
-            const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
             const recordWorkflowMetricSource = deps.recordWorkflowMetric || recordWorkflowMetric;
             /** @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric */
             function recordWorkflowMetricFn(metric) {
@@ -565,7 +563,7 @@ export function createPlanWrittenTool(
 
             if (approvedMeta.classification === "PROJECT") {
                 const projectMeta = { ...approvedMeta };
-                await recordPlanEventFn({
+                await recordPlanEvent({
                     cwd,
                     planName,
                     event: "epic_readiness_passed",
@@ -648,7 +646,7 @@ export function createPlanWrittenTool(
                 );
             }
 
-            await recordPlanEventFn({
+            await recordPlanEvent({
                 cwd,
                 planName,
                 event: "readiness_passed",

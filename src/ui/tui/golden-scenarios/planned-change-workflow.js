@@ -321,7 +321,13 @@ export const plannedChangeReviewRepairValidationScenario = {
             assert(durability?.worktreeBranchPublished === true, "Expected validated branch publication.");
         }),
         assertRuntimeEvent("durable:registry-cleanup", "workflow:durability:registry-clean"),
-        assertRuntimeEvent("block:review-result", "runtime:tool:start:review_complete"),
+        // The inline verdict block, asserted where it renders. `Reviewer:` is its own
+        // header — the pinned panel titles the same report "Reviewer latest Review" —
+        // and the verdict line is the body it exists to show.
+        assertsGoldenCoverage("block:review-result", (result) => {
+            assertScreenIncludes(result, "Reviewer:");
+            assertScreenIncludes(result, "Semantic review rejected — issues found:");
+        }),
         // The pinned panel, asserted on the screen it is supposed to be pinned to.
         // This capability used to be claimed by a runtime-event assertion, which is
         // why the panel could disappear from every PLANNED_CHANGE run — the status

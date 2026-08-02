@@ -308,7 +308,6 @@ function isPlanReviewRetryAccepted(response) {
  * @property {string} [executionReport]
  * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @property {{
- *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   loadPlan?: typeof loadPlan,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
@@ -338,7 +337,6 @@ export async function finalizePlanImplementation({
         throw new Error(`Cannot complete ${planName}: durable execution context is missing.`);
     }
 
-    const checkpointExecutionWorktreeFn = __deps.checkpointExecutionWorktree || checkpointExecutionWorktree;
     const loadPlanImpl = __deps.loadPlan || loadPlan;
     const markActiveWorktreeStatusImpl = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
@@ -382,7 +380,7 @@ export async function finalizePlanImplementation({
                         `Cannot complete ${planName}: worktree execution context is missing its path or branch.`,
                     );
                 }
-                const checkpoint = await checkpointExecutionWorktreeFn({
+                const checkpoint = await checkpointExecutionWorktree({
                     worktreePath: executionContext.executionCwd,
                     branch: executionContext.worktreeBranch,
                     planName,
@@ -509,7 +507,6 @@ export async function runPlanningAgent(
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
- *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   requestPlanReview?: typeof requestHostedSessionInteraction,
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
@@ -920,7 +917,6 @@ export async function executePlan({
             executionReport: result.completionReport,
             hostedSession,
             __deps: {
-                checkpointExecutionWorktree: __deps.checkpointExecutionWorktree,
                 recordPlanEvent,
                 markActiveWorktreeStatus: markActiveWorktreeStatusFn,
                 recordWorkflowMetric: recordWorkflowMetricFn,

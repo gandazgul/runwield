@@ -3,7 +3,7 @@
  * Report and safely repair Plan/worktree lifecycle drift.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { join } from "@std/path";
 import {
     CLI_BIN,
@@ -71,6 +71,8 @@ interface IssueGuidance {
     diagnosis: string;
     nextSteps: string[];
 }
+
+type PlansDoctorCommandOptions = Record<never, never>;
 
 function printHelp() {
     console.log(`Usage:
@@ -913,17 +915,14 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
 
 export async function runPlansDoctorCommand(
     argv: string[],
-    options: { __testDeps?: { parseArgs?: typeof parseArgsFn; runPlansDoctor?: typeof runPlansDoctor } } = {},
+    _options: PlansDoctorCommandOptions = {},
 ) {
-    const deps = options.__testDeps || {};
-    const parseArgs = deps.parseArgs || parseArgsFn;
     const parsed = parseArgs(argv, { boolean: ["help", "repair"], alias: { h: "help" } });
     if (parsed.help) {
         printHelp();
         return;
     }
-    const runDoctor = deps.runPlansDoctor || runPlansDoctor;
-    const result = await runDoctor(getCwd(), Boolean(parsed.repair));
+    const result = await runPlansDoctor(getCwd(), Boolean(parsed.repair));
     if (result.issues.length === 0) {
         console.log("[RunWield] Plans doctor found no lifecycle/worktree drift.");
         return;

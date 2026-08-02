@@ -10,6 +10,100 @@ import {
 } from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+
+type WorktreeRegistryEntry = import("../../shared/worktree-registry.js").WorktreeRegistryEntry;
+type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
+
+interface DoctorCommandFixture {
+    projectRoot: string;
+}
+
+interface RegistryFixtureEntry {
+    id: string;
+    planName: string;
+    planId?: string;
+    baseBranch: string;
+    baseRef: string;
+    baseCommit: string;
+    branch: string;
+    path: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+interface RegistryFixtureFile {
+    version: number;
+    entries: RegistryFixtureEntry[];
+}
+
+async function withDoctorCommandFixture(run: (fixture: DoctorCommandFixture) => Promise<void>): Promise<void> {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+        const previousCwd = Deno.cwd();
+        const fixtureRoot = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-command-" });
+        const homeDir = join(fixtureRoot, "home");
+        const projectRoot = join(fixtureRoot, "project");
+        await Promise.all([
+            Deno.mkdir(homeDir, { recursive: true }),
+            Deno.mkdir(projectRoot, { recursive: true }),
+        ]);
+        try {
+            Deno.env.set("HOME", homeDir);
+            Deno.env.set("WLD_TEST_SANDBOX_HOME", homeDir);
+            Deno.chdir(projectRoot);
+            await run({ projectRoot });
+        } finally {
+            Deno.chdir(previousCwd);
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            if (previousSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+            else Deno.env.set("WLD_TEST_SANDBOX_HOME", previousSandboxHome);
+            await Deno.remove(fixtureRoot, { recursive: true }).catch(() => {});
+        }
+    });
+}
+
+async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (message = "") => logs.push(String(message));
+    try {
+        await run();
+    } finally {
+        console.log = originalLog;
+    }
+    return logs.join("\n");
+}
+
+async function seedMissingSettledWorktree(projectRoot: string, worktreeId: string): Promise<void> {
+    await savePlan(projectRoot, "demo", "# Demo\n", {
+        planId: "plan-command-demo",
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "Doctor command fixture.",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        status: "implemented",
+        worktreeId,
+        worktreeStatus: "merged",
+    });
+    await addEntry(projectRoot, {
+        id: worktreeId,
+        planName: "demo",
+        planId: "plan-command-demo",
+        baseBranch: "main",
+        baseRef: "HEAD",
+        baseCommit: "abc",
+        branch: `runwield/worktree/demo-${worktreeId}`,
+        path: join(projectRoot, "missing-worktree"),
+        status: "merged",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+}
 
 // main, plus a side branch carrying work that never reached it.
 const ancestryRepo = defineGitFixture(async (repo) => {
@@ -142,38 +236,35 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
 });
 
 Deno.test("plans doctor command prints grouped diagnosis with actionable next steps", async () => {
-    const originalLog = console.log;
-    /** @type {string[]} */
-    const logs = [];
-    console.log = (message = "") => logs.push(String(message));
-    try {
-        await runPlansDoctorCommand([], {
-            __testDeps: {
-                runPlansDoctor: () =>
-                    Promise.resolve({
-                        repaired: 0,
-                        issues: [{
-                            kind: "missing_worktree_path",
-                            planName: "demo",
-                            worktreeId: "wt1",
-                            repairable: true,
-                            message: "Registry entry wt1 points at missing settled worktree path /tmp/demo.",
-                        }],
-                    }),
-            },
+    await withDoctorCommandFixture(async ({ projectRoot }) => {
+        await seedMissingSettledWorktree(projectRoot, "wt-command-report");
+
+        const output = await captureConsoleLog(async () => {
+            await runPlansDoctorCommand([]);
         });
-    } finally {
-        console.log = originalLog;
-    }
-    const output = logs.join("\n");
-    assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
-    assertEquals(output.includes("Worktree registry"), true);
-    assertEquals(
-        output.includes("Diagnosis: A settled registry entry points at a worktree path that no longer exists."),
-        true,
-    );
-    assertEquals(output.includes("Next steps:"), true);
-    assertEquals(output.includes("Run plans doctor --repair"), true);
+
+        assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
+        assertEquals(output.includes("Worktree registry"), true);
+        assertEquals(
+            output.includes("Diagnosis: A settled registry entry points at a worktree path that no longer exists."),
+            true,
+        );
+        assertEquals(output.includes("Next steps:"), true);
+        assertEquals(output.includes("Run plans doctor --repair"), true);
+        assertEquals((await findById(projectRoot, "wt-command-report"))?.status, "merged");
+    });
+});
+
+Deno.test("plans doctor command --repair applies safe repairs through the real doctor", async () => {
+    await withDoctorCommandFixture(async ({ projectRoot }) => {
+        await seedMissingSettledWorktree(projectRoot, "wt-command-repair");
+
+        await captureConsoleLog(async () => {
+            await runPlansDoctorCommand(["--repair"]);
+        });
+
+        assertEquals(await findById(projectRoot, "wt-command-repair"), null);
+    });
 });
 
 Deno.test("plans doctor --repair fixes provable registry drift without touching Git artifacts", async () => {
@@ -195,8 +286,7 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
             affectedPaths: [],
             worktreeId: "wt-b",
         });
-        /** @type {Omit<import('../../shared/worktree-registry.js').WorktreeRegistryEntry, "id"|"planName"|"branch"|"path">} */
-        const base = {
+        const base: Omit<WorktreeRegistryEntry, "id" | "planName" | "branch" | "path"> = {
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: "abc",
@@ -216,7 +306,7 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
         // Legacy entry with no planId, but the Plan points back at this exact
         // attempt. addEntry refuses to create one, so write it as v1 data would be.
         const registryPath = getWorktreeRegistryPath(cwd);
-        const registry = JSON.parse(await Deno.readTextFile(registryPath));
+        const registry = JSON.parse(await Deno.readTextFile(registryPath)) as RegistryFixtureFile;
         registry.entries.push({
             ...base,
             id: "wt-b",
@@ -479,8 +569,7 @@ Deno.test("doctor proves publication from real Git ancestry in both directions",
         const publishedCommit = await git(cwd, ["rev-parse", "main"]);
         const unpublishedCommit = await git(cwd, ["rev-parse", "side"]);
 
-        /** @returns {import('../../plan-store.js').WorktreeDeliveryEvidence} */
-        const evidenceFor = (/** @type {string} */ commit) => ({
+        const evidenceFor = (commit: string): WorktreeDeliveryEvidence => ({
             version: 1,
             mode: "worktree_merge",
             executionCommit: commit,

@@ -5,24 +5,25 @@
 
 import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 import { theme } from "../../ui/theme/theme.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 
-/**
- * Handle name command. Mirrors upstream Pi behavior:
- * - `/name <name>` sets the session display name.
- * - `/name` shows the current name, or usage when unnamed.
- *
- * @param {string[]} argv
- * @param {import('../registry.js').CommandContext} [options]
- */
+interface NameCommandUi {
+    appendSystemMessage(message: string): void;
+}
+
+interface NameCommandOptions {
+    uiAPI?: NameCommandUi;
+    sessionRuntime?: SessionRuntime;
+    sessionId?: string;
+}
+
 // deno-lint-ignore require-await
-export async function runNameCommand(argv, options = {}) {
-    if (!options?.uiAPI) {
+export async function runNameCommand(argv: string[], options: NameCommandOptions = {}): Promise<void> {
+    if (!options.uiAPI) {
         console.error("The /name command is only available inside an interactive session.");
         return;
     }
 
-    const deps = /** @type {{ setTerminalTitleForName?: typeof setTerminalTitleForName }} */ (options.__testDeps || {});
-    const setTitle = deps.setTerminalTitleForName || setTerminalTitleForName;
     const { uiAPI, sessionRuntime, sessionId } = options;
     if (!sessionRuntime || !sessionId) {
         uiAPI.appendSystemMessage("Error: No active session.");
@@ -45,6 +46,6 @@ export async function runNameCommand(argv, options = {}) {
         uiAPI.appendSystemMessage(theme.fg("dim", `Session name not changed: ${result.error || "unsupported"}`));
         return;
     }
-    setTitle(name);
+    setTerminalTitleForName(name);
     uiAPI.appendSystemMessage(theme.fg("dim", `Session name set: ${name}`));
 }

@@ -1,13 +1,6 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
-        "src/cmd/plans/doctor.ts": {
-            "seams": [
-                "parseArgs",
-                "runPlansDoctor"
-            ],
-            "machinery": []
-        },
         "src/cmd/plans/pull.js": {
             "seams": [
                 "assertCompatiblePullSecretRecord",
@@ -230,7 +223,6 @@
         "src/shared/workflow/workflow.js": {
             "seams": [
                 "captureWorktreeTree",
-                "checkpointExecutionWorktree",
                 "confirmNonGitFeaturePlanExecution",
                 "ensureExecutionPlanFile",
                 "executeSingleEngineerPlan",
@@ -249,21 +241,16 @@
                 "runActiveAgentTurn",
                 "runImplementationCheckpointTransition"
             ],
-            "machinery": [
-                "checkpointExecutionWorktree"
-            ]
+            "machinery": []
         },
         "src/tools/plan-written.js": {
             "seams": [
                 "cwd",
-                "recordPlanEvent",
                 "recordWorkflowMetric",
                 "requestPlanReview",
                 "stat"
             ],
-            "machinery": [
-                "recordPlanEvent"
-            ]
+            "machinery": []
         },
         "src/ui/review/code-review.js": {
             "seams": [

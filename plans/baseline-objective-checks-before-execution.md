@@ -30,7 +30,7 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
-updatedAt: "2026-08-02T04:19:23.013Z"
+updatedAt: "2026-08-02T04:20:05.716Z"
 status: "verified"
 origin: "internal"
 dependencies:
@@ -39,6 +39,11 @@ implementedAt: "2026-08-02T02:44:05.146Z"
 verifiedAt: "2026-08-02T04:19:23.013Z"
 userVerifiedAt: null
 executionReport: "- Implemented baseline Objective-Failing Check support: normalized/persisted `objectiveChecksBaseline`, baseline classification/matching helpers, workflow pre-execution baselining for worktree and non-Git execution, stale-baseline re-run logic, and Planner rejection routing for already-met/broken checks.\n- Added/updated coverage in `objective-checks.test.ts`, `workflow.test.js`, and `plan-store.test.js`, including the required tests `baseline rejects already-met Objective-Failing Checks before Engineer starts` and `re-baselines Objective-Failing Checks when head or command set changes`.\n- Updated Planner and context docs to describe mechanically observed red-before-execution and green-during-validation checks.\n- Verification passed: `deno task ci`; `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/shared/workflow/workflow.test.js src/plan-store.test.js`; `deno task test:golden-tui` (first attempt timed out at 180s, rerun with 360s passed).\n- Manual verification from the plan was not performed interactively; automated workflow/golden coverage exercises the same already-green rejection and normal execution paths."
+workRecord:
+    status: "generated"
+    recordId: "34e2c783-7a34-46ae-af64-b2008c0da826"
+    path: "docs/work-records/2026-08-02-baseline-objective-failing-checks-before-execution.md"
+    lastAttemptAt: "2026-08-02T04:19:57.646Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-02T04:19:21.572Z"

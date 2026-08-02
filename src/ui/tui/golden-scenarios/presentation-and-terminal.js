@@ -9,6 +9,27 @@ import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenario} GoldenScenario */
 
+/** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
+
+/**
+ * Assert against the screen captured while the presentation blocks were up.
+ *
+ * The run's final screen cannot serve: every block this scenario exercises is torn
+ * down before the run ends. Scrollback is included because a block appended to the
+ * message list scrolls above the viewport as soon as anything follows it.
+ *
+ * @param {GoldenScenarioResult} result
+ * @param {string} text
+ */
+function assertPresentationScreenIncludes(result, text) {
+    const screen = String(result.state.presentationScreen || "");
+    const scrollback = String(result.state.presentationScrollback || "");
+    assert(
+        screen.includes(text) || scrollback.includes(text),
+        `Expected the presentation screen to include ${JSON.stringify(text)}. Screen:\n${screen}`,
+    );
+}
+
 /** @type {GoldenScenario} */
 export const managedSyncQueueImageScenario = {
     name: "presentation-runtime-prompts-and-queued-state",
@@ -45,10 +66,25 @@ export const managedSyncQueueImageScenario = {
         { type: "uiPresentationState" },
     ],
     assertions: [
-        assertRuntimeEvent("block:spinner", "ui:spinner:busy"),
-        assertRuntimeEvent("block:managed-sync", "ui:managed-sync:stale"),
-        assertRuntimeEvent("block:queued-steering", "ui:queued-steering:add"),
-        assertRuntimeEvent("block:image", "ui:image:png"),
+        // Each of these renders something; asserting the render is the point of
+        // running a terminal at all. They were previously claimed by `ui:*` events,
+        // which only proved the UI method was called — the blocks could stop
+        // reaching the screen entirely without a single scenario noticing.
+        assertsGoldenCoverage("block:spinner", (result) => {
+            assertPresentationScreenIncludes(result, "Thinking...");
+        }),
+        assertsGoldenCoverage("block:managed-sync", (result) => {
+            assertPresentationScreenIncludes(result, "Sync degraded — refresh required");
+        }),
+        assertsGoldenCoverage("block:queued-steering", (result) => {
+            assertPresentationScreenIncludes(result, "Steering: Queued steering message");
+        }),
+        assertsGoldenCoverage("block:image", (result) => {
+            assert(
+                result.state.presentationImageEmitted === true,
+                "Expected the image block to write its payload to the terminal.",
+            );
+        }),
         assertsGoldenCoverage("block:select", (result) => {
             assertEventIncludes(result, "interaction:select:selected");
         }),
@@ -169,8 +205,14 @@ export const toolFailureRecoveryScenario = {
             assertEventIncludes(result, "runtime:tool:end:bash");
             assertScreenIncludes(result, "Recovered after bounded tool failure.");
         }),
-        assertRuntimeEvent("block:system-error", "runtime:tool:end:bash"),
-        assertRuntimeEvent("block:tool", "runtime:tool:start:bash"),
+        // The failure notice and the tool block both render; asserting the events
+        // that preceded them proved only that the runtime got that far.
+        assertsGoldenCoverage("block:system-error", (result) => {
+            assertScreenIncludes(result, "Command exited with code 1");
+        }),
+        assertsGoldenCoverage("block:tool", (result) => {
+            assertScreenIncludes(result, "$ false");
+        }),
     ],
 };
 

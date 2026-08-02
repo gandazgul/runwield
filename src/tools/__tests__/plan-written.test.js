@@ -3,6 +3,7 @@ import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import { createPlanWrittenTool } from "../plan-written.js";
+import { loadPlan } from "../../plan-store.js";
 
 /**
  * @param {Object} options
@@ -14,23 +15,31 @@ import { createPlanWrittenTool } from "../plan-written.js";
  * @param {"run" | "decompose" | "later"} [options.approvalAction]
  * @param {boolean} [options.exists]
  */
-function makeHarness(options = {}) {
+async function makeHarness(options = {}) {
     const events = /** @type {any[]} */ ([]);
     const reviewResponses = [...(options.reviewResponses || [])];
-    const lifecycle = /** @type {any[]} */ ([]);
     const metrics = /** @type {any[]} */ ([]);
-    const cwd = Deno.makeTempDirSync();
-    Deno.mkdirSync(`${cwd}/plans`, { recursive: true });
+    const cwd = await Deno.makeTempDir();
+    await Deno.mkdir(`${cwd}/plans`, { recursive: true });
     if (options.exists !== false) {
-        Deno.writeTextFileSync(
-            `${cwd}/plans/runtime-boundary.md`,
-            `---
+        // `approved` because that is where a Plan actually is when this tool records
+        // readiness: the review has already run. Starting at `draft` only worked while
+        // the lifecycle was faked — the real transition refuses `readiness_passed` from
+        // anywhere but `approved`, which is the guarantee this tool depends on.
+        //
+        // Both Plans exist because tests drive the tool at either name, and the real
+        // lifecycle writes the Plan it is named for rather than a recorded call.
+        for (const name of ["runtime-boundary", "runtime-epic"]) {
+            await Deno.writeTextFile(
+                `${cwd}/plans/${name}.md`,
+                `---
 classification: ${options.classification || "FEATURE"}
-status: draft
+status: approved
 ---
-# Runtime Boundary
+# ${name}
 `,
-        );
+            );
+        }
     }
     const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
     hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
@@ -56,20 +65,26 @@ status: draft
                 }
                 const onSurfaceReady = /** @type {any} */ (request._meta)?.onSurfaceReady;
                 onSurfaceReady?.({ url: "http://127.0.0.1:4567/review/plan?token=test" });
-                return Promise.resolve(
-                    reviewResponses.shift() || options.reviewResponse || {
+                // The reviewed revision has to be the Plan's real one: the transition
+                // rejects a stale revision, so a made-up string would fail the write
+                // rather than prove the tool passed the right thing.
+                const reviewedName = /** @type {any} */ (request._meta)?.planName || "runtime-boundary";
+                return loadPlan(cwd, reviewedName).then((plan) => {
+                    const revision = plan?.revision;
+                    const scripted = reviewResponses.shift() || options.reviewResponse;
+                    if (scripted) {
+                        return scripted._meta ? { ...scripted, _meta: { revision, ...scripted._meta } } : scripted;
+                    }
+                    return {
                         outcome: "accepted",
                         _meta: {
                             approved: true,
+                            revision,
                             approvalAction: options.approvalAction ||
                                 (options.classification === "PROJECT" ? "decompose" : "run"),
                         },
-                    },
-                );
-            },
-            recordPlanEvent: (event) => {
-                lifecycle.push(event);
-                return Promise.resolve(/** @type {any} */ (event.details?.triageMeta || {}));
+                    };
+                });
             },
             recordWorkflowMetric: (metric) => {
                 metrics.push(metric);
@@ -77,11 +92,13 @@ status: draft
             },
         },
     });
-    return { tool, hostedSession, events, lifecycle, metrics };
+    /** Read the Plan the tool actually wrote. */
+    const readPlan = (name = "runtime-boundary") => loadPlan(cwd, name);
+    return { tool, hostedSession, events, metrics, readPlan, cwd };
 }
 
 /**
- * @param {ReturnType<typeof makeHarness>["tool"]} tool
+ * @param {Awaited<ReturnType<typeof makeHarness>>["tool"]} tool
  * @param {string} [planName]
  * @param {(result: any) => void} [onUpdate]
  */
@@ -100,14 +117,14 @@ function execute(tool, planName = "runtime-boundary", onUpdate = () => {}, param
 }
 
 Deno.test("plan_written validates the declared plan before requesting review", async () => {
-    const { tool } = makeHarness({ exists: false });
+    const { tool } = await makeHarness({ exists: false });
     const result = await execute(tool);
     assertMatch(result.content[0].text, /not found/);
     assertEquals(result.terminate, undefined);
 });
 
 Deno.test("plan_written streams declared plan details into the active tool block", async () => {
-    const { tool, events } = makeHarness();
+    const { tool, events } = await makeHarness();
     const updates = /** @type {any[]} */ ([]);
     await execute(tool, "runtime-boundary", (result) => updates.push(result));
 
@@ -147,7 +164,6 @@ collaborationRecommendation: pair
 `,
         );
         let reviewRequested = false;
-        const lifecycle = /** @type {any[]} */ ([]);
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
         const tool = createPlanWrittenTool({
             hostedSession,
@@ -160,10 +176,6 @@ collaborationRecommendation: pair
                     reviewRequested = true;
                     return Promise.resolve({ outcome: "accepted", _meta: { approved: true } });
                 },
-                recordPlanEvent: (event) => {
-                    lifecycle.push(event);
-                    return Promise.resolve(/** @type {any} */ ({}));
-                },
                 recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
             },
         });
@@ -173,14 +185,15 @@ collaborationRecommendation: pair
         assertEquals(result.details.outcome, "repair_required");
         assertEquals(result.details.reason, "engineer_pair_recommendation");
         assertEquals(reviewRequested, false);
-        assertEquals(lifecycle, []);
+        // Rejected before review, so nothing may have advanced the Plan.
+        assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.status, "draft");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
 });
 
 Deno.test("plan_written returns review feedback and images to the planning agent", async () => {
-    const { tool, lifecycle } = makeHarness({
+    const { tool, readPlan } = await makeHarness({
         reviewResponse: {
             outcome: "selected",
             _meta: {
@@ -201,11 +214,12 @@ Deno.test("plan_written returns review feedback and images to the planning agent
         imageCount: 1,
     });
     assertEquals(result.content.some((/** @type {any} */ item) => item.type === "image"), true);
-    assertEquals(lifecycle, []);
+    // Feedback is not readiness: the Plan must still be sitting at `approved`.
+    assertEquals((await readPlan())?.attrs.status, "approved");
 });
 
 Deno.test("plan_written cancellation asks whether to reopen review before completing", async () => {
-    const { tool, events } = makeHarness({
+    const { tool, events } = await makeHarness({
         reviewResponse: { outcome: "canceled" },
         retryResponse: { outcome: "canceled", value: false },
     });
@@ -217,7 +231,7 @@ Deno.test("plan_written cancellation asks whether to reopen review before comple
 });
 
 Deno.test("plan_written reopens review when recovery confirmation is accepted", async () => {
-    const { tool } = makeHarness({
+    const { tool } = await makeHarness({
         reviewResponses: [
             { outcome: "canceled" },
             { outcome: "accepted", _meta: { approved: true, approvalAction: "run" } },
@@ -231,18 +245,20 @@ Deno.test("plan_written reopens review when recovery confirmation is accepted", 
 });
 
 Deno.test("plan_written feature approval returns execution outcome", async () => {
-    const { tool, lifecycle, metrics } = makeHarness({ classification: "FEATURE", approvalAction: "run" });
+    const { tool, readPlan, metrics } = await makeHarness({ classification: "FEATURE", approvalAction: "run" });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_execute");
     assertEquals(result.details.triageMeta.classification, "PLANNED_CHANGE");
     assertEquals(result.terminate, true);
-    assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
+    // `ready_for_work` is only reachable from `approved` via `readiness_passed`, so
+    // the status is the transition, recorded by the real lifecycle.
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
 });
 
 Deno.test("plan_written rejects planned changes without Objective-Failing Checks before review", async () => {
-    const { tool, lifecycle } = makeHarness({ classification: "PLANNED_CHANGE" });
+    const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
     const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
 
     assertEquals(result.details.outcome, "repair_required");
@@ -251,11 +267,11 @@ Deno.test("plan_written rejects planned changes without Objective-Failing Checks
         result.content[0].text,
         "PLANNED_CHANGE Plans must provide at least one objectiveChecks entry",
     );
-    assertEquals(lifecycle, []);
+    assertEquals((await readPlan())?.attrs.status, "approved");
 });
 
 Deno.test("plan_written persists Objective-Failing Checks to front matter before review", async () => {
-    const { tool, hostedSession } = makeHarness({ classification: "PLANNED_CHANGE" });
+    const { tool, hostedSession } = await makeHarness({ classification: "PLANNED_CHANGE" });
     const result = await execute(tool, "runtime-boundary", () => {}, {
         objectiveChecks: [
             {
@@ -274,11 +290,11 @@ Deno.test("plan_written persists Objective-Failing Checks to front matter before
 });
 
 Deno.test("plan_written accepts PROJECT Epics without Objective-Failing Checks", async () => {
-    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
+    const { tool, readPlan } = await makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
     const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
 
     assertEquals(result.details.outcome, "approved_decompose");
-    assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
+    assertEquals((await readPlan())?.attrs.status, "ready_for_decomposition");
 });
 
 Deno.test("plan_written preserves documentation triage workKind when Plan front matter omits it", async () => {
@@ -289,11 +305,11 @@ Deno.test("plan_written preserves documentation triage workKind when Plan front 
             `${cwd}/plans/runtime-boundary.md`,
             `---
 classification: PLANNED_CHANGE
+status: approved
 ---
 # Bug fix plan
 `,
         );
-        const lifecycle = /** @type {any[]} */ ([]);
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
         const tool = createPlanWrittenTool({
             hostedSession,
@@ -302,12 +318,17 @@ classification: PLANNED_CHANGE
             __deps: {
                 cwd,
                 stat: () => Promise.resolve({ isFile: true }),
-                requestPlanReview: () =>
-                    Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
-                recordPlanEvent: (event) => {
-                    lifecycle.push(event);
-                    return Promise.resolve(/** @type {any} */ (event.details?.triageMeta || {}));
-                },
+                // Read at review time, not before: the tool persists Objective-Failing
+                // Checks to Front Matter first, which moves the revision the lifecycle
+                // then checks against.
+                requestPlanReview: async () => ({
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "run",
+                        revision: (await loadPlan(cwd, "runtime-boundary"))?.revision,
+                    },
+                }),
                 recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
             },
         });
@@ -316,14 +337,16 @@ classification: PLANNED_CHANGE
 
         assertEquals(result.details.triageMeta.classification, "PLANNED_CHANGE");
         assertEquals(result.details.triageMeta.workKind, "DOCUMENTATION");
-        assertEquals(lifecycle[0].details.triageMeta.workKind, "DOCUMENTATION");
+        // Readiness was recorded by the real lifecycle, which is what makes the
+        // returned meta above a statement about a Plan that actually moved.
+        assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.status, "ready_for_work");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
 });
 
 Deno.test("plan_written preserves triage workKind when approved review attrs omit it", async () => {
-    const { tool, lifecycle } = makeHarness({
+    const { tool, readPlan } = await makeHarness({
         classification: "PLANNED_CHANGE",
         workKind: "BUG_FIX",
         reviewResponse: {
@@ -346,18 +369,20 @@ Deno.test("plan_written preserves triage workKind when approved review attrs omi
 
     assertEquals(result.details.outcome, "approved_execute");
     assertEquals(result.details.triageMeta.workKind, "BUG_FIX");
-    assertEquals(lifecycle[0].details.triageMeta.workKind, "BUG_FIX");
+    // The readiness transition really ran; `workKind` is not part of the canonical
+    // Front Matter it writes, so the tool's own returned meta above is where that
+    // preservation is observable.
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
 Deno.test("plan_written feature approval uses post-review execution metadata for readiness", async () => {
-    const { tool, lifecycle } = makeHarness({
+    const { tool, readPlan } = await makeHarness({
         classification: "FEATURE",
         reviewResponse: {
             outcome: "accepted",
             _meta: {
                 approved: true,
                 approvalAction: "run",
-                revision: "reviewed-revision-1",
                 planAttrs: {
                     classification: "FEATURE",
                     complexity: "MEDIUM",
@@ -374,13 +399,11 @@ Deno.test("plan_written feature approval uses post-review execution metadata for
     assertEquals(result.details.outcome, "approved_execute");
     assertEquals(result.details.triageMeta.executionAgent, "frontend-engineer");
     assertEquals(result.details.triageMeta.collaborationRecommendation, "pair");
-    assertEquals(lifecycle[0].details.triageMeta.executionAgent, "frontend-engineer");
-    assertEquals(lifecycle[0].details.triageMeta.collaborationRecommendation, "pair");
-    assertEquals(lifecycle[0].expectedRevision, "reviewed-revision-1");
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
 Deno.test("plan_written saved feature approval keeps post-review execution metadata", async () => {
-    const { tool, lifecycle } = makeHarness({
+    const { tool, readPlan } = await makeHarness({
         classification: "FEATURE",
         reviewResponse: {
             outcome: "accepted",
@@ -403,11 +426,11 @@ Deno.test("plan_written saved feature approval keeps post-review execution metad
     assertEquals(result.details.outcome, "saved");
     assertEquals(result.details.triageMeta.executionAgent, "engineer");
     assertEquals(result.details.triageMeta.collaborationRecommendation, "autonomous");
-    assertEquals(lifecycle[0].details.triageMeta.executionAgent, "engineer");
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
 Deno.test("plan_written feature approval can save without execution", async () => {
-    const { tool, events } = makeHarness({ classification: "FEATURE", approvalAction: "later" });
+    const { tool, events } = await makeHarness({ classification: "FEATURE", approvalAction: "later" });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "saved");
@@ -418,7 +441,7 @@ Deno.test("plan_written feature approval can save without execution", async () =
 });
 
 Deno.test("plan_written project approval can save for later with session-complete guidance", async () => {
-    const { tool, events } = makeHarness({ classification: "PROJECT", approvalAction: "later" });
+    const { tool, events } = await makeHarness({ classification: "PROJECT", approvalAction: "later" });
     const result = await execute(tool, "runtime-epic");
 
     assertEquals(result.details.outcome, "saved");
@@ -429,35 +452,35 @@ Deno.test("plan_written project approval can save for later with session-complet
 });
 
 Deno.test("plan_written project approval returns decomposition outcome", async () => {
-    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
+    const { tool, readPlan } = await makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
     const result = await execute(tool, "runtime-epic");
 
     assertEquals(result.details.outcome, "approved_decompose");
     assertEquals(result.details.triageMeta.classification, "PROJECT");
-    assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
+    assertEquals((await readPlan("runtime-epic"))?.attrs.status, "ready_for_decomposition");
 });
 
 Deno.test("plan_written missing approval action safely saves for later", async () => {
-    const { tool, lifecycle } = makeHarness({
+    const { tool, readPlan } = await makeHarness({
         classification: "FEATURE",
         reviewResponse: { outcome: "accepted", _meta: { approved: true } },
     });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "saved");
-    assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
 Deno.test("plan_written mismatched project approval action safely saves for later", async () => {
-    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "run" });
+    const { tool, readPlan } = await makeHarness({ classification: "PROJECT", approvalAction: "run" });
     const result = await execute(tool, "runtime-epic");
 
     assertEquals(result.details.outcome, "saved");
-    assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
+    assertEquals((await readPlan("runtime-epic"))?.attrs.status, "ready_for_decomposition");
 });
 
 Deno.test("plan_written remote review emits a semantic review link", async () => {
-    const { tool, events } = makeHarness({
+    const { tool, events } = await makeHarness({
         reviewResponse: {
             outcome: "accepted",
             message: "Review remotely.",
