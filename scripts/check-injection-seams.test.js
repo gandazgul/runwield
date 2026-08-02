@@ -102,3 +102,52 @@ Deno.test("collectConditionalSeams ignores optional syntax in comments and type 
         [],
     );
 });
+
+Deno.test("collectSeamNames follows a renamed destructure off an aliased bag", () => {
+    // The shape load-plan/index.js uses. The bag is reached through a local alias and
+    // then destructured with every binding renamed, which hid 38 names — ten of them
+    // machinery — behind a green ratchet.
+    const names = collectSeamNames(`
+        export async function runLoadPlanCommand(argv, options = {}) {
+            const deps = (options).__testDeps || {};
+            const {
+                recordPlanEvent: recordPlanEventDep,
+                mergeExecutionWorktree: mergeExecutionWorktreeDep,
+                parseArgs: parseArgsDep,
+            } = deps;
+        }
+    `);
+    assertEquals(names, ["mergeExecutionWorktree", "parseArgs", "recordPlanEvent"]);
+});
+
+Deno.test("collectSeamNames follows an aliased bag declared through a type cast", () => {
+    // The cast is a comment, so the initializer is mostly whitespace by the time this
+    // scan sees it. The alias still has to be recognised.
+    const names = collectSeamNames(`
+        const deps = /** @type {LoadPlanTestDeps} */ ((/** @type {any} */ (options)).__testDeps || {});
+        const { savePlan: savePlanDep } = deps;
+    `);
+    assertEquals(names, ["savePlan"]);
+});
+
+Deno.test("collectSeamNames does not treat a value read out of the bag as another bag", () => {
+    // `runLocalCI` is the seam; `result` is its return value. Counting `result.exitCode`
+    // would invent a seam that nothing injects.
+    const names = collectSeamNames(`
+        const runLocalCI = __deps.runLocalCI || runLocalCIImpl;
+        const result = __deps.runLocalCI ? await runLocalCI() : null;
+        if (result.exitCode === 0) return;
+    `);
+    assertEquals(names, ["runLocalCI"]);
+});
+
+Deno.test("collectSeamNames does not alias the result of a call that receives the bag", () => {
+    // `loadSlicerAgentDef(__deps)` returns an agent definition, not the bag. Treating it
+    // as one counted `displayName` as a seam that nothing injects.
+    const names = collectSeamNames(`
+        const loadEpic = __deps?.loadPlan || loadPlan;
+        const slicerAgentDef = await loadSlicerAgentDef(__deps);
+        const slicerDisplay = slicerAgentDef.displayName;
+    `);
+    assertEquals(names, ["loadPlan"]);
+});

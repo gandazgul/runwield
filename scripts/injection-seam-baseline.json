@@ -1,6 +1,125 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
+        "src/cmd/agents/index.js": {
+            "seams": [
+                "exit",
+                "listAvailableAgents",
+                "printCommandHelp",
+                "startInteractiveSession"
+            ],
+            "machinery": []
+        },
+        "src/cmd/help/index.js": {
+            "seams": [
+                "exit",
+                "parseArgs"
+            ],
+            "machinery": []
+        },
+        "src/cmd/init/index.js": {
+            "seams": [
+                "createRuntime",
+                "cwd",
+                "ensureBundledAgentDefFile",
+                "extractBundledSkills",
+                "getModelRegistry",
+                "getSettingsManager",
+                "isEmptyProjectDirectory",
+                "isInitDone",
+                "loadAgentDefFromPath",
+                "parseArgs",
+                "printCommandHelp",
+                "recordInitDone",
+                "recordInitOffered",
+                "startInteractiveSession"
+            ],
+            "machinery": []
+        },
+        "src/cmd/load-plan/index.js": {
+            "seams": [
+                "archivePlan",
+                "autoGenerateWorkRecordForCompletedPlan",
+                "checkpointExecutionWorktree",
+                "createWorktreeGitArtifacts",
+                "decidePostExecution",
+                "decidePostPlanning",
+                "executePlan",
+                "finalizePlanImplementation",
+                "findPlansByParent",
+                "findWorktreeById",
+                "findWorktreeByPlanName",
+                "getBranchHead",
+                "getWorkflowDiff",
+                "getWorktreeStatus",
+                "inspectExecutionWorktreeMergeRisk",
+                "isCommitAncestorOfBranch",
+                "listCommitsTouchingPathsSince",
+                "listPlans",
+                "loadPlan",
+                "mergeExecutionWorktree",
+                "parseArgs",
+                "preparePrimaryPlanPathForMerge",
+                "printCommandHelp",
+                "probeGitRepository",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "removeWorktreeGitArtifacts",
+                "resolvePlan",
+                "resolveSiblingChildPlanDependencies",
+                "resolveValidationExecutionContext",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "restoreWorktreeTree",
+                "runPlanningAgent",
+                "runSlicerAgent",
+                "runValidationLoop",
+                "setTerminalTitleForName",
+                "settleWorktreeAttempt",
+                "shouldCleanupMergedWorktrees",
+                "stageValidationPassedInExecutionWorktree",
+                "startInteractiveSession",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ],
+            "machinery": [
+                "checkpointExecutionWorktree",
+                "createWorktreeGitArtifacts",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
+                "recordPlanEvent",
+                "removeWorktreeGitArtifacts",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "settleWorktreeAttempt",
+                "stageValidationPassedInExecutionWorktree",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ]
+        },
+        "src/cmd/models/index.js": {
+            "seams": [
+                "getModelRegistry",
+                "parseProviderModel",
+                "printCommandHelp",
+                "setActiveModel"
+            ],
+            "machinery": []
+        },
+        "src/cmd/plans/index.js": {
+            "seams": [
+                "listPlans",
+                "parseArgs",
+                "printCommandHelp",
+                "runPlansArchiveCommand",
+                "runPlansDoctorCommand",
+                "runPlansPullCommand",
+                "runPlansPushCommand",
+                "runPlansReadCommand",
+                "runPlansShareCommand",
+                "runPlansUiCommand",
+                "runPlansUnshareCommand"
+            ],
+            "machinery": []
+        },
         "src/cmd/plans/pull.js": {
             "seams": [
                 "assertCompatiblePullSecretRecord",
@@ -47,6 +166,34 @@
             ],
             "machinery": []
         },
+        "src/cmd/plans/share.js": {
+            "seams": [
+                "buildCollaborationUrl",
+                "createCollaborationClient",
+                "cwd",
+                "deleteSecretRecord",
+                "encryptJsonPayload",
+                "ensurePlanIdentity",
+                "ensureProjectSecretStoreIgnored",
+                "exportContentKey",
+                "generateBearerCapability",
+                "generateContentKey",
+                "getDefaultPlanServerUrl",
+                "getGlobalSecretStorePath",
+                "getProjectSecretStorePath",
+                "getSecretRecord",
+                "hashCapability",
+                "hashPlanBody",
+                "listPlanResources",
+                "loadPlan",
+                "normalizePlanServerUrl",
+                "now",
+                "parseArgs",
+                "putSecretRecord",
+                "updatePlanCollaborationMetadata"
+            ],
+            "machinery": []
+        },
         "src/cmd/plans/ui.js": {
             "seams": [
                 "command",
@@ -78,10 +225,56 @@
             ],
             "machinery": []
         },
+        "src/cmd/quit/index.js": {
+            "seams": [
+                "exit",
+                "setTimeout",
+                "stopTUI"
+            ],
+            "machinery": []
+        },
         "src/cmd/resume/index.js": {
             "seams": [
                 "getCompactThresholdPercent",
                 "getResumeModelSelection"
+            ],
+            "machinery": []
+        },
+        "src/cmd/router/index.js": {
+            "seams": [
+                "printCommandHelp",
+                "startInteractiveSession"
+            ],
+            "machinery": []
+        },
+        "src/cmd/sleep/index.js": {
+            "seams": [
+                "commandOutput",
+                "ensureMnemosyneBinary",
+                "exportMnemosyneCollection",
+                "mkdir",
+                "now",
+                "parseArgs",
+                "printCommandHelp",
+                "randomUUID",
+                "startInteractiveSession",
+                "stat"
+            ],
+            "machinery": []
+        },
+        "src/cmd/update/index.js": {
+            "seams": [
+                "command",
+                "currentVersion",
+                "env",
+                "error",
+                "execPath",
+                "exit",
+                "fetch",
+                "log",
+                "makeTempDir",
+                "remove",
+                "writeTextFile"
             ],
             "machinery": []
         },
@@ -102,6 +295,21 @@
                 "printWorkspaceServeHelp",
                 "startWorkspaceServer",
                 "store"
+            ],
+            "machinery": []
+        },
+        "src/cmd/wr/index.js": {
+            "seams": [
+                "confirmBackfill",
+                "listWorkRecords",
+                "parseArgs",
+                "previewWorkRecordBackfill",
+                "printCommandHelp",
+                "readWorkRecordById",
+                "rebuildWorkRecordIndex",
+                "runWorkRecordBackfill",
+                "searchWorkRecords",
+                "startArtifactReadSurface"
             ],
             "machinery": []
         },
@@ -278,6 +486,15 @@
                 "listSkills",
                 "recordSnipMissingWarningShown",
                 "shouldShowSnipMissingWarning"
+            ],
+            "machinery": []
+        },
+        "src/ui/tui/slash-dispatch.js": {
+            "seams": [
+                "commandRegistry",
+                "expandPromptTemplate",
+                "expandSkillCommand",
+                "getSlashCommandDefinition"
             ],
             "machinery": []
         },

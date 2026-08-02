@@ -145,30 +145,54 @@ function isMachinerySeam(name) {
 export function collectSeamNames(text) {
     /** @type {Set<string>} */
     const names = new Set();
-    for (const match of text.matchAll(/__(?:test)?[Dd]eps\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/g)) {
-        names.add(match[1]);
-    }
-    // Destructured reads: `const { a, b } = __deps`.
-    for (const match of text.matchAll(/(?:const|let)\s*\{([^}]*)\}\s*=\s*(?:options\.)?__(?:test)?[Dd]eps/g)) {
-        for (const part of match[1].split(",")) {
-            const name = part.split(":")[0].trim().replace(/^\.\.\./, "");
-            if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+    /**
+     * @param {string} bag A source expression naming the dependency bag.
+     */
+    const collectFromBag = (bag) => {
+        const source = bag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // Member reads: `bag.name`, `bag?.name`.
+        for (const read of text.matchAll(new RegExp(`${source}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"))) {
+            names.add(read[1]);
         }
-    }
-    // Aliased reads: `const deps = __deps || {}` and then `deps.name`.
+        // Destructured reads: `const { a, b: bLocal } = bag`. The declared name is the
+        // left of the colon — renaming the local binding does not rename the seam.
+        for (
+            const block of text.matchAll(
+                new RegExp(`(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*${source}\\b`, "g"),
+            )
+        ) {
+            for (const part of block[1].split(",")) {
+                const name = part.split(":")[0].trim().replace(/^\.\.\./, "");
+                if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+            }
+        }
+    };
+
+    collectFromBag("__deps");
+    collectFromBag("__testDeps");
+    collectFromBag("__Deps");
+    collectFromBag("options.__deps");
+    collectFromBag("options.__testDeps");
+
+    // Aliased bags: `const deps = __testDeps || {}` and then either `deps.name` or
+    // `const { name: nameDep } = deps`.
     //
     // One line of indirection was enough to make a whole bag invisible to this scan,
     // machinery included — which is how `recordPlanEvent` sat behind a seam in
-    // plan-written.js under a green ratchet. A rule that a rename defeats is not a rule.
+    // plan-written.js under a green ratchet, and how 38 names in load-plan/index.js
+    // stayed uncounted behind a rename-on-destructure. A rule that a rename defeats is
+    // not a rule.
+    //
+    // The bag must be the initializer's *value*, not an argument inside it. Requiring a
+    // `||`, `??` or `;` right after it separates `const deps = __testDeps || {}` from
+    // `const agentDef = await loadSlicerAgentDef(__deps)`, where the result is an agent
+    // definition and counting `agentDef.displayName` would invent a seam nothing injects.
     for (
         const alias of text.matchAll(
-            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:options\.)?__(?:test)?[Dd]eps\s*(?:\|\||\?\?|;)/g,
+            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?__(?:test)?[Dd]eps\s*(?:\|\||\?\?|;)/g,
         )
     ) {
-        const aliasName = alias[1];
-        for (const read of text.matchAll(new RegExp(`\\b${aliasName}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"))) {
-            names.add(read[1]);
-        }
+        collectFromBag(alias[1]);
     }
     return [...names].sort();
 }
