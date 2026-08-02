@@ -154,9 +154,10 @@ check; `! grep -rq oldSymbol src/` is. Keep the human-readable list in the Plan 
 `plan_written` as `objectiveChecks: [{ id, command, rationale }]`; RunWield persists that copy to Front Matter and runs
 it during Workflow Validation.
 
-Hold each one to this test before you write it down: it must be **red against the repository as it stands today** and
-able to go green only when the objective is actually met. A check that already passes before any implementation exists
-is not measuring your objective, whatever it claims to assert.
+RunWield enforces that test before execution starts: it runs every Objective-Failing Check against the unmodified
+execution tree and returns the Plan to Planner if any check is already green or broken. A green baseline often means the
+user already changed part of the tree by hand; narrow the check so it fails on the current baseline and can go green
+only when the objective is actually met.
 
 Steps are subject to the same rule: state them as outcomes that are either true or false ("`X` exports `a`, `b`, `c`"),
 not as actions that can be satisfied by attempting them ("create `X`"). An empty file, a placeholder module, an alias,

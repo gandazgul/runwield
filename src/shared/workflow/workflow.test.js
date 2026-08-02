@@ -167,6 +167,88 @@ Deno.test("HostedSession scopes active execution workflow independently", () => 
     assertEquals(sessionB.getActiveExecutionCwd(), "/work/b");
 });
 
+Deno.test("baseline rejects already-met Objective-Failing Checks before Engineer starts", async () => {
+    const projectRoot = await makeWorkflowProject([{
+        name: "already-met-plan",
+        status: "ready_for_work",
+        attrs: {
+            objectiveChecks: [{ id: "OC_TRUE", command: "true" }],
+        },
+    }]);
+    const hostedSession = makeHostedSession("already-met-baseline", projectRoot);
+    /** @type {Array<{ agentName: string, userRequest: string }>} */
+    const agentTurns = [];
+
+    const result = await executePlan({
+        planName: "already-met-plan",
+        triageMeta: { planId: PLAN_UNDER_TEST, classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            runActiveAgentTurn: (options) => {
+                agentTurns.push(/** @type {{ agentName: string, userRequest: string }} */ (options));
+                return Promise.resolve(
+                    /** @type {any[]} */ ([{
+                        role: "toolResult",
+                        toolName: "plan_written",
+                        details: { outcome: "feedback", planName: "already-met-plan" },
+                    }]),
+                );
+            },
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+    assertEquals(agentTurns.map((turn) => turn.agentName), ["planner"]);
+    assertStringIncludes(agentTurns[0].userRequest, "already satisfied before implementation");
+    const plan = await loadPlan(projectRoot, "already-met-plan");
+    assertEquals(plan?.attrs.status, "feedback");
+    assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
+    assertEquals((await listWorktreeRegistryEntries(projectRoot)).length, 0);
+});
+
+Deno.test("re-baselines Objective-Failing Checks when head or command set changes", async () => {
+    const projectRoot = await makeWorkflowProject([{
+        name: "stale-baseline-plan",
+        status: "ready_for_work",
+        attrs: {
+            objectiveChecks: [{ id: "OC1", command: "test -f rebaseline-marker" }],
+            objectiveChecksBaseline: {
+                recordedAt: "2026-01-01T00:00:00.000Z",
+                head: "0000000000000000000000000000000000000000",
+                results: [{
+                    id: "OC1",
+                    command: "false",
+                    status: "unmet",
+                    stdout: "",
+                    stderr: "",
+                    exitCode: 1,
+                    durationMs: 1,
+                    output: "",
+                }],
+            },
+        },
+    }]);
+    const hostedSession = makeHostedSession("stale-baseline", projectRoot);
+
+    const workflow = await startActiveExecutionWorkflow({
+        planName: "stale-baseline-plan",
+        triageMeta: { planId: PLAN_UNDER_TEST, classification: "FEATURE" },
+        currentStatus: "ready_for_work",
+        hostedSession,
+    });
+
+    const plan = await loadPlan(projectRoot, "stale-baseline-plan");
+    assertEquals(plan?.attrs.objectiveChecksBaseline?.head, workflow.worktreeBaseCommit);
+    assertEquals(
+        plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
+        [
+            ["OC1", "test -f rebaseline-marker", "unmet"],
+        ],
+    );
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "stale-baseline-plan");
+});
+
 Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requested target branch", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "targeted-plan", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("targeted-workflow", projectRoot);

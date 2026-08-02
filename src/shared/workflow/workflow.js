@@ -49,7 +49,17 @@ import {
 } from "./plan-review-recovery.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { runExecutionPreparationTransition, runImplementationCheckpointTransition } from "./state-transition.ts";
+import {
+    classifyObjectiveChecksBaseline,
+    objectiveChecksBaselineMatches,
+    runObjectiveChecks,
+    summarizeObjectiveChecks,
+} from "./objective-checks.ts";
+import {
+    runExecutionPreparationTransition,
+    runImplementationCheckpointTransition,
+    runPlanFrontMatterTransition,
+} from "./state-transition.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import {
     readLatestPlanOutcome,
@@ -101,6 +111,96 @@ export const PairPauseReasons = Object.freeze({
     STOP: "stop",
     CANCELED: "canceled",
 });
+
+class ObjectiveChecksBaselineRejectionError extends Error {
+    /**
+     * @param {{ kind: "already_met"|"broken", checkIds: string[], feedback: string }} options
+     */
+    constructor(options) {
+        super(options.feedback);
+        this.name = "ObjectiveChecksBaselineRejectionError";
+        this.kind = options.kind;
+        this.checkIds = options.checkIds;
+        this.feedback = options.feedback;
+    }
+}
+
+/**
+ * @param {string} planName
+ * @param {import('./objective-checks.ts').ObjectiveCheckResult[]} results
+ * @param {"already_met"|"broken"} kind
+ * @returns {string}
+ */
+function buildObjectiveChecksBaselineFeedback(planName, results, kind) {
+    const ids = results.map((result) => result.id).join(", ");
+    const summary = summarizeObjectiveChecks(results).block;
+    const reason = kind === "already_met"
+        ? `The following Objective-Failing Check(s) are already satisfied before implementation: ${ids}. An already-green check cannot discriminate whether Plan ${planName}'s objective was achieved. Revise the check(s) so they fail against the unmodified tree and pass only after the objective is implemented.`
+        : `The following Objective-Failing Check(s) could not run cleanly before implementation: ${ids}. A broken check cannot prove the objective is unmet, so revise the command(s) before execution starts.`;
+    return `${reason}\n\n${summary}`;
+}
+
+/**
+ * @param {string} planName
+ * @param {import('./objective-checks.ts').ObjectiveCheckResult[]} results
+ * @param {"already_met"|"broken"} kind
+ * @throws {ObjectiveChecksBaselineRejectionError}
+ */
+function throwObjectiveChecksBaselineRejection(planName, results, kind) {
+    throw new ObjectiveChecksBaselineRejectionError({
+        kind,
+        checkIds: results.map((result) => result.id),
+        feedback: buildObjectiveChecksBaselineFeedback(planName, results, kind),
+    });
+}
+
+/**
+ * @param {import('../../plan-store.js').PlanFrontMatter} attrs
+ * @param {import('./objective-checks.ts').ObjectiveCheck[]} checks
+ * @param {string|undefined} head
+ * @returns {import('./objective-checks.ts').ObjectiveCheckResult[]|undefined}
+ */
+function trustedObjectiveChecksBaselineResults(attrs, checks, head) {
+    if (!objectiveChecksBaselineMatches(attrs.objectiveChecksBaseline, checks, head)) return undefined;
+    return attrs.objectiveChecksBaseline?.results;
+}
+
+/**
+ * @param {{ projectRoot: string, planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, revision: string|undefined, checks: import('./objective-checks.ts').ObjectiveCheck[], cwd: string, head?: string }} options
+ * @returns {Promise<void>}
+ */
+async function ensureObjectiveChecksBaseline(options) {
+    if (options.checks.length === 0) return;
+    const trustedResults = trustedObjectiveChecksBaselineResults(options.attrs, options.checks, options.head);
+    const results = trustedResults || await runObjectiveChecks({ checks: options.checks, cwd: options.cwd });
+    const classification = classifyObjectiveChecksBaseline(results);
+    if (classification.status === "already_met") {
+        throwObjectiveChecksBaselineRejection(options.planName, classification.offendingResults, "already_met");
+    }
+    if (classification.status === "broken") {
+        throwObjectiveChecksBaselineRejection(options.planName, classification.offendingResults, "broken");
+    }
+    if (!trustedResults) {
+        const transition = await runPlanFrontMatterTransition({
+            projectRoot: options.projectRoot,
+            planName: options.planName,
+            operation: "objective_checks_baseline_record",
+            updates: {
+                objectiveChecksBaseline: {
+                    recordedAt: new Date().toISOString(),
+                    ...(options.head ? { head: options.head } : {}),
+                    results,
+                },
+            },
+            expectedRevision: options.revision,
+        });
+        if (transition.status !== "committed") {
+            throw new Error(
+                transition.message || `Could not persist Objective-Failing Check baseline for ${options.planName}.`,
+            );
+        }
+    }
+}
 
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
@@ -189,6 +289,10 @@ function isPlanReviewRetryAccepted(response) {
  * @property {boolean} [intentionalComplete]
  * @property {string} [intentionalCompleteReason]
  * @property {string} [message]
+ * @property {string} [feedback]
+ * @property {boolean} [baselineRejected]
+ * @property {"already_met"|"broken"} [baselineRejectionKind]
+ * @property {string[]} [baselineRejectedCheckIds]
  * @property {"stop"|"canceled"} [pauseReason]
  * @property {string} [error]
  * @property {string} [completionReport]
@@ -732,6 +836,67 @@ export async function executePlan({
         __deps: { ...__deps, recordWorkflowMetric: recordWorkflowMetricFn },
     });
     if (!result.executionComplete) {
+        if (result.baselineRejected) {
+            const feedback = result.feedback || result.error || "Objective-Failing Check baseline rejected execution.";
+            await recordPlanEvent({
+                cwd: projectRoot,
+                planName,
+                event: "review_reopened",
+                currentStatus: plan.attrs.status,
+                details: /** @type {any} */ ({
+                    triageMeta: effectiveMeta,
+                    reason: "objective_checks_baseline_rejected",
+                    feedback,
+                }),
+            });
+            await recordWorkflowMetricFn({
+                category: "execution",
+                event: "plan_execution_rejected",
+                planName,
+                details: {
+                    reason: "objective_checks_baseline_rejected",
+                    kind: result.baselineRejectionKind,
+                    checkIds: result.baselineRejectedCheckIds,
+                },
+            }, { cwd: projectRoot });
+            const planningAgentName = effectiveMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+            const revisionOutcome = await runPlanningAgent({
+                agentName: planningAgentName,
+                initialRequest: [
+                    `## Plan Objective-Failing Check Baseline Rejected: ${planName}`,
+                    "",
+                    feedback,
+                    "",
+                    "Revise the Plan's Objective-Failing Checks so every check fails against the unmodified execution tree before implementation starts.",
+                ].join("\n"),
+                triageMeta: effectiveMeta,
+                sessionManager,
+                hostedSession,
+                __deps: { runActiveAgentTurn: __deps.runActiveAgentTurn },
+            });
+            if (revisionOutcome.outcome === "approved_execute") {
+                return await executePlan({
+                    planName: revisionOutcome.planName || planName,
+                    triageMeta: revisionOutcome.triageMeta || effectiveMeta,
+                    sessionManager,
+                    hostedSession,
+                    routerMessage,
+                    reviewFeedback: revisionOutcome.feedback,
+                    reviewImages: revisionOutcome.images,
+                    __deps,
+                });
+            }
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled",
+                intentionalCompleteReason: `baseline_${revisionOutcome.outcome}`,
+                message: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled"
+                    ? SESSION_COMPLETE_GUIDANCE
+                    : undefined,
+                feedback,
+            };
+        }
         await recordWorkflowMetricFn({
             category: "execution",
             event: "plan_execution_result",
@@ -858,6 +1023,21 @@ async function executeSingleEngineerPlan(
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof ObjectiveChecksBaselineRejectionError) {
+            emitSystemStatus(hostedSession, `Execution did not start: ${message}`, {
+                level: "error",
+                header: "RunWield",
+            });
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                baselineRejected: true,
+                baselineRejectionKind: error.kind,
+                baselineRejectedCheckIds: error.checkIds,
+                feedback: error.feedback,
+                error: message,
+            };
+        }
         const failedWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
         if (failedWorkflow?.planName === planName && failedWorkflow.collaborationStyle === CollaborationStyles.PAIR) {
             hostedSession?.setActiveExecutionWorkflow({
@@ -1142,6 +1322,7 @@ export async function startActiveExecutionWorkflow(
         }
         const attemptId = triageMeta.worktreeId || `non-git-${crypto.randomUUID().slice(0, 8)}`;
         const canonicalPlan = await loadPlan(projectRoot, planName);
+        if (!canonicalPlan) throw new Error(`Plan not found: ${planName}`);
         const transition = await runExecutionPreparationTransition({
             projectRoot,
             planName,
@@ -1149,7 +1330,7 @@ export async function startActiveExecutionWorkflow(
             worktreeId: attemptId,
             expectedRevision: canonicalPlan?.revision,
             recordMetric: () => Promise.resolve(null),
-            prepare: async ({ markEffect }) => {
+            prepare: async ({ beforePlan, markEffect }) => {
                 const workflow = {
                     planName,
                     triageMeta: effectiveTriageMeta,
@@ -1161,6 +1342,15 @@ export async function startActiveExecutionWorkflow(
                     executionMode: /** @type {const} */ ("non_git_in_place"),
                     nonGitInPlace: true,
                 };
+                await ensureObjectiveChecksBaseline({
+                    projectRoot,
+                    planName,
+                    attrs: beforePlan?.attrs || canonicalPlan.attrs,
+                    revision: beforePlan?.revision || canonicalPlan?.revision,
+                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlan.attrs.objectiveChecks || [],
+                    cwd: projectRoot,
+                    head: undefined,
+                });
                 await recordPlanEvent({
                     cwd: projectRoot,
                     planName,
@@ -1200,6 +1390,7 @@ export async function startActiveExecutionWorkflow(
             },
         });
         if (transition.status !== "committed") {
+            if (transition.cause instanceof ObjectiveChecksBaselineRejectionError) throw transition.cause;
             throw new Error(transition.message || `Non-Git execution preparation did not commit for ${planName}.`);
         }
         const activeWorkflow =
@@ -1230,6 +1421,7 @@ export async function startActiveExecutionWorkflow(
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
                 baseBranch: existing.worktreeBaseBranch,
+                baseCommit: existing.worktreeBaseCommit,
             }
             : hasRecordedWorktree
             ? await findReusable({
@@ -1289,6 +1481,7 @@ export async function startActiveExecutionWorkflow(
             const reusedWorktree = Boolean(reusable);
             /** @type {any} */
             let worktree;
+            let objectiveChecksBaselined = false;
             if (reusable) {
                 worktree = reusable;
                 await markEffect("git_worktree_reused", {
@@ -1327,6 +1520,16 @@ export async function startActiveExecutionWorkflow(
                         });
                     }
                 });
+                await ensureObjectiveChecksBaseline({
+                    projectRoot,
+                    planName,
+                    attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
+                    revision: beforePlan?.revision,
+                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlanSource.attrs.objectiveChecks || [],
+                    cwd: worktreeArtifacts.path,
+                    head: worktreeArtifacts.baseCommit,
+                });
+                objectiveChecksBaselined = true;
                 worktree = await settleWorktreeAttempt(projectRoot, {
                     ...worktreeArtifacts,
                     planName: worktreeArtifacts.planName || planName,
@@ -1343,6 +1546,20 @@ export async function startActiveExecutionWorkflow(
                 });
             }
             const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
+            if (!objectiveChecksBaselined) {
+                const objectiveChecksHead = "baseCommit" in worktree && typeof worktree.baseCommit === "string"
+                    ? worktree.baseCommit
+                    : undefined;
+                await ensureObjectiveChecksBaseline({
+                    projectRoot,
+                    planName,
+                    attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
+                    revision: beforePlan?.revision,
+                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlanSource.attrs.objectiveChecks || [],
+                    cwd: worktree.path,
+                    head: objectiveChecksHead,
+                });
+            }
             const planFile = await ensurePlanFile({
                 executionCwd: worktree.path,
                 planName,
@@ -1509,6 +1726,7 @@ export async function startActiveExecutionWorkflow(
         },
     });
     if (transition.status !== "committed") {
+        if (transition.cause instanceof ObjectiveChecksBaselineRejectionError) throw transition.cause;
         throw new Error(transition.message || `Execution preparation did not commit for ${planName}.`);
     }
     const activeWorkflow =

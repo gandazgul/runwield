@@ -38,6 +38,17 @@ export interface ObjectiveCheckSummary {
     block: string;
 }
 
+export interface ObjectiveChecksBaseline {
+    recordedAt: string;
+    head?: string;
+    results: ObjectiveCheckResult[];
+}
+
+export interface ObjectiveChecksBaselineClassification {
+    status: "all_unmet" | "already_met" | "broken";
+    offendingResults: ObjectiveCheckResult[];
+}
+
 export interface RunObjectiveChecksOptions {
     checks: ObjectiveCheck[];
     cwd: string;
@@ -204,4 +215,28 @@ export function summarizeObjectiveChecks(results: ObjectiveCheckResult[]): Objec
     const resultLines = results.map(formatResult).join("\n\n");
     const block = resultLines ? `${statusLine}\n\n${resultLines}` : statusLine;
     return { total: results.length, met, unmet, broken, block };
+}
+
+export function classifyObjectiveChecksBaseline(
+    results: ObjectiveCheckResult[],
+): ObjectiveChecksBaselineClassification {
+    const brokenResults = results.filter((result) => result.status === "broken");
+    if (brokenResults.length > 0) return { status: "broken", offendingResults: brokenResults };
+    const metResults = results.filter((result) => result.status === "met");
+    if (metResults.length > 0) return { status: "already_met", offendingResults: metResults };
+    return { status: "all_unmet", offendingResults: [] };
+}
+
+export function objectiveChecksBaselineMatches(
+    baseline: ObjectiveChecksBaseline | undefined,
+    checks: ObjectiveCheck[],
+    head: string | undefined,
+): boolean {
+    if (!baseline) return false;
+    if (!head || baseline.head !== head) return false;
+    if (baseline.results.length !== checks.length) return false;
+    return checks.every((check, index) => {
+        const result = baseline.results[index];
+        return result?.id === check.id && result.command === check.command;
+    });
 }

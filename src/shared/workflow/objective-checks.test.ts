@@ -1,5 +1,10 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
-import { runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
+import {
+    classifyObjectiveChecksBaseline,
+    objectiveChecksBaselineMatches,
+    runObjectiveChecks,
+    summarizeObjectiveChecks,
+} from "./objective-checks.ts";
 
 Deno.test("runObjectiveChecks classifies exit 0 as met", async () => {
     const cwd = await Deno.makeTempDir();
@@ -88,6 +93,64 @@ Deno.test("summarizeObjectiveChecks counts results and formats non-met output", 
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
+});
+
+Deno.test("classifyObjectiveChecksBaseline accepts only all-unmet baselines", () => {
+    const unmet = {
+        id: "OC1",
+        command: "false",
+        status: "unmet" as const,
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+        durationMs: 1,
+        output: "",
+    };
+    const met = { ...unmet, id: "OC2", command: "true", status: "met" as const, exitCode: 0 };
+    const broken = { ...unmet, id: "OC3", command: "missing", status: "broken" as const, exitCode: 127 };
+
+    assertEquals(classifyObjectiveChecksBaseline([unmet]), { status: "all_unmet", offendingResults: [] });
+    assertEquals(classifyObjectiveChecksBaseline([unmet, met]).status, "already_met");
+    assertEquals(classifyObjectiveChecksBaseline([unmet, met]).offendingResults.map((result) => result.id), ["OC2"]);
+    assertEquals(classifyObjectiveChecksBaseline([met, broken]).status, "broken");
+    assertEquals(classifyObjectiveChecksBaseline([met, broken]).offendingResults.map((result) => result.id), ["OC3"]);
+});
+
+Deno.test("objectiveChecksBaselineMatches requires matching head, IDs, and commands", () => {
+    const baseline = {
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        head: "abc",
+        results: [{
+            id: "OC1",
+            command: "grep needle file.txt",
+            status: "unmet" as const,
+            stdout: "",
+            stderr: "",
+            exitCode: 1,
+            durationMs: 1,
+            output: "",
+        }],
+    };
+
+    assertEquals(
+        objectiveChecksBaselineMatches(baseline, [{ id: "OC1", command: "grep needle file.txt" }], "abc"),
+        true,
+    );
+    assertEquals(
+        objectiveChecksBaselineMatches(baseline, [{ id: "OC1", command: "grep other file.txt" }], "abc"),
+        false,
+    );
+    assertEquals(
+        objectiveChecksBaselineMatches(baseline, [{ id: "OC1", command: "grep needle file.txt" }], "def"),
+        false,
+    );
+    assertEquals(
+        objectiveChecksBaselineMatches({ ...baseline, head: undefined }, [{
+            id: "OC1",
+            command: "grep needle file.txt",
+        }], undefined),
+        false,
+    );
 });
 
 Deno.test("objective-checks module does not import validation modules", async () => {
