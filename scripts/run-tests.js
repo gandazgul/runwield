@@ -20,6 +20,12 @@
  * per slot instead of once per file, which is where the wall-clock cost was.
  * Files sharing a slot run sequentially and clean up after themselves.
  *
+ * DENO_DIR is shared across all slot sandboxes for one run, but it is still a
+ * temp directory owned by this runner rather than the developer's real cache.
+ * The shared cache is prewarmed once with `deno test --no-run` before isolated
+ * children start, so slot-local HOME does not force every child through a
+ * separate cold module cache.
+ *
  * Usage:
  *   deno run -A scripts/run-tests.js                    isolated run of every test file
  *   deno run -A scripts/run-tests.js <deno test args>   single sandboxed `deno test` (subsets, filters)
@@ -49,26 +55,57 @@ async function* findTestFiles(dir) {
 /**
  * @param {string} sandboxRoot
  * @param {string} name
+ * @param {string} denoDir
  * @returns {Promise<Record<string, string>>}
  */
-async function createSandboxEnv(sandboxRoot, name) {
+async function createSandboxEnv(sandboxRoot, name, denoDir) {
     const home = join(sandboxRoot, name);
     await Deno.mkdir(join(home, ".wld"), { recursive: true });
     // WLD_TEST_SANDBOX_HOME is the marker src/constants.js refuses to run without.
-    return { HOME: home, WLD_TEST_SANDBOX_HOME: home, MNEMOSYNE_DB_PATH: join(home, "mnemosyne-test.db") };
+    return {
+        HOME: home,
+        WLD_TEST_SANDBOX_HOME: home,
+        MNEMOSYNE_DB_PATH: join(home, "mnemosyne-test.db"),
+        DENO_DIR: denoDir,
+    };
+}
+
+/**
+ * @param {Record<string, string>} env
+ * @param {string[]} testArgs
+ * @returns {Promise<void>}
+ */
+async function prewarmDenoDir(env, testArgs) {
+    const child = new Deno.Command(Deno.execPath(), {
+        args: ["test", "--no-run", ...testArgs],
+        cwd: REPO_ROOT,
+        env,
+        stdout: "piped",
+        stderr: "piped",
+    });
+    const result = await child.output();
+    if (result.success) return;
+
+    const decoder = new TextDecoder();
+    const output = `${decoder.decode(result.stdout)}${decoder.decode(result.stderr)}`;
+    throw new Error(`Deno cache prewarm failed:\n${output}`);
 }
 
 /**
  * Runs every discovered test file in its own process.
  *
  * @param {string} sandboxRoot
+ * @param {string} denoDir
  * @returns {Promise<number>} process exit code
  */
-async function runIsolatedSuite(sandboxRoot) {
+async function runIsolatedSuite(sandboxRoot, denoDir) {
     /** @type {string[]} */
     const files = [];
     for await (const file of findTestFiles(REPO_ROOT)) files.push(file);
     files.sort();
+
+    const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
+    await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
 
     // Core count, measured: child startup is CPU-bound (module graph loading), so
     // oversubscribing loses time — on a 12-core machine 12 ran in 40.9s, 18 in
@@ -85,7 +122,7 @@ async function runIsolatedSuite(sandboxRoot) {
 
     /** @param {number} slot */
     const worker = async (slot) => {
-        const env = await createSandboxEnv(sandboxRoot, `slot-${slot}`);
+        const env = await createSandboxEnv(sandboxRoot, `slot-${slot}`, denoDir);
         while (queue.length > 0) {
             const file = queue.shift();
             if (!file) return;
@@ -123,6 +160,8 @@ async function runIsolatedSuite(sandboxRoot) {
 }
 
 const sandboxRoot = await Deno.makeTempDir({ prefix: "runwield-test-sandboxes-" });
+const denoDir = join(sandboxRoot, "deno-dir");
+await Deno.mkdir(denoDir, { recursive: true });
 
 // Deliberately not Deno.exit() inside try/finally: Deno.exit terminates without
 // running finally blocks, which left ~600MB of sandboxes behind per run.
@@ -130,15 +169,17 @@ let exitCode = 0;
 try {
     if (Deno.args.length > 0) {
         // Explicit paths or flags: one sandboxed process, arguments passed through.
-        const env = await createSandboxEnv(sandboxRoot, "single");
+        const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
         // Grant full permissions unless the caller passed their own permission
         // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
         // be injected unconditionally. `--deny-*` narrows allow-all safely.
         const hasPermissionFlags = Deno.args.some((arg) =>
             arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
         );
+        const testArgs = hasPermissionFlags ? Deno.args : ["-A", ...Deno.args];
+        await prewarmDenoDir(env, testArgs);
         const child = new Deno.Command(Deno.execPath(), {
-            args: hasPermissionFlags ? ["test", ...Deno.args] : ["test", "-A", ...Deno.args],
+            args: ["test", ...testArgs],
             env,
             stdin: "inherit",
             stdout: "inherit",
@@ -146,7 +187,7 @@ try {
         }).spawn();
         exitCode = (await child.status).code;
     } else {
-        exitCode = await runIsolatedSuite(sandboxRoot);
+        exitCode = await runIsolatedSuite(sandboxRoot, denoDir);
     }
 } finally {
     await Deno.remove(sandboxRoot, { recursive: true }).catch(() => {});
