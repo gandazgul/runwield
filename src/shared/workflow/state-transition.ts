@@ -1066,15 +1066,54 @@ export async function runPlanLifecycleEventTransition<T>(
 
 /**
  * Semantic boundary for applying a Plan review approval/feedback decision.
+ *
+ * Reviewing a Plan that has already run detaches it from its execution
+ * generation, which is two writes in two places: the Plan's own Front Matter and
+ * the worktree registry entry. They commit together or not at all — an approval
+ * that landed while the generation stayed live is a Plan the next execution would
+ * reuse a worktree it no longer owns. Pass `worktreeId` to bring the registry
+ * entry under the same lock and make its abandonment a required effect.
  */
 export async function runPlanReviewDecisionTransition<T>(
-    opts: TransitionOptionsBase & { approved: boolean; decide: (ctx: BaseTransitionContext) => Promise<T> },
+    opts: TransitionOptionsBase & {
+        approved: boolean;
+        decide: (ctx: RollbackTransitionContext) => Promise<T>;
+    },
 ): Promise<TransitionResult> {
-    return await runPlanTransition({
+    const operation = opts.approved ? "plan_review_approved" : "plan_review_feedback";
+    if (!opts.worktreeId) {
+        return await runPlanTransition({
+            projectRoot: opts.projectRoot,
+            planName: opts.planName,
+            operation,
+            expectedRevision: opts.expectedRevision,
+            // No attempt to detach, so this is a single-resource Plan write with no
+            // external effects. The capabilities are still passed, but they refuse
+            // rather than no-op: an effect marked here would be journalled nowhere,
+            // and a rollback registered here would never run.
+            apply: (ctx) =>
+                opts.decide({
+                    ...ctx,
+                    markEffect: () => {
+                        throw new Error(
+                            `${operation} marked an external effect without an attempt resource; pass worktreeId.`,
+                        );
+                    },
+                    registerRollback: () => {
+                        throw new Error(
+                            `${operation} registered a rollback without an attempt resource; pass worktreeId.`,
+                        );
+                    },
+                }),
+        });
+    }
+    return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
-        operation: opts.approved ? "plan_review_approved" : "plan_review_feedback",
+        operation,
+        resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
+        expectedEffects: ["worktree_registry_abandoned"],
         apply: opts.decide,
     });
 }

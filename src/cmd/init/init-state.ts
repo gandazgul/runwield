@@ -8,22 +8,30 @@
  */
 
 import { dirname, join } from "@std/path";
-import { getHomeDir } from "../../constants.js";
+import { getCwd, getHomeDir } from "../../constants.js";
 
-/**
- * Set only by _setTestStatePath. The resolved home path is deliberately not
- * memoized here: HOME can change after this module loads, and caching it once
- * pinned this file to whichever home happened to be current at import time.
- *
- * @type {string | null}
- */
-let STATE_PATH = null;
+interface InitStateEntry {
+    path: string;
+    initOffered: boolean;
+    initDone: boolean;
+    offeredAt: string | null;
+    doneAt: string | null;
+    snipMissingWarningCount?: number;
+    snipMissingWarningLastShownAt?: string | null;
+}
+
+type InitState = Record<string, InitStateEntry>;
+
+// Set only by _setTestStatePath. The resolved home path is deliberately not
+// memoized here: HOME can change after this module loads, and caching it once
+// pinned this file to whichever home happened to be current at import time.
+let STATE_PATH: string | null = null;
 
 /**
  * Allow tests to override the state file path.
  * @param {string | null} path
  */
-export function _setTestStatePath(path) {
+export function _setTestStatePath(path: string | null): void {
     STATE_PATH = path;
 }
 
@@ -31,7 +39,7 @@ export function _setTestStatePath(path) {
  * Resolve the path to the global init-state file.
  * @returns {string}
  */
-function getStatePath() {
+function getStatePath(): string {
     if (STATE_PATH) return STATE_PATH;
     return join(getHomeDir(), ".wld", "init-state.json");
 }
@@ -41,7 +49,7 @@ function getStatePath() {
  * @param {string} input
  * @returns {Promise<string>}
  */
-async function sha256(input) {
+async function sha256(input: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(input);
     const hash = await crypto.subtle.digest("SHA-256", data);
@@ -52,26 +60,14 @@ async function sha256(input) {
 }
 
 /**
- * @typedef {object} InitStateEntry
- * @property {string} path - The clear (unhashed) absolute path this entry refers to.
- * @property {boolean} initOffered
- * @property {boolean} initDone
- * @property {string | null} offeredAt - ISO timestamp when init was offered (or declined), or null.
- * @property {string | null} doneAt - ISO timestamp when init was completed, or null.
- * @property {number} [snipMissingWarningCount] - Number of missing-Snip boot warnings shown for this project.
- * @property {string | null} [snipMissingWarningLastShownAt] - ISO timestamp of the last missing-Snip warning, or null.
- */
-
-/**
  * Read the full state file from disk.
  * Returns an empty object if the file does not exist or is invalid.
- * @returns {Promise<Record<string, InitStateEntry>>}
  */
-async function readState() {
+async function readState(): Promise<InitState> {
     const path = getStatePath();
     try {
         const raw = await Deno.readTextFile(path);
-        const parsed = JSON.parse(raw);
+        const parsed: InitState = JSON.parse(raw);
         if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
             return parsed;
         }
@@ -85,7 +81,7 @@ async function readState() {
  * Write the full state file to disk (synchronous after init completes).
  * @param {Record<string, InitStateEntry>} state
  */
-function writeStateSync(state) {
+function writeStateSync(state: InitState): void {
     const path = getStatePath();
     const dir = dirname(path);
     try {
@@ -100,15 +96,15 @@ function writeStateSync(state) {
  * Get the SHA-256 hash of the current working directory.
  * @returns {Promise<string>}
  */
-export async function getCwdHash() {
-    return await sha256(Deno.cwd());
+export async function getCwdHash(): Promise<string> {
+    return await sha256(getCwd());
 }
 
 /**
  * Get the full init state object.
  * @returns {Promise<Record<string, InitStateEntry>>}
  */
-export async function getInitState() {
+export async function getInitState(): Promise<InitState> {
     return await readState();
 }
 
@@ -116,7 +112,7 @@ export async function getInitState() {
  * Get the init state entry for the current CWD.
  * @returns {Promise<InitStateEntry | undefined>}
  */
-export async function getCwdInitState() {
+export async function getCwdInitState(): Promise<InitStateEntry | undefined> {
     const cwdHash = await getCwdHash();
     const state = await readState();
     return state[cwdHash];
@@ -127,7 +123,7 @@ export async function getCwdInitState() {
  * @param {string} path
  * @returns {InitStateEntry}
  */
-function newEntry(path) {
+function newEntry(path: string): InitStateEntry {
     return {
         path,
         initOffered: false,
@@ -145,8 +141,8 @@ function newEntry(path) {
  * @param {Record<string, InitStateEntry>} state
  * @returns {Promise<InitStateEntry>}
  */
-async function ensureCwdEntry(state) {
-    const cwd = Deno.cwd();
+async function ensureCwdEntry(state: InitState): Promise<InitStateEntry> {
+    const cwd = getCwd();
     const cwdHash = await getCwdHash();
     if (!state[cwdHash]) {
         state[cwdHash] = newEntry(cwd);
@@ -160,7 +156,7 @@ async function ensureCwdEntry(state) {
  * Record that init was offered for the current CWD.
  * @returns {Promise<void>}
  */
-export async function recordInitOffered() {
+export async function recordInitOffered(): Promise<void> {
     const state = await readState();
     const entry = await ensureCwdEntry(state);
     entry.initOffered = true;
@@ -173,7 +169,7 @@ export async function recordInitOffered() {
  * Implicitly marks init as offered as well.
  * @returns {Promise<void>}
  */
-export async function recordInitDone() {
+export async function recordInitDone(): Promise<void> {
     const state = await readState();
     const entry = await ensureCwdEntry(state);
     const now = new Date().toISOString();
@@ -188,7 +184,7 @@ export async function recordInitDone() {
  * Check whether init has been completed for the current CWD.
  * @returns {Promise<boolean>}
  */
-export async function isInitDone() {
+export async function isInitDone(): Promise<boolean> {
     const entry = await getCwdInitState();
     return entry?.initDone === true;
 }
@@ -197,7 +193,7 @@ export async function isInitDone() {
  * Check whether init was ever offered for the current CWD.
  * @returns {Promise<boolean>}
  */
-export async function isInitOffered() {
+export async function isInitOffered(): Promise<boolean> {
     const entry = await getCwdInitState();
     return entry?.initOffered === true;
 }
@@ -208,7 +204,7 @@ export async function isInitOffered() {
  * @param {number} [limit]
  * @returns {Promise<boolean>}
  */
-export async function shouldShowSnipMissingWarning(limit = 3) {
+export async function shouldShowSnipMissingWarning(limit = 3): Promise<boolean> {
     const entry = await getCwdInitState();
     return (entry?.snipMissingWarningCount || 0) < limit;
 }
@@ -218,7 +214,7 @@ export async function shouldShowSnipMissingWarning(limit = 3) {
  *
  * @returns {Promise<void>}
  */
-export async function recordSnipMissingWarningShown() {
+export async function recordSnipMissingWarningShown(): Promise<void> {
     const state = await readState();
     const entry = await ensureCwdEntry(state);
     entry.snipMissingWarningCount = (entry.snipMissingWarningCount || 0) + 1;

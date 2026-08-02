@@ -40,17 +40,18 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  */
 function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan) {
     const response = reviewSurface.submit(request);
-    const plan = typeof reviewedPlan === "string"
+    const editedPlan = typeof reviewedPlan === "string"
         ? reviewedPlan
         : typeof response.plan === "string"
         ? response.plan
-        : typeof request.plan === "string"
-        ? request.plan
-        : "# Plan\n";
+        : undefined;
     const triageMeta = request.triageMeta && typeof request.triageMeta === "object"
         ? /** @type {Record<string, unknown>} */ (request.triageMeta)
         : {};
-    const policy = resolvePlanExecutionPolicy({ ...parsePlanFrontMatter(plan).attrs, ...triageMeta });
+    const policy = resolvePlanExecutionPolicy({
+        ...(editedPlan ? parsePlanFrontMatter(editedPlan).attrs : {}),
+        ...triageMeta,
+    });
     /** @type {"run" | "decompose" | "later" | undefined} */
     const approvalAction = response.approvalAction === "run" || response.approvalAction === "decompose" ||
             response.approvalAction === "later"
@@ -60,7 +61,7 @@ function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan) {
         approved: response.approved,
         feedback: response.feedback,
         approvalAction,
-        plan,
+        ...(editedPlan ? { plan: editedPlan } : {}),
         ...(response.approved && policy.ok
             ? {
                 executionAgent: policy.policy.executionAgent,
@@ -474,7 +475,7 @@ async function runComposedTuiScenario(scenario, options) {
         const runwieldDir = env?.runwieldDir || Deno.env.get("RUNWIELD_HOME") || null;
         const initStatePath = runwieldDir ? join(runwieldDir, "init-state.json") : null;
         if (initStatePath) {
-            const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
+            const { _setTestStatePath } = await import("../../../cmd/init/init-state.ts");
             _setTestStatePath(initStatePath);
         }
         for (const fixture of scenario.initialProjectFiles || []) {

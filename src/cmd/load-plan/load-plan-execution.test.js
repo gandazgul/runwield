@@ -2,7 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { runLoadPlanCommand } from "./index.js";
 
-import { makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
+import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
 import { injectFrontMatter, loadPlan } from "../../plan-store.js";
 import { createGitPort } from "../../shared/git-port.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
@@ -44,35 +44,32 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     selections.push("proceed");
     let executed = false;
 
+    const { projectRoot } = await makePlanProject("plan-a", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "approved",
+    });
+
     await runLoadPlanCommand(["plan-a"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-a"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-a",
-                    path: "plans/plan-a.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(executed, true);
+    // Proceeding is a lifecycle move, not just a call: readiness has to clear on
+    // disk before execution is allowed to mean anything.
+    assertEquals((await loadPlan(projectRoot, "plan-a"))?.attrs.status, "ready_for_work");
 });
 
 Deno.test("runLoadPlanCommand child Planned Change with verified dependencies executes without warning", async () => {
@@ -383,9 +380,16 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
 Deno.test("runLoadPlanCommand validates completed execution against freshly loaded plan content", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("proceed");
-    const runtimeFixture = makeRuntimeFixture();
     /** @type {string | undefined} */
     let validatedPlanContent;
+    const { projectRoot } = await makePlanProject("plan-fresh", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "approved",
+    });
+    const runtimeFixture = makeRuntimeFixture({ cwd: projectRoot });
 
     await runLoadPlanCommand(["plan-fresh"], {
         ...runtimeFixture.context,
@@ -429,7 +433,6 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                 validatedPlanContent = args.planContent;
                 return Promise.resolve();
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });

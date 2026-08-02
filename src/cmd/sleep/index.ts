@@ -3,13 +3,53 @@
  * Sleep command: back up and conservatively optimize project memory.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { basename, dirname, join, resolve } from "@std/path";
 import { AGENTS } from "../../constants.js";
-import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/runtime-preflight.js";
-import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
-import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
+import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
+import { startInteractiveSession } from "../../ui/tui/chat-session.js";
+import { printCommandHelp } from "../help/index.ts";
 import { COMMAND_NAMES } from "../registry.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+
+interface MnemosyneCommandResult {
+    success: boolean;
+    code: number;
+    stdout: Uint8Array;
+    stderr: Uint8Array;
+}
+
+export interface MnemosynePort {
+    ensureAvailable(): Promise<void>;
+    run(args: string[]): Promise<MnemosyneCommandResult>;
+}
+
+interface InteractiveSessionPort {
+    startInteractiveSession(
+        initialRequest: string | null,
+        options: { initialAgentName?: string },
+    ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
+}
+
+interface SleepCommandOptions {
+    uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
+    sessionId?: string;
+    sessionRuntime?: SessionRuntime;
+    mnemosynePort?: MnemosynePort;
+    sessionPort?: InteractiveSessionPort;
+}
+
+const DEFAULT_MNEMOSYNE_PORT: MnemosynePort = {
+    ensureAvailable: ensureMnemosyneBinary,
+    run: (args) =>
+        new Deno.Command("mnemosyne", {
+            args,
+            stdout: "piped",
+            stderr: "piped",
+        }).output(),
+};
+
+const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
 
 /**
  * Inlined sleep prompt content.
@@ -75,40 +115,22 @@ Delete with \`mnemosyne delete [memory id]\` and add with \`mnemosyne add [memor
 `;
 
 /**
- * @typedef {Object} MnemosyneExportDependencies
- * @property {(path: string, options?: Deno.MkdirOptions) => Promise<void>} [mkdir]
- * @property {(command: string, args: string[]) => Promise<{ success: boolean, code: number, stdout: Uint8Array, stderr: Uint8Array }>} [commandOutput]
- * @property {(path: string) => Promise<Deno.FileInfo>} [stat]
- */
-
-/**
  * Export one Mnemosyne collection to an explicit recovery path and verify the file exists.
- *
- * @param {string} collectionName
- * @param {string} outputPath
- * @param {MnemosyneExportDependencies} [deps]
- * @returns {Promise<void>}
  */
-export async function exportMnemosyneCollection(collectionName, outputPath, deps = {}) {
-    const mkdir = deps.mkdir || Deno.mkdir;
-    const stat = deps.stat || Deno.stat;
-    const commandOutput = deps.commandOutput || ((command, args) =>
-        new Deno.Command(command, {
-            args,
-            stdout: "piped",
-            stderr: "piped",
-        }).output());
-
-    await mkdir(dirname(outputPath), { recursive: true });
-    const args = [
+export async function exportMnemosyneCollection(
+    collectionName: string,
+    outputPath: string,
+    port: Pick<MnemosynePort, "run"> = DEFAULT_MNEMOSYNE_PORT,
+): Promise<void> {
+    await Deno.mkdir(dirname(outputPath), { recursive: true });
+    const result = await port.run([
         "export",
         "--name",
         collectionName,
         "--no-embeddings",
         "--output",
         outputPath,
-    ];
-    const result = await commandOutput("mnemosyne", args);
+    ]);
     if (!result.success) {
         const stderr = new TextDecoder().decode(result.stderr).trim();
         throw new Error(stderr || `mnemosyne export failed with exit code ${result.code}`);
@@ -116,7 +138,7 @@ export async function exportMnemosyneCollection(collectionName, outputPath, deps
 
     let outputInfo;
     try {
-        outputInfo = await stat(outputPath);
+        outputInfo = await Deno.stat(outputPath);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Mnemosyne reported success but did not create the backup: ${message}`);
@@ -127,28 +149,9 @@ export async function exportMnemosyneCollection(collectionName, outputPath, deps
 }
 
 /**
- * @typedef {Object} CommandDependencies
- * @property {typeof parseArgsFn} [parseArgs]
- * @property {typeof printCommandHelpFn} [printCommandHelp]
- * @property {typeof ensureMnemosyneBinaryFn} [ensureMnemosyneBinary]
- * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
- * @property {typeof exportMnemosyneCollection} [exportMnemosyneCollection]
- * @property {() => Date} [now]
- * @property {() => string} [randomUUID]
- */
-
-/**
  * Handle `sleep` command.
- *
- * @param {string[]} argv
- * @param {import('../registry.js').CommandContext & { __testDeps?: CommandDependencies }} [options]
  */
-export async function runSleepCommand(argv, options = {}) {
-    const deps = /** @type {CommandDependencies} */ ((/** @type {any} */ (options)).__testDeps || {});
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const printCommandHelp = deps.printCommandHelp || printCommandHelpFn;
-    const startInteractiveSession = deps.startInteractiveSession || startInteractiveSessionFn;
-
+export async function runSleepCommand(argv: string[], options: SleepCommandOptions = {}): Promise<void> {
     const parsed = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
@@ -161,7 +164,9 @@ export async function runSleepCommand(argv, options = {}) {
     }
 
     if (!options.uiAPI) {
-        await startInteractiveSession("/sleep", { initialAgentName: AGENTS.ENGINEER });
+        await (options.sessionPort || DEFAULT_SESSION_PORT).startInteractiveSession("/sleep", {
+            initialAgentName: AGENTS.ENGINEER,
+        });
         return;
     }
 
@@ -173,23 +178,20 @@ export async function runSleepCommand(argv, options = {}) {
     const snapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
     if (!snapshot?.sessionManagerId) throw new Error("Sleep mode requires a persisted root session id.");
 
-    const ensureMnemosyneBinary = deps.ensureMnemosyneBinary || ensureMnemosyneBinaryFn;
-    const exportCollection = deps.exportMnemosyneCollection || exportMnemosyneCollection;
-    const now = deps.now || (() => new Date());
-    const randomUUID = deps.randomUUID || crypto.randomUUID.bind(crypto);
-    await ensureMnemosyneBinary();
+    const mnemosyne = options.mnemosynePort || DEFAULT_MNEMOSYNE_PORT;
+    await mnemosyne.ensureAvailable();
 
     const cwd = snapshot.cwd;
     const rawCollectionName = basename(cwd) || "default";
     const collectionName = rawCollectionName === "global" ? "default" : rawCollectionName;
     const artifactDir = resolve(sessionRuntime.getSessionMemoryBackupDir(runtimeSessionId));
-    const timestamp = now().toISOString().replace(/[:.]/g, "-");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupPath = join(
         artifactDir,
-        `${collectionName}.sleep-backup-${timestamp}-${randomUUID()}.jsonl`,
+        `${collectionName}.sleep-backup-${timestamp}-${crypto.randomUUID()}.jsonl`,
     );
 
-    await exportCollection(collectionName, backupPath);
+    await exportMnemosyneCollection(collectionName, backupPath, mnemosyne);
     options.uiAPI.appendSystemMessage(`[RunWield] Memory backup created before sleep mode: ${backupPath}`);
 
     await sessionRuntime.switchAgent(runtimeSessionId, { agentName: AGENTS.ENGINEER });

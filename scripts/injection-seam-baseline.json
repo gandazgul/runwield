@@ -1,37 +1,10 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
-        "src/cmd/agents/index.js": {
-            "seams": [
-                "exit",
-                "listAvailableAgents",
-                "printCommandHelp",
-                "startInteractiveSession"
-            ],
-            "machinery": []
-        },
-        "src/cmd/init/index.js": {
-            "seams": [
-                "createRuntime",
-                "cwd",
-                "extractBundledSkills",
-                "getModelRegistry",
-                "getSettingsManager",
-                "isEmptyProjectDirectory",
-                "isInitDone",
-                "parseArgs",
-                "printCommandHelp",
-                "recordInitDone",
-                "recordInitOffered",
-                "startInteractiveSession"
-            ],
-            "machinery": []
-        },
         "src/cmd/load-plan/index.js": {
             "seams": [
                 "archivePlan",
                 "autoGenerateWorkRecordForCompletedPlan",
-                "checkpointExecutionWorktree",
                 "decidePostExecution",
                 "decidePostPlanning",
                 "executePlan",
@@ -47,50 +20,20 @@
                 "listCommitsTouchingPathsSince",
                 "listPlans",
                 "loadPlan",
-                "mergeExecutionWorktree",
                 "parseArgs",
-                "preparePrimaryPlanPathForMerge",
                 "printCommandHelp",
                 "probeGitRepository",
-                "recordPlanEvent",
                 "recordWorkflowMetric",
                 "resolvePlan",
                 "resolveSiblingChildPlanDependencies",
                 "resolveValidationExecutionContext",
-                "restorePrimaryPlanPathAfterMergeFailure",
                 "restoreWorktreeTree",
                 "runPlanningAgent",
                 "runSlicerAgent",
                 "runValidationLoop",
                 "setTerminalTitleForName",
                 "shouldCleanupMergedWorktrees",
-                "stageValidationPassedInExecutionWorktree",
-                "startInteractiveSession",
-                "updatePlanFrontMatter"
-            ],
-            "machinery": [
-                "checkpointExecutionWorktree",
-                "mergeExecutionWorktree",
-                "preparePrimaryPlanPathForMerge",
-                "recordPlanEvent",
-                "restorePrimaryPlanPathAfterMergeFailure",
-                "stageValidationPassedInExecutionWorktree",
-                "updatePlanFrontMatter"
-            ]
-        },
-        "src/cmd/plans/index.js": {
-            "seams": [
-                "listPlans",
-                "parseArgs",
-                "printCommandHelp",
-                "runPlansArchiveCommand",
-                "runPlansDoctorCommand",
-                "runPlansPullCommand",
-                "runPlansPushCommand",
-                "runPlansReadCommand",
-                "runPlansShareCommand",
-                "runPlansUiCommand",
-                "runPlansUnshareCommand"
+                "startInteractiveSession"
             ],
             "machinery": []
         },
@@ -183,59 +126,6 @@
                 "now",
                 "parseArgs",
                 "resolveCompatibleSecretRecord"
-            ],
-            "machinery": []
-        },
-        "src/cmd/router/index.js": {
-            "seams": [
-                "printCommandHelp",
-                "startInteractiveSession"
-            ],
-            "machinery": []
-        },
-        "src/cmd/sleep/index.js": {
-            "seams": [
-                "commandOutput",
-                "ensureMnemosyneBinary",
-                "exportMnemosyneCollection",
-                "mkdir",
-                "now",
-                "parseArgs",
-                "printCommandHelp",
-                "randomUUID",
-                "startInteractiveSession",
-                "stat"
-            ],
-            "machinery": []
-        },
-        "src/cmd/update/index.js": {
-            "seams": [
-                "command",
-                "currentVersion",
-                "env",
-                "error",
-                "execPath",
-                "exit",
-                "fetch",
-                "log",
-                "makeTempDir",
-                "remove",
-                "writeTextFile"
-            ],
-            "machinery": []
-        },
-        "src/cmd/wr/index.js": {
-            "seams": [
-                "confirmBackfill",
-                "listWorkRecords",
-                "parseArgs",
-                "previewWorkRecordBackfill",
-                "printCommandHelp",
-                "readWorkRecordById",
-                "rebuildWorkRecordIndex",
-                "runWorkRecordBackfill",
-                "searchWorkRecords",
-                "startArtifactReadSurface"
             ],
             "machinery": []
         },
@@ -383,28 +273,6 @@
                 "recordWorkflowMetric",
                 "requestPlanReview",
                 "stat"
-            ],
-            "machinery": []
-        },
-        "src/ui/tui/boot-banner.js": {
-            "seams": [
-                "getSettingsManager",
-                "hasSnipBinary",
-                "listLoadedAgentMdFiles",
-                "listSkills",
-                "recordSnipMissingWarningShown",
-                "shouldShowSnipMissingWarning"
-            ],
-            "machinery": []
-        },
-        "src/ui/tui/ui-api-overrides.js": {
-            "seams": [
-                "Image",
-                "ModelSelectorComponent",
-                "getActiveModelState",
-                "getModelRegistry",
-                "getModelRuntime",
-                "getSettingsManager"
             ],
             "machinery": []
         }

@@ -3,38 +3,31 @@ import { runLoadPlanCommand } from "./index.js";
 
 import { AGENTS } from "../../constants.js";
 
-import { makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
+import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
+import { loadPlan } from "../../plan-store.js";
+
+const VERIFIED_ATTRS = /** @type {const} */ ({
+    classification: "FEATURE",
+    complexity: "LOW",
+    summary: "s",
+    affectedPaths: [],
+    status: "verified",
+});
 
 Deno.test("runLoadPlanCommand verified plan review path records review_reopened", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review", "resume");
     let lifecycleCalled = false;
-    /** @type {string | null} */
-    let lifecycleEvent = null;
+    // The event only matters because it moves the Plan, so the assertion is on
+    // the Plan. A stand-in writer recorded the name of a write it never made.
+    const { projectRoot } = await makePlanProject("plan-verified-review", { ...VERIFIED_ATTRS });
 
     await runLoadPlanCommand(["plan-verified-review"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-verified-review"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-verified-review",
-                    path: "plans/plan-verified-review.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "verified",
-                    },
-                }),
-            recordPlanEvent: (/** @type {{ event: string }} */ args) => {
-                lifecycleEvent = args.event;
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             runPlanningAgent: () => {
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-verified-review" });
@@ -43,7 +36,7 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
         }),
     });
 
-    assertEquals(lifecycleEvent, "review_reopened");
+    assertEquals((await loadPlan(projectRoot, "plan-verified-review"))?.attrs.status, "feedback");
     assertEquals(lifecycleCalled, true);
 });
 
@@ -92,31 +85,15 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
     selections.push("cancel");
     let executed = false;
     let lifecycleCalled = false;
-    let lifecycleEvents = 0;
+    const { projectRoot } = await makePlanProject("plan-verified-cancel", { ...VERIFIED_ATTRS });
+    const before = await loadPlan(projectRoot, "plan-verified-cancel");
 
     await runLoadPlanCommand(["plan-verified-cancel"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-verified-cancel"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-verified-cancel",
-                    path: "plans/plan-verified-cancel.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "verified",
-                    },
-                }),
-            recordPlanEvent: () => {
-                lifecycleEvents += 1;
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
@@ -129,7 +106,11 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
         }),
     });
 
-    assertEquals(lifecycleEvents, 0);
+    // Canceling must not write. Counting calls to a stand-in could not tell a
+    // no-op write from no write at all; an unchanged revision can.
+    const after = await loadPlan(projectRoot, "plan-verified-cancel");
+    assertEquals(after?.attrs.status, "verified");
+    assertEquals(after?.revision, before?.revision);
     assertEquals(executed, false);
     assertEquals(lifecycleCalled, false);
 });

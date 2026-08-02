@@ -9,7 +9,7 @@ import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { GenerationGuard } from "./generation-guard.js";
 import { basename } from "@std/path";
 import { setTerminalTitleForName } from "./terminal-title.js";
-import { notifyRunWieldEventQuietly } from "./system-notifications.js";
+import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const OPERATOR_AGENT = "operator";
 

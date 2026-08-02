@@ -183,7 +183,7 @@ async function runChild(request) {
         for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
         Deno.chdir(env.projectRoot);
         Deno.env.set("WLD_GOLDEN_TUI_CHILD", "1");
-        const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
+        const { _setTestStatePath } = await import("../../../cmd/init/init-state.ts");
         _setTestStatePath(join(env.runwieldDir, "init-state.json"));
         const { runGoldenScenario } = await import("./scenario-runner.js");
         const moduleUrl = request.scenarioModule.startsWith("file:")

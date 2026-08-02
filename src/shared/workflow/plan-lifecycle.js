@@ -1252,3 +1252,21 @@ export function isEpicPlan(attrs) {
 export function isExecutablePlanStatus(status) {
     return status === "ready_for_work";
 }
+
+/**
+ * Whether a review decision can be recorded from `status` as-is.
+ *
+ * Any other status means the Plan has already passed readiness or execution, so
+ * recording a decision requires first detaching it from that generation — a
+ * `review_reopened` transition covering both the Plan and its worktree registry
+ * entry. This lives here, beside `ALLOWED_FROM`, because it is the same rule:
+ * `review_approved` and `review_feedback` are legal only from these statuses,
+ * and two modules keeping private copies of it is how the reopen came to run
+ * twice, once against a stale status.
+ *
+ * @param {string} status
+ * @returns {boolean}
+ */
+export function isPlanReviewableWithoutReopen(status) {
+    return /** @type {readonly string[]} */ (ALLOWED_FROM.review_approved).includes(status);
+}

@@ -4,14 +4,14 @@
  */
 
 import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
-import { runPlansCommand } from "./plans/index.js";
-import { runWorkRecordsCommand } from "./wr/index.js";
-import { runRouterCommand } from "./router/index.js";
-import { runSleepCommand } from "./sleep/index.js";
+import { runPlansCommand } from "./plans/index.ts";
+import { runWorkRecordsCommand } from "./wr/index.ts";
+import { runRouterCommand } from "./router/index.ts";
+import { runSleepCommand } from "./sleep/index.ts";
 import { runHelpCommand } from "./help/index.js";
-import { getAgentCompletions, runAgentsCommand } from "./agents/index.js";
+import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
 import { getModelCompletions, runModelsCommand } from "./models/index.ts";
-import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.js";
+import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.ts";
 import { runQuitCommand } from "./quit/index.ts";
 import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.js";
 import { runExportCommand } from "./export/index.js";
@@ -19,9 +19,9 @@ import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
 import { runSessionCommand } from "./session/index.js";
 import { runContextCommand } from "./context/index.js";
-import { runShareCommand } from "./share/index.js";
+import { runShareCommand } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
-import { runInitCommand } from "./init/index.js";
+import { runInitCommand } from "./init/index.ts";
 import { runThemeCommand } from "./theme/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
@@ -30,7 +30,7 @@ import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
-import { runUpdateCommand } from "./update/index.js";
+import { runUpdateCommand } from "./update/index.ts";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
 import { runAcpCommand } from "./acp/index.js";
 import { runWorkspaceCommand } from "./workspace/index.ts";
@@ -95,7 +95,6 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {boolean} [skipPostLoginSetup]
- * @property {Record<string, unknown>} [__testDeps]
  */
 
 /**
@@ -437,7 +436,7 @@ export const commandRegistry = {
             `${bin("wr list --all")}`,
             `${bin("wr search <query>")}`,
             `${bin("wr search <query> --all")}`,
-            `${bin("wr read <recordId>")}`,
+            `${bin("wr read <recordId> [--no-open]")}`,
             `${bin("wr index rebuild")}`,
             `${bin("wr backfill")}`,
             `${bin("wr backfill --dry-run")}`,
@@ -447,7 +446,7 @@ export const commandRegistry = {
         notes: [
             "Default list/search behavior includes current usable Work Records only: approved, non-archived, non-superseded records.",
             "Use wr search --all or wr list --all for maintenance inspection of draft, pending, superseded, or archived records with warnings.",
-            "Use wr read <recordId> to open canonical Markdown by stable ID in a local read-only browser view, independent of file moves.",
+            "Use wr read <recordId> to open canonical Markdown by stable ID in a local read-only browser view, independent of file moves; --no-open prints the URL without launching a browser.",
             "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemosyne collection.",
             "Manual create remains deferred to later Work Records slices.",
         ],

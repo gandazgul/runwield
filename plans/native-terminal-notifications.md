@@ -74,10 +74,9 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T09:29:18-04:00"
-updatedAt: "2026-08-02T16:09:26.551Z"
-status: "implemented"
+updatedAt: "2026-08-02T16:26:02.067Z"
+status: "validated_ci"
 origin: "internal"
-failureReason: "- Focus report filtering leaks split ESC[I/ESC[O sequences into TUI input\n  Plan: `src/ui/tui/terminal-focus-state.ts` must filter `ESC [ I` and `ESC [ O` from terminal input before pi-tui/editor input receives them, update focus state from those reports, and pass non-focus input through unchanged/in order.\n  Evidence: `src/ui/tui/terminal-focus-state.ts` lines 39-42 and 70-88: `filterInput` calls `filterFocusReportInput` on only the current `data` chunk, and `filterFocusReportInput` appends any character that is not the start of a complete `FOCUS_IN`/`FOCUS_OUT` in that same chunk. If the terminal delivers `\"\\x1b[\"` and then `\"I\"` (or `\"O\"`) in separate input chunks, the escape bytes are forwarded as normal input and the focus state is not updated, violating the required focus-report filtering."
 implementedAt: "2026-08-02T14:12:11.124Z"
 userVerifiedAt: null
 executionReport: "- Implemented native terminal OSC notifications in `src/ui/tui/system-notifications.ts`: Kitty OSC 99 (`o=unfocused`), WezTerm/Ghostty OSC 777, iTerm2 OSC 9, unsupported BEL fallback, text sanitization, focused-terminal suppression, and `suppressWhenFocused` default `true`; command-based notifier helpers and imports were removed.\n- Added `src/ui/tui/terminal-focus-state.ts` and wired production TUI lifecycle cleanup to enable/disable xterm focus reporting and filter focus input; explicit test pairs stay opt-in, and Golden TUI env skips focus-reporting bytes.\n- Updated runtime/slash-dispatch imports and `docs/settings.md`; `scripts/injection-seam-baseline.json` was not changed because `deno task seams:check` still holds the existing baseline.\n- Test coverage changed from 19 replaced system-notification JS tests to 21 TS tests (+2): command-delivery tests for terminal-notifier grouping, osascript fallback, sender/activation scripts, exact-tab activation, command failure fallback, and desktop delivery were replaced because those command behaviors no longer exist; defaults/settings, terminal identity, Golden suppression, disabled/unknown events, bell behavior, compaction text, context text, write failures, protocol selection, sanitization, focus suppression, and unsupported fallback were rewritten against the native OSC/BEL shape; five new focus-state tests cover enable/disable, state transitions, filtering, passthrough, and idempotent disposal.\n- Verification passed: targeted tests (`deno run -A scripts/run-tests.js src/ui/tui/system-notifications.test.ts src/ui/tui/terminal-focus-state.test.ts`), objective checks OC1-OC3, `deno task check`, `deno task lint`, `deno task seams:check`, and rerun of initially failing golden/workspace files.\n- Verification did not pass cleanly overall: final `deno task test` failed on `src/ui/tui/golden-scenarios/concurrent-workflow.test.ts` with a Golden child idle timeout after 120000ms, although that file passed when rerun with the other initially failing files.\n- Manual terminal checks in iTerm2, Ghostty, WezTerm, Kitty, and Terminal.app were not run in this environment; native click-to-focus remains manually unverified."
@@ -91,7 +90,7 @@ worktreeBranch: "runwield/worktree/native-terminal-notifications-00cfd77f"
 worktreeBaseBranch: "main"
 worktreeStatus: "validation_failed"
 validationCiAttempts: 0
-validationSemanticRounds: 1
+validationSemanticRounds: 2
 ---
 
 # Native Terminal Notifications

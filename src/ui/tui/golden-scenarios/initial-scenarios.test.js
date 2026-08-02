@@ -147,7 +147,7 @@ Deno.test("golden composition cleans up partial startup failure", async () => {
         try {
             for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
             Deno.chdir(env.projectRoot);
-            const { _setTestStatePath } = await import("../../../cmd/init/init-state.js");
+            const { _setTestStatePath } = await import("../../../cmd/init/init-state.ts");
             _setTestStatePath(join(env.runwieldDir, "init-state.json"));
             const { createInteractiveTuiComposition } = await import("../chat-session.js");
             await assertRejects(

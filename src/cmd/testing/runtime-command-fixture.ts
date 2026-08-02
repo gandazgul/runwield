@@ -24,6 +24,7 @@ export async function withRuntimeCommandFixture(
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+        const previousMnemosyneDbPath = Deno.env.get("MNEMOSYNE_DB_PATH");
         const previousCwd = Deno.cwd();
         const previousExitCode = Deno.exitCode;
         const fixtureRoot = await Deno.makeTempDir({ prefix });
@@ -78,6 +79,7 @@ export async function withRuntimeCommandFixture(
         try {
             Deno.env.set("HOME", homeDir);
             Deno.env.set("WLD_TEST_SANDBOX_HOME", homeDir);
+            Deno.env.set("MNEMOSYNE_DB_PATH", join(fixtureRoot, "mnemosyne.db"));
             Deno.chdir(canonicalAlternateRoot);
             Deno.exitCode = 0;
             __resetSettingsForTests();
@@ -100,6 +102,8 @@ export async function withRuntimeCommandFixture(
             else Deno.env.set("HOME", previousHome);
             if (previousSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             else Deno.env.set("WLD_TEST_SANDBOX_HOME", previousSandboxHome);
+            if (previousMnemosyneDbPath === undefined) Deno.env.delete("MNEMOSYNE_DB_PATH");
+            else Deno.env.set("MNEMOSYNE_DB_PATH", previousMnemosyneDbPath);
             Deno.exitCode = previousExitCode;
             await Deno.remove(fixtureRoot, { recursive: true }).catch(() => {});
         }

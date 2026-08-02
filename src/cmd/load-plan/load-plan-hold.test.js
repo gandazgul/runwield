@@ -4,125 +4,100 @@ import { runLoadPlanCommand } from "./index.js";
 import { findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 
-import { git, makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
+import { git, makePlanProject, makeRuntimeContext, makeUi } from "./load-plan-test-helpers.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 
 Deno.test("runLoadPlanCommand draft Planned Change can be put on hold", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("hold");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("hold-me", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "draft",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    });
 
     await runLoadPlanCommand(["hold-me"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["hold-me"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "hold-me",
-                    path: "plans/hold-me.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "draft",
-                        updatedAt: "2026-01-01T00:00:00.000Z",
-                    },
-                }),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "on_hold", heldFromStatus: "draft" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "plan_held");
-    assertEquals(/** @type {any} */ (recorded).details.holdStalenessBaseline, "2026-01-01T00:00:00.000Z");
+    // The staleness baseline is what a later Resume Check compares against, so
+    // it has to survive the write — not merely be present in the call.
+    const held = await loadPlan(projectRoot, "hold-me");
+    assertEquals(held?.attrs.status, "on_hold");
+    assertEquals(held?.attrs.heldFromStatus, "draft");
+    assertEquals(held?.attrs.holdStalenessBaseline, "2026-01-01T00:00:00.000Z");
     assertEquals(messages.some((message) => message.includes("Plan put on hold")), true);
 });
 
 Deno.test("runLoadPlanCommand on-hold plan resumes after passing Resume Check", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("resume", "cancel");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("held-plan", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "on_hold",
+        heldFromStatus: "draft",
+    });
 
     await runLoadPlanCommand(["held-plan"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-plan"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-plan",
-                    path: "plans/held-plan.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "on_hold",
-                        heldFromStatus: "draft",
-                    },
-                }),
             listCommitsTouchingPathsSince: () => Promise.resolve([]),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({
-                    status: "draft",
-                    heldFromStatus: null,
-                    heldAt: null,
-                    holdReason: null,
-                    holdStalenessBaseline: null,
-                });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "hold_resumed");
+    // Resuming has to land the Plan back on the status it was held from and
+    // clear the hold bookkeeping, or the next Resume Check reads stale fields.
+    const resumed = await loadPlan(projectRoot, "held-plan");
+    assertEquals(resumed?.attrs.status, "draft");
+    assertEquals(resumed?.attrs.heldFromStatus ?? null, null);
+    assertEquals(resumed?.attrs.holdStalenessBaseline ?? null, null);
     assertEquals(messages.some((message) => message.includes("Resume Check")), true);
 });
 
 Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "confirm");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("held-reset", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "on_hold",
+        heldFromStatus: "implemented",
+    });
 
     await runLoadPlanCommand(["held-reset"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-reset"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-reset",
-                    path: "plans/held-reset.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "on_hold",
-                        heldFromStatus: "implemented",
-                    },
-                }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "draft", heldFromStatus: null });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "hold_reset_to_draft");
+    // Reset drops the plan all the way back to draft rather than to the status
+    // it was held from — the distinction the event name alone never showed.
+    const reset = await loadPlan(projectRoot, "held-reset");
+    assertEquals(reset?.attrs.status, "draft");
+    assertEquals(reset?.attrs.heldFromStatus ?? null, null);
 });
 
 Deno.test("runLoadPlanCommand blocks child Planned Change when parent Epic is on hold", async () => {
@@ -176,27 +151,20 @@ Deno.test("runLoadPlanCommand blocks child Planned Change when parent Epic is on
 Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("hold", "confirm");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("epic-hold", {
+        classification: "PROJECT",
+        complexity: "HIGH",
+        summary: "epic",
+        affectedPaths: [],
+        status: "ready_for_work",
+    });
 
     await runLoadPlanCommand(["epic-hold"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic-hold"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "epic-hold",
-                    path: "plans/epic-hold.md",
-                    body: "epic body",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "epic",
-                        affectedPaths: [],
-                        status: "ready_for_work",
-                    },
-                }),
             findPlansByParent: () =>
                 Promise.resolve([
                     {
@@ -206,15 +174,13 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
                         attrs: { status: "draft", classification: "PLANNED_CHANGE", summary: "child" },
                     },
                 ]),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "on_hold", heldFromStatus: "ready_for_work" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "plan_held");
+    const epic = await loadPlan(projectRoot, "epic-hold");
+    assertEquals(epic?.attrs.status, "on_hold");
+    assertEquals(epic?.attrs.heldFromStatus, "ready_for_work");
     assertEquals(
         messages.some((message) => message.includes("Child Plans will be hidden/blocked")),
         true,
@@ -224,92 +190,66 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
 Deno.test("runLoadPlanCommand child Planned Change can be put on hold with child-only warning", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("hold", "confirm");
-    let recorded = null;
+    // Both Plans are real so the parent lookup and the child's hold write hit the
+    // same store: holding a child must not disturb the Epic above it.
+    const { projectRoot } = await makePlanProject("epic", {
+        classification: "PROJECT",
+        complexity: "HIGH",
+        summary: "epic",
+        affectedPaths: [],
+        status: "ready_for_work",
+    });
+    await savePlan(projectRoot, "epic/child-hold", "# child", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "child",
+        affectedPaths: [],
+        status: "draft",
+        parentPlan: "epic",
+    });
 
     await runLoadPlanCommand(["epic/child-hold"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic/child-hold"] }),
-            /** @param {string} _cwd @param {string} name */
-            resolvePlan: (_cwd, name) =>
-                Promise.resolve(
-                    name === "epic"
-                        ? {
-                            planName: "epic",
-                            path: "plans/epic.md",
-                            body: "epic body",
-                            attrs: {
-                                classification: "PROJECT",
-                                complexity: "HIGH",
-                                summary: "epic",
-                                affectedPaths: [],
-                                status: "ready_for_work",
-                            },
-                        }
-                        : {
-                            planName: "epic/child-hold",
-                            path: "plans/epic/child-hold.md",
-                            body: "child body",
-                            attrs: {
-                                classification: "PLANNED_CHANGE",
-                                complexity: "LOW",
-                                summary: "child",
-                                affectedPaths: [],
-                                status: "draft",
-                                parentPlan: "epic",
-                            },
-                        },
-                ),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "on_hold", heldFromStatus: "draft" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "plan_held");
+    assertEquals((await loadPlan(projectRoot, "epic/child-hold"))?.attrs.status, "on_hold");
+    assertEquals((await loadPlan(projectRoot, "epic"))?.attrs.status, "ready_for_work");
     assertEquals(messages.some((message) => message.includes("Only this child Planned Change will be held")), true);
 });
 
 Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", async () => {
     const { uiAPI, selections, messages, prompts } = makeUi();
     selections.push("resume", "keep", "cancel");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("held-warning", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: ["src/a.js"],
+        status: "on_hold",
+        heldFromStatus: "ready_for_work",
+        holdStalenessBaseline: "2026-01-01T00:00:00.000Z",
+    });
 
     await runLoadPlanCommand(["held-warning"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-warning"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-warning",
-                    path: "plans/held-warning.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: ["src/a.js"],
-                        status: "on_hold",
-                        heldFromStatus: "ready_for_work",
-                        holdStalenessBaseline: "2026-01-01T00:00:00.000Z",
-                    },
-                }),
             listCommitsTouchingPathsSince: () => Promise.resolve([{ hash: "abc1234", subject: "change", author: "A" }]),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "ready_for_work" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(recorded, null);
+    // Keeping the hold means the Plan is still on hold, not merely that no
+    // stand-in was called.
+    assertEquals((await loadPlan(projectRoot, "held-warning"))?.attrs.status, "on_hold");
     assertEquals(messages.some((message) => message.includes("Resume Check")), true);
     assertEquals(
         prompts.some((prompt) => prompt.options.some((option) => option.label === "Keep on hold")),
@@ -320,79 +260,61 @@ Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", asy
 Deno.test("runLoadPlanCommand on-hold resume warning can proceed", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("resume", "proceed", "cancel");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("held-warning-proceed", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: ["src/a.js"],
+        status: "on_hold",
+        heldFromStatus: "ready_for_work",
+        holdStalenessBaseline: "2026-01-01T00:00:00.000Z",
+    });
 
     await runLoadPlanCommand(["held-warning-proceed"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-warning-proceed"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-warning-proceed",
-                    path: "plans/held-warning-proceed.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: ["src/a.js"],
-                        status: "on_hold",
-                        heldFromStatus: "ready_for_work",
-                        holdStalenessBaseline: "2026-01-01T00:00:00.000Z",
-                    },
-                }),
             listCommitsTouchingPathsSince: () => Promise.resolve([{ hash: "abc1234", subject: "change", author: "A" }]),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "ready_for_work" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "hold_resumed");
+    // Proceeding past the warning restores the held-from status, not draft.
+    assertEquals((await loadPlan(projectRoot, "held-warning-proceed"))?.attrs.status, "ready_for_work");
 });
 
 Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("resume", "cancel");
-    let recorded = null;
+    const { projectRoot } = await makePlanProject("held-fail", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "on_hold",
+        heldFromStatus: "implemented",
+        worktreeId: "missing-worktree",
+        worktreeStatus: "in_progress",
+    });
 
     await runLoadPlanCommand(["held-fail"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-fail"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-fail",
-                    path: "plans/held-fail.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "on_hold",
-                        heldFromStatus: "implemented",
-                        worktreeId: "missing-worktree",
-                        worktreeStatus: "in_progress",
-                    },
-                }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "implemented" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(recorded, null);
+    // A failed Resume Check must leave the hold intact on disk.
+    const held = await loadPlan(projectRoot, "held-fail");
+    assertEquals(held?.attrs.status, "on_hold");
+    assertEquals(held?.attrs.heldFromStatus, "implemented");
     assertEquals(messages.some((message) => message.includes("Resume Check failed")), true);
 });
 
@@ -416,9 +338,20 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
         worktreeRoot,
     });
 
+    await savePlan(projectRoot, "held-delete-worktree", "# held", {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "on_hold",
+        heldFromStatus: "implemented",
+        worktreeId: worktree.id,
+        worktreePath: worktree.path,
+        worktreeBranch: worktree.branch,
+    });
+
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "reset_delete", "confirm");
-    let recorded = null;
 
     await runLoadPlanCommand(["held-delete-worktree"], {
         ...makeRuntimeContext({ cwd: projectRoot }),
@@ -426,23 +359,6 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-delete-worktree"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "held-delete-worktree",
-                    path: "plans/held-delete-worktree.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PLANNED_CHANGE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "on_hold",
-                        heldFromStatus: "implemented",
-                        worktreeId: worktree.id,
-                        worktreePath: worktree.path,
-                        worktreeBranch: worktree.branch,
-                    },
-                }),
             findWorktreeById: () =>
                 Promise.resolve({
                     id: worktree.id,
@@ -451,15 +367,13 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                     status: "in_progress",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            recordPlanEvent: (/** @type {any} */ args) => {
-                recorded = args;
-                return Promise.resolve({ status: "draft", heldFromStatus: null });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(/** @type {any} */ (recorded).event, "hold_reset_to_draft");
+    const reset = await loadPlan(projectRoot, "held-delete-worktree");
+    assertEquals(reset?.attrs.status, "draft");
+    assertEquals(reset?.attrs.heldFromStatus ?? null, null);
     // The worktree is really gone from Git, not merely reported as removed.
     assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktree.path), false);
     // The registry itself records the abandonment, rather than a stand-in recording

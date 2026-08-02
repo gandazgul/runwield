@@ -1,4 +1,5 @@
 import { AGENTS, getCwd } from "../../constants.js";
+import { savePlan } from "../../plan-store.js";
 
 /**
  * @typedef {Object} SlicerTriageMeta
@@ -71,13 +72,9 @@ export function makeRuntimeFixture(options = {}) {
     const sessionId = options.sessionId || "load-plan-test";
     // Lifecycle operations lock and journal under the session cwd, so a test whose
     // cwd is the developer's checkout writes Plan locks and recovery journals into
-    // it. Any test that owns a project on disk must pass `cwd` so its transactions
-    // land there instead.
-    //
-    // The default is still the process cwd because the tests that fake `resolvePlan`
-    // never build a project at all, and the real transaction needs a Plan file to
-    // read. Converting those to real fixtures is the remaining half of this cleanup;
-    // until then they run against the checkout.
+    // it. Every test that drives a lifecycle write now passes a `cwd` from
+    // `makePlanProject`. The process-cwd default is left for the handful of tests
+    // that only read a faked Plan and never write, and it should not gain new users.
     const cwd = options.cwd || getCwd();
     const state = {
         activeAgent: options.activeAgent || AGENTS.ROUTER,
@@ -145,6 +142,23 @@ export function makeRuntimeContext(options = {}) {
     return makeRuntimeFixture(options).context;
 }
 
-export function noOpRecordPlanEvent() {
-    return Promise.resolve(/** @type {any} */ ({}));
+/**
+ * Build a throwaway project that owns a real Plan file.
+ *
+ * Lifecycle transitions read the canonical Plan bytes under the Plan lock and
+ * refuse a caller whose `currentStatus` disagrees with what is on disk, so a
+ * test that drives one needs a real file at a real status — a stand-in writer
+ * needed neither, which is why so many of these fixtures had no project at all.
+ *
+ * @param {string} planName
+ * @param {import('../../plan-store.js').PlanFrontMatterInput} attrs
+ * @param {{ body?: string, prefix?: string }} [options]
+ * @returns {Promise<{ projectRoot: string, planPath: string }>}
+ */
+export async function makePlanProject(planName, attrs, options = {}) {
+    const projectRoot = await Deno.realPath(
+        await Deno.makeTempDir({ prefix: options.prefix || "runwield-load-plan-" }),
+    );
+    const planPath = await savePlan(projectRoot, planName, options.body || `# ${planName}`, attrs);
+    return { projectRoot, planPath };
 }

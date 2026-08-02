@@ -4,6 +4,7 @@ import { getStoredPlanPath, loadPlan, parsePlanFrontMatter, savePlan } from "../
 import type { BrowserPort } from "../../shared/browser-port.ts";
 import { submitPlanForReview } from "./plan-review.ts";
 import { createScriptedReviewBrowser, type ReviewDecisionBody } from "./review-test-fixture.ts";
+import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 
 interface PlanReviewFixture {
     dir: string;
@@ -294,6 +295,80 @@ Deno.test("submitPlanForReview cancellation stops the real review surface withou
         assertStringIncludes(openedUrl, "/review/plan?token=");
         assertEquals(await Deno.readTextFile(planPath), originalPlan);
         await assertRejects(() => fetch(openedUrl));
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+/**
+ * Build a Plan that already ran, together with the registry entry recording the
+ * execution generation it owns.
+ */
+async function makeExecutedPlanWithWorktree(status: string): Promise<PlanReviewFixture> {
+    const dir = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-plan-review-executed-" }));
+    await addRegistryEntry(dir, {
+        id: "wt-prior",
+        planName: "plan",
+        planId: "plan-executed-id",
+        baseBranch: "main",
+        baseRef: "HEAD",
+        baseCommit: "recorded",
+        baseTree: "recorded-tree",
+        branch: "runwield/worktree/plan",
+        path: `${dir}/wt-prior`,
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    await savePlan(dir, "plan", "# Plan\n\nDo the thing.\n", {
+        classification: "PLANNED_CHANGE",
+        status,
+        summary: "Do the thing",
+        affectedPaths: [],
+        planId: "plan-executed-id",
+        worktreeId: "wt-prior",
+        worktreeStatus: "completed",
+    });
+    return { dir, planPath: getStoredPlanPath(dir, "plan") };
+}
+
+Deno.test("submitPlanForReview approval detaches the prior execution generation in one transaction", async () => {
+    // Reviewing a Plan that already ran has to move it off its worktree and mark
+    // that worktree abandoned. Both writes commit together: an approval recorded
+    // while the entry stayed active is a Plan the next execution would run in a
+    // worktree it no longer owns.
+    const { dir, planPath } = await makeExecutedPlanWithWorktree("ready_for_work");
+    const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            browser: scriptedBrowser.browser,
+        });
+
+        assertEquals(result.approved, true);
+        const savedPlan = await loadPlan(dir, "plan");
+        assertEquals(savedPlan?.attrs.status, "approved");
+        assertEquals(savedPlan?.attrs.worktreeId ?? null, null);
+        assertEquals(savedPlan?.attrs.worktreeStatus, "abandoned");
+        assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "abandoned");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview leaves the execution generation alone when no reopen is needed", async () => {
+    const { dir, planPath } = await makeExecutedPlanWithWorktree("draft");
+    const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
+    try {
+        await submitPlanForReview({ cwd: dir, planName: "plan", planPath, browser: scriptedBrowser.browser });
+
+        // A draft is reviewable as-is, so there is no generation to detach and the
+        // registry entry must be left exactly as it was.
+        assertEquals(await planStatus(dir), "approved");
+        assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "active");
+        assertEquals((await loadPlan(dir, "plan"))?.attrs.worktreeId, "wt-prior");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

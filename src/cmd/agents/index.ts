@@ -1,0 +1,137 @@
+/** List available Agents or start/switch to a chosen active Agent. */
+
+import { basename } from "@std/path";
+import type { Component } from "@earendil-works/pi-tui";
+import { printCommandHelp } from "../help/index.ts";
+import { startInteractiveSession } from "../../ui/tui/chat-session.js";
+import { listAvailableAgents } from "../../shared/session/agents.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { AGENTS, getCwd } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+
+export { getAgentCompletions } from "./getArgumentCompletions.js";
+
+interface InteractiveSessionPort {
+    startInteractiveSession(
+        userRequest: string | null,
+        options: { initialAgentName?: string },
+    ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
+}
+
+interface AgentsCommandOptions {
+    tui?: import("../../ui/tui/types.js").TuiAPI;
+    uiAPI?: import("../../ui/tui/types.js").UiAPI;
+    editor?: import("../../ui/tui/types.js").EditorAPI;
+    sessionId?: string;
+    sessionRuntime?: SessionRuntime;
+    sessionPort?: InteractiveSessionPort;
+}
+
+interface AgentsTuiOptions {
+    tui: import("../../ui/tui/types.js").TuiAPI;
+    uiAPI: import("../../ui/tui/types.js").UiAPI;
+    editor: import("../../ui/tui/types.js").EditorAPI;
+    sessionId?: string;
+    sessionRuntime?: SessionRuntime;
+}
+
+const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
+
+async function runAgentsCommandCli(
+    agentName: string,
+    rest: string[],
+    sessionPort: InteractiveSessionPort,
+): Promise<void> {
+    const agents = await listAvailableAgents(getCwd());
+
+    if (!agentName) {
+        console.log("\nAvailable agents:\n");
+        for (const agent of agents) {
+            console.log(`  ${agent.name.padEnd(14)} ${agent.description}`);
+        }
+        console.log(`\nUsage: wld agent <name> ["<prompt>"]\n`);
+        return;
+    }
+
+    const match = agents.find((agent) => agent.name === agentName);
+    if (!match) {
+        console.error(`\nUnknown agent: "${agentName}"\n`);
+        console.log("Available agents:");
+        for (const agent of agents) {
+            console.log(`  ${agent.name.padEnd(14)} ${agent.description}`);
+        }
+        Deno.exit(1);
+    }
+
+    const userRequest = rest.join(" ").trim();
+    await sessionPort.startInteractiveSession(userRequest || null, {
+        initialAgentName: match.name,
+    });
+}
+
+async function runAgentsCommandTUI(
+    agentName: string,
+    options: AgentsTuiOptions,
+): Promise<void> {
+    const { tui, uiAPI, editor, sessionId, sessionRuntime } = options;
+    const projectRoot = sessionId && sessionRuntime ? sessionRuntime.getSessionSnapshot(sessionId)?.cwd : undefined;
+    const agents = await listAvailableAgents(projectRoot);
+    editor.setText("");
+
+    let chosenAgent: string | null = agentName;
+    if (!chosenAgent) {
+        const agentOptions = agents
+            .slice()
+            .sort((agentA, agentB) => agentA.name.localeCompare(agentB.name))
+            .map((agent) => ({
+                value: agent.name,
+                label: agent.name,
+                description: agent.name === AGENTS.ROUTER ? "Reset to default router (triage flow)" : agent.description,
+            }));
+
+        const selected = await uiAPI.promptSelect("Switch agent:", agentOptions, { persistResult: false });
+        if (!selected) return;
+        chosenAgent = selected;
+    }
+
+    const match = agents.find((agent) => agent.name === chosenAgent);
+    if (!match) {
+        uiAPI.appendSystemMessage(`Agent "${chosenAgent}" not found`);
+        return;
+    }
+
+    if (sessionId && sessionRuntime) {
+        await sessionRuntime.switchAgent(sessionId, { agentName: match.name });
+        if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) {
+            setTerminalTitleForName(`${basename(projectRoot || getCwd())} - ${match.name}`);
+        }
+    }
+
+    tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+}
+
+export async function runAgentsCommand(
+    argv: string[],
+    options: AgentsCommandOptions = {},
+): Promise<void> {
+    const [agentName = ""] = argv;
+
+    if (agentName === "help" || agentName === "--help" || agentName === "-h") {
+        printCommandHelp(COMMAND_NAMES.AGENT);
+        return;
+    }
+
+    if (options.uiAPI && options.editor && options.tui) {
+        await runAgentsCommandTUI(agentName, {
+            uiAPI: options.uiAPI,
+            editor: options.editor,
+            tui: options.tui,
+            sessionId: options.sessionId,
+            sessionRuntime: options.sessionRuntime,
+        });
+        return;
+    }
+
+    await runAgentsCommandCli(agentName, argv.slice(1), options.sessionPort || DEFAULT_SESSION_PORT);
+}

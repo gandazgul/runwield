@@ -18,8 +18,16 @@ import {
 import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
-import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import {
+    buildPlanEventUpdates,
+    isPlanReviewableWithoutReopen,
+    recordPlanEvent,
+} from "../../shared/workflow/plan-lifecycle.js";
 import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.ts";
+import {
+    findById as findWorktreeById,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../../shared/worktree-registry.js";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -288,12 +296,21 @@ export async function submitPlanForReview({
         let lifecycleMeta: PlanFrontMatter = reviewedAttrs;
         let committedRevision: string | undefined;
         if (resolve(canonicalPlanPath) === resolve(planPath)) {
+            // Reviewing a Plan that already ran detaches it from its execution
+            // generation. That detachment is two writes — the Plan's Front Matter and
+            // the registry entry — and they belong to one transaction: an approval
+            // that landed while the entry stayed live leaves the next execution
+            // pointing at a worktree the Plan no longer owns.
+            const reopenWorktreeId = isPlanReviewableWithoutReopen(attrs.status)
+                ? undefined
+                : attrs.worktreeId ?? undefined;
             const reviewTransition = await runPlanReviewDecisionTransition({
                 projectRoot: cwd,
                 planName,
                 approved,
+                worktreeId: reopenWorktreeId,
                 expectedRevision: planRevision,
-                decide: async ({ beforePlan }) => {
+                decide: async ({ beforePlan, markEffect, registerRollback }) => {
                     if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
                     if (beforePlan.revision !== planRevision) {
                         throw new Error(
@@ -303,13 +320,25 @@ export async function submitPlanForReview({
                     let nextMarkdown = reviewedPlan;
                     let nextAttrs = reviewedAttrs;
                     let status = beforePlan.attrs.status;
-                    if (status !== "draft" && status !== "feedback" && status !== "approved") {
+                    if (!isPlanReviewableWithoutReopen(status)) {
                         const reopenUpdates = buildPlanEventUpdates("review_reopened", status, {
                             triageMeta: nextAttrs,
                         });
                         nextMarkdown = injectFrontMatter(nextMarkdown, reopenUpdates);
                         nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
                         status = "feedback";
+                        if (reopenWorktreeId) {
+                            const before = await findWorktreeById(cwd, reopenWorktreeId);
+                            registerRollback(`restore worktree registry status for ${reopenWorktreeId}`, async () => {
+                                if (before?.status) {
+                                    await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, {
+                                        status: before.status,
+                                    });
+                                }
+                            });
+                            await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, { status: "abandoned" });
+                            await markEffect("worktree_registry_abandoned", { worktreeId: reopenWorktreeId });
+                        }
                     }
                     const event = approved ? "review_approved" : "review_feedback";
                     const eventUpdates = buildPlanEventUpdates(event, status, {
@@ -354,9 +383,7 @@ export async function submitPlanForReview({
             }
 
             // External/non-canonical review paths keep the legacy two-step behavior.
-            const STATUS_ALLOWS_REVIEW = attrs.status === "draft" ||
-                attrs.status === "feedback" ||
-                attrs.status === "approved";
+            const STATUS_ALLOWS_REVIEW = isPlanReviewableWithoutReopen(attrs.status);
             if (!STATUS_ALLOWS_REVIEW) {
                 const reopenedMeta = await recordPlanEvent({
                     cwd,

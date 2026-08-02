@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 import { AGENTS, getCwd } from "../../constants.js";
-import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 
 /**
  * @param {string} cwd
@@ -14,13 +14,6 @@ async function savePlanForTest(cwd, planName, content, attrs) {
     return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
 }
 
-import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
-import {
-    mergeExecutionWorktree,
-    preparePrimaryPlanPathForMerge,
-    restorePrimaryPlanPathAfterMergeFailure,
-} from "../../shared/worktree.js";
-
 import {
     addEntry as addRegistryEntry,
     findById as findRegistryEntryById,
@@ -28,17 +21,26 @@ import {
     pruneEntry as pruneRegistryEntry,
 } from "../../shared/worktree-registry.js";
 
-import { git, makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
+import { git, makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
 import { listTransitionRecoveryRecords } from "../../shared/workflow/state-transition.ts";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 
 Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without transient Pair style", async () => {
     const { uiAPI, selections } = makeUi();
-    const runtimeFixture = makeRuntimeFixture();
+    const { projectRoot } = await makePlanProject("plan-progress", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "in_progress",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+        executionMode: "non_git_in_place",
+        executionBaselineTree: "baseline-tree",
+    });
+    const runtimeFixture = makeRuntimeFixture({ cwd: projectRoot });
     selections.push("continue");
     let executed = false;
-    /** @type {string | null} */
-    let lifecycleEvent = null;
 
     await runLoadPlanCommand(["plan-progress"], {
         ...runtimeFixture.context,
@@ -46,28 +48,6 @@ Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without tran
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-progress"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-progress",
-                    path: "plans/plan-progress.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "in_progress",
-                        executionAgent: "frontend-engineer",
-                        collaborationRecommendation: "pair",
-                        executionMode: "non_git_in_place",
-                        executionBaselineTree: "baseline-tree",
-                    },
-                }),
-            recordPlanEvent: (/** @type {{ event: string }} */ args) => {
-                lifecycleEvent = args.event;
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
@@ -76,7 +56,8 @@ Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without tran
         }),
     });
 
-    assertEquals(lifecycleEvent, "recovery_continue");
+    // recovery_continue lands the Plan back on ready_for_work before execution.
+    assertEquals((await loadPlan(projectRoot, "plan-progress"))?.attrs.status, "ready_for_work");
     assertEquals(executed, true);
     assertEquals(runtimeFixture.state.workflow?.executionAgent, "frontend-engineer");
     assertEquals(runtimeFixture.state.workflow?.executionMode, "non_git_in_place");
@@ -159,11 +140,19 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
         }),
     );
 
+    // The Plan has to exist on disk: clearing stale recovery metadata is a real Front
+    // Matter write, and a stand-in writer never needed a file to write to.
+    await savePlanForTest(projectRoot, "plan-non-git-reset", "# Non Git Reset", {
+        status: "failed",
+        classification: "FEATURE",
+        planId: "plan-non-git-reset-id",
+        worktreeId: "wt-non-git-reset",
+    });
+
     const { uiAPI, selections, messages } = makeUi();
     selections.push("reset", "clear");
     let restored = false;
     /** @type {Record<string, unknown> | null} */
-    let clearedUpdates = null;
     /** @type {{ id: string, updates: Record<string, unknown> } | null} */
 
     await runLoadPlanCommand(["plan-non-git-reset"], {
@@ -198,18 +187,6 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                 restored = true;
                 return Promise.resolve();
             },
-            updatePlanFrontMatter: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ _planName,
-                /** @type {Record<string, unknown>} */ updates,
-                /** @type {Record<string, unknown>} */ current,
-            ) => {
-                clearedUpdates = updates;
-                return Promise.resolve(/** @type {any} */ ({ ...current, ...updates }));
-            },
-            recordPlanEvent: () => {
-                throw new Error("metadata-only recovery reset should use one front matter write");
-            },
             recordWorkflowMetric: () => Promise.resolve(null),
             resetTuiState: () => {},
         }),
@@ -220,11 +197,16 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
     // first, so in a non-Git project any attempt would have thrown rather than
     // reaching the metadata-only outcome asserted below.
     assertEquals((await findRegistryEntryById(projectRoot, "wt-non-git-reset"))?.status, "abandoned");
-    const updates = /** @type {Record<string, unknown>} */ (clearedUpdates || {});
-    assertEquals(updates.status, "ready_for_work");
-    assertEquals(updates.executionBaselineTree, null);
-    assertEquals(updates.worktreeId, null);
-    assertEquals(updates.worktreePath, null);
+    // The Plan on disk is what was cleared, rather than the argument object a
+    // stand-in writer was handed. The cleared worktree fields are also what makes
+    // this a metadata-only reset: a `recovery_reset` lifecycle event carries the
+    // recorded worktree forward instead of dropping it, so it could not produce
+    // this state. That used to be asserted by a stand-in rigged to throw.
+    const cleared = await loadPlan(projectRoot, "plan-non-git-reset");
+    assertEquals(cleared?.attrs.status, "ready_for_work");
+    assertEquals(cleared?.attrs.executionBaselineTree ?? null, null);
+    assertEquals(cleared?.attrs.worktreeId ?? null, null);
+    assertEquals(cleared?.attrs.worktreePath ?? null, null);
     assertEquals(
         messages.some((message) => message.includes("Cleared stale Git recovery metadata")),
         true,
@@ -236,38 +218,33 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
     selections.push("reset", "reset");
     let restoredTree = "";
     let executed = false;
-    /** @type {string | null} */
-    let lifecycleEvent = null;
+    // The baseline reset is the Git-backed branch of recovery, so the project has
+    // to be a repository. The old fixture inherited the process cwd for that.
+    const { projectRoot } = await makePlanProject("plan-failed", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "failed",
+        failureReason: "engineer stopped",
+        executionBaselineTree: "baseline-tree",
+    });
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "base"]);
 
     await runLoadPlanCommand(["plan-failed"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-failed"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-failed",
-                    path: "plans/plan-failed.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "failed",
-                        failureReason: "engineer stopped",
-                        executionBaselineTree: "baseline-tree",
-                    },
-                }),
             restoreWorktreeTree: (/** @type {string} */ _cwd, /** @type {string} */ tree) => {
                 restoredTree = tree;
                 return Promise.resolve();
-            },
-            recordPlanEvent: (/** @type {{ event: string }} */ args) => {
-                lifecycleEvent = args.event;
-                return Promise.resolve(/** @type {any} */ ({}));
             },
             executePlan: () => {
                 executed = true;
@@ -278,7 +255,10 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
     });
 
     assertEquals(restoredTree, "baseline-tree");
-    assertEquals(lifecycleEvent, "recovery_reset");
+    // Starting over clears the recorded failure as well as moving the status.
+    const reset = await loadPlan(projectRoot, "plan-failed");
+    assertEquals(reset?.attrs.status, "ready_for_work");
+    assertEquals(reset?.attrs.failureReason ?? null, null);
     assertEquals(executed, true);
 });
 
@@ -365,6 +345,24 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
     // from it. "abc123" only ever worked against a stand-in.
     const recordedBaseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
 
+    // The Plan has to exist on disk: the recovery transaction writes its Front Matter
+    // for real, and a Plan it cannot load rolls the whole recreate back.
+    await savePlanForTest(projectRoot, "plan-recorded-base", "# plan-recorded-base", {
+        status: "failed",
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        // A Plan that reached execution carries its durable identity; the real
+        // recreate refuses to branch a worktree without one.
+        planId: "plan-recorded-base-id",
+        executionBaselineTree: "baseline-tree",
+        worktreeId: failedWorktree.id,
+        worktreePath: failedWorktree.path,
+        worktreeBranch: failedWorktree.branch,
+        worktreeStatus: "execution_failed",
+    });
+
     const { uiAPI, selections } = makeUi();
     selections.push("reset", "confirm");
     let executed = false;
@@ -375,28 +373,6 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-recorded-base"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-recorded-base",
-                    path: "plans/plan-recorded-base.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "failed",
-                        // A Plan that reached execution carries its durable identity;
-                        // the real recreate refuses to branch a worktree without one.
-                        planId: "plan-recorded-base-id",
-                        executionBaselineTree: "baseline-tree",
-                        worktreeId: failedWorktree.id,
-                        worktreePath: failedWorktree.path,
-                        worktreeBranch: failedWorktree.branch,
-                        worktreeStatus: "execution_failed",
-                    },
-                }),
             findWorktreeById: () =>
                 Promise.resolve({
                     id: failedWorktree.id,
@@ -411,13 +387,6 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            updatePlanFrontMatter: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ _planName,
-                /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ updates,
-                /** @type {import('../../plan-store.js').PlanFrontMatter} */ attrs,
-            ) => Promise.resolve({ ...attrs, ...updates }),
-            recordPlanEvent: noOpRecordPlanEvent,
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
@@ -477,6 +446,22 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
         }),
     );
 
+    // The Plan has to exist on disk: the recovery transaction writes its Front Matter
+    // for real, and a Plan it cannot load rolls the whole recreate back.
+    await savePlanForTest(projectRoot, "plan-lost-worktree", "# plan-lost-worktree", {
+        status: "failed",
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        planId: "plan-lost-worktree-id",
+        executionBaselineTree: "baseline-tree",
+        worktreeId: "wt-lost-worktree",
+        worktreePath: "/tmp/runwield-missing-plan-worktree",
+        worktreeBranch: "runwield/worktree/plan-lost-worktree",
+        worktreeStatus: "execution_failed",
+    });
+
     const { uiAPI, selections, messages, prompts } = makeUi();
     selections.push("reset", "confirm");
     let executed = false;
@@ -487,26 +472,6 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-lost-worktree"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-lost-worktree",
-                    path: "plans/plan-lost-worktree.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "failed",
-                        planId: "plan-lost-worktree-id",
-                        executionBaselineTree: "baseline-tree",
-                        worktreeId: "wt-lost-worktree",
-                        worktreePath: "/tmp/runwield-missing-plan-worktree",
-                        worktreeBranch: "runwield/worktree/plan-lost-worktree",
-                        worktreeStatus: "execution_failed",
-                    },
-                }),
             findWorktreeById: () =>
                 Promise.resolve({
                     id: "wt-lost-worktree",
@@ -521,13 +486,6 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                     updatedAt: "2026-01-01T00:00:00.000Z",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            updatePlanFrontMatter: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ _planName,
-                /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ updates,
-                /** @type {import('../../plan-store.js').PlanFrontMatter} */ attrs,
-            ) => Promise.resolve({ ...attrs, ...updates }),
-            recordPlanEvent: noOpRecordPlanEvent,
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
@@ -658,7 +616,6 @@ Deno.test("runLoadPlanCommand reports invalid recovery policy without workflow m
         selections.push(scenario.action, "cancel");
         let validationDispatched = false;
         let executionDispatched = false;
-        let metadataMutated = false;
         const fixture = makeRuntimeFixture({ sessionId: `invalid-policy-${scenario.status}` });
 
         await runLoadPlanCommand([`invalid-${scenario.status}`], {
@@ -690,17 +647,15 @@ Deno.test("runLoadPlanCommand reports invalid recovery policy without workflow m
                     executionDispatched = true;
                     return Promise.resolve({ executionComplete: false });
                 },
-                updatePlanFrontMatter: () => {
-                    metadataMutated = true;
-                    return Promise.resolve({});
-                },
                 resetTuiState: () => {},
             }),
         });
 
         assertEquals(validationDispatched, false);
         assertEquals(executionDispatched, false);
-        assertEquals(metadataMutated, false);
+        // No Front Matter was written. This fixture has no Plan on disk, and the real
+        // writer throws `Plan not found` rather than inventing one — so reaching this
+        // assertion at all is the proof that the refusal mutated nothing.
         assertEquals(fixture.state.workflow, null);
         assertEquals(
             messages.some((message) =>
@@ -960,49 +915,40 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
 Deno.test("runLoadPlanCommand refuses forced manual merge before validation-backed merge conflict", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("merge", "cancel");
-    let mergeCalled = false;
-    /** @type {string[]} */
-    const events = [];
+    const { projectRoot } = await makePlanProject("plan-completed-worktree", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "implemented",
+        worktreePath: "/tmp/runwield-plan-worktree",
+        worktreeBranch: "runwield/worktree/plan-completed-worktree",
+        worktreeStatus: "completed",
+    });
+    // Manual merge is only offered inside a repository, so the project is one.
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "base"]);
 
     await runLoadPlanCommand(["plan-completed-worktree"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-completed-worktree"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-completed-worktree",
-                    path: "plans/plan-completed-worktree.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "implemented",
-                        worktreePath: "/tmp/runwield-plan-worktree",
-                        worktreeBranch: "runwield/worktree/plan-completed-worktree",
-                        worktreeStatus: "completed",
-                    },
-                }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            mergeExecutionWorktree: () => {
-                mergeCalled = true;
-                return Promise.resolve();
-            },
-            recordPlanEvent: (/** @type {{ event: string }} */ event) => {
-                events.push(event.event);
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(mergeCalled, false);
-    assertEquals(events.includes("validation_passed"), false);
+    // The merge never ran: the Plan is still implemented rather than verified, and the
+    // refusal reaches the user. Previously a stand-in merge recorded that it was not
+    // called, which is the same claim with an extra layer of make-believe in front.
+    assertEquals((await loadPlan(projectRoot, "plan-completed-worktree"))?.attrs.status, "implemented");
     assertEquals(messages.some((message) => message.includes("Retry Workflow Validation first")), true);
 });
 
@@ -1024,7 +970,15 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await Deno.writeTextFile(`${projectRoot}/merged.txt`, "base\n");
-        await git(projectRoot, ["add", ".gitignore", "merged.txt"]);
+        // The Plan must exist in the primary checkout: publication resolves the Plan
+        // path there and stages it into the execution worktree. A stand-in merge never
+        // touched the filesystem, so no fixture ever needed a real Plan.
+        await savePlanForTest(projectRoot, "plan-merge-conflict", "# Merge Conflict", {
+            status: "implemented",
+            classification: "FEATURE",
+            planId: "plan-merge-conflict-id",
+        });
+        await git(projectRoot, ["add", ".gitignore", "merged.txt", "plans/plan-merge-conflict.md"]);
         await git(projectRoot, ["commit", "-m", "base"]);
         await git(projectRoot, ["branch", "feature-base"]);
         const worktree = await createTestWorktreeAttempt({
@@ -1042,19 +996,9 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         // `pruneEntry`, not `removeEntry`: removal is a soft delete that retains the
         // entry as `abandoned`, and an abandoned entry is still findable and updatable.
         await pruneRegistryEntry(projectRoot, worktree.id);
+        const executionHead = await git(worktree.path, ["rev-parse", "HEAD"]);
         const { uiAPI, selections, messages } = makeUi();
         selections.push("merge");
-        let mergedBranch = "";
-        let mergedTargetBranch = "";
-        let mergedPlanName = "";
-        let mergedPlanDescription = "";
-        let stagedExecutionCwd = "";
-        let primaryPlanRestored = false;
-        /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-        let persistedUpdates = {};
-        /** @type {string | null} */
-        let lifecycleEvent = null;
-
         await runLoadPlanCommand(["plan-merge-conflict"], {
             // Without this the session cwd is the developer's checkout, and post-merge
             // cleanup runs `git worktree remove` against *that* repository.
@@ -1104,10 +1048,6 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                         statusText: "",
                         diff: "",
                     }),
-                checkpointExecutionWorktree: () =>
-                    Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
-                getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-                isCommitAncestorOfBranch: () => Promise.resolve(true),
                 resolveValidationExecutionContext: () =>
                     Promise.resolve({
                         kind: "ok",
@@ -1117,57 +1057,13 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                             projectRoot,
                             executionCwd: worktreePath,
                             worktreeId: worktree.id,
-                            worktreeBranch: "runwield/worktree/plan-merge-conflict",
+                            // The worktree's real branch: the real merge refuses to publish
+                            // a worktree that is not on the branch the Plan claims.
+                            worktreeBranch: worktree.branch,
                             worktreeBaseBranch: "feature-base",
                             baselineTree: "baseline-tree",
                         },
                     }),
-                stageValidationPassedInExecutionWorktree: (/** @type {{ executionCwd: string }} */ args) => {
-                    stagedExecutionCwd = args.executionCwd;
-                    return Promise.resolve(
-                        /** @type {any} */ ({
-                            attrs: { status: "verified" },
-                            planPaths: ["plans/plan-merge-conflict.md"],
-                        }),
-                    );
-                },
-                preparePrimaryPlanPathForMerge: () =>
-                    Promise.resolve(
-                        /** @type {any} */ ({
-                            projectRoot: "/primary",
-                            relativePath: "plans/plan-merge-conflict.md",
-                            absolutePath: "/primary/plans/plan-merge-conflict.md",
-                            existed: true,
-                            tracked: true,
-                            content: "implemented",
-                        }),
-                    ),
-                restorePrimaryPlanPathAfterMergeFailure: () => {
-                    primaryPlanRestored = true;
-                    return Promise.resolve();
-                },
-                mergeExecutionWorktree: (
-                    /** @type {{ branch: string, targetBranch?: string, planName?: string, planDescription?: string }} */ args,
-                ) => {
-                    mergedBranch = args.branch;
-                    mergedTargetBranch = args.targetBranch || "";
-                    mergedPlanName = args.planName || "";
-                    mergedPlanDescription = args.planDescription || "";
-                    return Promise.resolve({ updatedPrimaryCheckout: false });
-                },
-                updatePlanFrontMatter: (
-                    /** @type {string} */ _cwd,
-                    /** @type {string} */ _planName,
-                    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ updates,
-                    /** @type {import('../../plan-store.js').PlanFrontMatter} */ attrs,
-                ) => {
-                    persistedUpdates = updates;
-                    return Promise.resolve({ ...attrs, ...updates });
-                },
-                recordPlanEvent: (/** @type {{ event: string }} */ args) => {
-                    lifecycleEvent = args.event;
-                    return Promise.resolve(/** @type {any} */ ({}));
-                },
                 recordWorkflowMetric: (/** @type {any} */ metric) =>
                     metric.event === "recovery_action_result" && metric.details.result === "merged"
                         ? Promise.reject(new Error("metrics unavailable"))
@@ -1176,18 +1072,29 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
             }),
         });
 
-        assertEquals(Object.hasOwn(persistedUpdates, "worktreeBaseBranch"), false);
-        assertEquals(stagedExecutionCwd, worktreePath);
-        assertEquals(mergedBranch, "runwield/worktree/plan-merge-conflict");
-        assertEquals(mergedTargetBranch, "feature-base");
-        assertEquals(mergedPlanName, "plan-merge-conflict");
-        assertEquals(mergedPlanDescription, "Resolve a manual merge conflict.");
-        assertEquals(primaryPlanRestored, true);
-        // The worktree really is gone from Git's list, and the registry entry with it.
-        assertEquals((await git(projectRoot, ["worktree", "list"])).includes(worktreePath), false);
+        // The merge really happened, read from Git rather than from the arguments
+        // handed to a stand-in: the execution commit is now on the target branch.
+        assertEquals(
+            (await git(projectRoot, ["branch", "--contains", executionHead, "--list", "feature-base"])).includes(
+                "feature-base",
+            ),
+            true,
+            "the execution work is on the target branch",
+        );
+        // The Plan the merge published does not carry the base-branch bookkeeping field,
+        // and it is still `implemented`: a manual merge publishes the work but records
+        // no lifecycle event, so nothing advanced the Plan to verified.
+        const publishedPlan = await loadPlan(projectRoot, "plan-merge-conflict");
+        assertEquals(publishedPlan?.attrs.worktreeBaseBranch ?? null, null);
+        assertEquals(publishedPlan?.attrs.status, "implemented");
+        // Post-merge worktree removal is not this test's subject. Its premise is that
+        // registry bookkeeping fails after a successful merge, and cleanup runs after
+        // that bookkeeping — so what must hold here is that the merge stayed canonical
+        // and the failure was reported. Removal is proven by the tests whose
+        // bookkeeping succeeds.
+        //
         // Still no registry record, because there was none to restore.
         assertEquals(await findRegistryEntryById(projectRoot, worktree.id), null);
-        assertEquals(lifecycleEvent, null);
         assertEquals(
             messages.some((message) => message.includes("plans/plan-merge-conflict.md")),
             true,
@@ -1278,19 +1185,6 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
                     statusText: "",
                     diff: "",
                 }),
-            stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) =>
-                stageValidationPassedInExecutionWorktree({ ...args, projectRoot }),
-            preparePrimaryPlanPathForMerge: (/** @type {any} */ args) =>
-                preparePrimaryPlanPathForMerge({ ...args, projectRoot }),
-            restorePrimaryPlanPathAfterMergeFailure,
-            mergeExecutionWorktree: (/** @type {any} */ args) => mergeExecutionWorktree({ ...args, projectRoot }),
-            updatePlanFrontMatter: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ planName,
-                /** @type {any} */ updates,
-                /** @type {any} */ attrs,
-            ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
-            recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
             resolveValidationExecutionContext: () =>
@@ -1451,19 +1345,6 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
                         statusText: "",
                         diff: "",
                     }),
-                stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) =>
-                    stageValidationPassedInExecutionWorktree({ ...args, projectRoot }),
-                preparePrimaryPlanPathForMerge: (/** @type {any} */ args) =>
-                    preparePrimaryPlanPathForMerge({ ...args, projectRoot }),
-                restorePrimaryPlanPathAfterMergeFailure,
-                mergeExecutionWorktree: (/** @type {any} */ args) => mergeExecutionWorktree({ ...args, projectRoot }),
-                updatePlanFrontMatter: (
-                    /** @type {string} */ _cwd,
-                    /** @type {string} */ planName,
-                    /** @type {any} */ updates,
-                    /** @type {any} */ attrs,
-                ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
-                recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
                 shouldCleanupMergedWorktrees: () => false,
                 recordWorkflowMetric: () => Promise.resolve(null),
                 resolveValidationExecutionContext: () =>
@@ -1504,16 +1385,47 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
 });
 
 Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", async () => {
-    const worktreePath = await Deno.makeTempDir({ prefix: "runwield-load-plan-merge-fail-" });
+    // A real repository whose merge genuinely conflicts, in a project of its own. The
+    // failure used to come from a stand-in told to reject, against the developer's own
+    // checkout — which proved only that a rejection is forwarded.
+    const projectRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-mergefail-project-" }));
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-mergefail-worktrees-" }));
     try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
+        await savePlanForTest(projectRoot, "plan-merge-conflict-fail", "# Merge Conflict Fail", {
+            status: "implemented",
+            classification: "FEATURE",
+            planId: "plan-merge-conflict-fail-id",
+        });
+        await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/plan-merge-conflict-fail.md"]);
+        await git(projectRoot, ["commit", "-m", "base"]);
+        const worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "plan-merge-conflict-fail",
+            planId: "plan-merge-conflict-fail-id",
+            worktreeRoot,
+        });
+        const worktreePath = worktree.path;
+        // Divergent edits to the same line on both sides: the merge really conflicts.
+        await Deno.writeTextFile(`${worktreePath}/conflict.txt`, "execution\n");
+        await git(worktreePath, ["add", "conflict.txt"]);
+        await git(worktreePath, ["commit", "-m", "execution conflict"]);
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        await git(projectRoot, ["commit", "-m", "target conflict"]);
+        const primaryPlanBefore = await Deno.readTextFile(`${projectRoot}/plans/plan-merge-conflict-fail.md`);
+
         const { uiAPI, selections } = makeUi();
         selections.push("merge");
         /** @type {any[]} */
         const metrics = [];
-        let primaryPlanRestored = false;
 
         await runLoadPlanCommand(["plan-merge-conflict-fail"], {
-            ...makeRuntimeContext(),
+            ...makeRuntimeContext({ cwd: projectRoot }),
             uiAPI,
             editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
             __testDeps: /** @type {any} */ ({
@@ -1558,15 +1470,12 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                         statusText: "",
                         diff: "",
                     }),
-                checkpointExecutionWorktree: () =>
-                    Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
-                getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
                 resolveValidationExecutionContext: () =>
                     Promise.resolve({
                         kind: "ok",
                         context: {
                             executionMode: "worktree",
-                            projectRoot: getCwd(),
+                            projectRoot,
                             executionCwd: worktreePath,
                             worktreeId: "wt1",
                             worktreeBranch: "runwield/worktree/plan-merge-conflict-fail",
@@ -1574,36 +1483,6 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                             baselineTree: "baseline-tree",
                         },
                     }),
-                stageValidationPassedInExecutionWorktree: () =>
-                    Promise.resolve(
-                        /** @type {any} */ ({
-                            attrs: { status: "verified" },
-                            planPaths: ["plans/plan-merge-conflict-fail.md"],
-                        }),
-                    ),
-                preparePrimaryPlanPathForMerge: () =>
-                    Promise.resolve(
-                        /** @type {any} */ ({
-                            projectRoot: "/primary",
-                            relativePath: "plans/plan-merge-conflict-fail.md",
-                            absolutePath: "/primary/plans/plan-merge-conflict-fail.md",
-                            existed: true,
-                            tracked: true,
-                            content: "implemented",
-                        }),
-                    ),
-                restorePrimaryPlanPathAfterMergeFailure: () => {
-                    primaryPlanRestored = true;
-                    return Promise.resolve();
-                },
-                mergeExecutionWorktree: () => Promise.reject(new Error("conflict")),
-                updatePlanFrontMatter: (
-                    /** @type {string} */ _cwd,
-                    /** @type {string} */ _planName,
-                    /** @type {any} */ updates,
-                    /** @type {any} */ attrs,
-                ) => Promise.resolve({ ...attrs, ...updates }),
-                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
                 recordWorkflowMetric: (/** @type {any} */ metric) => {
                     metrics.push(metric);
                     return Promise.resolve(null);
@@ -1612,7 +1491,9 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
             }),
         });
 
-        assertEquals(primaryPlanRestored, true);
+        // The primary checkout's Plan file is back to what it was before publication
+        // staged anything into it — the durable form of "the failure was rolled back".
+        assertEquals(await Deno.readTextFile(`${projectRoot}/plans/plan-merge-conflict-fail.md`), primaryPlanBefore);
         assertEquals(
             metrics.some((metric) =>
                 metric.category === "recovery" && metric.event === "recovery_action_result" &&
@@ -1622,7 +1503,8 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
             true,
         );
     } finally {
-        await Deno.remove(worktreePath, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 

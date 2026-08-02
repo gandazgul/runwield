@@ -3,58 +3,74 @@
  * List, search, read, index, and backfill canonical Work Records.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { getCwd } from "../../constants.js";
 import {
     formatWorkRecordBackfillOutcomes,
     formatWorkRecordBackfillPreview,
     formatWorkRecordList,
     formatWorkRecordSearchResults,
-    listWorkRecords as listWorkRecordsFn,
-    previewWorkRecordBackfill as previewWorkRecordBackfillFn,
-    readWorkRecordById as readWorkRecordByIdFn,
-    rebuildWorkRecordIndex as rebuildWorkRecordIndexFn,
-    runWorkRecordBackfill as runWorkRecordBackfillFn,
-    searchWorkRecords as searchWorkRecordsFn,
+    listWorkRecords,
+    previewWorkRecordBackfill,
+    readWorkRecordById,
+    rebuildWorkRecordIndex,
+    runWorkRecordBackfill,
+    searchWorkRecords,
 } from "../../shared/work-records/index.js";
-import { startArtifactReadSurface as startArtifactReadSurfaceFn } from "../../ui/review/review-launcher.js";
+import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
+import { printCommandHelp } from "../help/index.js";
 
-/**
- * @typedef {Object} WorkRecordCommandDependencies
- * @property {typeof parseArgsFn} [parseArgs]
- * @property {typeof listWorkRecordsFn} [listWorkRecords]
- * @property {typeof previewWorkRecordBackfillFn} [previewWorkRecordBackfill]
- * @property {typeof runWorkRecordBackfillFn} [runWorkRecordBackfill]
- * @property {typeof searchWorkRecordsFn} [searchWorkRecords]
- * @property {typeof readWorkRecordByIdFn} [readWorkRecordById]
- * @property {typeof rebuildWorkRecordIndexFn} [rebuildWorkRecordIndex]
- * @property {typeof startArtifactReadSurfaceFn} [startArtifactReadSurface]
- * @property {(message: string) => boolean|Promise<boolean>} [confirmBackfill]
- * @property {(commandName: string) => boolean} [printCommandHelp]
- */
+interface MnemosyneCommandResult {
+    success: boolean;
+    code: number;
+    stdout: Uint8Array;
+    stderr: Uint8Array;
+}
 
-/** @param {string} message */
-function promptForBackfillConfirmation(message) {
+export interface WorkRecordMnemosynePort {
+    run(args: string[], options?: { cwd?: string }): Promise<MnemosyneCommandResult>;
+}
+
+export interface WorkRecordCommandOptions {
+    uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
+    mnemosynePort?: WorkRecordMnemosynePort;
+}
+
+const SYSTEM_MNEMOSYNE_PORT: WorkRecordMnemosynePort = {
+    run: (args, options) =>
+        new Deno.Command("mnemosyne", {
+            args,
+            cwd: options?.cwd,
+            stdout: "piped",
+            stderr: "piped",
+        }).output(),
+};
+
+function mnemosyneCommandOutput(port: WorkRecordMnemosynePort) {
+    return (_command: string, args: string[], options?: { cwd?: string }) => port.run(args, options);
+}
+
+function promptForBackfillConfirmation(message: string): boolean {
     const answer = prompt(`${message}\nType BACKFILL to continue:`) || "";
     return answer.trim() === "BACKFILL";
 }
 
-/**
- * @param {Awaited<ReturnType<typeof readWorkRecordByIdFn>>} record
- * @param {WorkRecordCommandDependencies} deps
- */
-async function openWorkRecordReadSurface(record, deps) {
-    const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurfaceFn;
-    const server = await startReadSurface({
+async function openWorkRecordReadSurface(
+    record: Awaited<ReturnType<typeof readWorkRecordById>>,
+    options: { noOpen?: boolean } = {},
+): Promise<void> {
+    const noOpen = options.noOpen === true;
+    const server = await startArtifactReadSurface({
         cwd: getCwd(),
         markdown: record.markdown,
         artifactKind: "work-record",
         title: record.title,
         path: record.path,
         notices: record.notices,
+        openInDefaultBrowser: noOpen ? () => Promise.resolve(false) : undefined,
     });
     console.log(`[RunWield] Work Record read-only view: ${server.url}`);
-    if (!server.opened) {
+    if (!server.opened && !noOpen) {
         console.log(
             "[RunWield] Could not open your browser automatically. Open the URL above, then choose Close when finished.",
         );
@@ -64,34 +80,28 @@ async function openWorkRecordReadSurface(record, deps) {
     } finally {
         await stopReadSurface(server);
     }
-    if (!deps.startArtifactReadSurface) Deno.exit(0);
 }
 
-/**
- * @param {{ stop: () => void | Promise<void> }} server
- */
-async function stopReadSurface(server) {
+async function stopReadSurface(
+    server: Pick<Awaited<ReturnType<typeof startArtifactReadSurface>>, "stop">,
+): Promise<void> {
     await Promise.race([
         Promise.resolve(server.stop()),
-        new Promise((resolve) => setTimeout(resolve, 1000)),
+        new Promise<void>((resolve) => setTimeout(resolve, 1000)),
     ]);
 }
 
-/**
- * @param {{ _: unknown[], [key: string]: unknown }} parsed
- * @param {string[]} [allowedFlags]
- */
-function rejectUnknownFlags(parsed, allowedFlags = []) {
+function rejectUnknownFlags(
+    parsed: ReturnType<typeof parseArgs>,
+    allowedFlags: string[] = [],
+): void {
     const allowed = new Set(["_", "help", "h", ...allowedFlags]);
     for (const key of Object.keys(parsed)) {
-        if (!allowed.has(key)) {
-            throw new Error(`Unsupported flag: --${key}`);
-        }
+        if (!allowed.has(key)) throw new Error(`Unsupported flag: --${key}`);
     }
 }
 
-/** @param {Awaited<ReturnType<typeof rebuildWorkRecordIndexFn>>} result */
-function formatRebuildResult(result) {
+function formatRebuildResult(result: Awaited<ReturnType<typeof rebuildWorkRecordIndex>>): string {
     const lines = [
         `[RunWield] Rebuilt Work Record index: ${result.collection}`,
         `  canonical records: ${result.total}`,
@@ -104,24 +114,15 @@ function formatRebuildResult(result) {
     return lines.join("\n");
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: WorkRecordCommandDependencies }} [options]
- */
-export async function runWorkRecordsCommand(argv, options = {}) {
-    const deps = /** @type {WorkRecordCommandDependencies} */ (options.__testDeps || {});
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const listWorkRecords = deps.listWorkRecords || listWorkRecordsFn;
-    const previewWorkRecordBackfill = deps.previewWorkRecordBackfill || previewWorkRecordBackfillFn;
-    const runWorkRecordBackfill = deps.runWorkRecordBackfill || runWorkRecordBackfillFn;
-    const searchWorkRecords = deps.searchWorkRecords || searchWorkRecordsFn;
-    const readWorkRecordById = deps.readWorkRecordById || readWorkRecordByIdFn;
-    const rebuildWorkRecordIndex = deps.rebuildWorkRecordIndex || rebuildWorkRecordIndexFn;
+export async function runWorkRecordsCommand(
+    argv: string[],
+    options: WorkRecordCommandOptions = {},
+): Promise<void> {
+    const commandOutput = mnemosyneCommandOutput(options.mnemosynePort || SYSTEM_MNEMOSYNE_PORT);
     const subcommand = argv[0] && !argv[0].startsWith("-") ? argv[0] : "list";
     const rest = subcommand === "list" ? (argv[0] === "list" ? argv.slice(1) : argv) : argv.slice(1);
 
     if (subcommand === "help") {
-        const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
         printCommandHelp("wr");
         return;
     }
@@ -132,10 +133,10 @@ export async function runWorkRecordsCommand(argv, options = {}) {
             alias: { h: "help", y: "yes" },
         });
         if (parsed.help) {
-            const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
             printCommandHelp("wr");
             return;
         }
+        rejectUnknownFlags(parsed, ["yes", "y", "dry-run"]);
         if (parsed.yes && parsed["dry-run"]) throw new Error("Cannot combine --yes with --dry-run.");
         const preview = await previewWorkRecordBackfill(getCwd());
         console.log(formatWorkRecordBackfillPreview(preview));
@@ -144,14 +145,14 @@ export async function runWorkRecordsCommand(argv, options = {}) {
             return;
         }
         if (!preview.eligible.length) return;
-        const confirmed = parsed.yes || await (deps.confirmBackfill || promptForBackfillConfirmation)(
+        const confirmed = parsed.yes || promptForBackfillConfirmation(
             `[RunWield] Backfill will process ${preview.eligible.length} eligible source(s).`,
         );
         if (!confirmed) {
             console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
             return;
         }
-        const result = await runWorkRecordBackfill(getCwd());
+        const result = await runWorkRecordBackfill(getCwd(), { commandOutput });
         console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
         return;
     }
@@ -159,7 +160,6 @@ export async function runWorkRecordsCommand(argv, options = {}) {
     if (subcommand === "search") {
         const parsed = parseArgs(rest, { boolean: ["help", "all"], alias: { h: "help" } });
         if (parsed.help) {
-            const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
             printCommandHelp("wr");
             return;
         }
@@ -168,24 +168,23 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         if (!query) throw new Error("Usage: wld wr search <query> [--all]");
         console.log(
             formatWorkRecordSearchResults(
-                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all) }),
+                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all), commandOutput }),
             ),
         );
         return;
     }
 
     if (subcommand === "read") {
-        const parsed = parseArgs(rest, { boolean: ["help"], alias: { h: "help" } });
+        const parsed = parseArgs(rest, { boolean: ["help", "no-open"], alias: { h: "help" } });
         if (parsed.help) {
-            const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
             printCommandHelp("wr");
             return;
         }
-        rejectUnknownFlags(parsed);
-        if (parsed._.length !== 1) throw new Error("Usage: wld wr read <recordId>");
+        rejectUnknownFlags(parsed, ["no-open"]);
+        if (parsed._.length !== 1) throw new Error("Usage: wld wr read <recordId> [--no-open]");
         await openWorkRecordReadSurface(
             await readWorkRecordById(getCwd(), String(parsed._[0]), { accessMode: "all" }),
-            deps,
+            { noOpen: Boolean(parsed["no-open"]) },
         );
         return;
     }
@@ -195,13 +194,12 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         if (action !== "rebuild") throw new Error("Usage: wld wr index rebuild");
         const parsed = parseArgs(rest.slice(1), { boolean: ["help"], alias: { h: "help" } });
         if (parsed.help) {
-            const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
             printCommandHelp("wr");
             return;
         }
         rejectUnknownFlags(parsed);
         if (parsed._.length) throw new Error("Usage: wld wr index rebuild");
-        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd())));
+        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd(), { commandOutput })));
         return;
     }
 
@@ -209,12 +207,10 @@ export async function runWorkRecordsCommand(argv, options = {}) {
 
     const parsed = parseArgs(rest, { boolean: ["help", "all"], alias: { h: "help" } });
     if (parsed.help) {
-        const printCommandHelp = deps.printCommandHelp || (await import("../help/" + "index.js")).printCommandHelp;
         printCommandHelp("wr");
         return;
     }
     rejectUnknownFlags(parsed, ["all"]);
     if (parsed._.length) throw new Error("Usage: wld wr list [--all]");
-    const records = await listWorkRecords(getCwd());
-    console.log(formatWorkRecordList(records, { includeAll: Boolean(parsed.all) }));
+    console.log(formatWorkRecordList(await listWorkRecords(getCwd()), { includeAll: Boolean(parsed.all) }));
 }

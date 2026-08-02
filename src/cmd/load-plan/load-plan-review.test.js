@@ -6,7 +6,52 @@ import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-rec
 
 import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 
-import { makeRuntimeContext, makeRuntimeFixture, makeUi, noOpRecordPlanEvent } from "./load-plan-test-helpers.js";
+import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
+import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+
+/** The Plan shape most of these review journeys start from. */
+const APPROVED_FEATURE = /** @type {const} */ ({
+    classification: "FEATURE",
+    complexity: "LOW",
+    summary: "s",
+    affectedPaths: [],
+    status: "approved",
+});
+
+/** The Epic equivalent of {@link APPROVED_FEATURE}. */
+const APPROVED_PROJECT = /** @type {const} */ ({
+    classification: "PROJECT",
+    complexity: "HIGH",
+    summary: "s",
+    affectedPaths: [],
+    status: "approved",
+});
+
+/**
+ * Write an approved PROJECT Epic that carries an execution policy it must not have.
+ *
+ * `savePlan` refuses to produce this state — `assertExecutionPolicyWriteAllowed`
+ * rejects it — so the only way an Epic reaches load-plan carrying one is a
+ * hand-edited Plan file, which is what the guard under test defends against.
+ * Injecting a lifecycle writer hid that the state was unwritable at all.
+ *
+ * @param {string} planName
+ * @param {string} policyLine
+ */
+async function makeEpicProjectWithHandEditedPolicy(planName, policyLine) {
+    const { projectRoot, planPath } = await makePlanProject(planName, {
+        classification: "PROJECT",
+        complexity: "HIGH",
+        summary: "s",
+        affectedPaths: [],
+        status: "approved",
+    });
+    const markdown = await Deno.readTextFile(planPath);
+    const patched = markdown.replace(/^status: "approved"$/m, `status: "approved"\n${policyLine}`);
+    if (patched === markdown) throw new Error(`Could not hand-edit the Front Matter of ${planPath}.`);
+    await Deno.writeTextFile(planPath, patched);
+    return { projectRoot };
+}
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {
     const { uiAPI, selections } = makeUi();
@@ -80,11 +125,13 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
 Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", async () => {
     const { uiAPI, selections, prompts } = makeUi();
     selections.push("planner_re_review");
-    const fixture = makeRuntimeFixture();
+    const { projectRoot } = await makePlanProject("plan-ready-rereview", {
+        ...APPROVED_FEATURE,
+        status: "ready_for_work",
+    });
+    const fixture = makeRuntimeFixture({ cwd: projectRoot });
     /** @type {Array<Record<string, any>>} */
     const planningCalls = [];
-    /** @type {Array<{ event: string, currentStatus: string }>} */
-    const events = [];
 
     await runLoadPlanCommand(["plan-ready-rereview"], {
         ...fixture.context,
@@ -92,23 +139,6 @@ Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", 
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-ready-rereview"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-ready-rereview",
-                    path: "plans/plan-ready-rereview.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "ready_for_work",
-                    },
-                }),
-            recordPlanEvent: (/** @type {any} */ event) => {
-                events.push({ event: event.event, currentStatus: event.currentStatus });
-                return Promise.resolve({ ...event.details.triageMeta, status: "feedback" });
-            },
             runPlanningAgent: (/** @type {Record<string, any>} */ args) => {
                 planningCalls.push(args);
                 return Promise.resolve({ outcome: "canceled" });
@@ -122,7 +152,9 @@ Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", 
         "planner_re_review",
         "review",
     ]);
-    assertEquals(events, [{ event: "review_reopened", currentStatus: "ready_for_work" }]);
+    // The reopen is what puts the Plan back in front of the Planner, so the Plan on
+    // disk carries it — the stand-in only recorded that it was asked to.
+    assertEquals((await loadPlan(projectRoot, "plan-ready-rereview"))?.attrs.status, "feedback");
     assertEquals(planningCalls.length, 1);
     assertEquals(planningCalls[0].agentName, AGENTS.PLANNER);
     assertEquals(planningCalls[0].triageMeta.status, "feedback");
@@ -137,7 +169,9 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
     selections.push("review");
     let submitCalled = false;
     let executed = false;
+    const { projectRoot } = await makePlanProject("plan-d", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => {
             submitCalled = true;
             return { outcome: "accepted", _meta: { approved: true } };
@@ -150,37 +184,27 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-d"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-d",
-                    path: "plans/plan-d.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(submitCalled, true);
     assertEquals(executed, false);
+    // Approval clears the Readiness Gate on disk even though nothing executed.
+    assertEquals((await loadPlan(projectRoot, "plan-d"))?.attrs.status, "ready_for_work");
 });
 
 Deno.test("runLoadPlanCommand approved review run action executes without post-approval prompt", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
     let executed = false;
+    const { projectRoot } = await makePlanProject("plan-run-now", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
     });
 
@@ -190,19 +214,6 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-run-now"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-run-now",
-                    path: "plans/plan-run-now.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
@@ -221,7 +232,6 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
                     },
                 }),
             runValidationLoop: () => Promise.resolve({ ok: true }),
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -232,14 +242,16 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
 Deno.test("runLoadPlanCommand checkpoints completed execution before validation", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
+    const { projectRoot } = await makePlanProject("plan-run-checkpoint", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
     });
     let finalized = false;
     let validated = false;
     /** @type {any[]} */
     const finalizeCalls = [];
-    const cwd = Deno.cwd();
+    const cwd = projectRoot;
 
     await runLoadPlanCommand(["plan-run-checkpoint"], {
         ...fixture.context,
@@ -247,20 +259,6 @@ Deno.test("runLoadPlanCommand checkpoints completed execution before validation"
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-run-checkpoint"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-run-checkpoint",
-                    path: "plans/plan-run-checkpoint.md",
-                    body: "body",
-                    markdown: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             loadPlan: () =>
                 Promise.resolve({
                     planName: "plan-run-checkpoint",
@@ -321,7 +319,6 @@ Deno.test("runLoadPlanCommand checkpoints completed execution before validation"
                 assertEquals(args.executionContext.nonGitInPlace, true);
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -335,24 +332,43 @@ Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readi
     selections.push("review");
     /** @type {any} */
     let executedTriageMeta = null;
-    const readinessEvents = /** @type {any[]} */ ([]);
+    const { projectRoot } = await makePlanProject("plan-policy-refresh", {
+        ...APPROVED_FEATURE,
+        executionAgent: "engineer",
+        collaborationRecommendation: "autonomous",
+    });
+    const refreshedPolicy = {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "approved",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+    };
     const fixture = makeRuntimeFixture({
-        requestInteraction: () => ({
-            outcome: "accepted",
-            _meta: {
-                approved: true,
-                approvalAction: "run",
-                planAttrs: {
-                    classification: "FEATURE",
-                    complexity: "LOW",
-                    summary: "s",
-                    affectedPaths: [],
-                    status: "approved",
+        cwd: projectRoot,
+        // The real reviewer writes the approved policy to the Plan before returning
+        // it, and the lifecycle write reads Front Matter back from disk under the
+        // Plan lock. A reviewer that only returned the policy left the durable half
+        // of this refresh untested.
+        requestInteraction: async () => {
+            const before = await loadPlan(projectRoot, "plan-policy-refresh");
+            await updatePlanFrontMatter(
+                projectRoot,
+                "plan-policy-refresh",
+                {
                     executionAgent: "frontend-engineer",
                     collaborationRecommendation: "pair",
                 },
-            },
-        }),
+                {},
+                { expectedRevision: before?.revision },
+            );
+            return {
+                outcome: "accepted",
+                _meta: { approved: true, approvalAction: "run", planAttrs: refreshedPolicy },
+            };
+        },
     });
 
     await runLoadPlanCommand(["plan-policy-refresh"], {
@@ -361,36 +377,17 @@ Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readi
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-policy-refresh"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-policy-refresh",
-                    path: "plans/plan-policy-refresh.md",
-                    body: "body",
-                    markdown: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                        executionAgent: "engineer",
-                        collaborationRecommendation: "autonomous",
-                    },
-                }),
             executePlan: (/** @type {any} */ options) => {
                 executedTriageMeta = options.triageMeta;
                 return Promise.resolve({ repairRequired: false, executionComplete: false });
-            },
-            recordPlanEvent: (/** @type {any} */ event) => {
-                readinessEvents.push(event);
-                return noOpRecordPlanEvent();
             },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(readinessEvents[0].details.triageMeta.executionAgent, "frontend-engineer");
-    assertEquals(readinessEvents[0].details.triageMeta.collaborationRecommendation, "pair");
+    const refreshed = await loadPlan(projectRoot, "plan-policy-refresh");
+    assertEquals(refreshed?.attrs.executionAgent, "frontend-engineer");
+    assertEquals(refreshed?.attrs.collaborationRecommendation, "pair");
     assertEquals(executedTriageMeta.executionAgent, "frontend-engineer");
     assertEquals(executedTriageMeta.collaborationRecommendation, "pair");
 });
@@ -401,7 +398,14 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
     let executed = false;
     /** @type {string | null} */
     let validationPlanContent = null;
+    const { projectRoot } = await makePlanProject("plan-content-refresh", {
+        ...APPROVED_FEATURE,
+        summary: "stale",
+        executionAgent: "engineer",
+        collaborationRecommendation: "autonomous",
+    });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "accepted",
             _meta: {
@@ -426,22 +430,6 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-content-refresh"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-content-refresh",
-                    path: "plans/plan-content-refresh.md",
-                    body: "stale body",
-                    markdown: "stale markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "stale",
-                        affectedPaths: [],
-                        status: "approved",
-                        executionAgent: "engineer",
-                        collaborationRecommendation: "autonomous",
-                    },
-                }),
             loadPlan: () =>
                 Promise.resolve({
                     planName: "plan-content-refresh",
@@ -467,7 +455,6 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
                 validationPlanContent = options.planContent;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -499,13 +486,30 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
             updatedAt: "2026-01-01T00:00:00.000Z",
         }),
     );
+    // Detaching the Plan from its execution generation belongs to the reviewer's
+    // decision transaction, which commits the Plan write and the registry
+    // abandonment together — see plan-review.test.ts. load-plan used to reopen a
+    // second time here, with the status it captured before the review, which
+    // clobbered the reviewer's decision. What it owes now is to leave both alone.
+    await savePlan(projectRoot, "plan-reapproval", "# reapproval", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "ready_for_work",
+        planId: "plan-reapproval-id",
+        worktreeId: "old-worktree",
+        worktreeStatus: "completed",
+    });
     /** @type {any} */
     let reviewMeta = null;
+    // This fixture stands in for the reviewer, so no decision transaction runs and
+    // nothing should be detached. Any change here is load-plan reopening on its own.
     const fixture = makeRuntimeFixture({
         cwd: projectRoot,
         requestInteraction: (request) => {
             reviewMeta = request._meta?.triageMeta;
-            return { outcome: "accepted", _meta: { approved: true } };
+            return { outcome: "accepted", _meta: { approved: false, feedback: "needs another pass" } };
         },
     });
 
@@ -515,21 +519,6 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-reapproval"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-reapproval",
-                    path: "plans/plan-reapproval.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "ready_for_work",
-                        worktreeId: "old-worktree",
-                        worktreeStatus: "completed",
-                    },
-                }),
             findWorktreeById: () =>
                 Promise.resolve({
                     id: "old-worktree",
@@ -548,25 +537,14 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                     baseBranch: "main",
                     status: "completed",
                 }),
-            recordPlanEvent: (/** @type {any} */ event) => {
-                if (event.event === "review_reopened") {
-                    return Promise.resolve({
-                        ...event.details.triageMeta,
-                        status: "feedback",
-                        worktreeId: null,
-                        worktreePath: null,
-                        worktreeBranch: null,
-                        worktreeBaseBranch: null,
-                        worktreeStatus: "abandoned",
-                    });
-                }
-                return Promise.resolve({ ...event.details.triageMeta, status: "ready_for_work" });
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals((await findRegistryEntryById(projectRoot, "old-worktree"))?.status, "abandoned");
+    assertEquals((await findRegistryEntryById(projectRoot, "old-worktree"))?.status, "active");
+    const afterReview = await loadPlan(projectRoot, "plan-reapproval");
+    assertEquals(afterReview?.attrs.status, "ready_for_work");
+    assertEquals(afterReview?.attrs.worktreeId, "old-worktree");
     assertEquals(reviewMeta.worktreeStatus, "completed");
     assertEquals(reviewMeta.worktreeBaseBranch, undefined);
 });
@@ -574,8 +552,15 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
 Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree metadata", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
-    let recorded = false;
+    const { projectRoot } = await makePlanProject("plan-unmanaged-worktree", {
+        ...APPROVED_FEATURE,
+        status: "ready_for_work",
+        worktreePath: "/tmp/unmanaged-worktree",
+        worktreeBranch: "runwield/worktree/unmanaged",
+        worktreeStatus: "completed",
+    });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
     });
 
@@ -587,28 +572,8 @@ Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree m
                 editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
                 __testDeps: /** @type {any} */ ({
                     parseArgs: () => ({ help: false, _: ["plan-unmanaged-worktree"] }),
-                    resolvePlan: () =>
-                        Promise.resolve({
-                            planName: "plan-unmanaged-worktree",
-                            path: "plans/plan-unmanaged-worktree.md",
-                            body: "body",
-                            attrs: {
-                                classification: "FEATURE",
-                                complexity: "LOW",
-                                summary: "s",
-                                affectedPaths: [],
-                                status: "ready_for_work",
-                                worktreePath: "/tmp/unmanaged-worktree",
-                                worktreeBranch: "runwield/worktree/unmanaged",
-                                worktreeStatus: "completed",
-                            },
-                        }),
                     findWorktreeById: () => Promise.resolve(null),
                     findWorktreeByPlanName: () => Promise.resolve(null),
-                    recordPlanEvent: () => {
-                        recorded = true;
-                        return Promise.resolve({});
-                    },
                     resetTuiState: () => {},
                 }),
             }),
@@ -616,7 +581,9 @@ Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree m
         "lacks a registry id",
     );
 
-    assertEquals(recorded, false);
+    // Refusing means refusing to write: the Plan is untouched, not merely that a
+    // stand-in went uncalled.
+    assertEquals((await loadPlan(projectRoot, "plan-unmanaged-worktree"))?.attrs.status, "ready_for_work");
 });
 
 Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executing", async () => {
@@ -626,29 +593,20 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     /** @type {import("./load-plan-test-helpers.js").SlicerRunArgs[]} */
     const slicerCalls = [];
     let executed = false;
-    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
-    const events = [];
+    const { projectRoot } = await makePlanProject("epic-review", {
+        classification: "PROJECT",
+        complexity: "HIGH",
+        summary: "s",
+        affectedPaths: [],
+        status: "approved",
+    });
 
     await runLoadPlanCommand(["epic-review"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic-review"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "epic-review",
-                    path: "plans/epic-review.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             findPlansByParent: () => Promise.resolve([]),
             runSlicerAgent: (/** @type {import("./load-plan-test-helpers.js").SlicerRunArgs} */ args) => {
                 slicerOpened = true;
@@ -660,10 +618,6 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
-                events.push({ event: args.event, currentStatus: args.currentStatus });
-                return Promise.resolve({ status: "ready_for_decomposition" });
-            },
             resetTuiState: () => {},
         }),
     });
@@ -672,7 +626,8 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     assertEquals(slicerCalls[0].planName, "epic-review");
     assertEquals(slicerCalls[0].triageMeta.status, "ready_for_decomposition");
     assertEquals(executed, false);
-    assertEquals(events, [{ event: "epic_readiness_passed", currentStatus: "approved" }]);
+    // The Epic really cleared its readiness gate before the Slicer was handed it.
+    assertEquals((await loadPlan(projectRoot, "epic-review"))?.attrs.status, "ready_for_decomposition");
     assertEquals(messages.some((message) => message.includes("not executable")), true);
 });
 
@@ -680,57 +635,44 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic rejects execution policy bef
     const { uiAPI, selections, messages } = makeUi();
     selections.push("slicer");
     let slicerOpened = false;
-    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
-    const events = [];
+    const { projectRoot } = await makeEpicProjectWithHandEditedPolicy(
+        "epic-invalid-policy",
+        'executionAgent: "frontend-engineer"',
+    );
 
     await runLoadPlanCommand(["epic-invalid-policy"], {
-        ...makeRuntimeContext(),
+        ...makeRuntimeContext({ cwd: projectRoot }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic-invalid-policy"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "epic-invalid-policy",
-                    path: "plans/epic-invalid-policy.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                        executionAgent: "frontend-engineer",
-                    },
-                }),
             findPlansByParent: () => Promise.resolve([]),
             runSlicerAgent: () => {
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
-            },
-            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
-                events.push(args);
-                return Promise.resolve({ status: "ready_for_decomposition" });
             },
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(slicerOpened, false);
-    assertEquals(events, []);
+    // Rejecting the policy leaves the Epic where it was, gate uncleared.
+    assertEquals((await loadPlan(projectRoot, "epic-invalid-policy"))?.attrs.status, "approved");
     assertEquals(messages.some((message) => message.includes("PROJECT Epics are non-executable")), true);
 });
 
 Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy before readiness", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");
+    const { projectRoot } = await makeEpicProjectWithHandEditedPolicy(
+        "epic-review-invalid-policy",
+        'collaborationRecommendation: "pair"',
+    );
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
     });
     let slicerOpened = false;
-    /** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent[]} */
-    const events = [];
 
     await runLoadPlanCommand(["epic-review-invalid-policy"], {
         ...fixture.context,
@@ -738,36 +680,17 @@ Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy 
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic-review-invalid-policy"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "epic-review-invalid-policy",
-                    path: "plans/epic-review-invalid-policy.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                        collaborationRecommendation: "pair",
-                    },
-                }),
             askProjectDecompositionApproval: () => Promise.resolve("proceed"),
             runSlicerAgent: () => {
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
-            },
-            recordPlanEvent: (/** @type {import("./load-plan-test-helpers.js").RecordedPlanEvent} */ args) => {
-                events.push(args);
-                return Promise.resolve({ status: "ready_for_decomposition" });
             },
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(slicerOpened, false);
-    assertEquals(events, []);
+    assertEquals((await loadPlan(projectRoot, "epic-review-invalid-policy"))?.attrs.status, "approved");
     assertEquals(messages.some((message) => message.includes("PROJECT Epics are non-executable")), true);
 });
 
@@ -862,7 +785,9 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
 Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without transient operator switch", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
+    const { projectRoot } = await makePlanProject("plan-project-review", { ...APPROVED_PROJECT });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
     });
 
@@ -872,23 +797,8 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-project-review"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-project-review",
-                    path: "plans/plan-project-review.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
             runValidationLoop: () => Promise.resolve(),
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -900,7 +810,9 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
     const { uiAPI, selections } = makeUi();
     selections.push("review");
     let slicerCalled = false;
+    const { projectRoot } = await makePlanProject("plan-project-decompose", { ...APPROVED_PROJECT });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "decompose" } }),
     });
 
@@ -910,30 +822,16 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-project-decompose"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-project-decompose",
-                    path: "plans/plan-project-decompose.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             runSlicerAgent: () => {
                 slicerCalled = true;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(slicerCalled, true);
+    assertEquals((await loadPlan(projectRoot, "plan-project-decompose"))?.attrs.status, "ready_for_decomposition");
 });
 
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
@@ -1073,7 +971,16 @@ Deno.test("runLoadPlanCommand planning PROJECT approval forwards feedback images
 Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review", "no");
+    const { projectRoot } = await makePlanProject("ready-review-cancel", {
+        ...APPROVED_FEATURE,
+        status: "ready_for_work",
+        worktreeId: "wt-1",
+        worktreePath: "/tmp/ready-review-cancel",
+        worktreeBranch: "runwield/worktree/ready-review-cancel",
+        worktreeStatus: "active",
+    });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "canceled",
             _meta: { canceled: true, feedback: "Cancelled by user (Esc)" },
@@ -1081,8 +988,6 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
     });
     fixture.state.workflow = { planName: "ready-review-cancel", worktreeId: "wt-1", ownerAgent: AGENTS.ENGINEER };
     const preReviewWorkflow = fixture.state.workflow;
-    const registryStatuses = /** @type {string[]} */ ([]);
-    let lifecycleCalled = false;
 
     await runLoadPlanCommand(["ready-review-cancel"], {
         ...fixture.context,
@@ -1090,23 +995,6 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["ready-review-cancel"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "ready-review-cancel",
-                    path: "plans/ready-review-cancel.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "ready_for_work",
-                        worktreeId: "wt-1",
-                        worktreePath: "/tmp/ready-review-cancel",
-                        worktreeBranch: "runwield/worktree/ready-review-cancel",
-                        worktreeStatus: "active",
-                    },
-                }),
             findWorktreeById: () =>
                 Promise.resolve({
                     id: "wt-1",
@@ -1115,23 +1003,25 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
                     branch: "runwield/worktree/ready-review-cancel",
                     status: "active",
                 }),
-            recordPlanEvent: () => {
-                lifecycleCalled = true;
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
             resetTuiState: () => {},
         }),
     });
 
-    assertEquals(lifecycleCalled, false);
-    assertEquals(registryStatuses, []);
+    // "Preserves pre-attempt status" is a claim about the Plan, so the Plan answers
+    // it: declining the review leaves both the status and the worktree attempt alone.
+    const declined = await loadPlan(projectRoot, "ready-review-cancel");
+    assertEquals(declined?.attrs.status, "ready_for_work");
+    assertEquals(declined?.attrs.worktreeId, "wt-1");
+    assertEquals(declined?.attrs.worktreeStatus, "active");
     assertEquals(fixture.state.workflow, preReviewWorkflow);
 });
 
 Deno.test("runLoadPlanCommand Esc-canceled review completes without retry prompt", async () => {
     const { uiAPI, selections, prompts, messages } = makeUi();
     selections.push("review");
+    const { projectRoot } = await makePlanProject("review-runtime-cancel", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "canceled" }),
     });
 
@@ -1141,20 +1031,6 @@ Deno.test("runLoadPlanCommand Esc-canceled review completes without retry prompt
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["review-runtime-cancel"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "review-runtime-cancel",
-                    path: "plans/review-runtime-cancel.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -1168,7 +1044,9 @@ Deno.test("runLoadPlanCommand approved review preserves remote review outcome", 
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");
     let planningCalled = false;
+    const { projectRoot } = await makePlanProject("remote-review-plan", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "accepted",
             message: "Plan saved for remote review.",
@@ -1182,24 +1060,10 @@ Deno.test("runLoadPlanCommand approved review preserves remote review outcome", 
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["remote-review-plan"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "remote-review-plan",
-                    path: "plans/remote-review-plan.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             runPlanningAgent: () => {
                 planningCalled = true;
                 return Promise.resolve({ outcome: "no_call" });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -1215,7 +1079,9 @@ Deno.test("runLoadPlanCommand approved FEATURE review run forwards approval feed
     const reviewImages = [{ base64: "approved", mimeType: "image/png" }];
     /** @type {any} */
     let executeRequest = null;
+    const { projectRoot } = await makePlanProject("plan-run-with-images", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "accepted",
             _meta: {
@@ -1233,24 +1099,10 @@ Deno.test("runLoadPlanCommand approved FEATURE review run forwards approval feed
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-run-with-images"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-run-with-images",
-                    path: "plans/plan-run-with-images.md",
-                    body: "body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: (/** @type {any} */ request) => {
                 executeRequest = request;
                 return Promise.resolve({ repairRequired: false, executionComplete: false });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -1263,7 +1115,9 @@ Deno.test("runLoadPlanCommand approved FEATURE review later action shows session
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");
     let executed = false;
+    const { projectRoot } = await makePlanProject("plan-save-later", { ...APPROVED_FEATURE });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "later" } }),
     });
 
@@ -1273,30 +1127,17 @@ Deno.test("runLoadPlanCommand approved FEATURE review later action shows session
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-save-later"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-save-later",
-                    path: "plans/plan-save-later.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(executed, false);
+    // Saving for later still clears the Readiness Gate, so resuming does not re-run it.
+    assertEquals((await loadPlan(projectRoot, "plan-save-later"))?.attrs.status, "ready_for_work");
     assertEquals(messages.some((message) => message.includes("Plan saved. Resume later")), true);
     assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
@@ -1308,7 +1149,9 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
     /** @type {any} */
     let slicerRequest = null;
     const reviewImages = [{ base64: "approved", mimeType: "image/png" }];
+    const { projectRoot } = await makePlanProject("plan-project-decompose", { ...APPROVED_PROJECT });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "accepted",
             _meta: {
@@ -1326,26 +1169,11 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-project-decompose"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-project-decompose",
-                    path: "plans/plan-project-decompose.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             runSlicerAgent: (/** @type {any} */ request) => {
                 slicerCalled = true;
                 slicerRequest = request;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
@@ -1359,7 +1187,9 @@ Deno.test("runLoadPlanCommand approved PROJECT review later action shows session
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");
     let slicerCalled = false;
+    const { projectRoot } = await makePlanProject("plan-project-save-later", { ...APPROVED_PROJECT });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "later" } }),
     });
 
@@ -1369,30 +1199,16 @@ Deno.test("runLoadPlanCommand approved PROJECT review later action shows session
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-project-save-later"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-project-save-later",
-                    path: "plans/plan-project-save-later.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             runSlicerAgent: () => {
                 slicerCalled = true;
                 return Promise.resolve({ ok: true });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(slicerCalled, false);
+    assertEquals((await loadPlan(projectRoot, "plan-project-save-later"))?.attrs.status, "ready_for_decomposition");
     assertEquals(messages.some((message) => message.includes("Plan saved. Resume later")), true);
     assertEquals(messages.some((message) => message.includes(SESSION_COMPLETE_GUIDANCE)), true);
 });
@@ -1449,7 +1265,9 @@ Deno.test("runLoadPlanCommand approved PROJECT review feedback returns images to
     /** @type {any} */
     let plannerRequest = null;
     const reviewImages = [{ base64: "project-feedback", mimeType: "image/png" }];
+    const { projectRoot } = await makePlanProject("project-feedback-images", { ...APPROVED_PROJECT });
     const fixture = makeRuntimeFixture({
+        cwd: projectRoot,
         requestInteraction: () => ({
             outcome: "accepted",
             _meta: { approved: false, feedback: "Revise the Epic.", images: reviewImages },
@@ -1462,25 +1280,10 @@ Deno.test("runLoadPlanCommand approved PROJECT review feedback returns images to
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["project-feedback-images"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "project-feedback-images",
-                    path: "plans/project-feedback-images.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
             runPlanningAgent: (/** @type {any} */ request) => {
                 plannerRequest = request;
                 return Promise.resolve({ outcome: "saved", planName: "project-feedback-images" });
             },
-            recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
         }),
     });

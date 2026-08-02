@@ -122,7 +122,7 @@ async function main() {
     }
 
     if (firstPositional === "plans") {
-        const { runPlansCommand } = await import("./cmd/plans/index.js");
+        const { runPlansCommand } = await import("./cmd/plans/index.ts");
         const [, ...commandArgs] = normalizedArgs;
         await runPlansCommand(commandArgs);
         return;

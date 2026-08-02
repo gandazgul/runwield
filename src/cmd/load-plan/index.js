@@ -30,6 +30,7 @@ import {
     isEpicPlan,
     isExecutablePlanStatus,
     isInValidation,
+    isPlanReviewableWithoutReopen,
     recordPlanEvent as recordPlanEventFn,
     stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
 } from "../../shared/workflow/plan-lifecycle.js";
@@ -144,19 +145,12 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: Partial<import('../../plan-store.js').PlanFrontMatter>}>>} [listPlans]
  * @property {typeof findPlansByParentFn} [findPlansByParent]
  * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
- * @property {typeof recordPlanEventFn} [recordPlanEvent]
- * @property {typeof stageValidationPassedInExecutionWorktreeFn} [stageValidationPassedInExecutionWorktree]
- * @property {typeof updatePlanFrontMatterFn} [updatePlanFrontMatter]
  * @property {typeof findWorktreeByIdFn} [findWorktreeById]
  * @property {typeof findWorktreeByPlanNameFn} [findWorktreeByPlanName]
  * @property {typeof getWorktreeStatusFn} [getWorktreeStatus]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
- * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
- * @property {typeof checkpointExecutionWorktree} [checkpointExecutionWorktree]
  * @property {typeof getBranchHead} [getBranchHead]
  * @property {typeof isCommitAncestorOfBranch} [isCommitAncestorOfBranch]
- * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
- * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {typeof probeGitRepositoryFn} [probeGitRepository]
@@ -1513,21 +1507,14 @@ async function resolveRecoveryWorktree(
  * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, revision?: string }} plan
  * @param {RecoveryWorktreeContext | null} context
- * @param {typeof updatePlanFrontMatterFn} updatePlanFrontMatter
  * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
  */
-async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, updatePlanFrontMatter) {
+async function persistRecoveredWorktreeMetadata(projectRoot, plan, context) {
     if (!context) return plan.attrs;
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     const updates = {};
     if (context.id && !plan.attrs.worktreeId) updates.worktreeId = context.id;
     if (!Object.keys(updates).length) return plan.attrs;
-    if (updatePlanFrontMatter !== updatePlanFrontMatterFn) {
-        const injectedFrontMatterWriter = updatePlanFrontMatter;
-        return await injectedFrontMatterWriter(projectRoot, plan.planName, updates, {}, {
-            expectedRevision: plan.revision,
-        });
-    }
     const transition = await runPlanFrontMatterTransition({
         projectRoot,
         planName: plan.planName,
@@ -1540,6 +1527,26 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
         throw transitionFailureError(transition, `Recovery metadata transition failed for ${plan.planName}.`);
     }
     return /** @type {import('../../plan-store.js').PlanFrontMatter} */ (transition.value);
+}
+
+/**
+ * Refuse to detach a generation RunWield does not manage.
+ *
+ * Worktree metadata with a path or branch but no registry id is a worktree
+ * nothing can abandon: there is no entry to mark. Detaching the Plan from it
+ * anyway would strand a real working tree with no record pointing at it.
+ *
+ * @param {string} planName
+ * @param {RecoveryWorktreeContext | null | undefined} priorWorktree
+ */
+function assertRecoveryWorktreeIsManaged(planName, priorWorktree) {
+    if (priorWorktree?.id) return;
+    if (!priorWorktree?.path && !priorWorktree?.branch) return;
+    throw new Error(
+        `Cannot reopen ${planName} for review while recovery worktree metadata lacks a registry id. Resolve or abandon the recorded worktree (${
+            priorWorktree.path || "unknown path"
+        }, ${priorWorktree.branch || "unknown branch"}) before reopening review.`,
+    );
 }
 
 /**
@@ -1575,13 +1582,7 @@ async function reopenPlanForReview({
         ? await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName })
         : worktreeContext;
     if (!priorWorktree?.id) {
-        if (priorWorktree?.path || priorWorktree?.branch) {
-            throw new Error(
-                `Cannot reopen ${plan.planName} for review while recovery worktree metadata lacks a registry id. Resolve or abandon the recorded worktree (${
-                    priorWorktree.path || "unknown path"
-                }, ${priorWorktree.branch || "unknown branch"}) before reopening review.`,
-            );
-        }
+        assertRecoveryWorktreeIsManaged(plan.planName, priorWorktree);
         session.clearActiveExecutionWorkflow();
         const updatedAttrs = await recordPlanEvent({
             cwd: projectRoot,
@@ -1594,19 +1595,6 @@ async function reopenPlanForReview({
         return;
     }
     const priorWorktreeId = priorWorktree.id;
-    if (recordPlanEvent !== recordPlanEventFn || updatePlanFrontMatter !== updatePlanFrontMatterFn) {
-        await updateWorktreeRegistryEntry(projectRoot, priorWorktreeId, { status: "abandoned" });
-        session.clearActiveExecutionWorkflow();
-        const updatedAttrs = await recordPlanEvent({
-            cwd: projectRoot,
-            planName: plan.planName,
-            event: "review_reopened",
-            currentStatus,
-            details: { triageMeta: plan.attrs },
-        });
-        plan.attrs = { ...plan.attrs, ...updatedAttrs };
-        return;
-    }
     const transition = await runReviewReopenTransition({
         projectRoot,
         planName: plan.planName,
@@ -2091,7 +2079,7 @@ async function handlePlanRecovery({
 
     const refreshRecoveryWorktree = async () => {
         const resolved = await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName });
-        plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved, updatePlanFrontMatter);
+        plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved);
         return resolved;
     };
     let worktreeContext = await refreshRecoveryWorktree();
@@ -3262,7 +3250,7 @@ function buildEpicPlanSummary(plan, children) {
 function buildEpicDoneEnoughSummary(children) {
     const counts = countEpicChildStatuses(children);
     const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
-    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child Plans${
+    return `Done enough for now: ${counts.verified} RunWield verified and ${counts.userVerified} User Verified of ${counts.total} child Plan${
         counts.total === 1 ? "" : "s"
     }, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
 }
@@ -3616,19 +3604,12 @@ export async function runLoadPlanCommand(argv, options = {}) {
         listPlans: listPlansDep,
         findPlansByParent: findPlansByParentDep,
         resolveSiblingChildPlanDependencies: resolveSiblingChildPlanDependenciesDep,
-        recordPlanEvent: recordPlanEventDep,
-        stageValidationPassedInExecutionWorktree: stageValidationPassedInExecutionWorktreeDep,
-        updatePlanFrontMatter: updatePlanFrontMatterDep,
         findWorktreeById: findWorktreeByIdDep,
         findWorktreeByPlanName: findWorktreeByPlanNameDep,
         getWorktreeStatus: getWorktreeStatusDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
-        mergeExecutionWorktree: mergeExecutionWorktreeDep,
-        checkpointExecutionWorktree: checkpointExecutionWorktreeDep,
         getBranchHead: getBranchHeadDep,
         isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
-        preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
-        restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
         probeGitRepository: probeGitRepositoryDep,
@@ -3653,23 +3634,21 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
     const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
         resolveSiblingChildPlanDependenciesFn;
-    const recordPlanEvent = recordPlanEventDep || recordPlanEventFn;
-    const stageValidationPassedInExecutionWorktree = stageValidationPassedInExecutionWorktreeDep ||
-        stageValidationPassedInExecutionWorktreeFn;
-    const updatePlanFrontMatter = updatePlanFrontMatterDep || updatePlanFrontMatterFn;
+    const recordPlanEvent = recordPlanEventFn;
+    const stageValidationPassedInExecutionWorktree = stageValidationPassedInExecutionWorktreeFn;
+    const updatePlanFrontMatter = updatePlanFrontMatterFn;
     const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
     const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
     const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryFn;
     const getWorktreeStatus = getWorktreeStatusDep || getWorktreeStatusFn;
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
-    const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
-    const checkpointExecutionWorktreeImpl = checkpointExecutionWorktreeDep || checkpointExecutionWorktree;
+    const mergeExecutionWorktree = mergeExecutionWorktreeFn;
+    const checkpointExecutionWorktreeImpl = checkpointExecutionWorktree;
     const getBranchHeadImpl = getBranchHeadDep || getBranchHead;
     const isCommitAncestorOfBranchImpl = isCommitAncestorOfBranchDep || isCommitAncestorOfBranch;
-    const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
-    const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
-        restorePrimaryPlanPathAfterMergeFailureFn;
+    const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeFn;
+    const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
     const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
@@ -4157,9 +4136,18 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
-                    const shouldReopenForReview = isExecutablePlanStatus(plan.attrs.status) ||
-                        Boolean(plan.attrs.worktreeId || plan.attrs.worktreePath || plan.attrs.worktreeBranch);
-                    const preReviewStatus = plan.attrs.status;
+                    // The reviewer detaches the Plan from its execution generation as
+                    // part of committing its decision, so load-plan does not reopen
+                    // here. What it must still do is refuse up front: an unmanaged
+                    // worktree cannot be abandoned, and finding that out after someone
+                    // has reviewed the Plan wastes the review.
+                    assertRecoveryWorktreeIsManaged(
+                        plan.planName,
+                        await resolveRecoveryWorktree(projectRoot, plan, {
+                            findWorktreeById,
+                            findWorktreeByPlanName,
+                        }),
+                    );
 
                     await switchPlanAgent(agentName);
 
@@ -4209,18 +4197,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         return;
                     }
 
-                    if (shouldReopenForReview) {
-                        await reopenPlanForReview({
-                            projectRoot,
-                            plan,
-                            currentStatus: preReviewStatus,
-                            findWorktreeById,
-                            findWorktreeByPlanName,
-                            updateWorktreeRegistryEntry,
-                            updatePlanFrontMatter,
-                            recordPlanEvent,
-                            session,
-                        });
+                    // The reviewer's transaction may have abandoned the execution
+                    // generation this session was still pointing at.
+                    if (!isPlanReviewableWithoutReopen(plan.attrs.status)) {
+                        session.clearActiveExecutionWorkflow();
                     }
 
                     if (reviewResult.approved) {

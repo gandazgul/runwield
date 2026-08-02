@@ -8,7 +8,7 @@
 
 import { assertEquals, assertExists, assertObjectMatch } from "@std/assert";
 import { join } from "@std/path";
-import { _setTestStatePath } from "./init-state.js";
+import { _setTestStatePath } from "./init-state.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     getCwdHash,
@@ -19,7 +19,7 @@ import {
     recordInitOffered,
     recordSnipMissingWarningShown,
     shouldShowSnipMissingWarning,
-} from "./init-state.js";
+} from "./init-state.ts";
 
 // Isolate all state operations to a temp directory so we never touch
 // the user's real ~/.wld/init-state.json.
