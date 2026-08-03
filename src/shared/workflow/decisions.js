@@ -51,7 +51,7 @@ export function summarizeWorkflowDecision(workflowDecision) {
  * @param {import('./workflow.js').PlanOutcomeResult | null | undefined} planOutcome
  * @param {Object} opts
  * @param {string} opts.planningAgentName
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.fallbackTriageMeta]
+ * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.fallbackTriageMeta]
  * @returns {WorkflowDecision}
  */
 export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTriageMeta }) {
@@ -134,7 +134,7 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
  * @param {import('./workflow.js').PlanExecutionResult | null | undefined} executionResult
  * @param {Object} opts
  * @param {string} opts.planName
- * @param {import('../../tools/plan-written.js').TriageMeta} opts.triageMeta
+ * @param {import('../../tools/plan-written.ts').TriageMeta} opts.triageMeta
  * @param {string} opts.executionAgentName
  * @returns {WorkflowDecision}
  */

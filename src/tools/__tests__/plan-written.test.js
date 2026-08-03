@@ -2,7 +2,7 @@ import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
-import { createPlanWrittenTool } from "../plan-written.js";
+import { createPlanWrittenTool } from "../plan-written.ts";
 import { loadPlan } from "../../plan-store.js";
 
 /**
@@ -18,7 +18,6 @@ import { loadPlan } from "../../plan-store.js";
 async function makeHarness(options = {}) {
     const events = /** @type {any[]} */ ([]);
     const reviewResponses = [...(options.reviewResponses || [])];
-    const metrics = /** @type {any[]} */ ([]);
     const cwd = await Deno.makeTempDir();
     await Deno.mkdir(`${cwd}/plans`, { recursive: true });
     if (options.exists !== false) {
@@ -43,6 +42,34 @@ status: approved
     }
     const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
     hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (request) => {
+            if (request.type === "approval") {
+                return Promise.resolve(options.retryResponse || { outcome: "canceled", value: false });
+            }
+            const onSurfaceReady = /** @type {any} */ (request._meta)?.onSurfaceReady;
+            onSurfaceReady?.({ url: "http://127.0.0.1:4567/review/plan?token=test" });
+            // The reviewed revision has to be the Plan's real one: the transition
+            // rejects a stale revision, so a made-up string would fail the write.
+            const reviewedName = /** @type {any} */ (request._meta)?.planName || "runtime-boundary";
+            return loadPlan(cwd, reviewedName).then((plan) => {
+                const revision = plan?.revision;
+                const scripted = reviewResponses.shift() || options.reviewResponse;
+                if (scripted) {
+                    return scripted._meta ? { ...scripted, _meta: { revision, ...scripted._meta } } : scripted;
+                }
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        revision,
+                        approvalAction: options.approvalAction ||
+                            (options.classification === "PROJECT" ? "decompose" : "run"),
+                    },
+                };
+            });
+        },
+    });
     const tool = createPlanWrittenTool({
         hostedSession,
         agentName: options.classification === "PROJECT" ? "architect" : "planner",
@@ -53,48 +80,10 @@ status: approved
             summary: "Plan the boundary",
             affectedPaths: ["src/shared/session/session-runtime.js"],
         },
-        __deps: {
-            cwd,
-            stat: () =>
-                options.exists === false
-                    ? Promise.reject(new Deno.errors.NotFound())
-                    : Deno.stat(`${cwd}/plans/runtime-boundary.md`),
-            requestPlanReview: (_hostedSession, request) => {
-                if (request.type === "approval") {
-                    return Promise.resolve(options.retryResponse || { outcome: "canceled", value: false });
-                }
-                const onSurfaceReady = /** @type {any} */ (request._meta)?.onSurfaceReady;
-                onSurfaceReady?.({ url: "http://127.0.0.1:4567/review/plan?token=test" });
-                // The reviewed revision has to be the Plan's real one: the transition
-                // rejects a stale revision, so a made-up string would fail the write
-                // rather than prove the tool passed the right thing.
-                const reviewedName = /** @type {any} */ (request._meta)?.planName || "runtime-boundary";
-                return loadPlan(cwd, reviewedName).then((plan) => {
-                    const revision = plan?.revision;
-                    const scripted = reviewResponses.shift() || options.reviewResponse;
-                    if (scripted) {
-                        return scripted._meta ? { ...scripted, _meta: { revision, ...scripted._meta } } : scripted;
-                    }
-                    return {
-                        outcome: "accepted",
-                        _meta: {
-                            approved: true,
-                            revision,
-                            approvalAction: options.approvalAction ||
-                                (options.classification === "PROJECT" ? "decompose" : "run"),
-                        },
-                    };
-                });
-            },
-            recordWorkflowMetric: (metric) => {
-                metrics.push(metric);
-                return Promise.resolve(/** @type {any} */ (null));
-            },
-        },
     });
     /** Read the Plan the tool actually wrote. */
     const readPlan = (name = "runtime-boundary") => loadPlan(cwd, name);
-    return { tool, hostedSession, events, metrics, readPlan, cwd };
+    return { tool, hostedSession, events, readPlan, cwd };
 }
 
 /**
@@ -165,19 +154,16 @@ collaborationRecommendation: pair
         );
         let reviewRequested = false;
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+        hostedSession.setInteractionAdapter({
+            requestInteraction: () => {
+                reviewRequested = true;
+                return Promise.resolve({ outcome: "accepted", _meta: { approved: true } });
+            },
+        });
         const tool = createPlanWrittenTool({
             hostedSession,
             agentName: "planner",
             triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
-            __deps: {
-                cwd,
-                stat: () => Promise.resolve({ isFile: true }),
-                requestPlanReview: () => {
-                    reviewRequested = true;
-                    return Promise.resolve({ outcome: "accepted", _meta: { approved: true } });
-                },
-                recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
-            },
         });
 
         const result = await execute(tool);
@@ -245,7 +231,7 @@ Deno.test("plan_written reopens review when recovery confirmation is accepted", 
 });
 
 Deno.test("plan_written feature approval returns execution outcome", async () => {
-    const { tool, readPlan, metrics } = await makeHarness({ classification: "FEATURE", approvalAction: "run" });
+    const { tool, readPlan } = await makeHarness({ classification: "FEATURE", approvalAction: "run" });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_execute");
@@ -254,7 +240,6 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     // `ready_for_work` is only reachable from `approved` via `readiness_passed`, so
     // the status is the transition, recorded by the real lifecycle.
     assertEquals((await readPlan())?.attrs.status, "ready_for_work");
-    assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
 });
 
 Deno.test("plan_written rejects planned changes without Objective-Failing Checks before review", async () => {
@@ -311,26 +296,23 @@ status: approved
 `,
         );
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+        hostedSession.setInteractionAdapter({
+            // Read at review time, not before: the tool persists Objective-Failing
+            // Checks to Front Matter first, which moves the revision the lifecycle
+            // then checks against.
+            requestInteraction: async () => ({
+                outcome: "accepted",
+                _meta: {
+                    approved: true,
+                    approvalAction: "run",
+                    revision: (await loadPlan(cwd, "runtime-boundary"))?.revision,
+                },
+            }),
+        });
         const tool = createPlanWrittenTool({
             hostedSession,
             agentName: "planner",
             triageMeta: { classification: "PLANNED_CHANGE", workKind: "DOCUMENTATION", complexity: "MEDIUM" },
-            __deps: {
-                cwd,
-                stat: () => Promise.resolve({ isFile: true }),
-                // Read at review time, not before: the tool persists Objective-Failing
-                // Checks to Front Matter first, which moves the revision the lifecycle
-                // then checks against.
-                requestPlanReview: async () => ({
-                    outcome: "accepted",
-                    _meta: {
-                        approved: true,
-                        approvalAction: "run",
-                        revision: (await loadPlan(cwd, "runtime-boundary"))?.revision,
-                    },
-                }),
-                recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
-            },
         });
 
         const result = await execute(tool);

@@ -6,7 +6,7 @@ import {
     shouldContinueParentEpicAfterValidation,
     shouldRunWorkflowValidation,
 } from "./validation-scope.ts";
-import type { TriageMeta } from "../../tools/plan-written.js";
+import type { TriageMeta } from "../../tools/plan-written.ts";
 
 const meta = (classification: TriageMeta["classification"], extra: Partial<TriageMeta> = {}): TriageMeta => ({
     classification,

@@ -1622,7 +1622,7 @@ export async function assembleFinalSystemPrompt(
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
+ * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations. Defaults to primary project root.
@@ -1718,13 +1718,12 @@ export async function buildAgentSession({
         tools.includes("plan_written") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "plan_written")
     ) {
-        const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
+        const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(
             createPlanWrittenTool({
                 triageMeta,
                 agentName,
                 hostedSession: targetHostedSession || undefined,
-                __deps: { cwd: sessionCwd },
             }),
         );
     }
@@ -2909,7 +2908,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
+ * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager] - Optional manager to carry
  *   context across successive isolated invocations (e.g. nudging a Reviewer that omitted its terminal tool call).

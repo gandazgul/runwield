@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 
-/** @type {import('../../tools/plan-written.js').TriageMeta} */
+/** @type {import('../../tools/plan-written.ts').TriageMeta} */
 const fallbackTriageMeta = {
     classification: "FEATURE",
     complexity: "LOW",

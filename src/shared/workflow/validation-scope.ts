@@ -8,7 +8,7 @@
  */
 
 import { isPlannedChangeClassification } from "../../constants.js";
-import type { TriageMeta } from "../../tools/plan-written.js";
+import type { TriageMeta } from "../../tools/plan-written.ts";
 
 /**
  * A Plan document, as opposed to implementation work.

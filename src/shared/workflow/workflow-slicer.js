@@ -475,7 +475,7 @@ function createSlicerCustomTools(planName, cwd, deps) {
  *
  * @param {Object} opts
  * @param {string} opts.planName
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
+ * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {string} [opts.reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [opts.reviewImages]
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
@@ -565,7 +565,7 @@ export async function runSlicerAgent({
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
+ * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
@@ -584,7 +584,7 @@ export async function openSlicerDecomposition(
     const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
 
     /**
-     * @param {import('../../tools/plan-written.js').TriageMeta | undefined} meta
+     * @param {import('../../tools/plan-written.ts').TriageMeta | undefined} meta
      * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
      */
     async function invokeSlicer(meta) {
@@ -599,7 +599,7 @@ export async function openSlicerDecomposition(
     }
 
     // Epic — invoke interactive slicer
-    if (triageMeta && isEpicPlan(triageMeta)) {
+    if (triageMeta && isEpicPlan({ ...triageMeta })) {
         const result = await invokeSlicer(triageMeta);
         if (!result.ok) return { ok: false, error: result.error, stage: "slicer" };
         return { ok: true, slicerInvoked: true };

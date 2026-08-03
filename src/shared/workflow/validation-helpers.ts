@@ -346,18 +346,18 @@ interface HumanReviewMetadata {
 }
 
 /**
- * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @param {import('../../tools/plan-written.ts').TriageMeta} triageMeta
  * @returns {boolean}
  */
-export function shouldRunWorkflowValidation(triageMeta: import("../../tools/plan-written.js").TriageMeta) {
+export function shouldRunWorkflowValidation(triageMeta: import("../../tools/plan-written.ts").TriageMeta) {
     return isPlannedChangeClassification(triageMeta?.classification) || triageMeta?.classification === "PROJECT";
 }
 
 /**
- * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @param {import('../../tools/plan-written.ts').TriageMeta} triageMeta
  * @returns {boolean}
  */
-export function shouldContinueParentEpicAfterValidation(triageMeta: import("../../tools/plan-written.js").TriageMeta) {
+export function shouldContinueParentEpicAfterValidation(triageMeta: import("../../tools/plan-written.ts").TriageMeta) {
     const parentPlan = triageMeta?.parentPlan;
     return isPlannedChangeClassification(triageMeta?.classification) &&
         typeof parentPlan === "string" &&

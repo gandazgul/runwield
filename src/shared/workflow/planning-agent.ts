@@ -9,7 +9,7 @@ import { readLatestPlanOutcome } from "./workflow-results.js";
  * @typedef {Object} PlanOutcomeResult
  * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
  */

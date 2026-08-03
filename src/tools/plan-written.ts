@@ -1,6 +1,6 @@
 /**
  * @module plan-written
- * Custom tool for planning agents (Planner/Architect) to declare a plan and
+ * Custom tool for planning agents to declare a plan and
  * run the review-and-approve lifecycle.
  *
  * createPlanWrittenTool captures hosted-session context and triage metadata at session-start
@@ -14,7 +14,7 @@
 
 import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, normalizePlanClassification, normalizeWorkKind, PLANS_DIR_NAME } from "../constants.js";
 import {
     loadPlan,
@@ -41,21 +41,91 @@ import {
     requestRecoverablePlanReview,
     SESSION_COMPLETE_GUIDANCE,
 } from "../shared/workflow/plan-review-recovery.js";
+import type { HostedSession } from "../shared/session/hosted-session.js";
+import type { PlanFrontMatter } from "../plan-store.js";
 
-/**
- * @typedef {{
- *   classification?: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT",
- *   workKind?: "BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION",
- *   complexity?: "LOW" | "MEDIUM" | "HIGH",
- *   summary?: string,
- *   affectedPaths?: string[],
- *   objectiveChecks?: import('../plan-store.js').PlanFrontMatter['objectiveChecks'],
- *   executionAgent?: unknown,
- *   collaborationRecommendation?: unknown,
- *   frontend?: boolean,
- *   parentPlan?: string,
- * }} TriageMeta
- */
+export interface TriageMeta extends Partial<PlanFrontMatter> {
+    classification?: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE" | "PROJECT";
+    workKind?: "BUG_FIX" | "FEATURE" | "REFACTOR" | "MAINTENANCE" | "DOCUMENTATION";
+    complexity?: "LOW" | "MEDIUM" | "HIGH";
+}
+
+interface ReviewImage {
+    base64: string;
+    mimeType: string;
+}
+
+interface ObjectiveCheckInput {
+    id: string;
+    command: string;
+    rationale?: string;
+}
+
+interface ToolResultDetails {
+    planName?: string;
+    objectiveChecks?: ObjectiveCheckInput[];
+    outcome?: string;
+    reason?: string;
+    triageMeta?: TriageMeta;
+    feedback?: string;
+    imageCount?: number;
+    reviewUrl?: string;
+    planPath?: string;
+    planFileUrl?: string;
+    remoteReview?: boolean;
+    reviewerUrl?: string;
+    spaceId?: string;
+    serverUrl?: string;
+    revision?: string | number;
+    reused?: boolean;
+    approved?: boolean;
+    approvalAction?: string;
+    planAttrs?: TriageMeta;
+}
+
+interface PlanReviewMeta {
+    approved?: boolean;
+    feedback?: string;
+    images?: ReviewImage[];
+    approvalAction?: string;
+    planAttrs?: TriageMeta;
+    revision?: string | number;
+    remoteReview?: boolean;
+    reviewerUrl?: string;
+    spaceId?: string;
+    serverUrl?: string;
+    reused?: boolean;
+}
+
+interface PlanWrittenOptions {
+    triageMeta?: TriageMeta;
+    agentName?: string;
+    hostedSession?: HostedSession;
+}
+
+type ToolResult = AgentToolResult<ToolResultDetails | null>;
+type InteractionMeta = NonNullable<Awaited<ReturnType<typeof requestHostedSessionInteraction>>["_meta"]>;
+
+function parsePlanReviewMeta(meta: InteractionMeta | undefined): PlanReviewMeta {
+    const source = meta || {};
+    return {
+        approved: source.approved === true,
+        feedback: typeof source.feedback === "string" ? source.feedback : undefined,
+        images: Array.isArray(source.images) ? source.images as ReviewImage[] : undefined,
+        approvalAction: typeof source.approvalAction === "string" ? source.approvalAction : undefined,
+        planAttrs: source.planAttrs && typeof source.planAttrs === "object"
+            ? source.planAttrs as TriageMeta
+            : undefined,
+        revision: typeof source.revision === "string" || typeof source.revision === "number"
+            ? source.revision
+            : undefined,
+        remoteReview: source.remoteReview === true,
+        reviewerUrl: typeof source.reviewerUrl === "string" ? source.reviewerUrl : undefined,
+        spaceId: typeof source.spaceId === "string" ? source.spaceId : undefined,
+        serverUrl: typeof source.serverUrl === "string" ? source.serverUrl : undefined,
+        reused: typeof source.reused === "boolean" ? source.reused : undefined,
+    };
+}
 
 const OBJECTIVE_CHECK_PARAMS = Type.Object({
     id: Type.String({ minLength: 1, maxLength: 64, description: "Stable check id, e.g. OC1." }),
@@ -95,7 +165,9 @@ const MAX_OBJECTIVE_CHECK_RATIONALE_LENGTH = 500;
  * @param {{ round: number, planName: string, feedback: string | undefined }} opts
  * @returns {string}
  */
-function buildFeedbackRequestText({ round, planName, feedback }) {
+function buildFeedbackRequestText(
+    { round, planName, feedback }: { round: number; planName: string; feedback?: string },
+): string {
     return [
         `## Plan Review Feedback (Round ${round})`,
         "",
@@ -105,18 +177,15 @@ function buildFeedbackRequestText({ round, planName, feedback }) {
     ].join("\n");
 }
 
-/**
- * @param {string} text
- * @param {unknown} [details]
- * @param {boolean} [terminate]
- * @param {Array<{base64: string, mimeType: string}>} [images]
- * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>}
- */
-function textResult(text, details, terminate, images = []) {
-    /** @type {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} */
-    const result = {
+function textResult(
+    text: string,
+    details: ToolResultDetails | null = null,
+    terminate = false,
+    images: ReviewImage[] = [],
+): ToolResult {
+    const result: ToolResult = {
         content: [
-            { type: "text", text },
+            { type: "text" as const, text },
             ...images.map(toToolImageContent),
         ],
         details: details ?? null,
@@ -129,7 +198,9 @@ function textResult(text, details, terminate, images = []) {
  * @param {{ planName: string, status: string, reviewUrl?: string }} opts
  * @returns {string}
  */
-function buildPlanWrittenToolOutput({ planName, status, reviewUrl }) {
+function buildPlanWrittenToolOutput(
+    { planName, status, reviewUrl }: { planName: string; status: string; reviewUrl?: string },
+): string {
     const planDisplayPath = `${PLANS_DIR_NAME}/${planName}.md`;
     const lines = [
         `Plan name: ${planDisplayPath}`,
@@ -141,11 +212,7 @@ function buildPlanWrittenToolOutput({ planName, status, reviewUrl }) {
     return `${lines.join("\n")}\n`;
 }
 
-/**
- * @param {unknown} onUpdate
- * @param {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} result
- */
-function emitToolUpdate(onUpdate, result) {
+function emitToolUpdate(onUpdate: ((result: ToolResult) => void) | undefined, result: ToolResult): void {
     if (typeof onUpdate !== "function") return;
     try {
         onUpdate(result);
@@ -158,22 +225,14 @@ function emitToolUpdate(onUpdate, result) {
  * @param {{base64: string, mimeType: string}} image
  * @returns {{type: "image", data: string, mimeType: string}}
  */
-function toToolImageContent(image) {
-    return { type: "image", data: image.base64, mimeType: image.mimeType };
+function toToolImageContent(image: ReviewImage) {
+    return { type: "image" as const, data: image.base64, mimeType: image.mimeType };
 }
 
-/**
- * Preserve review context in both the tool result details used by workflow
- * dispatch and the content blocks delivered to the planning agent.
- *
- * @param {{feedback?: string, images?: Array<{base64: string, mimeType: string}>}} reviewResult
- * @returns {{feedback?: string, imageCount: number}}
- */
-/**
- * @param {unknown} value
- * @returns {{ ok: true, checks: NonNullable<import('../plan-store.js').PlanFrontMatter['objectiveChecks']> } | { ok: false, error: string }}
- */
-function validateObjectiveChecksParam(value) {
+/** Validate the Plan-declared Objective-Failing Checks before persistence. */
+function validateObjectiveChecksParam(value: ObjectiveCheckInput[] | undefined):
+    | { ok: true; checks: NonNullable<PlanFrontMatter["objectiveChecks"]> }
+    | { ok: false; error: string } {
     if (!Array.isArray(value)) return { ok: false, error: "objectiveChecks must be an array." };
     if (value.length > MAX_OBJECTIVE_CHECKS) {
         return { ok: false, error: `objectiveChecks must contain at most ${MAX_OBJECTIVE_CHECKS} checks.` };
@@ -182,7 +241,7 @@ function validateObjectiveChecksParam(value) {
         if (!item || typeof item !== "object" || Array.isArray(item)) {
             return { ok: false, error: "Each objectiveChecks entry must be an object." };
         }
-        const source = /** @type {Record<string, unknown>} */ (item);
+        const source = item;
         if (typeof source.id !== "string" || !source.id.trim()) {
             return { ok: false, error: "Each objectiveChecks entry needs a non-empty id." };
         }
@@ -212,12 +271,12 @@ function validateObjectiveChecksParam(value) {
     return { ok: true, checks };
 }
 
-function objectiveChecksFormatReference() {
+function objectiveChecksFormatReference(): string {
     return "See src/agent-definitions/document-formats/planner-plan-format.md#objective-failing-checks.";
 }
 
 /** @param {{ feedback?: string, images?: Array<{ base64: string, mimeType: string }> }} reviewResult */
-function reviewContextDetails(reviewResult) {
+function reviewContextDetails(reviewResult: Pick<PlanReviewMeta, "feedback" | "images">) {
     return {
         ...(reviewResult.feedback && { feedback: reviewResult.feedback }),
         imageCount: reviewResult.images?.length || 0,
@@ -233,32 +292,28 @@ function reviewContextDetails(reviewResult) {
  * @param {string} cwd
  * @returns {Promise<TriageMeta>}
  */
-async function resolveTriageMeta(triageMeta, planName, cwd) {
+async function resolveTriageMeta(
+    triageMeta: TriageMeta | undefined,
+    planName: string,
+    cwd: string,
+): Promise<TriageMeta> {
     let meta = triageMeta || {};
     try {
         const plan = await loadPlan(cwd, planName);
         if (plan?.attrs) {
-            const planAttrs = /** @type {TriageMeta} */ ({ ...plan.attrs });
+            const planAttrs: TriageMeta = { ...plan.attrs };
             if (planAttrs.workKind === undefined || planAttrs.workKind === null) delete planAttrs.workKind;
-            meta = /** @type {TriageMeta} */ ({ ...triageMeta, ...planAttrs });
+            meta = { ...triageMeta, ...planAttrs };
         }
     } catch {
         /* ignore */
     }
-    return /** @type {TriageMeta} */ ({
+    return {
         ...meta,
         classification: normalizePlanClassification(meta.classification),
         workKind: normalizeWorkKind(meta.workKind),
-    });
+    };
 }
-
-/**
- * @typedef {Object} PlanWrittenDeps
- * @property {typeof requestHostedSessionInteraction} [requestPlanReview]
- * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
- * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
- * @property {string} [cwd]
- */
 
 /**
  * Create the plan_written tool with lifecycle context captured at session start.
@@ -267,16 +322,12 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
  *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession,
- *   __deps?: PlanWrittenDeps,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createPlanWrittenTool(
-    { triageMeta, agentName = "planner", hostedSession, __deps } = /** @type {any} */ ({}),
-) {
+export function createPlanWrittenTool({ triageMeta, agentName = "planner", hostedSession }: PlanWrittenOptions = {}) {
     if (!hostedSession) throw new Error("createPlanWrittenTool: hostedSession is required");
-    const deps = __deps || {};
-    const cwd = deps.cwd ?? hostedSession?.cwd;
+    const cwd = hostedSession.cwd;
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -298,9 +349,8 @@ export function createPlanWrittenTool(
 
             if (!cwd) throw new Error("plan_written: cwd or hostedSession cwd is required");
             const planPath = join(cwd, PLANS_DIR_NAME, `${planName}.md`);
-            const statFn = deps.stat || Deno.stat.bind(Deno);
             try {
-                const stat = await statFn(planPath);
+                const stat = await Deno.stat(planPath);
                 if (!stat.isFile) {
                     return textResult(
                         `plan_written: plans/${planName}.md is not a file. Write the plan markdown first, then call plan_written again.`,
@@ -361,8 +411,7 @@ export function createPlanWrittenTool(
                 await updatePlanFrontMatter(cwd, planName, { objectiveChecks: checkValidation.checks }, {}, {
                     expectedRevision: loadedPlan.revision,
                 });
-                effectiveMeta =
-                    /** @type {TriageMeta} */ ({ ...effectiveMeta, objectiveChecks: checkValidation.checks });
+                effectiveMeta = { ...effectiveMeta, objectiveChecks: checkValidation.checks };
             }
             const policy = resolvePlanExecutionPolicy(effectiveMeta);
             if (!policy.ok && policy.reason !== "project_epic") {
@@ -390,7 +439,7 @@ export function createPlanWrittenTool(
                 triageMeta: effectiveMeta,
             };
             let reviewUrl = "";
-            const updateToolBlock = (/** @type {string} */ status) => {
+            const updateToolBlock = (status: string) => {
                 emitToolUpdate(
                     onUpdate,
                     textResult(
@@ -406,23 +455,20 @@ export function createPlanWrittenTool(
             const onReviewServerOutput = () => {
                 updateToolBlock("Waiting for plan review decision.");
             };
-            const onReviewSurfaceReady = (/** @type {{ url: string }} */ surface) => {
+            const onReviewSurfaceReady = (surface: { url: string }) => {
                 reviewUrl = surface.url;
                 updateToolBlock("Waiting for plan review decision.");
             };
 
             updateToolBlock("Opening browser review UI.");
 
-            const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
-            const recordWorkflowMetricSource = deps.recordWorkflowMetric || recordWorkflowMetric;
-            /** @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric */
-            function recordWorkflowMetricFn(metric) {
-                return recordWorkflowMetricSource(metric, { cwd });
+            function recordWorkflowMetricFn(metric: Parameters<typeof recordWorkflowMetric>[0]) {
+                return recordWorkflowMetric(metric, { cwd });
             }
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
-                    requestPlanReview(hostedSession, {
+                    requestHostedSessionInteraction(hostedSession, {
                         type: RuntimeInteractionTypes.PLAN_REVIEW,
                         prompt: `Review plan "${planName}"`,
                         _meta: {
@@ -435,7 +481,7 @@ export function createPlanWrittenTool(
                         },
                     }),
                 requestRetry: (details) =>
-                    requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
+                    requestPlanReviewRetryConfirmation(hostedSession, requestHostedSessionInteraction, details),
                 onUnanswered: ({ reason }) => {
                     updateToolBlock(`Plan review ended without an answer (${reason}). Asking whether to review again.`);
                 },
@@ -462,16 +508,14 @@ export function createPlanWrittenTool(
             }
             const reviewResponse = recoverableReview.response;
             updateToolBlock("Plan review decision received.");
-            const reviewMeta = /** @type {any} */ (reviewResponse._meta || {});
+            const reviewMeta = parsePlanReviewMeta(reviewResponse._meta);
             const reviewResult = {
                 canceled: reviewResponse.outcome === RuntimeInteractionOutcomes.CANCELED,
                 approved: reviewMeta.approved === true,
-                feedback: typeof reviewMeta.feedback === "string" ? reviewMeta.feedback : undefined,
-                images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
+                feedback: reviewMeta.feedback,
+                images: reviewMeta.images,
                 approvalAction: reviewMeta.approvalAction,
-                planAttrs: reviewMeta.planAttrs && typeof reviewMeta.planAttrs === "object"
-                    ? reviewMeta.planAttrs
-                    : undefined,
+                planAttrs: reviewMeta.planAttrs,
                 revision: typeof reviewMeta.revision === "string" ? reviewMeta.revision : undefined,
             };
 
@@ -484,7 +528,7 @@ export function createPlanWrittenTool(
                         reviewerUrl: reviewMeta.reviewerUrl,
                         spaceId: reviewMeta.spaceId,
                         serverUrl: reviewMeta.serverUrl,
-                        revision: reviewMeta.revision,
+                        revision: typeof reviewMeta.revision === "number" ? reviewMeta.revision : undefined,
                         reused: reviewMeta.reused,
                         message,
                     });
@@ -546,16 +590,16 @@ export function createPlanWrittenTool(
                 );
             }
 
-            const reviewPlanAttrs = /** @type {TriageMeta} */ ({ ...(reviewResult.planAttrs || {}) });
+            const reviewPlanAttrs: TriageMeta = { ...(reviewResult.planAttrs || {}) };
             if (reviewPlanAttrs.workKind === undefined || reviewPlanAttrs.workKind === null) {
                 delete reviewPlanAttrs.workKind;
             }
-            const approvedBase = /** @type {TriageMeta} */ ({ ...effectiveMeta, ...reviewPlanAttrs });
-            const approvedMeta = /** @type {TriageMeta} */ ({
+            const approvedBase: TriageMeta = { ...effectiveMeta, ...reviewPlanAttrs };
+            const approvedMeta: TriageMeta = {
                 ...approvedBase,
                 classification: normalizePlanClassification(approvedBase.classification),
                 workKind: normalizeWorkKind(approvedBase.workKind),
-            });
+            };
             const action = normalizePlanApprovalAction({
                 classification: approvedMeta.classification,
                 action: reviewResult.approvalAction,

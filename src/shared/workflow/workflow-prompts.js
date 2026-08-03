@@ -61,12 +61,12 @@ export function buildTriageReport(triage, options = {}) {
 /**
  * Build the user-request text handed to the interactive Epic Slicer.
  *
- * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string } | string} input
- * @param {import('../../tools/plan-written.js').TriageMeta | undefined} [legacyTriageMeta]
+ * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.ts').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string } | string} input
+ * @param {import('../../tools/plan-written.ts').TriageMeta | undefined} [legacyTriageMeta]
  * @returns {string}
  */
 export function buildSlicerRequest(input, legacyTriageMeta) {
-    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string }} */
+    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.ts').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string }} */
         (typeof input === "string" ? { planName: input, triageMeta: legacyTriageMeta } : input);
     const planName = request.planName || "unknown";
     const attrs = request.epicAttrs || {};

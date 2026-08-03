@@ -26,7 +26,7 @@ const handlerMetadata = new WeakMap();
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
- * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {import('./types.js').AgentDefinition} [agentDef]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {string[]} [toolNames]
@@ -165,7 +165,7 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
  * @property {string} userRequest
  * @property {Array<{base64: string, mimeType: string}>} [images]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
- * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {string} [model]
  * @property {boolean} [allowReturnToRouter]
  * @property {string} [cwd]
