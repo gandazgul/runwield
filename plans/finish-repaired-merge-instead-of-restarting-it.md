@@ -18,12 +18,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T13:58:11-04:00"
 updatedAt: "2026-08-01T04:10:38.171Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
 worktreeStatus: "abandoned"
+status: "validated_reviewer"
 ---
 
 # Finish a Repaired Merge Instead of Restarting It
