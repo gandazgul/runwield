@@ -3,6 +3,7 @@ import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { join } from "@std/path";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { getAgentDisplayName } from "../session/agents.js";
 import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
@@ -23,6 +24,7 @@ import { finalizePlanImplementation, markActiveWorktreeStatus } from "./implemen
 import { runPlanningAgent } from "./planning-agent.ts";
 import { runEngineerWithPlan } from "./engineer-runner.ts";
 import { startActiveExecutionWorkflow } from "./execution-start.ts";
+import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
 
 function isPlanReviewRetryAccepted(response) {
     if (!response || typeof response !== "object") return false;
@@ -580,6 +582,10 @@ export async function executeSingleEngineerPlan(
         });
         return { repairRequired: false, executionComplete: false, error: message };
     }
+    emitLaunchingExecutionAgent(
+        hostedSession,
+        getAgentDisplayName(executionContext.executionAgent, executionContext.projectRoot || hostedSession?.cwd),
+    );
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,

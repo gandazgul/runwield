@@ -61,7 +61,7 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
     assertEquals(response.value, true);
 });
 
-Deno.test("TUI interaction adapter forwards plan review listeners and hides busy indicator", async () => {
+Deno.test("Plan Review restores busy before Approve & Run execution resumes", async () => {
     let forwardedOnOutput = null;
     let forwardedOnSurfaceReady = null;
     const busyValues = /** @type {boolean[]} */ ([]);
@@ -92,7 +92,7 @@ Deno.test("TUI interaction adapter forwards plan review listeners and hides busy
     assertEquals(meta.planAttrs?.collaborationRecommendation, "pair");
     assertEquals(forwardedOnOutput, onOutput);
     assertEquals(forwardedOnSurfaceReady, onSurfaceReady);
-    assertEquals(busyValues, [false]);
+    assertEquals(busyValues, [false, true]);
 });
 
 Deno.test("TUI interaction adapter advertises only Pair checkpoint capability", () => {
