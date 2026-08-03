@@ -466,7 +466,7 @@ Deno.test("load-plan enters real recovery for a failed Plan and cancellation pre
             executionMode: "non_git_in_place",
         });
         const { runtime, sessionId } = await createRuntime(projectRoot);
-        const ui = makeUi(["cancel"]);
+        const ui = makeUi(["inspect", "cancel"]);
         try {
             await runLoadPlanCommand(["failed"], {
                 sessionRuntime: runtime,
@@ -476,7 +476,32 @@ Deno.test("load-plan enters real recovery for a failed Plan and cancellation pre
             });
 
             assertEquals((await loadPlan(projectRoot, "failed"))?.attrs.status, "failed");
-            assertEquals(ui.prompts.includes("Plan recovery (failed):"), true);
+            assertEquals(ui.prompts.filter((prompt) => prompt === "Plan recovery (failed):").length, 2);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan hold recovery exits after one prompt and puts the failed Plan on hold", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "failed-hold", {
+            status: "failed",
+            failureReason: "Fixture execution stopped",
+            executionMode: "non_git_in_place",
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["hold"]);
+        try {
+            await runLoadPlanCommand(["failed-hold"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "failed-hold"))?.attrs.status, "on_hold");
+            assertEquals(ui.prompts.filter((prompt) => prompt === "Plan recovery (failed):").length, 1);
         } finally {
             runtime.closeAllSessions();
         }

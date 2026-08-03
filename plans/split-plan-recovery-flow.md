@@ -57,21 +57,22 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"
-updatedAt: "2026-08-03T19:37:31.300Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-03T21:59:09.020Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T18:42:18.664Z"
+verifiedAt: "2026-08-03T21:59:09.020Z"
 userVerifiedAt: null
 executionReport: "- Implemented Plan Recovery split: coordinator now owns live context/menu/outcome translation; smaller actions, reset paths, and manual merge publication moved to typed action modules with transaction wrappers preserved.\n- Migrated `architecture-boundary.test.js` to TypeScript and expanded lifecycle/publication scanning across all Plan Recovery modules.\n- Added/updated tests: +3 focused Plan Recovery tests, +1 integration hold terminal test; the 4 architecture tests were rewritten from JS to TS with strengthened scan coverage (no behavior-only test coverage deleted).\n- Verified module size/objective guards: flow 393 lines, actions 397, reset 307, merge 417; no branch-level bare `continue` remains in extracted modules.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, targeted recovery/integration/architecture tests, golden load-plan workflow tests, and `deno task ci`."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "7f43b8352b419149d5f7c60b2ad78966dad6278e"
-worktreeId: "ebee1e3c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-split-plan-recovery-flow-ebee1e3c"
-worktreeBranch: "runwield/worktree/split-plan-recovery-flow-ebee1e3c"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "867bb00e76ed6b31d0e2bae8f45863148285d6b7"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "fd1287d16d76855fac173f6095a1fc0d81955cc6"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
 validationCiAttempts: 0

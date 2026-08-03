@@ -1,0 +1,305 @@
+import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
+import {
+    createWorktreeGitArtifacts,
+    deleteMergedWorktreeBranch,
+    removeWorktreeGitArtifacts,
+    settleWorktreeAttempt,
+} from "../../shared/worktree.js";
+import { restoreWorktreeTree } from "../../shared/workflow/git-snapshot.js";
+import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
+import {
+    confirmBaselineReset,
+    confirmMetadataOnlyRecoveryCleanup,
+    confirmMissingWorktreeRecreate,
+    confirmWorktreeAction,
+    getRecordedWorktreeRecreateBase,
+    hasWorktreeContext,
+    pathExists,
+} from "./plan-recovery-worktree.ts";
+import { executeReadyPlanWithRepair } from "./plan-execution.ts";
+import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
+import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
+import { transitionFailureError } from "./transition-failure.ts";
+
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { RecoveryWorktreeContext } from "./plan-session-types.ts";
+import type { RecoveryActionContext, RecoveryActionOutcome } from "./plan-recovery-actions.ts";
+
+interface RecoveryPlanTransitionValue {
+    value?: PlanFrontMatter;
+}
+
+interface RecoveryRecreateTransitionResult {
+    attrs: PlanFrontMatter;
+    worktree: RecoveryWorktreeContext;
+}
+
+interface RecoveryRecreateTransitionValue {
+    value?: RecoveryRecreateTransitionResult;
+}
+
+export async function resetRecoveryPlan(
+    context: RecoveryActionContext,
+    gitRecoveryBlocked: boolean,
+    gitState: string,
+): Promise<RecoveryActionOutcome> {
+    const { projectRoot, plan, uiAPI } = context;
+    const hasWorktree = hasWorktreeContext(context.worktreeContext);
+    if (!hasWorktree && !plan.attrs.executionBaselineTree) {
+        uiAPI.appendSystemMessage(
+            "Cannot reset this plan because no execution baseline tree is recorded.",
+            true,
+            "RunWield",
+        );
+        return { kind: "menu" };
+    }
+    if (gitRecoveryBlocked) {
+        if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) {
+            return { kind: "menu" };
+        }
+        const transition = await runRecoveryTransition({
+            projectRoot,
+            planName: plan.planName,
+            planId: plan.attrs.planId,
+            worktreeId: context.worktreeContext?.id,
+            expectedRevision: plan.revision,
+            action: "reset",
+            recover: async ({ beforePlan }) => {
+                if (context.worktreeContext?.id) {
+                    await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
+                        status: "abandoned",
+                    });
+                }
+                const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
+                    triageMeta: plan.attrs,
+                });
+                return await updatePlanFrontMatter(
+                    projectRoot,
+                    plan.planName,
+                    {
+                        ...resetUpdates,
+                        status: "ready_for_work",
+                        executionBaselineTree: null,
+                        worktreeId: null,
+                        worktreePath: null,
+                        worktreeBranch: null,
+                        worktreeBaseBranch: null,
+                        worktreeStatus: null,
+                    },
+                    plan.attrs,
+                    { expectedRevision: beforePlan?.revision },
+                );
+            },
+        });
+        if (transition.status !== "committed") {
+            throw transitionFailureError(transition, `Recovery reset transaction failed for ${plan.planName}.`);
+        }
+        const transitionValue = (transition.value || {}) as RecoveryPlanTransitionValue;
+        plan.attrs = transitionValue.value as PlanFrontMatter;
+        context.worktreeContext = null;
+        uiAPI.appendSystemMessage(
+            "Cleared stale Git recovery metadata. No project files or recorded paths were modified; the plan is ready for work.",
+            false,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("reset", "metadata_only", { gitState: gitState });
+        return { kind: "handled" };
+    }
+    if (hasWorktree) {
+        const recreated = await recreateRecoveryWorktree(context);
+        if (!recreated) {
+            return { kind: "menu" };
+        }
+        context.worktreeContext = recreated;
+    } else {
+        if (!(await confirmBaselineReset(plan.planName, uiAPI))) {
+            return { kind: "menu" };
+        }
+        try {
+            await restoreWorktreeTree(projectRoot, plan.attrs.executionBaselineTree as string);
+        } catch (error) {
+            const message = isGitRepositoryRequiredError(error)
+                ? formatGitRequiredMessage(error)
+                : error instanceof Error
+                ? error.message
+                : String(error);
+            uiAPI.appendSystemMessage(`Cannot reset baseline tree: ${message}`, true, "RunWield");
+            return { kind: "menu" };
+        }
+    }
+    const resetTransition = await runRecoveryTransition({
+        projectRoot,
+        planName: plan.planName,
+        planId: plan.attrs.planId,
+        worktreeId: context.worktreeContext?.id,
+        expectedRevision: plan.revision,
+        action: "reset",
+        recover: async () =>
+            await recordPlanEvent({
+                cwd: projectRoot,
+                planName: plan.planName,
+                event: "recovery_reset",
+                currentStatus: plan.attrs.status,
+                details: { triageMeta: plan.attrs },
+            }),
+    });
+    if (resetTransition.status !== "committed") {
+        throw transitionFailureError(resetTransition, `Recovery reset transaction failed for ${plan.planName}.`);
+    }
+    const resetTransitionValue = (resetTransition.value || {}) as RecoveryPlanTransitionValue;
+    plan.attrs = { ...plan.attrs, ...resetTransitionValue.value, status: "ready_for_work" };
+    await executeReadyPlanWithRepair({
+        projectRoot,
+        plan,
+        agentName: context.agentName,
+        uiAPI,
+        executePlan: context.session.executePlan,
+        runPlanningAgent: context.session.runPlanningAgent,
+        decidePostPlanning,
+        decidePostExecution,
+        runValidationLoop: context.session.runValidation,
+        loadPlan,
+        listCommitsTouchingPathsSince,
+        session: context.session,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery: resolveValidationExecutionContext,
+    });
+    await context.recordRecoveryResult("reset", "handled");
+    return { kind: "handled" };
+}
+
+async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise<RecoveryWorktreeContext | null> {
+    const { projectRoot, plan, uiAPI } = context;
+    const worktreeContext = context.worktreeContext;
+    const recreateBaseRef = getRecordedWorktreeRecreateBase(worktreeContext);
+    if (!recreateBaseRef) {
+        uiAPI.appendSystemMessage(
+            "Cannot recreate this worktree because no recorded base commit or base ref is available. Retry Workflow Validation or re-open the plan for review instead of recreating from the primary checkout.",
+            true,
+            "RunWield",
+        );
+        return null;
+    }
+    const recordedPathExists = await pathExists(worktreeContext?.path);
+    const confirmed = recordedPathExists
+        ? await confirmWorktreeAction(plan.planName, uiAPI, "Delete/recreate")
+        : await confirmMissingWorktreeRecreate(plan.planName, worktreeContext, uiAPI);
+    if (!confirmed) {
+        return null;
+    }
+    const recreateBaseBranch = worktreeContext?.baseBranch;
+    try {
+        const transition = await runRecoveryTransition({
+            projectRoot,
+            planName: plan.planName,
+            planId: plan.attrs.planId,
+            worktreeId: worktreeContext?.id,
+            expectedRevision: plan.revision,
+            action: "recreate",
+            recover: async ({ beforePlan, markEffect, registerRollback }) => {
+                if (worktreeContext?.path) {
+                    await removeWorktreeGitArtifacts({
+                        projectRoot,
+                        path: worktreeContext.path,
+                        force: true,
+                    });
+                    if (worktreeContext.branch) {
+                        await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+                    }
+                }
+                if (worktreeContext?.id) {
+                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
+                        status: "abandoned",
+                    });
+                }
+                const nextWorktree = await createWorktreeGitArtifacts({
+                    projectRoot,
+                    planName: plan.planName,
+                    planId: plan.attrs.planId as string,
+                    baseRef: recreateBaseRef,
+                    baseBranch: recreateBaseBranch,
+                });
+                await markEffect("recovery_recreate_git_worktree_created", {
+                    worktreeId: nextWorktree.id,
+                    path: nextWorktree.path,
+                    branch: nextWorktree.branch,
+                    baseCommit: nextWorktree.baseCommit,
+                });
+                registerRollback("remove recreated recovery worktree", async () => {
+                    await removeWorktreeGitArtifacts({
+                        projectRoot,
+                        path: nextWorktree.path,
+                        force: true,
+                    });
+                    if (nextWorktree.branch) {
+                        await deleteMergedWorktreeBranch({ projectRoot, branch: nextWorktree.branch });
+                    }
+                });
+                await settleWorktreeAttempt(projectRoot, nextWorktree);
+                registerRollback("abandon recreated recovery registry entry", async () => {
+                    await updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
+                        status: "abandoned",
+                    });
+                });
+                await markEffect("recovery_recreate_registry_settled", {
+                    worktreeId: nextWorktree.id,
+                    path: nextWorktree.path,
+                    branch: nextWorktree.branch,
+                });
+                const attrs = await updatePlanFrontMatter(
+                    projectRoot,
+                    plan.planName,
+                    {
+                        worktreeId: nextWorktree.id,
+                        worktreePath: nextWorktree.path,
+                        worktreeBranch: nextWorktree.branch,
+                        worktreeBaseBranch: nextWorktree.baseBranch,
+                        worktreeStatus: "active",
+                        executionBaselineTree: nextWorktree.baseTree,
+                    },
+                    plan.attrs,
+                    { expectedRevision: beforePlan?.revision },
+                );
+                return { attrs, worktree: nextWorktree };
+            },
+        });
+        if (transition.status !== "committed") {
+            throw new Error(transition.message || `Recovery recreate transaction failed for ${plan.planName}.`);
+        }
+        const transitionValue = (transition.value || {}) as RecoveryRecreateTransitionValue;
+        plan.attrs = transitionValue.value?.attrs as PlanFrontMatter;
+        const recreated = transitionValue.value?.worktree;
+        if (!recreated) {
+            throw new Error(`Recovery recreate transaction returned no worktree for ${plan.planName}.`);
+        }
+        const refreshedPlan = await loadPlan(projectRoot, plan.planName);
+        if (refreshedPlan?.revision) {
+            plan.attrs = refreshedPlan.attrs;
+            plan.revision = refreshedPlan.revision;
+        }
+        return {
+            id: recreated.id,
+            path: recreated.path,
+            branch: recreated.branch,
+            baseBranch: recreated.baseBranch,
+            status: recreated.status,
+            baseRef: recreated.baseRef,
+            baseCommit: recreated.baseCommit,
+            baseTree: recreated.baseTree,
+        };
+    } catch (error) {
+        const message = isGitRepositoryRequiredError(error)
+            ? formatGitRequiredMessage(error)
+            : error instanceof Error
+            ? error.message
+            : String(error);
+        uiAPI.appendSystemMessage(`Cannot recreate the recorded worktree: ${message}`, true, "RunWield");
+        return null;
+    }
+}

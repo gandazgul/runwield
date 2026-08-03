@@ -64,7 +64,6 @@ import {
     isInValidation,
     isPlanReviewableWithoutReopen,
     recordPlanEvent,
-    stageValidationPassedInExecutionWorktree,
 } from "../../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
@@ -72,36 +71,22 @@ import {
     requestRecoverablePlanReview,
     SESSION_COMPLETE_GUIDANCE,
 } from "../../shared/workflow/plan-review-recovery.js";
-import {
-    getWorkflowDiff,
-    listCommitsTouchingPathsSince,
-    restoreWorktreeTree,
-} from "../../shared/workflow/git-snapshot.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { probeGitRepository } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import {
-    checkpointExecutionWorktree,
-    createWorktreeGitArtifacts,
-    getBranchHead,
     getWorktreeStatus,
     inspectExecutionWorktreeMergeRisk,
-    isCommitAncestorOfBranch,
-    mergeExecutionWorktree,
-    preparePrimaryPlanPathForMerge,
     removeWorktreeGitArtifacts,
-    restorePrimaryPlanPathAfterMergeFailure,
-    settleWorktreeAttempt,
 } from "../../shared/worktree.js";
 import {
     findById as findWorktreeById,
     findByPlanName as findWorktreeByPlanName,
-    removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
-import { shouldCleanupMergedWorktrees } from "../../shared/settings.js";
 import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
@@ -382,40 +367,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 agentName,
                 uiAPI,
                 unresolvedRecords: unresolvedLifecycleRecords,
-                executePlan,
-                runPlanningAgent,
-                decidePostPlanning,
-                decidePostExecution,
-                runValidationLoop,
-                loadPlan,
-                getWorkflowDiff,
-                listCommitsTouchingPathsSince,
-                restoreWorktreeTree,
-                recordPlanEvent,
-                stageValidationPassedInExecutionWorktree,
-                updatePlanFrontMatter,
-                findWorktreeById,
-                findWorktreeByPlanName,
-                updateWorktreeRegistryEntry,
-                getWorktreeStatus,
-                createWorktreeGitArtifacts,
-                settleWorktreeAttempt,
-                mergeExecutionWorktree,
-                checkpointExecutionWorktree,
-                getBranchHead,
-                isCommitAncestorOfBranch,
-                preparePrimaryPlanPathForMerge,
-                restorePrimaryPlanPathAfterMergeFailure,
-                removeWorktreeGitArtifacts,
-                removeWorktreeRegistryEntry,
-                shouldCleanupMergedWorktrees,
                 recordWorkflowMetric,
-                findPlansByParent,
                 session,
                 probeGitRepository,
-                finalizePlanImplementation,
-                resolveValidationExecutionContextForRecovery,
-                autoGenerateWorkRecordForCompletedPlan,
             });
             if (result === "handled") return;
         }

@@ -195,7 +195,10 @@ Deno.test("workspace serve and pair complete the real browser pairing lifecycle"
             serverOutput = await serverChild.output();
         }
 
-        assertEquals(serverOutput.code, 0);
+        // The test stops the long-running child with SIGINT after the lifecycle succeeds.
+        // Deno may report either a graceful zero exit from the command's shutdown handler or
+        // the conventional SIGINT status when the signal wins the process-exit race.
+        assertEquals([0, 130].includes(serverOutput.code), true);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner Workspace: ${fixture.origin}`);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner database: ${fixture.databasePath}`);
         assertStringIncludes(decoder.decode(serverOutput.stderr), "Enabling Session Activation protocol");
