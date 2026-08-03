@@ -11,6 +11,7 @@ import {
     expandPromptTemplate,
     expandSkillCommand,
     getRootSessionContextProjection,
+    getRootSessionRebuildOptions,
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
@@ -1123,7 +1124,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runSlicerAgent: session not found");
         return await this.#runWorkflowOperation(session, "runSlicerAgent", options, async () => {
-            const { runSlicerAgent } = await import("../workflow/workflow-slicer.js");
+            const { runSlicerAgent } = await import("../workflow/workflow-slicer.ts");
             return await runSlicerAgent(
                 /** @type {any} */ ({
                     ...options,
@@ -1475,8 +1476,9 @@ export class SessionRuntime {
         }
         const agentName = session.getRootAgentName();
         if (!agentName) return { ok: false };
+        const rebuildOptions = getRootSessionRebuildOptions(session);
         await getSettingsManager(session.cwd).reload();
-        await this.#activateSessionAgent(session, { agentName, forceRebuild: true });
+        await this.#activateSessionAgent(session, { ...rebuildOptions, agentName, forceRebuild: true });
         return { ok: true };
     }
 
@@ -2650,7 +2652,7 @@ export class SessionRuntime {
         let latestSessionId;
         while (currentContinuation) {
             const { resolveEpicContinuation, runEpicChildContinuation } = await import(
-                "../workflow/epic-continuation.js"
+                "../workflow/epic-continuation.ts"
             );
             const resolution = await resolveEpicContinuation({
                 cwd: currentContinuation.projectRoot,

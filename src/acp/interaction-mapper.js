@@ -9,7 +9,7 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../shared/session/session-runtime-interactions.js";
-import { sharePlanForReview } from "../cmd/plans/share.js";
+import { sharePlanForReview } from "../cmd/plans/share.ts";
 
 /** @param {unknown} capabilities */
 function supportsFormElicitation(capabilities) {

@@ -1,20 +1,18 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, type PlanFrontMatter, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { defineCommittedGitFixture } from "../git-test-fixture.ts";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
 import { executePlan, startActiveExecutionWorkflow } from "./workflow.js";
+import { createExecutionStartPorts } from "./execution-start.ts";
 
 interface RuntimeStatusEvent {
     type?: string;
     message?: string;
-}
-
-interface AgentTurnOptions {
-    agentName?: string;
-    cwd?: string;
-    userRequest?: string;
 }
 
 interface TestPlanDescriptor {
@@ -60,64 +58,65 @@ async function makeWorkflowProject(plans: TestPlanDescriptor[]): Promise<string>
 }
 
 function makeHostedSession(id: string, cwd: string, events: RuntimeStatusEvent[]): HostedSession {
-    return new HostedSession({
+    const hostedSession = new HostedSession({
         id,
         cwd,
         eventSink: (event: RuntimeStatusEvent) => {
             events.push(event);
         },
-        sessionManager: null,
     });
+    const sessionManager = SessionManager.inMemory(cwd);
+    // @ts-expect-error SessionManager is runtime-compatible with HostedSession.
+    hostedSession.setRootSessionManager(sessionManager);
+    return hostedSession;
 }
 
 Deno.test("execution preparation progress reports fresh worktree setup before launching Engineer", async () => {
-    const projectRoot = await makeWorkflowProject([{
-        name: "fresh-progress",
-        attrs: { objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f fresh-progress-marker" }] },
-    }]);
-    const events: RuntimeStatusEvent[] = [];
-    const hostedSession = makeHostedSession("fresh-progress", projectRoot, events);
-    let executionCwd = "";
-    try {
-        const turns: AgentTurnOptions[] = [];
-        await executePlan({
-            planName: "fresh-progress",
-            triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
-            hostedSession,
-            __deps: {
-                runActiveAgentTurn: (options: AgentTurnOptions) => {
-                    turns.push(options);
-                    return Promise.resolve([]);
-                },
-            },
-        });
+    await withRuntimeCommandFixture("execution-progress-fresh-", async ({ setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxText("Execution remains paused in the fixture."))]);
+        const projectRoot = await makeWorkflowProject([{
+            name: "fresh-progress",
+            attrs: { objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f fresh-progress-marker" }] },
+        }]);
+        const events: RuntimeStatusEvent[] = [];
+        const hostedSession = makeHostedSession("fresh-progress", projectRoot, events);
+        let executionCwd = "";
+        try {
+            await executePlan({
+                planName: "fresh-progress",
+                triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
+                hostedSession,
+            });
 
-        const workflow = hostedSession.getActiveExecutionWorkflow();
-        assert(workflow);
-        assert(typeof workflow.executionCwd === "string");
-        assert(typeof workflow.worktreeBranch === "string");
-        executionCwd = workflow.executionCwd;
-        const messages = messagesFrom(events);
-        assertMessageOrder(messages, [
-            "=== Executing Plan: fresh-progress ===",
-            "preparing execution target...",
-            "creating execution worktree from base branch",
-            `created worktree ${workflow.worktreeBranch} from base branch`,
-            "running Plan Objective-Failing Check baseline...",
-            "materializing Plan in execution worktree...",
-            "updating Plan status to in_progress...",
-            "launching Engineer to execute...",
-        ]);
-        assertEquals(turns.length, 1);
-        assertEquals(turns[0].cwd, executionCwd);
-        const canonicalPlan = await loadPlan(projectRoot, "fresh-progress");
-        assertEquals(canonicalPlan?.attrs.status, "in_progress");
-    } finally {
-        if (executionCwd) {
-            await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);
+            const workflow = hostedSession.getActiveExecutionWorkflow();
+            assert(workflow);
+            assert(typeof workflow.executionCwd === "string");
+            assert(typeof workflow.worktreeBranch === "string");
+            executionCwd = workflow.executionCwd;
+            const messages = messagesFrom(events);
+            assertMessageOrder(messages, [
+                "=== Executing Plan: fresh-progress ===",
+                "preparing execution target...",
+                "creating execution worktree from base branch",
+                `created worktree ${workflow.worktreeBranch} from base branch`,
+                "running Plan Objective-Failing Check baseline...",
+                "materializing Plan in execution worktree...",
+                "updating Plan status to in_progress...",
+                "launching Engineer to execute...",
+            ]);
+            assertEquals(hostedSession.getRootAgentName(), "engineer");
+            const canonicalPlan = await loadPlan(projectRoot, "fresh-progress");
+            assertEquals(canonicalPlan?.attrs.status, "in_progress");
+        } finally {
+            hostedSession.dispose();
+            if (executionCwd) {
+                await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() =>
+                    undefined
+                );
+            }
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
         }
-        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
-    }
+    });
 });
 
 Deno.test("execution preparation progress reports reused worktree without claiming creation", async () => {
@@ -134,6 +133,7 @@ Deno.test("execution preparation progress reports reused worktree without claimi
             triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
             currentStatus: "ready_for_work",
             hostedSession,
+            ports: createExecutionStartPorts(),
         });
         executionCwd = firstWorkflow.executionCwd || "";
         const inProgressPlan = await loadPlan(projectRoot, "reuse-progress");
@@ -157,6 +157,7 @@ Deno.test("execution preparation progress reports reused worktree without claimi
             triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
             currentStatus: "ready_for_work",
             hostedSession,
+            ports: createExecutionStartPorts(),
         });
 
         const messages = messagesFrom(events);
@@ -191,7 +192,10 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
             triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
             currentStatus: "ready_for_work",
             hostedSession,
-            __deps: { hasNonGitExecutionConsent: () => true },
+            ports: {
+                ...createExecutionStartPorts(),
+                hasNonGitExecutionConsent: () => true,
+            },
         });
 
         const messages = messagesFrom(events);
@@ -208,35 +212,32 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
 });
 
 Deno.test("execution preparation progress preserves Objective-Failing Check baseline rejection behavior", async () => {
-    const projectRoot = await makeWorkflowProject([{
-        name: "already-met-progress",
-        attrs: { objectiveChecks: [{ id: "OC_TRUE", command: "true" }] },
-    }]);
-    const events: RuntimeStatusEvent[] = [];
-    const hostedSession = makeHostedSession("already-met-progress", projectRoot, events);
-    try {
-        const turns: AgentTurnOptions[] = [];
-        const result = await executePlan({
-            planName: "already-met-progress",
-            triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
-            hostedSession,
-            __deps: {
-                runActiveAgentTurn: (options: AgentTurnOptions) => {
-                    turns.push(options);
-                    return Promise.resolve([]);
-                },
-            },
-        });
+    await withRuntimeCommandFixture("execution-progress-rejected-", async ({ setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxText("I will revise the already-satisfied check."))]);
+        const projectRoot = await makeWorkflowProject([{
+            name: "already-met-progress",
+            attrs: { objectiveChecks: [{ id: "OC_TRUE", command: "true" }] },
+        }]);
+        const events: RuntimeStatusEvent[] = [];
+        const hostedSession = makeHostedSession("already-met-progress", projectRoot, events);
+        try {
+            const result = await executePlan({
+                planName: "already-met-progress",
+                triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
+                hostedSession,
+            });
 
-        const messages = messagesFrom(events).join("\n");
-        assertStringIncludes(messages, "running Plan Objective-Failing Check baseline...");
-        assertStringIncludes(messages, "Execution did not start:");
-        assertEquals(messages.includes("launching Engineer to execute..."), false);
-        assertEquals(result.executionComplete, false);
-        assertEquals(turns.map((turn) => turn.agentName), ["planner"]);
-        const plan = await loadPlan(projectRoot, "already-met-progress");
-        assertEquals(plan?.attrs.status, "feedback");
-    } finally {
-        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
-    }
+            const messages = messagesFrom(events).join("\n");
+            assertStringIncludes(messages, "running Plan Objective-Failing Check baseline...");
+            assertStringIncludes(messages, "Execution did not start:");
+            assertEquals(messages.includes("launching Engineer to execute..."), false);
+            assertEquals(result.executionComplete, false);
+            assertEquals(hostedSession.getRootAgentName(), "planner");
+            const plan = await loadPlan(projectRoot, "already-met-progress");
+            assertEquals(plan?.attrs.status, "feedback");
+        } finally {
+            hostedSession.dispose();
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        }
+    });
 });

@@ -81,6 +81,42 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
 }
 
 /**
+ * The environment `startActiveExecutionWorkflow` reaches for.
+ *
+ * Required, every one. The previous shape was `ports?.name || name`, which let a
+ * caller replace one collaborator while production silently fell back to the
+ * import for the rest — an override bag with a different noun on it. Required
+ * members mean the substitution is made at the call site, where it is visible,
+ * and this module never chooses.
+ */
+export interface ExecutionStartPorts {
+    findReusableWorktree: typeof findReusableWorktree;
+    resolveCurrentCheckoutBranch: typeof resolveCurrentCheckoutBranch;
+    resolveTargetBranchName: typeof resolveTargetBranchName;
+    loadCanonicalExecutionPlanSource: typeof loadCanonicalExecutionPlanSource;
+    recordWorkflowMetric: typeof recordWorkflowMetric;
+    probeGitRepository: typeof probeGitRepository;
+    hasNonGitExecutionConsent: typeof hasNonGitExecutionConsent;
+    confirmNonGitFeaturePlanExecution: typeof confirmNonGitFeaturePlanExecution;
+    now: () => number;
+}
+
+/** The real environment. Construct once at the edge and pass it down. */
+export function createExecutionStartPorts(): ExecutionStartPorts {
+    return {
+        findReusableWorktree,
+        resolveCurrentCheckoutBranch,
+        resolveTargetBranchName,
+        loadCanonicalExecutionPlanSource,
+        recordWorkflowMetric,
+        probeGitRepository,
+        hasNonGitExecutionConsent,
+        confirmNonGitFeaturePlanExecution,
+        now: () => Date.now(),
+    };
+}
+
+/**
  * @param {{
  *   planName: string,
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
@@ -88,20 +124,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  *   collaborationStyle?: "autonomous"|"pair",
  *   collaborationRecommendation?: "autonomous"|"pair",
- *   ports?: {
- *     findReusableWorktree?: typeof findReusableWorktree,
- *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
- *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
- *     resolveTargetBranchName?: typeof resolveTargetBranchName,
- *     captureWorktreeTree?: typeof captureWorktreeTree,
- *     loadCanonicalExecutionPlanSource?: typeof loadCanonicalExecutionPlanSource,
- *     ensureExecutionPlanFile?: typeof ensureExecutionPlanFile,
- *     recordWorkflowMetric?: typeof recordWorkflowMetric,
- *     probeGitRepository?: typeof probeGitRepository,
- *     hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
- *     confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
- *     now?: () => number,
- *   },
+ *   ports: ExecutionStartPorts,
  * }} opts
  * @returns {Promise<import('../session/hosted-session.js').ActiveExecutionWorkflow>}
  */
@@ -118,18 +141,21 @@ export async function startActiveExecutionWorkflow(
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const findReusable = ports?.findReusableWorktree || findReusableWorktree;
-    const prepareTarget = ports?.prepareTargetBranchRef || prepareTargetBranchRef;
-    const resolveCurrentBranch = ports?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
-    const resolveTarget = ports?.resolveTargetBranchName || resolveTargetBranchName;
-    const captureTree = ports?.captureWorktreeTree || captureWorktreeTree;
-    const loadCanonicalPlanSource = ports?.loadCanonicalExecutionPlanSource || loadCanonicalExecutionPlanSource;
-    const ensurePlanFile = ports?.ensureExecutionPlanFile || ensureExecutionPlanFile;
-    const recordWorkflowMetricFn = ports?.recordWorkflowMetric || recordWorkflowMetric;
-    const probeGit = ports?.probeGitRepository || probeGitRepository;
-    const hasConsent = ports?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
-    const confirmNonGit = ports?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
-    const now = ports?.now || (() => Date.now());
+    const findReusable = ports.findReusableWorktree;
+    // Worktree policy and the Plan restore are RunWield's own: they stay imported so a
+    // test cannot stand in for them. Producing their failure modes takes a real
+    // repository — a branch whose tree has `plans` as a file blocks the restore.
+    const prepareTarget = prepareTargetBranchRef;
+    const resolveCurrentBranch = ports.resolveCurrentCheckoutBranch;
+    const resolveTarget = ports.resolveTargetBranchName;
+    const captureTree = captureWorktreeTree;
+    const loadCanonicalPlanSource = ports.loadCanonicalExecutionPlanSource;
+    const ensurePlanFile = ensureExecutionPlanFile;
+    const recordWorkflowMetricFn = ports.recordWorkflowMetric;
+    const probeGit = ports.probeGitRepository;
+    const hasConsent = ports.hasNonGitExecutionConsent;
+    const confirmNonGit = ports.confirmNonGitFeaturePlanExecution;
+    const now = ports.now;
     // Plan identity is durable state, so it is never sourced from an injected seam.
     // This used to fall back to a synthetic `test-plan:<name>` id whenever `ports`
     // was non-empty, which any production caller passing a single real dep tripped:

@@ -101,7 +101,6 @@
     "src/shared/workflow/validation-test-helpers.js",
     "src/shared/workflow/workflow-prompts.js",
     "src/shared/workflow/workflow-results.js",
-    "src/shared/workflow/workflow-slicer.js",
     "src/shared/workflow/workflow.js",
     "src/shared/worktree-registry.js",
     "src/shared/worktree-test-helpers.js",

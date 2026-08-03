@@ -1,18 +1,4 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
-    "files": {
-        "src/shared/workflow/workflow-slicer.js": {
-            "seams": [
-                "findPlansByParent",
-                "loadPlan",
-                "materializeSlicerDraft",
-                "parsePlanFrontMatter",
-                "readTextFile",
-                "runActiveAgentTurn",
-                "runSlicerAgent",
-                "switchActiveAgent"
-            ],
-            "machinery": []
-        }
-    }
+    "files": {}
 }

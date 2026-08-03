@@ -1,4 +1,6 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import {
@@ -14,6 +16,7 @@ import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { savePlan } from "../../plan-store.js";
+import { rememberNonGitExecutionConsent } from "../git.js";
 
 const STABLE_TEST_CWD = decodeURIComponent(new URL("../../..", import.meta.url).pathname);
 
@@ -483,93 +486,46 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
 });
 
 Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan workflow operations", async () => {
-    await withProcessGlobalTestLock(async () => {
-        const previousHome = Deno.env.get("HOME");
-        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-managed-plan-workflow-" });
-        Deno.env.set("HOME", home);
-        const cwd = `${home}/project`;
-        await Deno.mkdir(cwd, { recursive: true });
-        const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
-        const piSessionId = "managed-pi-plan-workflow";
-        const transcriptPath = `${getRunWieldSessionDir(cwd)}/2026-01-01T00-00-00-000Z_${piSessionId}.jsonl`;
-        let workflowSawHydratedManager = false;
-        try {
-            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
-            store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
-            const makePersistedManager = () => ({
-                ...makeSessionManager(piSessionId, cwd),
-                getSessionFile: () => transcriptPath,
-                _rewriteFile: () => {
-                    Deno.mkdirSync(getRunWieldSessionDir(cwd), { recursive: true });
-                    Deno.writeTextFileSync(
-                        transcriptPath,
-                        JSON.stringify({
-                            type: "session",
-                            version: 3,
-                            id: piSessionId,
-                            timestamp: "2026-01-01T00:00:00.000Z",
-                            cwd,
-                        }) + "\n",
-                    );
-                },
-            });
-            const runtime = new SessionRuntime({
-                ownerCoordinationStore: store,
-                ownerProcessKind: "test",
-                ownerInstanceId: "runtime-test-owner",
-                createRootSessionManager: () => {
-                    const manager = makePersistedManager();
-                    manager._rewriteFile();
-                    return Promise.resolve(manager);
-                },
-                openPersistedRootSession: () =>
-                    Promise.resolve({
-                        sessionManager: makePersistedManager(),
-                        resolved: /** @type {any} */ ({ sessionId: piSessionId, path: transcriptPath }),
-                    }),
-                switchActiveAgent: (hostedSession, options) => {
-                    hostedSession.setRootAgentName(options.agentName);
-                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-                },
-            });
+    await withRuntimeCommandFixture(
+        "runtime-managed-plan-workflow-",
+        async ({ homeDir: home, projectRoot: cwd, setModelMessages }) => {
+            setModelMessages([fauxAssistantMessage(fauxText("Planning remains active after hydration."))]);
+            const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
             try {
-                const created = await runtime.createInteractiveSession({
-                    cwd,
-                    mode: "new",
-                    enableManagedActivation: true,
-                    deferManagedActivationUntilAgentReady: true,
+                store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+                store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
+                const runtime = new SessionRuntime({
+                    ownerCoordinationStore: store,
+                    ownerProcessKind: "test",
+                    ownerInstanceId: "runtime-test-owner",
                 });
-                await runtime.switchAgent(created.sessionId, { agentName: "planner" });
-                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 0);
-                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+                try {
+                    const created = await runtime.createInteractiveSession({
+                        cwd,
+                        mode: "new",
+                        enableManagedActivation: true,
+                        deferManagedActivationUntilAgentReady: true,
+                    });
+                    await runtime.switchAgent(created.sessionId, { agentName: "planner" });
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 0);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
 
-                const result = await runtime.runPlanningAgent(created.sessionId, {
-                    agentName: "planner",
-                    initialRequest: "Resume planning",
-                    __deps: {
-                        runActiveAgentTurn: (/** @type {{ hostedSession: any, sessionManager: any }} */ args) => {
-                            workflowSawHydratedManager = Boolean(
-                                args.hostedSession.getRootSessionManager?.() && args.sessionManager,
-                            );
-                            return Promise.resolve([]);
-                        },
-                    },
-                });
+                    const result = await runtime.runPlanningAgent(created.sessionId, {
+                        agentName: "planner",
+                        initialRequest: "Resume planning",
+                    });
 
-                assertEquals(result, { outcome: "no_call" });
-                assertEquals(workflowSawHydratedManager, true);
-                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
-                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+                    assertEquals(result, { outcome: "no_call" });
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+                } finally {
+                    await runtime.closeAllSessionsWhenIdle?.();
+                }
             } finally {
-                await runtime.closeAllSessionsWhenIdle?.();
+                store.close();
             }
-        } finally {
-            store.close();
-            if (previousHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", previousHome);
-            await removeTempDir(home);
-        }
-    });
+        },
+    );
 });
 
 Deno.test("SessionRuntime can defer managed creation cataloging until Agent readiness", async () => {
@@ -764,6 +720,63 @@ Deno.test("SessionRuntime defers reload and rejects compaction for dormant manag
         Error,
         "managed_unsupported",
     );
+});
+
+Deno.test("SessionRuntime reload preserves the current hidden agent definition", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({ id: "reload-hidden-agent", cwd: Deno.cwd() });
+    const hiddenAgentDef = {
+        name: "slicer",
+        displayName: "Slicer",
+        tools: ["slicer_finalize"],
+        systemPrompt: "hidden slicer prompt",
+    };
+    const customTool = {
+        name: "slicer_finalize",
+        description: "Finalize child plans",
+        parameters: { type: "object", properties: {} },
+        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }] }),
+    };
+    await ensureRootAgentSession({
+        hostedSession: session,
+        agentName: "slicer",
+        allowReturnToRouter: false,
+        _buildAgentSession: () =>
+            Promise.resolve({
+                session: { dispose() {} },
+                agentDef: hiddenAgentDef,
+                promptState: { text: "hidden slicer prompt" },
+                tools: ["slicer_finalize"],
+                finalCustomTools: [customTool],
+                resolvedModel: { provider: "old-provider", id: "old-model" },
+                contextProjection: null,
+            }),
+        _attachSessionEventSubscribers: () => ({
+            resetTurn() {},
+            drainInvokedToolNames: () => [],
+            endThinking() {},
+            unsubscribe() {},
+        }),
+    });
+
+    /** @type {any} */
+    let capturedOptions = null;
+    const runtime = makeRuntime({
+        sessionHost,
+        switchActiveAgent: (_hostedSession, options) => {
+            capturedOptions = options;
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
+    });
+
+    assertEquals(await runtime.reloadSession(session.id), { ok: true });
+    assertStrictEquals(capturedOptions.agentDef, hiddenAgentDef);
+    assertStrictEquals(capturedOptions.customTools[0], customTool);
+    assertEquals(capturedOptions.toolNames, ["slicer_finalize"]);
+    assertEquals(capturedOptions.allowReturnToRouter, false);
+    assertEquals(capturedOptions.agentName, "slicer");
+    assertEquals(capturedOptions.forceRebuild, true);
+    assertEquals(capturedOptions.model, undefined);
 });
 
 Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
@@ -1260,79 +1273,84 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
 });
 
 Deno.test("SessionRuntime keeps executePlan workflow operations busy while preparation runs", async () => {
-    const runtime = makeRuntime();
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-runtime-execute-busy-" });
-    try {
-        const planName = "execute-busy-plan";
-        await savePlan(cwd, planName, `# ${planName}`, {
-            classification: "PLANNED_CHANGE",
-            status: "ready_for_work",
-            summary: planName,
-            affectedPaths: [],
-            planId: "execute-busy-plan-id",
-            objectiveChecks: [{ id: "OC_BUSY", command: "test -f missing-objective-marker" }],
-        });
-        const sessionId = await runtime.createPromptReadySession({ cwd });
-        /** @type {boolean[]} */
-        const busyStates = [];
-        /** @type {RuntimePreparationBusySample[]} */
-        const preparationMessages = [];
-        /** @type {() => void} */
-        let releaseEngineerTurn = () => {};
-        const engineerTurnStarted = new Promise((resolve) => {
-            releaseEngineerTurn = /** @type {() => void} */ (resolve);
-        });
-        /** @type {() => void} */
-        let resolveLaunchSeen = () => {};
-        const launchSeen = new Promise((resolve) => {
-            resolveLaunchSeen = /** @type {() => void} */ (resolve);
-        });
-        runtime.subscribeSessionEvents(sessionId, (event) => {
-            if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
-            if ("message" in event && typeof event.message === "string") {
-                if (
-                    event.message.includes("preparing execution target") ||
-                    event.message.includes("preparing in-place execution") ||
-                    event.message.includes("running Plan Objective-Failing Check baseline") ||
-                    event.message.includes("updating Plan status to in_progress") ||
-                    event.message.includes("launching Engineer to execute")
-                ) {
-                    preparationMessages.push({
-                        message: event.message,
-                        busy: runtime.getSessionSnapshot(sessionId)?.busy,
-                    });
+    await withRuntimeCommandFixture(
+        "runtime-execute-busy-",
+        async ({ projectRoot: cwd, setModelResponseFactory }) => {
+            const runtime = new SessionRuntime();
+            /** @type {() => void} */
+            let releaseEngineerTurn = () => {};
+            const engineerTurnReleased = new Promise((resolve) => {
+                releaseEngineerTurn = /** @type {() => void} */ (resolve);
+            });
+            setModelResponseFactory(async () => {
+                await engineerTurnReleased;
+                return fauxAssistantMessage(fauxText("Execution remains paused in the fixture."));
+            });
+            const planName = "execute-busy-plan";
+            await savePlan(cwd, planName, `# ${planName}`, {
+                classification: "PLANNED_CHANGE",
+                status: "ready_for_work",
+                summary: planName,
+                affectedPaths: [],
+                planId: "execute-busy-plan-id",
+                objectiveChecks: [{ id: "OC_BUSY", command: "test -f missing-objective-marker" }],
+            });
+            // Exercise the real persisted-consent path against the fixture HOME. This keeps
+            // the test on the non-Git execution branch without replacing workflow machinery
+            // or opening an interactive prompt.
+            await rememberNonGitExecutionConsent("featurePlan", cwd);
+            const sessionId = await runtime.createPromptReadySession({ cwd });
+            /** @type {boolean[]} */
+            const busyStates = [];
+            /** @type {RuntimePreparationBusySample[]} */
+            const preparationMessages = [];
+            /** @type {() => void} */
+            let resolveLaunchSeen = () => {};
+            const launchSeen = new Promise((resolve) => {
+                resolveLaunchSeen = /** @type {() => void} */ (resolve);
+            });
+            runtime.subscribeSessionEvents(sessionId, (event) => {
+                if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
+                if ("message" in event && typeof event.message === "string") {
+                    if (
+                        event.message.includes("preparing execution target") ||
+                        event.message.includes("preparing in-place execution") ||
+                        event.message.includes("running Plan Objective-Failing Check baseline") ||
+                        event.message.includes("updating Plan status to in_progress") ||
+                        event.message.includes("launching Engineer to execute")
+                    ) {
+                        preparationMessages.push({
+                            message: event.message,
+                            busy: runtime.getSessionSnapshot(sessionId)?.busy,
+                        });
+                    }
+                    if (event.message.includes("launching Engineer to execute")) resolveLaunchSeen();
                 }
-                if (event.message.includes("launching Engineer to execute")) resolveLaunchSeen();
-            }
-        });
+            });
 
-        const execution = runtime.executePlan(sessionId, {
-            planName,
-            triageMeta: { planId: "execute-busy-plan-id", classification: "PLANNED_CHANGE" },
-            __deps: {
-                hasNonGitExecutionConsent: () => true,
-                runActiveAgentTurn: () => engineerTurnStarted.then(() => []),
-            },
-        });
+            const execution = runtime.executePlan(sessionId, {
+                planName,
+                triageMeta: { planId: "execute-busy-plan-id", classification: "PLANNED_CHANGE" },
+            });
 
-        await launchSeen;
-        assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
-        releaseEngineerTurn();
-        await execution;
+            await launchSeen;
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
+            releaseEngineerTurn();
+            await execution;
 
-        assertEquals(busyStates, [true, false]);
-        assertEquals(preparationMessages.map((entry) => entry.message), [
-            "preparing execution target...",
-            "preparing in-place execution because Git is unavailable...",
-            "running Plan Objective-Failing Check baseline...",
-            "updating Plan status to in_progress...",
-            "launching Engineer to execute...",
-        ]);
-        assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true, true]);
-        assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
-    } finally {
-        await removeTempDir(cwd);
-    }
+            assertEquals(busyStates, [true, false]);
+            assertEquals(preparationMessages.map((entry) => entry.message), [
+                "preparing execution target...",
+                "preparing in-place execution because Git is unavailable...",
+                "running Plan Objective-Failing Check baseline...",
+                "updating Plan status to in_progress...",
+                "launching Engineer to execute...",
+            ]);
+            assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true, true]);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
+            runtime.closeAllSessions();
+        },
+    );
 });
 
 Deno.test("SessionRuntime keeps direct model operations busy until the outermost operation settles", async () => {

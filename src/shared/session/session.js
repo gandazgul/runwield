@@ -2604,6 +2604,25 @@ export function getRootSessionSwitchState(hostedSession) {
 
 /**
  * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @returns {Partial<import('./agent-switching.js').AgentSwitchOptions>}
+ */
+export function getRootSessionRebuildOptions(hostedSession) {
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+    if (!session) return {};
+    const meta = rootSessionMetadata.get(session);
+    if (!meta) return {};
+    return {
+        allowReturnToRouter: meta.allowReturnToRouter,
+        cwd: meta.cwd,
+        agentDef: meta.agentDef,
+        customTools: meta.finalCustomTools,
+        toolNames: meta.tools,
+        projectStateContext: meta.projectStateContext,
+    };
+}
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @returns {{ projection: import('./session-context-report.js').SessionContextProjection, activeMessageTokens: number, agentName: string, agentDisplayName: string, model?: string } | null}
  */
 export function getRootSessionContextProjection(hostedSession) {

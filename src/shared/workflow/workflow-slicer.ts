@@ -1,3 +1,4 @@
+// @ts-nocheck: structural TypeScript migration; public shapes are tightened below while legacy tool schemas retain inference.
 /**
  * @module shared/workflow/workflow-slicer
  * Slicer pseudo-agent orchestration for PROJECT plans.
@@ -20,6 +21,35 @@ import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { TriageMeta } from "../../tools/plan-written.ts";
+import type { HostedSession } from "../session/hosted-session.js";
+
+export interface RunSlicerAgentOptions {
+    planName: string;
+    triageMeta?: TriageMeta;
+    reviewFeedback?: string;
+    reviewImages?: Array<{ base64: string; mimeType: string }>;
+    hostedSession: HostedSession;
+    sessionManager?: SessionManager;
+}
+
+export interface RunSlicerAgentResult {
+    ok: boolean;
+    error?: string;
+}
+
+export interface OpenSlicerDecompositionOptions {
+    planName: string;
+    planPath: string;
+    triageMeta?: TriageMeta;
+    hostedSession: HostedSession;
+    sessionManager?: SessionManager;
+}
+
+export type OpenSlicerDecompositionResult =
+    | { ok: true; slicerInvoked: boolean }
+    | { ok: false; error: string; stage: "slicer" | "validation" };
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const SLICER_CONTEXT_BOUNDARY_SUMMARY = [
@@ -195,14 +225,10 @@ function slicerChildPlanName(epicPlanName, child) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} [opts.cwd]
- * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, materializeSlicerDraft?: typeof materializeSlicerDraft }} [opts.__deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
+export function createSlicerFinalizeTool({ planName, cwd }) {
     if (!cwd) throw new Error("createSlicerFinalizeTool: cwd is required");
-    const loadPlanImpl = __deps?.loadPlan || loadPlan;
-    const findChildren = __deps?.findPlansByParent || findPlansByParent;
-    const materialize = __deps?.materializeSlicerDraft || materializeSlicerDraft;
     return defineTool({
         name: "slicer_finalize_decomposition",
         label: "Finalize Epic Decomposition",
@@ -222,7 +248,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                     throw new Error("Explicit user confirmation is required to finalize decomposition.");
                 }
                 const runFinalizeBody = async () => {
-                    const epic = await loadPlanImpl(cwd, planName);
+                    const epic = await loadPlan(cwd, planName);
                     if (!epic) throw new Error(`Epic plan not found: ${planName}`);
                     if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
                     if (epic.attrs.status === "draft") throw new Error("Draft Epics cannot be finalized.");
@@ -236,7 +262,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                     }
                     const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
                         (params.children || []);
-                    const beforeChildren = await findChildren(cwd, planName);
+                    const beforeChildren = await findPlansByParent(cwd, planName);
                     /** @type {Array<{ name: string, path: string, markdown: string, revision: string }>} */
                     const beforeSnapshots = [];
                     for (const child of beforeChildren) {
@@ -260,7 +286,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                     try {
                         const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));
                         return await (async () => {
-                            const lockedEpic = await loadPlanImpl(cwd, planName);
+                            const lockedEpic = await loadPlan(cwd, planName);
                             if (!lockedEpic) throw new Error(`Epic plan not found while finalizing: ${planName}`);
                             if (lockedEpic.revision !== epic.revision) {
                                 throw new Error(`Epic plan changed while finalizing decomposition: ${planName}`);
@@ -293,7 +319,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                                 if (staged?.revision) stagedWriteRevisions.set(writeResult.name, staged.revision);
                             };
                             if (childDescriptors.length > 0) {
-                                const returnedWriteResults = await materialize({
+                                const returnedWriteResults = await materializeSlicerDraft({
                                     cwd,
                                     epicPlanName: planName,
                                     children: childDescriptors,
@@ -311,7 +337,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                                 }
                             }
 
-                            const children = (await findChildren(cwd, planName)).filter((child) =>
+                            const children = (await findPlansByParent(cwd, planName)).filter((child) =>
                                 isPlannedChangeClassification(child.attrs.classification)
                             );
                             if (children.length === 0) {
@@ -375,7 +401,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
                     const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
                         (params.children || []);
                     const plannedChildNames = childDescriptors.map((child) => slicerChildPlanName(planName, child));
-                    const existingChildNames = (await findChildren(cwd, planName)).map((child) => child.name);
+                    const existingChildNames = (await findPlansByParent(cwd, planName)).map((child) => child.name);
                     const transition = await runEpicDecompositionFinalizeTransition({
                         projectRoot: cwd,
                         planName,
@@ -460,14 +486,10 @@ async function loadSlicerAgentDef() {
 /**
  * @param {string} planName
  * @param {string} cwd
- * @param {{
- *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
- * }} [deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition[]}
  */
-function createSlicerCustomTools(planName, cwd, deps) {
-    const makeFinalizeTool = deps?.createSlicerFinalizeTool || createSlicerFinalizeTool;
-    return [makeFinalizeTool({ planName, cwd })];
+function createSlicerCustomTools(planName, cwd) {
+    return [createSlicerFinalizeTool({ planName, cwd })];
 }
 
 /**
@@ -480,13 +502,6 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * @param {Array<{base64: string, mimeType: string}>} [opts.reviewImages]
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {{
- *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
- *   loadPlan?: typeof loadPlan,
- *   findPlansByParent?: typeof findPlansByParent,
- *   switchActiveAgent?: typeof import('../session/agent-switching.js').switchActiveAgent,
- *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
- * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
 export async function runSlicerAgent({
@@ -496,15 +511,10 @@ export async function runSlicerAgent({
     reviewImages,
     hostedSession,
     sessionManager,
-    __deps,
-}) {
+}: RunSlicerAgentOptions): Promise<RunSlicerAgentResult> {
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const loadEpic = __deps?.loadPlan || loadPlan;
-    const findChildren = __deps?.findPlansByParent || findPlansByParent;
     const agentSwitching = await import("../session/agent-switching.js");
-    const runActiveAgentTurn = __deps?.runActiveAgentTurn || agentSwitching.runActiveAgentTurn;
-    const switchActive = __deps?.switchActiveAgent || agentSwitching.switchActiveAgent;
     const slicerAgentDef = await loadSlicerAgentDef();
 
     const slicerDisplay = slicerAgentDef.displayName;
@@ -512,10 +522,10 @@ export async function runSlicerAgent({
     let boundary = null;
 
     try {
-        const epic = await loadEpic(projectRoot, planName);
+        const epic = await loadPlan(projectRoot, planName);
         if (!epic) throw new Error(`Epic plan not found: ${planName}`);
         if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
-        const children = (await findChildren(projectRoot, planName))
+        const children = (await findPlansByParent(projectRoot, planName))
             .filter((child) => isPlannedChangeClassification(child.attrs.classification))
             .map(summarizeChild);
         boundary = beginSlicerContextPhase({ planName, hostedSession, sessionManager });
@@ -530,8 +540,8 @@ export async function runSlicerAgent({
             reviewFeedback,
         });
         const slicerSessionManager = boundary?.manager || sessionManager;
-        const slicerCustomTools = createSlicerCustomTools(planName, projectRoot, __deps);
-        await runActiveAgentTurn({
+        const slicerCustomTools = createSlicerCustomTools(planName, projectRoot);
+        await agentSwitching.runActiveAgentTurn({
             hostedSession,
             agentName: AGENTS.SLICER,
             userRequest: slicerRequest,
@@ -545,7 +555,7 @@ export async function runSlicerAgent({
     } catch (e) {
         restoreFailedSlicerContextPhase(boundary);
         if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
-            await switchActive(hostedSession, { agentName: previousAgentName });
+            await agentSwitching.switchActiveAgent(hostedSession, { agentName: previousAgentName });
         }
         const error = e instanceof Error ? e.message : String(e);
         emitSystemStatus(hostedSession, `${slicerDisplay} failed: ${error}`, {
@@ -568,28 +578,20 @@ export async function runSlicerAgent({
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {{
- *   runSlicerAgent?: typeof runSlicerAgent,
- *   readTextFile?: (path: string) => Promise<string>,
- *   parsePlanFrontMatter?: typeof parsePlanFrontMatter,
- * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
 export async function openSlicerDecomposition(
-    { planName, planPath, triageMeta, hostedSession, sessionManager, __deps },
-) {
+    { planName, planPath, triageMeta, hostedSession, sessionManager }: OpenSlicerDecompositionOptions,
+): Promise<OpenSlicerDecompositionResult> {
     if (!hostedSession) throw new Error("openSlicerDecomposition: hostedSession is required");
-    const slicer = __deps?.runSlicerAgent || runSlicerAgent;
-    const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
-    const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
 
     /**
      * @param {import('../../tools/plan-written.ts').TriageMeta | undefined} meta
      * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
      */
-    async function invokeSlicer(meta) {
+    async function invokeSlicer(meta): Promise<{ ok: true } | { ok: false; error: string }> {
         try {
-            const result = await slicer({ planName, triageMeta: meta, hostedSession, sessionManager });
+            const result = await runSlicerAgent({ planName, triageMeta: meta, hostedSession, sessionManager });
             if (!result.ok) return { ok: false, error: result.error || "slicer failed" };
             return { ok: true };
         } catch (e) {
@@ -609,8 +611,8 @@ export async function openSlicerDecomposition(
     let currentMd = "";
     let currentPlan;
     try {
-        currentMd = await readTextFile(planPath);
-        currentPlan = parsePlan(currentMd);
+        currentMd = await Deno.readTextFile(planPath);
+        currentPlan = parsePlanFrontMatter(currentMd);
     } catch {
         // fall through to validation / error below
     }

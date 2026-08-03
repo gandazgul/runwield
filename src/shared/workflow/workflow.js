@@ -24,7 +24,7 @@ export {
     materializeSlicerDraft,
     openSlicerDecomposition,
     runSlicerAgent,
-} from "./workflow-slicer.js";
+} from "./workflow-slicer.ts";
 export { buildEngineerRequest, buildSlicerRequest } from "./workflow-prompts.js";
 export {
     extractAssistantOutput,
@@ -98,7 +98,7 @@ export function supportsPairExecution(hostedSession) {
  * @returns {Promise<PlanOutcomeResult>}
  */
 export function runPlanningAgent(options) {
-    return runPlanningAgentImpl({ ...options, ports: options?.__deps });
+    return runPlanningAgentImpl(options);
 }
 
 /**
@@ -114,7 +114,7 @@ export function finalizePlanImplementation(options) {
  * @returns {Promise<PlanExecutionResult>}
  */
 export function executePlan(options) {
-    return executePlanImpl({ ...options, ports: options?.__deps });
+    return /** @type {Promise<PlanExecutionResult>} */ (executePlanImpl(options));
 }
 
 /**
@@ -139,6 +139,6 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  */
 export function startActiveExecutionWorkflow(options) {
     return /** @type {Promise<import('../session/hosted-session.js').ActiveExecutionWorkflow>} */ (startActiveExecutionWorkflowImpl(
-        { ...options, ports: options?.__deps },
+        options,
     ));
 }

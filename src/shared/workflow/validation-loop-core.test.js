@@ -6,6 +6,7 @@ import { HostedSession } from "../session/hosted-session.js";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
 import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js";
 import { runValidationLoop, runValidationPhase, shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { createExecutionStartPorts } from "./execution-start.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
 import { attachRecorder, makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
@@ -108,6 +109,7 @@ Deno.test("startActiveExecutionWorkflow seeds footer workflow context from Plan 
         triageMeta: plan?.attrs || {},
         currentStatus: "ready_for_work",
         hostedSession,
+        ports: createExecutionStartPorts(),
     });
 
     assertEquals(hostedSession.getWorkflowContext(), {

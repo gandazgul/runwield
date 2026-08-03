@@ -1,5 +1,6 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { readLatestPlanOutcome } from "./workflow-results.js";
+import { runActiveAgentTurn } from "../session/agent-switching.js";
 
 /**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
@@ -15,10 +16,8 @@ import { readLatestPlanOutcome } from "./workflow-results.js";
  */
 
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images, ports },
+    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images },
 ) {
-    const runActiveAgentTurn = ports?.runActiveAgentTurn ||
-        (await import("../session/agent-switching.js")).runActiveAgentTurn;
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
 
     const messages = await runActiveAgentTurn({
