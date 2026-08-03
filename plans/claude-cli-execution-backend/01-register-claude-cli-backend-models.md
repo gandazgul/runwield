@@ -35,14 +35,17 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-03T19:01:31.565Z"
-status: "ready_for_work"
+updatedAt: "2026-08-03T22:37:54.536Z"
+status: "feedback"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 1
 dependencies:
     []
 userVerifiedAt: null
+humanReviewMode: null
+humanReviewDecision: null
+worktreeStatus: "abandoned"
 ---
 
 # Register Claude CLI Backend Models
