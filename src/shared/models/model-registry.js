@@ -14,6 +14,8 @@ let bundledOAuthFlowsRegistered = false;
 let modelRuntimePromise = null;
 /** @type {import('@earendil-works/pi-coding-agent').ModelRuntime | null} */
 let resolvedModelRuntime = null;
+/** @type {string | null} */
+let modelRuntimeConfigDir = null;
 /** @type {RunWieldCredentialStore | null} */
 let modelCredentialStore = null;
 
@@ -700,11 +702,16 @@ export async function createRunWieldModelRuntime() {
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ModelRuntime>}
  */
 export function getModelRuntime() {
-    if (!modelRuntimePromise) {
-        modelRuntimePromise = createRunWieldModelRuntime().then((runtime) => {
-            resolvedModelRuntime = runtime;
+    const configDir = getRunWieldModelConfigDir();
+    if (!modelRuntimePromise || modelRuntimeConfigDir !== configDir) {
+        modelRuntimeConfigDir = configDir;
+        resolvedModelRuntime = null;
+        const pendingRuntime = createRunWieldModelRuntime();
+        const configuredRuntimePromise = pendingRuntime.then((runtime) => {
+            if (modelRuntimePromise === configuredRuntimePromise) resolvedModelRuntime = runtime;
             return runtime;
         });
+        modelRuntimePromise = configuredRuntimePromise;
     }
     return modelRuntimePromise;
 }
@@ -719,7 +726,7 @@ export function getModelRegistry() {
     for (const failure of piMigration.failed) {
         console.warn(`Failed to migrate Pi ${failure.file} to RunWield config: ${failure.error}`);
     }
-    if (!modelRuntimePromise) modelRuntimePromise = getModelRuntime();
+    modelRuntimePromise = getModelRuntime();
     return new RunWieldModelRegistry({
         runtime: resolvedModelRuntime,
         runtimePromise: modelRuntimePromise,
