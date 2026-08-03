@@ -683,6 +683,21 @@ export function normalizeRuntimeUsage(value) {
  * @param {unknown} value
  * @returns {RuntimeToolResult}
  */
+/**
+ * @param {string} output
+ * @returns {string}
+ */
+function removeModelOnlyImageOmissionNotes(output) {
+    return output.split("\n").filter((line) =>
+        !line.startsWith("[Image omitted:") &&
+        !line.startsWith("[Current model does not support images.")
+    ).join("\n").trimEnd();
+}
+
+/**
+ * @param {unknown} value
+ * @returns {RuntimeToolResult}
+ */
 export function normalizeRuntimeToolResult(value) {
     const source = value && typeof value === "object" ? /** @type {any} */ (value) : null;
     const rawContent = Array.isArray(value) ? value : Array.isArray(source?.content) ? source.content : [value];
@@ -709,9 +724,15 @@ export function normalizeRuntimeToolResult(value) {
     const details = source?.details && typeof source.details === "object"
         ? /** @type {Record<string, unknown>} */ (source.details)
         : null;
+    let output = details?.runwieldDisplay === "binary_display_suppressed"
+        ? ""
+        : content.filter((block) => block.type === "text").map((block) => block.text).join("");
+    if (Array.isArray(details?.runwieldDisplayImages)) {
+        output = removeModelOnlyImageOmissionNotes(output);
+    }
     return {
         content,
-        output: content.filter((block) => block.type === "text").map((block) => block.text).join(""),
+        output,
         details,
     };
 }

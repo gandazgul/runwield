@@ -56,7 +56,47 @@ Deno.test("read wrapper renders binary/control-byte results as header-only outpu
             /** @type {any} */ ({ lastComponent: new Text("stale", 0, 0) }),
         ));
 
+        assertEquals(__test.resultHasBinaryDisplaySuppression(result), true);
         assertEquals(component.render(80), []);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("read wrapper keeps binary display suppression after result serialization", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        await Deno.writeFile(join(dir, "archive.zip"), new Uint8Array([80, 75, 3, 4, 20, 0, 0, 0]));
+
+        const tool = createRunWieldReadToolDefinition(dir);
+        const result = await executeRead(tool, { path: "archive.zip" });
+        const serializedResult = JSON.parse(JSON.stringify(result));
+        const component = /** @type {Text} */ (tool.renderResult?.(
+            /** @type {any} */ (serializedResult),
+            /** @type {any} */ ({ expanded: true }),
+            /** @type {any} */ ({}),
+            /** @type {any} */ ({ lastComponent: new Text("stale", 0, 0) }),
+        ));
+
+        assertEquals(result.content[0].text?.startsWith("PK"), true);
+        assertEquals(__test.resultHasBinaryDisplaySuppression(serializedResult), true);
+        assertEquals(component.render(80), []);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("read wrapper attaches display images for at-prefixed image paths", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        await Deno.writeFile(join(dir, "image.png"), imageBytes);
+
+        const tool = createRunWieldReadToolDefinition(dir);
+        const result = await executeRead(tool, { path: "@image.png" });
+
+        assertEquals(result.details?.runwieldDisplayImages, [{ base64: "iVBORw0KGgo=", mimeType: "image/png" }]);
+        assertEquals(__test.resultHasBinaryDisplaySuppression(result), false);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

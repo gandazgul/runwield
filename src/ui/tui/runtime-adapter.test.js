@@ -239,6 +239,40 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
     assertEquals(attentionRequests, [{ reason: "agentStopped", sessionName: undefined, agentName: "Guide" }]);
 });
 
+Deno.test("TUI adapter renders display images from read tool results", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("tool-image-display");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-1",
+        toolName: "read",
+        title: "read image.png",
+        kind: "read",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_END,
+        toolCallId: "tool-1",
+        toolName: "read",
+        title: "read image.png",
+        kind: "read",
+        content: [{ type: "text", text: "Read image file [image/png]" }],
+        output: "Read image file [image/png]",
+        details: { runwieldDisplayImages: [{ base64: "abc", mimeType: "image/png" }] },
+        isError: false,
+        durationMs: 10,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, [
+        "tool:start:tool-1:read:read image.png",
+        "tool:update:tool-1:Read image file [image/png]",
+        "tool:end:tool-1:ok",
+        "image:image/png:abc",
+    ]);
+});
+
 Deno.test("TUI adapter updates validation panel only for structured progress and clears terminal panel on next user message", () => {
     const { runtime, sessionId } = makeRuntimeHarness("validation-panel-lifecycle");
     const { transcript, validationProgressUpdates, uiAPI } = makeUi();

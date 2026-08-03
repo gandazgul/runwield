@@ -12,6 +12,35 @@ import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
 
 /**
+ * @typedef {{ base64: string, mimeType: string }} RuntimeDisplayImage
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {RuntimeDisplayImage[]}
+ */
+function collectRuntimeDisplayImages(value) {
+    const event = /** @type {{ content?: Array<{ type?: string, data?: string, mimeType?: string }>, details?: { runwieldDisplayImages?: unknown } }} */
+        (value);
+    const contentImages = Array.isArray(event.content)
+        ? event.content.flatMap((block) =>
+            block?.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string"
+                ? [{ base64: block.data, mimeType: block.mimeType }]
+                : []
+        )
+        : [];
+    const detailImages = Array.isArray(event.details?.runwieldDisplayImages)
+        ? event.details.runwieldDisplayImages.flatMap((image) => {
+            const candidate = /** @type {{ base64?: unknown, mimeType?: unknown }} */ (image);
+            return typeof candidate.base64 === "string" && typeof candidate.mimeType === "string"
+                ? [{ base64: candidate.base64, mimeType: candidate.mimeType }]
+                : [];
+        })
+        : [];
+    return [...contentImages, ...detailImages];
+}
+
+/**
  * @typedef {Object} TuiRuntimeAdapterRegistration
  * @property {() => void} dispose
  */
@@ -195,6 +224,9 @@ export function attachTuiRuntimeAdapter({
                 if (block) {
                     block.setOutput(returnToRouterReason || value.output);
                     block.endExecution(value.isError, value.durationMs);
+                }
+                for (const image of collectRuntimeDisplayImages(value)) {
+                    uiAPI.appendImage?.(image.base64, image.mimeType);
                 }
                 break;
             }

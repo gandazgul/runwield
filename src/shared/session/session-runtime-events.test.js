@@ -35,6 +35,33 @@ Deno.test("Runtime normalizes one complete structured tool result for every cons
     });
 });
 
+Deno.test("Runtime suppresses binary read output for display without dropping content", () => {
+    const normalized = normalizeRuntimeToolResult({
+        content: [{ type: "text", text: "DIRC\u0000\u0007binary" }],
+        details: { runwieldDisplay: "binary_display_suppressed" },
+    });
+
+    assertEquals(normalized.content, [{ type: "text", text: "DIRC\u0000\u0007binary" }]);
+    assertEquals(normalized.output, "");
+    assertEquals(normalized.details, { runwieldDisplay: "binary_display_suppressed" });
+});
+
+Deno.test("Runtime hides model-only image omission notes when TUI display image exists", () => {
+    const text = [
+        "Read image file [image/png]",
+        "[Image omitted: could not be resized below the inline image size limit.]",
+        "[Current model does not support images. The image will be omitted from this request.]",
+    ].join("\n");
+    const normalized = normalizeRuntimeToolResult({
+        content: [{ type: "text", text }],
+        details: { runwieldDisplayImages: [{ base64: "abc", mimeType: "image/png" }] },
+    });
+
+    assertEquals(normalized.content, [{ type: "text", text }]);
+    assertEquals(normalized.output, "Read image file [image/png]");
+    assertEquals(normalized.details, { runwieldDisplayImages: [{ base64: "abc", mimeType: "image/png" }] });
+});
+
 Deno.test("Runtime normalizes provider usage once", () => {
     assertEquals(
         normalizeRuntimeUsage({

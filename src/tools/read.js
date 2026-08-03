@@ -7,15 +7,19 @@
 
 import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { Buffer } from "node:buffer";
 import { isAbsolute, resolve as resolvePath } from "node:path";
+import { mimeTypeForImagePath } from "../shared/session/image-attachments.js";
 
 const BINARY_DISPLAY_SAMPLE_BYTES = 8192;
+const BINARY_DISPLAY_SUPPRESSED_DETAIL = "binary_display_suppressed";
 const binaryDisplayResults = new WeakSet();
 
 /**
  * @typedef {{ type?: string, text?: string }} ToolContentPart
- * @typedef {{ content?: ToolContentPart[] }} ToolResult
- * @typedef {{ path?: string }} ReadToolArgs
+ * @typedef {{ base64: string, mimeType: string }} DisplayImage
+ * @typedef {{ content?: ToolContentPart[], details?: Record<string, unknown> }} ToolResult
+ * @typedef {{ path?: string, file_path?: string }} ReadToolArgs
  */
 
 /**
@@ -62,6 +66,28 @@ function resultLooksUnsafeForDisplay(result) {
 }
 
 /**
+ * @param {unknown} result
+ * @returns {boolean}
+ */
+function resultHasBinaryDisplaySuppression(result) {
+    return /** @type {ToolResult | undefined} */ (result)?.details?.runwieldDisplay ===
+        BINARY_DISPLAY_SUPPRESSED_DETAIL;
+}
+
+/**
+ * @param {unknown} result
+ */
+function markBinaryDisplaySuppressed(result) {
+    if (typeof result !== "object" || result === null) return;
+    const toolResult = /** @type {ToolResult} */ (result);
+    toolResult.details = {
+        ...(toolResult.details || {}),
+        runwieldDisplay: BINARY_DISPLAY_SUPPRESSED_DETAIL,
+    };
+    binaryDisplayResults.add(result);
+}
+
+/**
  * @param {Uint8Array} bytes
  * @returns {boolean}
  */
@@ -97,21 +123,78 @@ async function readDisplaySampleBytes(absolutePath) {
 }
 
 /**
+ * @param {unknown} args
+ * @returns {string | undefined}
+ */
+function readToolPath(args) {
+    const readArgs = /** @type {ReadToolArgs | undefined} */ (args);
+    return readArgs?.path ?? readArgs?.file_path;
+}
+
+/**
+ * @param {string} path
+ * @returns {string}
+ */
+function normalizeReadToolPath(path) {
+    return path.startsWith("@") ? path.slice(1) : path;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} path
+ * @returns {string}
+ */
+function resolveReadToolPath(cwd, path) {
+    const normalizedPath = normalizeReadToolPath(path);
+    return isAbsolute(normalizedPath) ? normalizedPath : resolvePath(cwd, normalizedPath);
+}
+
+/**
  * @param {string} cwd
  * @param {unknown} args
  * @returns {Promise<boolean>}
  */
 async function fileLooksBinaryForDisplay(cwd, args) {
-    const path = /** @type {ReadToolArgs | undefined} */ (args)?.path;
+    const path = readToolPath(args);
     if (typeof path !== "string" || path.length === 0) return false;
 
     try {
-        const absolutePath = isAbsolute(path) ? path : resolvePath(cwd, path);
-        const bytes = await readDisplaySampleBytes(absolutePath);
+        const bytes = await readDisplaySampleBytes(resolveReadToolPath(cwd, path));
         return bytesLookBinaryForDisplay(bytes);
     } catch {
         return false;
     }
+}
+
+/**
+ * @param {string} cwd
+ * @param {unknown} args
+ * @returns {Promise<DisplayImage | null>}
+ */
+async function readDisplayImage(cwd, args) {
+    const path = readToolPath(args);
+    if (typeof path !== "string" || path.length === 0) return null;
+
+    try {
+        const mimeType = mimeTypeForImagePath(path);
+        const bytes = await Deno.readFile(resolveReadToolPath(cwd, path));
+        return { base64: Buffer.from(bytes).toString("base64"), mimeType };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * @param {unknown} result
+ * @param {DisplayImage} image
+ */
+function attachDisplayImage(result, image) {
+    if (typeof result !== "object" || result === null) return;
+    const toolResult = /** @type {ToolResult} */ (result);
+    toolResult.details = {
+        ...(toolResult.details || {}),
+        runwieldDisplayImages: [image],
+    };
 }
 
 /**
@@ -132,11 +215,13 @@ export function createRunWieldReadToolDefinition(cwd) {
     ];
     tool.execute = async (toolCallId, args, signal, onUpdate, context) => {
         const result = await originalExecute(toolCallId, args, signal, onUpdate, context);
+        const displayImage = !resultHasImageContent(result) ? await readDisplayImage(cwd, args) : null;
+        if (displayImage) attachDisplayImage(result, displayImage);
         if (
-            typeof result === "object" && result !== null && !resultHasImageContent(result) &&
+            !displayImage && !resultHasImageContent(result) &&
             (resultLooksUnsafeForDisplay(result) || await fileLooksBinaryForDisplay(cwd, args))
         ) {
-            binaryDisplayResults.add(result);
+            markBinaryDisplaySuppressed(result);
         }
         return result;
     };
@@ -144,7 +229,8 @@ export function createRunWieldReadToolDefinition(cwd) {
         const text =
             /** @type {Text} */ (context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0));
         if (
-            binaryDisplayResults.has(result) || (!resultHasImageContent(result) && resultLooksUnsafeForDisplay(result))
+            resultHasBinaryDisplaySuppression(result) || binaryDisplayResults.has(result) ||
+            (!resultHasImageContent(result) && resultLooksUnsafeForDisplay(result))
         ) {
             text.setText("");
             return text;
@@ -158,4 +244,5 @@ export function createRunWieldReadToolDefinition(cwd) {
 export const __test = {
     containsUnsafeDisplayText,
     resultLooksUnsafeForDisplay,
+    resultHasBinaryDisplaySuppression,
 };
