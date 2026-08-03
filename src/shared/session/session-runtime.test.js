@@ -13,6 +13,7 @@ import { createSessionContextProjection } from "./session-context-report.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { savePlan } from "../../plan-store.js";
 
 const STABLE_TEST_CWD = decodeURIComponent(new URL("../../..", import.meta.url).pathname);
 
@@ -73,6 +74,12 @@ function makeSessionManager(id, cwd, branch = []) {
         },
     };
 }
+
+/**
+ * @typedef {Object} RuntimePreparationBusySample
+ * @property {string} message
+ * @property {boolean | undefined} busy
+ */
 
 /**
  * @typedef {Object} RuntimeFixtureOptions
@@ -1256,24 +1263,73 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
     const runtime = makeRuntime();
     const cwd = await Deno.makeTempDir({ prefix: "runwield-runtime-execute-busy-" });
     try {
+        const planName = "execute-busy-plan";
+        await savePlan(cwd, planName, `# ${planName}`, {
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+            summary: planName,
+            affectedPaths: [],
+            planId: "execute-busy-plan-id",
+            objectiveChecks: [{ id: "OC_BUSY", command: "test -f missing-objective-marker" }],
+        });
         const sessionId = await runtime.createPromptReadySession({ cwd });
         /** @type {boolean[]} */
         const busyStates = [];
-        /** @type {string[]} */
-        const messages = [];
+        /** @type {RuntimePreparationBusySample[]} */
+        const preparationMessages = [];
+        /** @type {() => void} */
+        let releaseEngineerTurn = () => {};
+        const engineerTurnStarted = new Promise((resolve) => {
+            releaseEngineerTurn = /** @type {() => void} */ (resolve);
+        });
+        /** @type {() => void} */
+        let resolveLaunchSeen = () => {};
+        const launchSeen = new Promise((resolve) => {
+            resolveLaunchSeen = /** @type {() => void} */ (resolve);
+        });
         runtime.subscribeSessionEvents(sessionId, (event) => {
             if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
-            if ("message" in event && typeof event.message === "string") messages.push(event.message);
+            if ("message" in event && typeof event.message === "string") {
+                if (
+                    event.message.includes("preparing execution target") ||
+                    event.message.includes("preparing in-place execution") ||
+                    event.message.includes("running Plan Objective-Failing Check baseline") ||
+                    event.message.includes("updating Plan status to in_progress") ||
+                    event.message.includes("launching Engineer to execute")
+                ) {
+                    preparationMessages.push({
+                        message: event.message,
+                        busy: runtime.getSessionSnapshot(sessionId)?.busy,
+                    });
+                }
+                if (event.message.includes("launching Engineer to execute")) resolveLaunchSeen();
+            }
         });
 
-        await runtime.executePlan(sessionId, {
-            planName: "missing-execute-busy-plan",
-            triageMeta: { classification: "PLANNED_CHANGE" },
+        const execution = runtime.executePlan(sessionId, {
+            planName,
+            triageMeta: { planId: "execute-busy-plan-id", classification: "PLANNED_CHANGE" },
+            __deps: {
+                hasNonGitExecutionConsent: () => true,
+                runActiveAgentTurn: () => engineerTurnStarted.then(() => []),
+            },
         });
+
+        await launchSeen;
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
+        releaseEngineerTurn();
+        await execution;
 
         assertEquals(busyStates, [true, false]);
+        assertEquals(preparationMessages.map((entry) => entry.message), [
+            "preparing execution target...",
+            "preparing in-place execution because Git is unavailable...",
+            "running Plan Objective-Failing Check baseline...",
+            "updating Plan status to in_progress...",
+            "launching Engineer to execute...",
+        ]);
+        assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true, true]);
         assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
-        assertEquals(messages.includes("ERROR: Could not load plan missing-execute-busy-plan"), true);
     } finally {
         await removeTempDir(cwd);
     }
