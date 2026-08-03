@@ -68,13 +68,6 @@ Also state, across the whole Epic:
 Only the Epic knows that difference. Left unsaid, a child deletes a test that no longer compiles and the suite still
 passes.
 
-## Execution Policy
-
-- PROJECT Epics are non-executable containers. Do not set `executionAgent` or `collaborationRecommendation`; execution
-  policy belongs only on child Plans.
-- For Epics with browser UI scope, describe which child slices will need Frontend Engineer ownership and headed browser
-  verification. The Slicer assigns canonical ownership on executable child Plans.
-
 ## Edge Cases & Considerations
 
 - Risk 1 + mitigation

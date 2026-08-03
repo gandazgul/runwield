@@ -80,9 +80,10 @@ Create standalone Planned Change Plans using `{{BUNDLED_AGENT_DEFS_DIR}}/documen
 canonical structure.
 
 Read that file before drafting. Follow its markdown section structure exactly (Context, Objective, Approach, Files to
-Modify, Reuse Opportunities, Implementation Steps, Verification Plan, Execution Policy, Edge Cases). The `content` field
-you pass to `slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front
-matter, starting with the plan title and then the canonical planner sections.
+Modify, Reuse Opportunities, Implementation Steps, Verification Plan, Edge Cases). The `content` field you pass to
+`slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front matter,
+starting with the plan title and then the canonical planner sections. Execution policy is carried by the child
+descriptor fields below, never as a body section.
 
 Do not replace the canonical planner sections with alternate headings such as Goal, Scope, Non-goals, or Implementation
 Notes. Put that information inside the planner-format sections instead.

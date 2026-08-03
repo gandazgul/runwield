@@ -61,7 +61,16 @@ interface ObjectiveCheckInput {
     rationale?: string;
 }
 
-interface ToolResultDetails {
+type ExecutionAgent = "engineer" | "frontend-engineer";
+type CollaborationRecommendation = "autonomous" | "pair";
+
+/** Execution policy the planning agent declares through the tool rather than hand-writing into Front Matter. */
+interface ExecutionPolicyInput {
+    executionAgent?: ExecutionAgent;
+    collaborationRecommendation?: CollaborationRecommendation;
+}
+
+interface ToolResultDetails extends ExecutionPolicyInput {
     planName?: string;
     objectiveChecks?: ObjectiveCheckInput[];
     outcome?: string;
@@ -149,6 +158,20 @@ const TOOL_PARAMS = Type.Object({
         maxItems: 12,
         description:
             "Objective-Failing Checks for PLANNED_CHANGE Plans. Each command exits 0 only when the objective is met.",
+    })),
+    executionAgent: Type.Optional(Type.Union([
+        Type.Literal("engineer"),
+        Type.Literal("frontend-engineer"),
+    ], {
+        description:
+            "Canonical execution owner. Use frontend-engineer only when the planned change's primary outcome is materially visual or interactive browser UI; otherwise engineer, including TUI work and incidental frontend-file edits. Omit to default to engineer. PROJECT Epics are non-executable and must omit this.",
+    })),
+    collaborationRecommendation: Type.Optional(Type.Union([
+        Type.Literal("autonomous"),
+        Type.Literal("pair"),
+    ], {
+        description:
+            "Suggested execution style. pair is valid only with executionAgent: frontend-engineer, and only when live visual judgment is valuable; otherwise omit or use autonomous. PROJECT Epics are non-executable and must omit this.",
     })),
 });
 
@@ -275,6 +298,20 @@ function objectiveChecksFormatReference(): string {
     return "See src/agent-definitions/document-formats/planner-plan-format.md#objective-failing-checks.";
 }
 
+/**
+ * Collect the execution policy the agent declared on this call. Omitted fields are
+ * absent rather than null so an existing Front Matter value is preserved, matching
+ * how the Slicer's child descriptors treat omitted policy.
+ */
+function collectExecutionPolicyOverrides(params: ExecutionPolicyInput): ExecutionPolicyInput {
+    const overrides: ExecutionPolicyInput = {};
+    if (params.executionAgent !== undefined) overrides.executionAgent = params.executionAgent;
+    if (params.collaborationRecommendation !== undefined) {
+        overrides.collaborationRecommendation = params.collaborationRecommendation;
+    }
+    return overrides;
+}
+
 /** @param {{ feedback?: string, images?: Array<{ base64: string, mimeType: string }> }} reviewResult */
 function reviewContextDetails(reviewResult: Pick<PlanReviewMeta, "feedback" | "images">) {
     return {
@@ -369,7 +406,34 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             let effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            const policyOverrides = collectExecutionPolicyOverrides(params);
+            effectiveMeta = { ...effectiveMeta, ...policyOverrides };
             const normalizedClassification = normalizePlanClassification(effectiveMeta.classification);
+
+            // Resolve policy before anything is persisted, so a Plan rejected for repair
+            // still has the Front Matter it arrived with.
+            const policy = resolvePlanExecutionPolicy(effectiveMeta);
+            if (!policy.ok && policy.reason !== "project_epic") {
+                emitSystemStatus(hostedSession, `Plan policy invalid: ${policy.error}`, {
+                    level: "error",
+                    header: "RunWield",
+                });
+                const repairHint = Object.keys(policyOverrides).length > 0
+                    ? "Call plan_written again with corrected executionAgent/collaborationRecommendation arguments."
+                    : `Fix the execution policy in plans/${planName}.md and call plan_written again.`;
+                return textResult(
+                    `plan_written: ${policy.error}\n\n${repairHint}`,
+                    {
+                        ...params,
+                        outcome: "repair_required",
+                        planName,
+                        triageMeta: effectiveMeta,
+                        reason: policy.reason,
+                    },
+                    false,
+                );
+            }
+
             if (normalizedClassification !== "PROJECT") {
                 if (!Object.hasOwn(params, "objectiveChecks") || params.objectiveChecks === undefined) {
                     return textResult(
@@ -408,28 +472,14 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                         false,
                     );
                 }
-                await updatePlanFrontMatter(cwd, planName, { objectiveChecks: checkValidation.checks }, {}, {
-                    expectedRevision: loadedPlan.revision,
-                });
-                effectiveMeta = { ...effectiveMeta, objectiveChecks: checkValidation.checks };
-            }
-            const policy = resolvePlanExecutionPolicy(effectiveMeta);
-            if (!policy.ok && policy.reason !== "project_epic") {
-                emitSystemStatus(hostedSession, `Plan policy invalid: ${policy.error}`, {
-                    level: "error",
-                    header: "RunWield",
-                });
-                return textResult(
-                    `plan_written: ${policy.error}\n\nFix plans/${planName}.md and call plan_written again.`,
-                    {
-                        ...params,
-                        outcome: "repair_required",
-                        planName,
-                        triageMeta: effectiveMeta,
-                        reason: policy.reason,
-                    },
-                    false,
+                await updatePlanFrontMatter(
+                    cwd,
+                    planName,
+                    { objectiveChecks: checkValidation.checks, ...policyOverrides },
+                    {},
+                    { expectedRevision: loadedPlan.revision },
                 );
+                effectiveMeta = { ...effectiveMeta, objectiveChecks: checkValidation.checks };
             }
 
             const planDetails = {

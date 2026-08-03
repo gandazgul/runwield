@@ -135,6 +135,20 @@ front matter. Do not classify every external link as a Ticket, copy Ticket conte
 metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
 expand only where clarity requires it.
 
+### Execution policy is an argument, not a section
+
+Do not write `executionAgent` or `collaborationRecommendation` into the Plan file, and do not add an execution-policy
+section to the Plan body. RunWield owns those fields: pass them to `plan_written` and it validates them and persists
+them to Front Matter, the same way it does for `objectiveChecks`.
+
+- `executionAgent: "frontend-engineer"` only when the planned change's primary outcome is materially visual or
+  interactive browser UI. Everything else is `engineer`, including TUI work and incidental frontend-file edits. Omit the
+  argument and it defaults to `engineer`.
+- `collaborationRecommendation: "pair"` only for a Frontend Engineer plan where live visual judgment is worth the user
+  sitting with it; otherwise omit it or pass `"autonomous"`. `pair` on an Engineer plan is rejected.
+- What belongs in the body instead is the work itself: for browser UI, put the exact headed-browser checks in the
+  Verification Plan. Real-browser verification is mandatory for Frontend Engineer unless externally blocked.
+
 ### The Verification Plan must be able to fail
 
 A Verification Plan built only from "nothing broke" checks — type-check, lint, existing tests still pass — will approve

@@ -25,7 +25,9 @@
   - [x] delegate-agent-roles (depends on 3)
   - [ ] re-anchor-agents-after-compaction (independent)
 
-- [ ] planner is just spitting its execution policy intructions into the plan instead of recommending an execution mode
+- [x] planner is just spitting its execution policy intructions into the plan instead of recommending an execution mode
+      — `executionAgent`/`collaborationRecommendation` are now `plan_written` arguments, and the rules moved out of the
+      plan-format templates into the planner/architect prompts
 
       Execution Policy Planned Change Plans may omit executionAgent; omission defaults to engineer. executionAgent:
       "engineer" takes collaborationRecommendation: "autonomous" or omits it. pair is invalid for Engineer-owned

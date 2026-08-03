@@ -205,9 +205,13 @@ local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch`
 a target branch so it can be preserved through later planning. If the original User Request or architecture conversation
 identifies one or more URLs as external Tickets, preserve those direct Epic relations in optional `tickets: [{ url }]`
 front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer provider metadata,
-authenticate to providers, or imply lifecycle synchronization. PROJECT Epics do not define `executionAgent` or
-`collaborationRecommendation`; describe which architectural areas will need Frontend Engineer or headed browser
-verification in child Plans instead.
+authenticate to providers, or imply lifecycle synchronization.
+
+PROJECT Epics are non-executable containers, so execution policy is not yours to set or to write about. Do not put
+`executionAgent` or `collaborationRecommendation` in Front Matter, do not pass them to `plan_written` — RunWield rejects
+the Epic if you do — and do not add an execution-policy section to the Epic body. The Slicer assigns canonical ownership
+on the executable child Plans. Where browser UI scope matters architecturally, say so as part of the outcome it belongs
+to: which areas of the system are visual or interactive, and what has to be observably true there.
 
 ### Every Epic outcome must be observable
 

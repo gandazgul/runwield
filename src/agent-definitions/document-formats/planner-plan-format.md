@@ -9,8 +9,6 @@ affectedPaths:
 # Optional: only when the user identifies external demand URLs as Tickets.
 # tickets:
 #     - url: "https://example.com/tickets/ABC-123"
-executionAgent: "engineer|frontend-engineer"
-collaborationRecommendation: "pair|autonomous"
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
@@ -67,6 +65,8 @@ When applicable, include an explicit step that updates `CONTEXT.md` in the same 
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
+- For browser UI work: the exact headed-browser checks a Frontend Engineer must perform, and the dev-server command and
+  URL if known.
 - When existing tests cover code this Plan reshapes: which behavior must still be protected afterwards, and which
   behavior is expected to stop existing. Without that split, a test that no longer compiles gets deleted and the suite
   still passes.
@@ -86,20 +86,6 @@ Plan body remains the reviewable explanation, while Front Matter carries RunWiel
 - `OC1` — `! grep -rq "renderLegacy" src/` — the legacy renderer no longer exists anywhere.
 - `OC2` — `test "$(wc -l < src/parser/index.ts)" -lt 400` — the monolith was actually split, not renamed.
 - `OC3` — `deno test src/parser/tokens.test.ts` — the new behavior exists and is exercised.
-
-## Execution Policy
-
-- Planned Change Plans may omit `executionAgent`; omission defaults to `engineer`.
-- `executionAgent: "engineer"` takes `collaborationRecommendation: "autonomous"` or omits it. `pair` is invalid for
-  Engineer-owned execution.
-- `executionAgent: "frontend-engineer"` takes `collaborationRecommendation: "autonomous"` or `"pair"`.
-- Use `frontend-engineer` for browser-rendered UI work whose primary outcome is materially visual or interactive;
-  otherwise use `engineer` (including TUI work and incidental frontend-file edits).
-- Recommend `pair` only when live visual judgment is valuable; use `autonomous` otherwise. Include known dev-server
-  hints and exact headed-browser checks. Real-browser verification is mandatory for Frontend Engineer unless externally
-  blocked.
-- PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
-  execution policy belongs only on child Plans.
 
 ## Edge Cases & Considerations
 

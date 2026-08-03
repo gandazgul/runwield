@@ -178,6 +178,60 @@ collaborationRecommendation: pair
     }
 });
 
+Deno.test("plan_written persists declared execution policy to front matter before review", async () => {
+    const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
+    const result = await execute(tool, "runtime-boundary", () => {}, {
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+    });
+
+    assertEquals(result.details.outcome, "approved_execute");
+    const attrs = (await readPlan())?.attrs;
+    assertEquals(attrs?.executionAgent, "frontend-engineer");
+    assertEquals(attrs?.collaborationRecommendation, "pair");
+});
+
+Deno.test("plan_written omitted execution policy leaves front matter untouched", async () => {
+    const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "approved_execute");
+    const attrs = (await readPlan())?.attrs;
+    assertEquals(attrs?.executionAgent, undefined);
+    assertEquals(attrs?.collaborationRecommendation, undefined);
+});
+
+Deno.test("plan_written rejects a pair recommendation declared for Engineer-owned execution", async () => {
+    const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
+    const result = await execute(tool, "runtime-boundary", () => {}, {
+        executionAgent: "engineer",
+        collaborationRecommendation: "pair",
+    });
+
+    assertEquals(result.details.outcome, "repair_required");
+    assertEquals(result.details.reason, "engineer_pair_recommendation");
+    assertStringIncludes(result.content[0].text, "executionAgent/collaborationRecommendation arguments");
+    // Rejected before persistence, so the Plan still carries the policy it arrived with.
+    const attrs = (await readPlan())?.attrs;
+    assertEquals(attrs?.collaborationRecommendation, undefined);
+    assertEquals(attrs?.objectiveChecks, undefined);
+    assertEquals(attrs?.status, "approved");
+});
+
+Deno.test("plan_written rejects execution policy arguments on PROJECT Epics", async () => {
+    const { tool, readPlan } = await makeHarness({ classification: "PROJECT" });
+    const result = await execute(tool, "runtime-epic", () => {}, {
+        objectiveChecks: undefined,
+        executionAgent: "engineer",
+    });
+
+    assertEquals(result.details.outcome, "repair_required");
+    assertEquals(result.details.reason, "project_execution_agent");
+    const attrs = (await readPlan("runtime-epic"))?.attrs;
+    assertEquals(attrs?.executionAgent, undefined);
+    assertEquals(attrs?.status, "approved");
+});
+
 Deno.test("plan_written returns review feedback and images to the planning agent", async () => {
     const { tool, readPlan } = await makeHarness({
         reviewResponse: {
