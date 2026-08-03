@@ -8,6 +8,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
+import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { AGENTS } from "../constants.js";
 
@@ -104,6 +105,7 @@ export function createTaskCompletedTool(
     } = /** @type {any} */ ({}),
 ) {
     if (!hostedSession) throw new Error("createTaskCompletedTool: hostedSession is required");
+    const targetHostedSession = hostedSession;
     return defineTool({
         name: "task_completed",
         label: "Task Completed",
@@ -111,7 +113,7 @@ export function createTaskCompletedTool(
         parameters: buildToolParams(agentName),
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             await Promise.resolve();
-            const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.();
+            const activeWorkflow = targetHostedSession.getActiveExecutionWorkflow?.();
             const normalizedAgentName = normalizeAgentName(agentName);
             if (activeWorkflow?.executionStarted === false) {
                 return {
@@ -157,14 +159,21 @@ export function createTaskCompletedTool(
                 };
             }
             const report = typeof params.message === "string" ? params.message : "";
-            emitTaskCompletedMessage(hostedSession, agentName, report);
-            hostedSession.recordPendingTaskCompletion?.(normalizedAgentName, report, now());
+            const timestampMs = now();
+            recordAcceptedTaskCompletion({
+                hostedSession: targetHostedSession,
+                toolCallId: _toolCallId,
+                agentName: normalizedAgentName,
+                report,
+                timestampMs,
+            });
+            emitTaskCompletedMessage(targetHostedSession, agentName, report);
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "task_completed",
                 agentName,
                 details: { hasMessage: Boolean(params.message) },
-            }, { cwd: hostedSession.cwd });
+            }, { cwd: targetHostedSession.cwd });
             if (normalizedAgentName === "frontend-engineer" && activeWorkflow?.executionAgent === "frontend-engineer") {
                 const startMs = activeWorkflow.executionAttemptStartedAtMs;
                 const elapsedMs = typeof startMs === "number" && Number.isFinite(startMs) && startMs >= 0
@@ -182,7 +191,7 @@ export function createTaskCompletedTool(
                         browserPreflightOutcome: params.browserPreflightOutcome,
                         elapsedMs,
                     },
-                }, { cwd: hostedSession.cwd });
+                }, { cwd: targetHostedSession.cwd });
             }
 
             return {

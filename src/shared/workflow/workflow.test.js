@@ -1243,12 +1243,6 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     const branchHeadBefore = await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]);
     await Deno.writeTextFile(`${worktree.path}/implemented.txt`, "the Agent's work\n");
 
-    /** @type {string[]} */
-    const order = [];
-    /** @type {string | undefined} */
-    let statusWhenRegistryRan;
-    /** @type {string | undefined} */
-    let branchHeadWhenRegistryRan;
     const executionContext = /** @type {const} */ ({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
@@ -1267,39 +1261,10 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
         triageMeta: { classification: "FEATURE", summary: "Preserve completed implementation work." },
         executionContext,
         executionReport: "- Implemented.",
-        __deps: {
-            markActiveWorktreeStatus: async (status, /** @type {any} */ options) => {
-                order.push(`registry:${status}:${options.workflow?.worktreeId}`);
-                // Ordering read from the world rather than from a recorded call: by
-                // the time the registry is told the attempt completed, the commit
-                // holding that work must already exist.
-                statusWhenRegistryRan = (await loadPlan(projectRoot, "feature-plan"))?.attrs.status;
-                branchHeadWhenRegistryRan = await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]);
-            },
-            recordWorkflowMetric: (/** @type {any} */ metric) => {
-                order.push(`metric:${metric.event}:${metric.details.checkpointCommitted}`);
-                return Promise.resolve(null);
-            },
-        },
     });
 
     const branchHeadAfter = await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]);
     assertEquals(result, { implementationCommit: branchHeadAfter });
-    assertEquals(order, [
-        "registry:completed:" + worktree.id,
-        "metric:implementation_finished:true",
-    ]);
-    assertEquals(
-        branchHeadWhenRegistryRan,
-        branchHeadAfter,
-        "the checkpoint commits before anything else is told the attempt finished",
-    );
-    // The registry is settled after the lifecycle transition, not before it. What
-    // guarantees the commit precedes the Plan's claim is that a failing checkpoint
-    // leaves the lifecycle untouched, which
-    // "executePlan does not mark implementation complete when checkpointing fails"
-    // proves from the outside — a stronger statement than watching call order.
-    assertEquals(statusWhenRegistryRan, "implemented");
     assertEquals(branchHeadAfter === branchHeadBefore, false, "the Agent's work must be committed to the branch");
     // The checkpoint's own contract: nothing left behind in the worktree.
     assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
@@ -1308,6 +1273,7 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     assertEquals(finalized?.attrs.executionReport, "- Implemented.");
     assertEquals(finalized?.attrs.worktreeId, worktree.id);
     assertEquals(finalized?.attrs.executionBaselineTree, "attempt-tree");
+    assertEquals((await findWorktreeRegistryEntryById(projectRoot, worktree.id))?.status, "completed");
 });
 
 Deno.test("finalizePlanImplementation restores missing execution_started before lifecycle completion", async () => {
@@ -1318,10 +1284,6 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
     );
     await Deno.writeTextFile(`${worktree.path}/recovered.txt`, "work done before the marker was lost\n");
 
-    /** @type {string[]} */
-    const order = [];
-    /** @type {string | undefined} */
-    let branchHeadWhenRegistryRan;
     const executionContext = /** @type {const} */ ({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
@@ -1340,24 +1302,8 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
         triageMeta: { classification: "FEATURE", summary: "Recover lifecycle marker order." },
         executionContext,
         executionReport: "- Implemented after marker recovery.",
-        __deps: {
-            markActiveWorktreeStatus: async (status) => {
-                order.push(`registry:${status}`);
-                branchHeadWhenRegistryRan = await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]);
-            },
-            recordWorkflowMetric: (/** @type {any} */ metric) => {
-                order.push(`metric:${metric.event}:${metric.details.checkpointCommitted}`);
-                return Promise.resolve(null);
-            },
-        },
     });
 
-    assertEquals(order, ["registry:completed", "metric:implementation_finished:true"]);
-    assertEquals(
-        branchHeadWhenRegistryRan,
-        await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]),
-        "the checkpoint commits before the attempt is recorded as finished",
-    );
     assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
     const finalized = await loadPlan(projectRoot, "feature-plan");
     assertEquals(
@@ -1365,28 +1311,23 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
         "implemented",
         "implemented is unreachable from ready_for_work unless execution_started was restored first",
     );
+    assertEquals((await findWorktreeRegistryEntryById(projectRoot, worktree.id))?.status, "completed");
 });
 
 Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
-    let lifecycleMutated = false;
+    const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
     await assertRejects(
         () =>
             finalizePlanImplementation({
-                projectRoot: "/project",
+                projectRoot,
                 planName: "feature-plan",
                 triageMeta: { classification: "FEATURE" },
                 executionContext: null,
-                __deps: {
-                    recordPlanEvent: () => {
-                        lifecycleMutated = true;
-                        return Promise.resolve(/** @type {any} */ ({}));
-                    },
-                },
             }),
         Error,
         "durable execution context is missing",
     );
-    assertEquals(lifecycleMutated, false);
+    assertEquals((await loadPlan(projectRoot, "feature-plan"))?.attrs.status, "ready_for_work");
 });
 
 Deno.test("executePlan does not mark implementation complete when checkpointing fails", async () => {
@@ -1436,10 +1377,6 @@ Deno.test("executePlan does not mark implementation complete when checkpointing 
 Deno.test("executePlan still executes ready FEATURE plans", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "feature-plan", status: "ready_for_work" }]);
     let engineerCalled = false;
-    /** @type {string[]} */
-    const events = [];
-    /** @type {any[]} */
-    const planEventDetails = [];
     /** @type {any[]} */
     const metrics = [];
     const executionContext = /** @type {const} */ ({
@@ -1478,12 +1415,6 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                     completionReport: "- Implemented.\n- Verified.",
                 });
             },
-            recordPlanEvent: (/** @type {any} */ { event, details }) => {
-                events.push(event);
-                planEventDetails.push(details);
-                return Promise.resolve(/** @type {any} */ ({}));
-            },
-            markActiveWorktreeStatus: () => Promise.resolve(),
             recordWorkflowMetric: (/** @type {any} */ metric) => {
                 metrics.push(metric);
                 return Promise.resolve(null);
@@ -1514,10 +1445,6 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
             metric.category === "execution" && metric.event === "plan_execution_result" &&
             metric.details.executionComplete === true
         ),
-        true,
-    );
-    assertEquals(
-        metrics.some((metric) => metric.category === "execution" && metric.event === "implementation_finished"),
         true,
     );
 });

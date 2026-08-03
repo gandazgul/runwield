@@ -27,6 +27,11 @@ import { switchActiveAgent } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
 import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
+import {
+    acknowledgeTaskCompletion,
+    claimPendingTaskCompletion,
+    type PendingTaskCompletionClaim,
+} from "./task-completion-session.ts";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -37,7 +42,7 @@ type HostedSession = import("./hosted-session.js").HostedSession;
 type ImageAttachment = import("./types.js").ImageAttachment;
 type SessionManager = import("@earendil-works/pi-coding-agent").SessionManager;
 type AgentTurnHandoffResult = import("./types.js").AgentTurnHandoffResult;
-type TriageMeta = import("../../tools/plan-written.js").TriageMeta;
+type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 type PlanExecutionResult = import("../workflow/workflow.js").PlanExecutionResult;
 type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
 type WorkflowMetricOptions = NonNullable<Parameters<typeof recordWorkflowMetric>[1]>;
@@ -190,7 +195,16 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             });
         };
 
-        const messages = await runRootTurn({ hostedSession, agentName, userRequest, images, customTools });
+        let taskCompletion: PendingTaskCompletionClaim | null = claimPendingTaskCompletion(
+            hostedSession,
+            rootAgentSession,
+        );
+        if (taskCompletion?.workflow && !hostedSession.getActiveExecutionWorkflow()) {
+            hostedSession.setActiveExecutionWorkflow({ ...taskCompletion.workflow });
+        }
+        const messages: AgentMessage[] = taskCompletion
+            ? []
+            : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools });
 
         const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
         if (routerHandoff) {
@@ -436,18 +450,23 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         // completion record produced by task_completed rather than inferring completion from the
         // root turn's message window. Steering and isolated sessions can both write outside this
         // handler's returned message slice, so the owning root session is the source of truth.
-        const taskCompleted = hostedSession.consumePendingTaskCompletion(rootAgentSession);
-        if (taskCompleted) {
+        taskCompletion ||= claimPendingTaskCompletion(hostedSession, rootAgentSession);
+        if (taskCompletion) {
+            const acceptedCompletion = taskCompletion;
+            const acknowledgeCompletion = () => acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow?.executionStarted === false) {
+                acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
             if (workflow?.pairPauseReason || workflow?.pairStopRequested) {
+                acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
             if (workflow && !canCompleteActiveExecutionWorkflow(agentName, workflow)) {
+                acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
@@ -461,12 +480,14 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     manualQaName: workflow.manualQaName,
                     manualQaContext: workflow.manualQaContext,
                 });
+                acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
 
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
+                acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
@@ -482,6 +503,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                                     triageMeta: workflow.triageMeta,
                                     executionContext: workflow,
                                     hostedSession,
+                                    executionReport: acceptedCompletion.report,
                                 });
                                 break;
                             } catch (error) {
@@ -505,6 +527,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                             }
                         }
                     }
+                    acknowledgeCompletion();
                 }
 
                 let planContent = "";
@@ -528,6 +551,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     return { kind: "complete", validationResult };
                 }
                 requestAgentStoppedAttention();
+            } else {
+                acknowledgeCompletion();
             }
         }
 

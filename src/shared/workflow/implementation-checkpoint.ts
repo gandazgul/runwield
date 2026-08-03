@@ -1,6 +1,7 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { loadPlan } from "../../plan-store.js";
 import { checkpointExecutionWorktree } from "../worktree.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import {
     removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
@@ -9,22 +10,14 @@ import { isInValidation, recordPlanEvent } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { runImplementationCheckpointTransition } from "./state-transition.ts";
 
-/**
- * @typedef {Object} FinalizePlanImplementationOptions
- * @property {string} projectRoot
- * @property {string} planName
- * @property {Partial<import('../../plan-store.js').PlanFrontMatter>} [triageMeta]
- * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow | null | undefined} executionContext
- * @property {string} [executionReport]
- * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
- * @property {{
- *   recordPlanEvent?: typeof recordPlanEvent,
- *   loadPlan?: typeof loadPlan,
- *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- *   runImplementationCheckpointTransition?: typeof runImplementationCheckpointTransition,
- * }} [ports]
- */
+interface FinalizePlanImplementationOptions {
+    projectRoot: string;
+    planName: string;
+    triageMeta?: import("../session/hosted-session.js").ActiveExecutionWorkflow["triageMeta"];
+    executionContext: import("../session/hosted-session.js").ActiveExecutionWorkflow | null | undefined;
+    executionReport?: string;
+    hostedSession?: import("../session/hosted-session.js").HostedSession;
+}
 
 /**
  * Commit all execution-worktree changes before Plan or registry state can say
@@ -39,35 +32,25 @@ export async function finalizePlanImplementation({
     planName,
     triageMeta = {},
     executionContext,
-    executionReport,
-    hostedSession,
-    ports = {},
-}) {
+    executionReport = undefined,
+    hostedSession = undefined,
+}: FinalizePlanImplementationOptions) {
     if (!executionContext) {
         throw new Error(`Cannot complete ${planName}: durable execution context is missing.`);
     }
 
-    const loadPlanImpl = ports.loadPlan || loadPlan;
-    const markActiveWorktreeStatusImpl = ports.markActiveWorktreeStatus || markActiveWorktreeStatus;
-    const recordWorkflowMetricImpl = ports.recordWorkflowMetric || recordWorkflowMetric;
-    // The real transaction runs in tests too. This used to swap itself for a fake
-    // "committed" result whenever certain dependencies happened to be injected, which
-    // left the implementation checkpoint — the thing that keeps committed work and the
-    // Plan's claim about it in step — with no coverage at all, and made production
-    // behavior depend on which seams a caller passed.
-    const runImplementationCheckpointTransitionImpl = ports.runImplementationCheckpointTransition ||
-        runImplementationCheckpointTransition;
     // Older tests and partial recovery paths may not provide a loadable primary
     // Plan; keep the legacy in_progress assumption in that case.
     const currentPlan = await (async () => {
         try {
-            return await loadPlanImpl(projectRoot, planName);
+            return await loadPlan(projectRoot, planName);
         } catch {
             return null;
         }
     })();
     const primaryStatus = currentPlan?.attrs?.status;
     if (isInValidation(primaryStatus) || primaryStatus === "verified" || primaryStatus === "user_verified") {
+        acknowledgeImplementationCompletion(hostedSession);
         return {};
     }
     if (primaryStatus && primaryStatus !== "in_progress" && primaryStatus !== "ready_for_work") {
@@ -75,7 +58,7 @@ export async function finalizePlanImplementation({
             `Cannot complete ${planName}: primary Plan status is "${primaryStatus}", expected "in_progress" or "ready_for_work".`,
         );
     }
-    const transition = await runImplementationCheckpointTransitionImpl({
+    const transition = await runImplementationCheckpointTransition({
         projectRoot,
         planName,
         planId: typeof triageMeta.planId === "string" ? triageMeta.planId : undefined,
@@ -144,16 +127,17 @@ export async function finalizePlanImplementation({
                     executionReport,
                 },
             });
-            await markActiveWorktreeStatusImpl("completed", { hostedSession, workflow: executionContext });
+            await markActiveWorktreeStatus("completed", { hostedSession, workflow: executionContext });
             return implementationCommit ? { implementationCommit } : {};
         },
     });
     if (transition.status !== "committed") {
         throw new Error(transition.message || `Implementation checkpoint did not commit for ${planName}.`);
     }
+    acknowledgeImplementationCompletion(hostedSession);
     const transitionValue = /** @type {{ value?: { implementationCommit?: string } }} */ (transition.value);
     const implementationCommit = transitionValue.value?.implementationCommit;
-    await recordWorkflowMetricImpl({
+    await recordWorkflowMetric({
         category: "execution",
         event: "implementation_finished",
         planName,
@@ -165,6 +149,13 @@ export async function finalizePlanImplementation({
     }, { cwd: projectRoot });
     return implementationCommit ? { implementationCommit } : {};
 }
+
+function acknowledgeImplementationCompletion(hostedSession) {
+    if (!hostedSession) return;
+    const completion = claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession());
+    if (completion) acknowledgeTaskCompletion(hostedSession, completion);
+}
+
 export async function markActiveWorktreeStatus(status, opts = {}) {
     const workflow = opts.workflow || opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;

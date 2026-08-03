@@ -43,7 +43,7 @@ export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "
  * @typedef {Object} PlanOutcomeResult
  * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
  */
@@ -75,13 +75,6 @@ export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "
  * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow | null | undefined} executionContext
  * @property {string} [executionReport]
  * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
- * @property {{
- *   recordPlanEvent?: typeof import('./plan-lifecycle.js').recordPlanEvent,
- *   loadPlan?: typeof import('../../plan-store.js').loadPlan,
- *   markActiveWorktreeStatus?: typeof import('./implementation-checkpoint.ts').markActiveWorktreeStatus,
- *   recordWorkflowMetric?: typeof import('./metrics.js').recordWorkflowMetric,
- *   runImplementationCheckpointTransition?: typeof import('./state-transition.ts').runImplementationCheckpointTransition,
- * }} [__deps]
  */
 
 /**
@@ -113,7 +106,7 @@ export function runPlanningAgent(options) {
  * @returns {Promise<{ implementationCommit?: string }>}
  */
 export function finalizePlanImplementation(options) {
-    return finalizePlanImplementationImpl(/** @type {*} */ ({ ...options, ports: options?.__deps }));
+    return finalizePlanImplementationImpl(options);
 }
 
 /**

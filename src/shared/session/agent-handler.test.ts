@@ -1,11 +1,20 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { type ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { createTaskCompletedTool } from "../../tools/task-completed.js";
 import { type AgentHandler, createAgentHandler } from "./agent-handler.ts";
 import { HostedSession } from "./hosted-session.js";
 import { ensureRootAgentSession } from "./session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { listPendingTaskCompletions } from "./task-completion-session.ts";
+
+const EXTENSION_CONTEXT = {} as ExtensionContext;
+type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
+
+function hostedSessionManager(sessionManager: SessionManager): HostedSessionManager {
+    return sessionManager as HostedSessionManager;
+}
 
 interface CapturedRuntimeEvent {
     type: string;
@@ -29,6 +38,7 @@ async function activateHandler(
     const hostedSession = new HostedSession({
         id: `agent-handler-${crypto.randomUUID()}`,
         cwd: projectRoot,
+        sessionManager: hostedSessionManager(sessionManager),
         eventSink: { emit: (event: CapturedRuntimeEvent) => events.push(event) },
     });
     const handler = createAgentHandler(agentName, { hostedSession });
@@ -134,5 +144,62 @@ Deno.test("agent handler resumes a paused Pair workflow before the real root tur
         assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
         assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, undefined);
         fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler replays accepted task_completed after HostedSession replacement", async () => {
+    await withRuntimeCommandFixture("agent-handler-durable-completion-", async ({ projectRoot }) => {
+        const sessionManager = SessionManager.inMemory(projectRoot);
+        const original = new HostedSession({
+            id: "durable-handler-original",
+            cwd: projectRoot,
+            sessionManager: hostedSessionManager(sessionManager),
+        });
+        original.setActiveExecutionWorkflow({
+            planName: "durable-operation",
+            triageMeta: { classification: "OPERATION" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1234,
+        });
+        const tool = createTaskCompletedTool({
+            hostedSession: original,
+            agentName: "engineer",
+            recordWorkflowMetric: () => Promise.resolve(null),
+        });
+        await tool.execute(
+            "durable-handler-call",
+            { message: "- Operation completed before restart." },
+            undefined,
+            undefined,
+            EXTENSION_CONTEXT,
+        );
+        assertEquals(listPendingTaskCompletions(original).length, 1);
+
+        const events: CapturedRuntimeEvent[] = [];
+        const resumed = new HostedSession({
+            id: "durable-handler-resumed",
+            cwd: projectRoot,
+            sessionManager: hostedSessionManager(sessionManager),
+            eventSink: { emit: (event: CapturedRuntimeEvent) => events.push(event) },
+        });
+        const handler = createAgentHandler("engineer", { hostedSession: resumed });
+        await ensureRootAgentSession({
+            hostedSession: resumed,
+            agentName: "engineer",
+            activeHandler: handler,
+            sessionManager,
+        });
+
+        const result = await handler("resume", [], sessionManager);
+
+        assertEquals(result, { kind: "complete" });
+        assertEquals(resumed.getActiveExecutionWorkflow(), null);
+        assertEquals(listPendingTaskCompletions(resumed), []);
+        assertEquals(
+            events.some((event) => event.type === RuntimeEventTypes.ATTENTION_REQUESTED),
+            true,
+        );
+        resumed.dispose();
     });
 });
