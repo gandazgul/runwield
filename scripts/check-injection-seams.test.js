@@ -1,5 +1,10 @@
 import { assertEquals } from "@std/assert";
-import { collectConditionalSeams, collectSeamNames, isMachinerySeam } from "./check-injection-seams.js";
+import {
+    collectConditionalSeamKeys,
+    collectConditionalSeams,
+    collectSeamNames,
+    isMachinerySeam,
+} from "./check-injection-seams.js";
 
 /** @param {string[]} lines */
 function conditionalLines(...lines) {
@@ -104,6 +109,41 @@ Deno.test("collectConditionalSeams flags a branch on an injected value compared 
     assertEquals(
         conditionalLines('const run = __deps?.mode === "fake" ? fakeRun : runLocalCI;'),
         ["1"],
+    );
+});
+
+Deno.test("collectConditionalSeams cannot be defeated by renaming the bag", () => {
+    assertEquals(
+        conditionalLines(
+            "function choose(dependencies = {}) {",
+            "const turn = dependencies?.runRootTurn",
+            "    ? fakeTurn",
+            "    : runRootTurn; }",
+        ),
+        ["3"],
+    );
+});
+
+Deno.test("conditional seam keys are stable by collaborator and preserve repeated branches", () => {
+    assertEquals(
+        collectConditionalSeamKeys(`
+            function choose(deps = {}) {
+                const first = deps.now ? deps.now() : Date.now();
+                const second = deps.now ? deps.now() : Date.now();
+                const setting = deps.settings !== undefined ? deps.settings : deps.getSetting();
+            }
+        `),
+        ["members:now", "members:now", "members:settings"],
+    );
+});
+
+Deno.test("conditional seam keys identify direct and multi-member bag gates", () => {
+    assertEquals(
+        collectConditionalSeamKeys(`
+            const first = __deps ? fake : real;
+            const second = (__deps?.createWorktree && __deps?.updateRegistry) ? fake : real;
+        `),
+        ["bags:__deps", "members:createWorktree+updateRegistry"],
     );
 });
 
@@ -247,4 +287,113 @@ Deno.test("collectSeamNames follows a bag through a merge helper", () => {
         }
     `);
     assertEquals(names, ["env", "writeTerminal"]);
+});
+
+Deno.test("collectSeamNames follows optional bags named deps or dependencies", () => {
+    const names = collectSeamNames(`
+        export function switchAgent(options, dependencies = {}) {
+            const build = dependencies.ensureRootAgentSession || ensureRootAgentSession;
+            return build(options);
+        }
+        export function record(metric, deps = {}) {
+            return (deps.writeTextFile || Deno.writeTextFile)(deps.path, metric);
+        }
+    `);
+
+    assertEquals(names, ["ensureRootAgentSession", "path", "writeTextFile"]);
+});
+
+Deno.test("collectSeamNames detects fallbacks hidden in ordinary options and nested singular ports", () => {
+    const names = collectSeamNames(`
+        export function createRuntime(options = {}) {
+            const switchAgent = options.switchActiveAgent || switchActiveAgent;
+            const build = options._buildAgentSession || buildAgentSession;
+            return { switchAgent, build };
+        }
+        export function review(args) {
+            const run = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
+            const diff = args.semanticReviewPort?.getDiffText;
+            return diff ? diff() : run();
+        }
+        export function recover({
+            recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
+            finalizePlanImplementation = finalizePlanImplementationFn,
+        }) {}
+    `);
+
+    assertEquals(names, [
+        "_buildAgentSession",
+        "finalizePlanImplementation",
+        "getDiffText",
+        "recordWorkflowMetric",
+        "runIsolatedAgentSession",
+        "switchActiveAgent",
+    ]);
+});
+
+Deno.test("collectSeamNames detects mutable dependency registries and individual test override hooks", () => {
+    const names = collectSeamNames(`
+        const defaultClipboardDeps = { Command, remove };
+        let clipboardDeps = defaultClipboardDeps;
+        let binaryProbeOverride = null;
+        export function read() {
+            return new clipboardDeps.Command();
+        }
+        export function __setClipboardDepsForTest(deps = {}) {
+            clipboardDeps = { ...defaultClipboardDeps, ...deps };
+        }
+        export function __resetRuntimePreflightForTest(probe = null) {
+            binaryProbeOverride = probe;
+        }
+    `);
+
+    assertEquals(names, ["Command", "binaryProbeOverride"]);
+});
+
+Deno.test("collectSeamNames detects explicitly test-named option members", () => {
+    assertEquals(
+        collectSeamNames(`
+            export function ensureIdentity(options = {}) {
+                const idGenerator = options.idGenerator || options.__testGenerateId || crypto.randomUUID;
+                return idGenerator();
+            }
+        `),
+        ["__testGenerateId"],
+    );
+});
+
+Deno.test("collectSeamNames detects required RunWield machinery in option shapes", () => {
+    const names = collectSeamNames(`
+        export interface RecoveryOptions {
+            recordPlanEvent: typeof recordPlanEvent;
+            updateWorktreeRegistryEntry: typeof updateWorktreeRegistryEntry;
+            runValidationTransition: typeof runValidationTransition;
+            commandOutput: CommandPort;
+        }
+    `);
+
+    assertEquals(names, ["recordPlanEvent", "runValidationTransition", "updateWorktreeRegistryEntry"]);
+});
+
+Deno.test("collectSeamNames ignores data overrides and required external ports without fallbacks", () => {
+    const names = collectSeamNames(`
+        export function injectFrontMatter(markdown, overrides = {}) {
+            return { ...markdown, ...overrides };
+        }
+        export function resolveData(resource, attrs, options) {
+            const planId = resource.planId || attrs.planId;
+            const cwd = options.cwd || project.cwd;
+            return { planId, cwd };
+        }
+        export function format(details: Details | null = null, length = source.length) {
+            const missing = details?.missingDependencies?.length || 0;
+            return { details, length, missing };
+        }
+        interface BrowserPort { open(url: string): Promise<void>; }
+        export function show(port: BrowserPort, url: string) {
+            return port.open(url);
+        }
+    `);
+
+    assertEquals(names, []);
 });

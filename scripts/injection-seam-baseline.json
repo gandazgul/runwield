@@ -1,4 +1,419 @@
 {
-    "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
-    "files": {}
+    "comment": "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
+    "files": {
+        "src/cmd/auth/index.ts": {
+            "seams": [
+                "abortActivePrompt",
+                "appendSystemMessage",
+                "promptSelect",
+                "promptText",
+                "showModelSelector"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/cmd/load-plan/plan-epic-flow.ts": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "recordPlanEvent"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "recordPlanEvent"
+            ],
+            "conditional": []
+        },
+        "src/cmd/load-plan/plan-execution.ts": {
+            "seams": [
+                "finalizePlanImplementation",
+                "recordPlanEvent",
+                "resolveValidationExecutionContext"
+            ],
+            "machinery": [
+                "finalizePlanImplementation",
+                "recordPlanEvent"
+            ],
+            "conditional": []
+        },
+        "src/cmd/load-plan/plan-hold.ts": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "recordPlanEvent",
+                "removeWorktreeGitArtifacts",
+                "updateWorktreeRegistryEntry"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "recordPlanEvent",
+                "removeWorktreeGitArtifacts",
+                "updateWorktreeRegistryEntry"
+            ],
+            "conditional": []
+        },
+        "src/cmd/load-plan/plan-recovery-flow.ts": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "checkpointExecutionWorktree",
+                "createWorktreeGitArtifacts",
+                "finalizePlanImplementation",
+                "getWorkflowDiff",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
+                "probeGitRepository",
+                "recordPlanEvent",
+                "recordWorkflowMetric",
+                "removeWorktreeGitArtifacts",
+                "removeWorktreeRegistryEntry",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "settleWorktreeAttempt",
+                "stageValidationPassedInExecutionWorktree",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan",
+                "checkpointExecutionWorktree",
+                "createWorktreeGitArtifacts",
+                "finalizePlanImplementation",
+                "getWorkflowDiff",
+                "mergeExecutionWorktree",
+                "preparePrimaryPlanPathForMerge",
+                "recordPlanEvent",
+                "removeWorktreeGitArtifacts",
+                "removeWorktreeRegistryEntry",
+                "restorePrimaryPlanPathAfterMergeFailure",
+                "settleWorktreeAttempt",
+                "stageValidationPassedInExecutionWorktree",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ],
+            "conditional": []
+        },
+        "src/cmd/load-plan/plan-recovery-worktree.ts": {
+            "seams": [
+                "getWorkflowDiff",
+                "recordPlanEvent",
+                "resolveValidationExecutionContext",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ],
+            "machinery": [
+                "getWorkflowDiff",
+                "recordPlanEvent",
+                "updatePlanFrontMatter",
+                "updateWorktreeRegistryEntry"
+            ],
+            "conditional": []
+        },
+        "src/plan-store.js": {
+            "seams": [
+                "__testGenerateId"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/collaboration/client.js": {
+            "seams": [
+                "fetch"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/models/model-registry.js": {
+            "seams": [
+                "fetchFn"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/runtime-preflight.js": {
+            "seams": [
+                "binaryProbeOverride"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/session/agent-switching.js": {
+            "seams": [
+                "createAgentHandler",
+                "ensureRootAgentSession",
+                "getRootSessionSwitchState",
+                "runRootTurn",
+                "switchActiveAgent"
+            ],
+            "machinery": [
+                "createAgentHandler",
+                "ensureRootAgentSession",
+                "getRootSessionSwitchState",
+                "runRootTurn",
+                "switchActiveAgent"
+            ],
+            "conditional": []
+        },
+        "src/shared/session/session-runtime.js": {
+            "seams": [
+                "abortActiveSession",
+                "createRootSessionManager",
+                "openPersistedRootSession",
+                "resolveResumeAgentName",
+                "steerActiveSessionWithTarget",
+                "switchActiveAgent"
+            ],
+            "machinery": [
+                "switchActiveAgent"
+            ],
+            "conditional": []
+        },
+        "src/shared/session/session.js": {
+            "seams": [
+                "_attachSessionEventSubscribers",
+                "_buildAgentSession",
+                "_runPrompt"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/session/subagent-definitions.ts": {
+            "seams": [
+                "readTextFile"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/update-check.js": {
+            "seams": [
+                "fetch",
+                "now"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/shared/work-records/generation.js": {
+            "seams": [
+                "syncWorkRecordToIndex"
+            ],
+            "machinery": [
+                "syncWorkRecordToIndex"
+            ],
+            "conditional": []
+        },
+        "src/shared/work-records/index-adapter.js": {
+            "seams": [
+                "commandOutput",
+                "listWorkRecords"
+            ],
+            "machinery": [
+                "listWorkRecords"
+            ],
+            "conditional": []
+        },
+        "src/shared/workflow/metrics.js": {
+            "seams": [
+                "cwd",
+                "getSetting",
+                "homeDir",
+                "mkdir",
+                "now",
+                "recordWorkflowMetric",
+                "settings",
+                "writeTextFile"
+            ],
+            "machinery": [],
+            "conditional": [
+                "members:getSetting",
+                "members:now",
+                "members:now",
+                "members:settings"
+            ]
+        },
+        "src/shared/workflow/validation-helpers.ts": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "conditional": []
+        },
+        "src/shared/workflow/validation.ts": {
+            "seams": [
+                "getDiffText",
+                "loadReviewerFeedbackEngineerDef",
+                "loadReviewerPrompt",
+                "requestInteraction",
+                "runIsolatedAgentSession"
+            ],
+            "machinery": [
+                "loadReviewerFeedbackEngineerDef",
+                "loadReviewerPrompt"
+            ],
+            "conditional": []
+        },
+        "src/tools/delegate-agent.js": {
+            "seams": [
+                "readTextFile"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/tools/pair-checkpoint.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/tools/review-complete.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/tools/see-image.js": {
+            "seams": [
+                "completeSimpleFn"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/tools/task-completed.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/tools/triage-report.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/review/code-review.ts": {
+            "seams": [
+                "open"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/review/plan-review.ts": {
+            "seams": [
+                "open"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/review/review-launcher.js": {
+            "seams": [
+                "openInDefaultBrowser"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/theme/theme-discovery.js": {
+            "seams": [
+                "warn"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/theme/theme.js": {
+            "seams": [
+                "warn"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/clipboard.js": {
+            "seams": [
+                "Command",
+                "makeTempFile",
+                "os",
+                "remove"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/model-welcome.js": {
+            "seams": [
+                "getModelRegistry",
+                "getSettingsManager"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/prompts.js": {
+            "seams": [
+                "Container",
+                "Input",
+                "SelectList",
+                "Text",
+                "getSelectListTheme",
+                "getTUI",
+                "readUserInput",
+                "theme"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/runtime-interaction-adapter.js": {
+            "seams": [
+                "runCodeReview",
+                "submitPlanForReview"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/terminal-title.js": {
+            "seams": [
+                "getTUI"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/tui/tui-crash-guards.js": {
+            "seams": [
+                "exit"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/workspace/remote-server.js": {
+            "seams": [
+                "clearInterval",
+                "createRemoteWorkspaceAdapter",
+                "setInterval",
+                "startWorkspaceServer"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/workspace/routes/api/review-agent-handlers.js": {
+            "seams": [
+                "recordWorkflowMetric"
+            ],
+            "machinery": [],
+            "conditional": []
+        },
+        "src/ui/workspace/server.js": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "conditional": []
+        },
+        "src/ui/workspace/server/plan-adapter.js": {
+            "seams": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "machinery": [
+                "autoGenerateWorkRecordForCompletedPlan"
+            ],
+            "conditional": []
+        }
+    }
 }

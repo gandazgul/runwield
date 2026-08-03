@@ -10,11 +10,11 @@
  *
  * Three rules, in descending strictness:
  *
- * 1. No conditional seams, anywhere, ever. `__deps ? fake : real` makes a module's
- *    behaviour depend on whether *anything at all* was injected, so injecting a clock
- *    can silently disable a transaction. Nothing at the call site shows it and
- *    coverage still counts the lines as run. This is zero-tolerance because the
- *    codebase currently has none, and it is how the worst defects hid.
+ * 1. No new conditional seams. `__deps ? fake : real` makes a module's behaviour
+ *    depend on whether *anything at all* was injected, so injecting a clock can
+ *    silently disable a transaction. Nothing at the call site shows it and coverage
+ *    still counts the lines as run. Existing conditionals exposed by a detector fix
+ *    are recorded by collaborator and occurrence, then may only shrink.
  *
  * 2. No new machinery seams. RunWield's own state machine — Plan writes, lifecycle
  *    transitions, registry writes, locks — must never be replaceable. A guarantee
@@ -95,8 +95,9 @@ const SOURCE_FILE_PATTERN = /\.(?:[jt]sx?|mjs|mts)$/;
  * Global-flagged regexes carry `lastIndex`, so this is rebuilt per use rather than
  * shared; the constant is the pattern, not a live matcher.
  */
-const DEPS_PARAMETER_SOURCE = "([A-Za-z_$][\\w$]*)\\s*\\??\\s*:\\s*([A-Za-z_$][\\w$]*(?:Deps|Ports))\\b";
-const DEPS_PARAMETER = new RegExp(DEPS_PARAMETER_SOURCE);
+const OVERRIDE_TYPE_SUFFIX = "(?:Deps|Dependencies|Ports|Port|Overrides)";
+const NESTED_OVERRIDE_PROPERTY_SUFFIX = "(?:Deps|Ports?|Overrides)";
+const DEPS_PARAMETER_SOURCE = `([A-Za-z_$][\\w$]*)\\s*\\??\\s*:\\s*([A-Za-z_$][\\w$]*${OVERRIDE_TYPE_SUFFIX})\\b`;
 
 const MACHINERY_SEAMS = [
     "recordPlanEvent",
@@ -136,6 +137,20 @@ const MACHINERY_SEAMS = [
     "verifyPostMergeCandidatePublished",
     "assertPreMergeCandidateUnchanged",
     "stageValidationPassedInExecutionWorktree",
+    "finalizePlanImplementation",
+    "autoGenerateWorkRecordForCompletedPlan",
+    "syncWorkRecordToIndex",
+    "listWorkRecords",
+    "ensureRootAgentSession",
+    "createAgentHandler",
+    "getRootSessionSwitchState",
+    "switchActiveAgent",
+    "runRootTurn",
+    "buildAgentSession",
+    "attachSessionEventSubscribers",
+    "getWorkflowDiff",
+    "loadReviewerPrompt",
+    "loadReviewerFeedbackEngineerDef",
 ];
 
 /** @param {string} path */
@@ -165,6 +180,100 @@ export function isMachinerySeam(name) {
         const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
         return new RegExp(`^${escaped}$`).test(name);
     });
+}
+
+/**
+ * Compare a local override binding with the implementation it falls back to.
+ * `_buildAgentSession`, `buildAgentSessionFn`, and `buildAgentSessionImpl` are
+ * the same collaborator wearing different call-site conventions.
+ *
+ * @param {string} name
+ */
+function normalizeCollaboratorName(name) {
+    return name.replace(/^_+/, "").replace(/(?:Fn|Impl|Override)$/g, "");
+}
+
+/**
+ * Whether a same-name fallback plausibly substitutes behavior rather than data.
+ * Structural matching sees both `options.runTurn || runTurn` and
+ * `resource.planId || attrs.planId`; only the first is an injection seam. Explicit
+ * bags are still exhaustive. This predicate is only for ordinary option/member
+ * fallbacks where the behavioral shape must carry the evidence.
+ *
+ * @param {string} name
+ */
+function isBehavioralCollaborator(name) {
+    const normalized = normalizeCollaboratorName(name);
+    if (isMachinerySeam(normalized)) return true;
+    if (/^[A-Z][A-Za-z0-9_$]*(?:Ctor)?$/.test(normalized)) return true;
+    return /^(?:abort|append|attach|build|checkpoint|clear|complete|create|delete|emit|ensure|exit|fetch|finalize|get|install|list|load|make|mark|merge|now|open|parse|prepare|probe|prompt|read|record|remove|request|resolve|restore|run|save|set|settle|show|stage|start|steer|submit|switch|sync|update|validate|verify|warn|write)(?:$|[A-Z0-9_$])/
+        .test(normalized);
+}
+
+/** @param {string} expression */
+function finalMemberName(expression) {
+    return expression.trim().split(/\s*(?:\?\.|\.)\s*/).at(-1) || "";
+}
+
+/**
+ * Variables replaced by an explicitly test-only setter/resetter.
+ * Cache-only reset functions take no replacement argument and therefore add
+ * nothing; this finds actual behavior substitution without punishing cleanup.
+ *
+ * @param {string} text Comment-free source.
+ * @returns {string[]}
+ */
+function collectTestHookAssignments(text) {
+    const assigned = [];
+    const hook = /export\s+function\s+__(?:set|reset)[A-Za-z_$][\w$]*ForTests?\s*\(([^)]*)\)\s*\{/g;
+    for (const match of text.matchAll(hook)) {
+        const params = new Set(
+            match[1].split(",").map((part) => part.trim().match(/^([A-Za-z_$][\w$]*)/)?.[1]).filter(Boolean),
+        );
+        if (params.size === 0) continue;
+        const open = (match.index || 0) + match[0].lastIndexOf("{");
+        let depth = 0;
+        let close = text.length;
+        for (let cursor = open; cursor < text.length; cursor++) {
+            if (text[cursor] === "{") depth++;
+            if (text[cursor] === "}") depth--;
+            if (depth === 0) {
+                close = cursor;
+                break;
+            }
+        }
+        const body = text.slice(open + 1, close);
+        for (const assignment of body.matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+)/g)) {
+            const rhs = assignment[2];
+            if ([...params].some((param) => new RegExp(`\\b${param}\\b`).test(rhs))) assigned.push(assignment[1]);
+        }
+    }
+    return assigned;
+}
+
+/**
+ * Machinery named in an options/interface shape is injectable even when the
+ * caller is forced to supply it. Required arguments are the right shape for a
+ * genuine external port, not permission to replace RunWield transactions.
+ *
+ * @param {string} text Original source, including JSDoc.
+ * @returns {string[]}
+ */
+function collectDeclaredMachinery(text) {
+    const names = new Set();
+    for (
+        const declaration of text.matchAll(
+            /(?:interface|type)\s+[A-Za-z_$][\w$]*(?:\s*<[^>]+>)?[^\{=]*(?:=\s*)?\{([^}]*)\}/g,
+        )
+    ) {
+        for (const member of declaration[1].matchAll(/^\s*([A-Za-z_$][\w$]*)\s*\??\s*:/gm)) {
+            if (isMachinerySeam(member[1])) names.add(member[1]);
+        }
+    }
+    for (const property of text.matchAll(/@(property|param)\s+\{[^}]+\}\s+\[?([A-Za-z_$][\w$]*)/g)) {
+        if (isMachinerySeam(property[2])) names.add(property[2]);
+    }
+    return [...names];
 }
 
 /**
@@ -218,6 +327,102 @@ export function collectSeamNames(text) {
     collectFromBag("options.__deps");
     collectFromBag("options.__testDeps");
     if (declaresOptionalFallbackPorts(scannedText)) collectFromBag("ports");
+
+    // The old bag also appears under ordinary nouns, especially in JSDoc modules:
+    // `deps = {}` and `dependencies = {}`. These names are unambiguous at a default
+    // empty-object boundary; data-merging `overrides = {}` is deliberately excluded.
+    for (const bag of scannedText.matchAll(/\b(deps|dependencies)\s*=\s*\{\}/gi)) {
+        collectFromBag(bag[1]);
+    }
+
+    // Module-global test registries (`let clipboardDeps = defaultClipboardDeps`) are
+    // bags too. A test setter mutates process-wide behavior, which is more dangerous
+    // than an argument-local override because leakage crosses test and Session bounds.
+    for (
+        const bag of scannedText.matchAll(
+            /(?:let|var)\s+([A-Za-z_$][\w$]*(?:Deps|Dependencies))\s*=\s*[A-Za-z_$][\w$]*(?:Deps|Dependencies)\b/g,
+        )
+    ) {
+        collectFromBag(bag[1]);
+    }
+
+    // Nested optional bags use a property as the bag expression:
+    // `args.semanticReviewPort?.getDiffText`. The singular `Port`, `Overrides`, and
+    // `Dependencies` spellings used to evade both the name and type checks.
+    for (
+        const read of scannedText.matchAll(
+            new RegExp(
+                `\\b(?:[A-Za-z_$][\\w$]*\\.)*([A-Za-z_$][\\w$]*${NESTED_OVERRIDE_PROPERTY_SUFFIX})\\s*\\?\\.\\s*([A-Za-z_$][\\w$]*)`,
+                "g",
+            ),
+        )
+    ) {
+        names.add(read[2]);
+    }
+
+    // Structural fallback: the member name and its production implementation are
+    // the same after removing conventional `_`, `Fn`, and `Impl` affixes. This sees
+    // `options._buildAgentSession || buildAgentSession` without needing to guess what
+    // the surrounding options object is called.
+    for (
+        const fallback of scannedText.matchAll(
+            /((?:[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*)+[A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/g,
+        )
+    ) {
+        const member = finalMemberName(fallback[1]);
+        const implementation = finalMemberName(fallback[2]);
+        if (
+            normalizeCollaboratorName(member) === normalizeCollaboratorName(implementation) &&
+            isBehavioralCollaborator(member)
+        ) names.add(member);
+    }
+
+    // Destructuring defaults hide the same choice in a parameter declaration:
+    // `{ recordMetric: recordMetricImpl = recordMetric }` or
+    // `{ finalizePlanImplementation = finalizePlanImplementationFn }`.
+    for (
+        const fallback of scannedText.matchAll(
+            /(?:^|[{,]\s*)([A-Za-z_$][\w$]*)(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*=\s*([A-Za-z_$][\w$]*)(?=\s*[,}])/gm,
+        )
+    ) {
+        const property = fallback[1];
+        const local = fallback[2] || property;
+        const implementation = fallback[3];
+        if (
+            normalizeCollaboratorName(local) === normalizeCollaboratorName(implementation) &&
+            isBehavioralCollaborator(property)
+        ) names.add(property);
+    }
+
+    // Positional parameter defaults are another spelling of the same seam:
+    // `getModelRegistry = getModelRegistryFn` and `readTextFile = Deno.readTextFile`.
+    for (
+        const fallback of scannedText.matchAll(
+            /\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*(?=[,)])/g,
+        )
+    ) {
+        const local = fallback[1];
+        const implementation = finalMemberName(fallback[2]);
+        if (
+            normalizeCollaboratorName(local) === normalizeCollaboratorName(implementation) &&
+            isBehavioralCollaborator(local)
+        ) {
+            names.add(normalizeCollaboratorName(local));
+        }
+    }
+
+    // A production option explicitly named `__testSomething` is already declaring a
+    // test seam even when it is not a bag.
+    for (const member of scannedText.matchAll(/\.\s*(__test[A-Za-z_$][\w$]*)\b/g)) {
+        if (member[1] !== "__testDeps") names.add(member[1]);
+    }
+
+    for (const assigned of collectTestHookAssignments(scannedText)) {
+        if (/(?:Deps|Dependencies)$/.test(assigned)) collectFromBag(assigned);
+        else names.add(assigned);
+    }
+
+    for (const name of collectDeclaredMachinery(text)) names.add(name);
 
     // Aliased bags: `const deps = __testDeps || {}` and then either `deps.name` or
     // `const { name: nameDep } = deps`.
@@ -362,16 +567,80 @@ function findConditionStart(text, index) {
     return 0;
 }
 
+/** @param {string} expression @param {Set<string>} bagNames */
+function containsOverrideBagReference(expression, bagNames) {
+    if (/__(?:test)?[Dd]eps/.test(expression) || /\.__test[A-Za-z_$][\w$]*/.test(expression)) return true;
+    if (new RegExp(`\\b[A-Za-z_$][\\w$]*${NESTED_OVERRIDE_PROPERTY_SUFFIX}\\s*\\?\\.`).test(expression)) return true;
+    return [...bagNames].some((name) => new RegExp(`\\b${name}\\b`).test(expression));
+}
+
 /**
- * Seams whose value depends on whether anything at all was injected.
+ * A stable fingerprint for one conditional seam.
  *
- * @param {string} text
- * @returns {string[]}
+ * Source lines are useful in diagnostics but unstable in a ratchet. The behavior
+ * being replaced is the durable identity: `deps.now ? … : …` is `members:now`, and
+ * a condition involving two override members records both. A direct branch on the
+ * whole bag is recorded as `bags:__deps`.
+ *
+ * @param {string} condition
+ * @param {Set<string>} bagNames
  */
-export function collectConditionalSeams(text) {
-    /** @type {string[]} */
-    const offenders = [];
+function conditionalSeamKey(condition, bagNames) {
+    const members = new Set();
+    const bags = new Set();
+    for (
+        const read of condition.matchAll(
+            /\b(__testDeps|__deps|__Deps)\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/g,
+        )
+    ) {
+        members.add(read[2]);
+    }
+    for (const read of condition.matchAll(/\.\s*(__test[A-Za-z_$][\w$]*)\b/g)) members.add(read[1]);
+    for (
+        const read of condition.matchAll(
+            new RegExp(
+                `\\b[A-Za-z_$][\\w$]*${NESTED_OVERRIDE_PROPERTY_SUFFIX}\\s*\\?\\.\\s*([A-Za-z_$][\\w$]*)`,
+                "g",
+            ),
+        )
+    ) {
+        members.add(read[1]);
+    }
+    for (const name of bagNames) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        for (
+            const read of condition.matchAll(
+                new RegExp(`\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"),
+            )
+        ) {
+            members.add(read[1]);
+        }
+        if (new RegExp(`\\b${escaped}\\s*(?![.?\\w])`).test(condition)) bags.add(name);
+    }
+    for (const bag of condition.matchAll(/\b(__testDeps|__deps|__Deps)\s*(?![.?\w])/g)) bags.add(bag[1]);
+    const parts = [];
+    if (bags.size > 0) parts.push(`bags:${[...bags].sort().join("+")}`);
+    if (members.size > 0) parts.push(`members:${[...members].sort().join("+")}`);
+    return parts.join("|");
+}
+
+/** @typedef {{ offender: string, key: string }} ConditionalSeamHit */
+
+/**
+ * @param {string} text
+ * @returns {ConditionalSeamHit[]}
+ */
+function scanConditionalSeams(text) {
+    /** @type {ConditionalSeamHit[]} */
+    const hits = [];
     const scanned = blankComments(text);
+    const bagNames = new Set();
+    for (const bag of scanned.matchAll(/\b(deps|dependencies)\s*=\s*\{\}/gi)) bagNames.add(bag[1]);
+    for (
+        const bag of scanned.matchAll(
+            /(?:let|var)\s+([A-Za-z_$][\w$]*(?:Deps|Dependencies))\s*=\s*[A-Za-z_$][\w$]*(?:Deps|Dependencies)\b/g,
+        )
+    ) bagNames.add(bag[1]);
     for (let index = 0; index < scanned.length; index++) {
         if (scanned[index] !== "?") continue;
         // Not a ternary: optional chaining (`__deps?.name`), nullish coalescing, and
@@ -379,24 +648,44 @@ export function collectConditionalSeams(text) {
         if (".?:".includes(scanned[index + 1] || "")) continue;
         if (scanned[index - 1] === "?") continue;
         const condition = scanned.slice(findConditionStart(scanned, index), index);
-        if (!/__(?:test)?[Dd]eps/.test(condition)) continue;
+        if (!containsOverrideBagReference(condition, bagNames)) continue;
         const line = text.slice(0, index).split("\n").length;
-        // Gated on the bag itself (`__deps ? fake : real`) versus gated on a *different*
-        // dep (`__deps?.a ? fakeB : realB`). The second is the subtler one: injecting a
-        // clock then silently replaces a transaction, and nothing at the call site shows
-        // it. Both are reported; the distinction is only there to say what to look for.
-        const gatedOnBag = /__(?:test)?[Dd]eps\s*(?![.?\w])/.test(condition);
-        offenders.push(`line ${line} (${gatedOnBag ? "gated on the bag itself" : "one seam gated on another dep"})`);
+        const gatedOnBag = /__(?:test)?[Dd]eps\s*(?![.?\w])/.test(condition) ||
+            [...bagNames].some((name) => new RegExp(`\\b${name}\\s*(?![.?\\w])`).test(condition));
+        hits.push({
+            offender: `line ${line} (${gatedOnBag ? "gated on the bag itself" : "one seam gated on another dep"})`,
+            key: conditionalSeamKey(condition, bagNames),
+        });
     }
-    return offenders;
+    return hits;
+}
+
+/**
+ * Seams whose value depends on whether anything at all was injected.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function collectConditionalSeams(text) {
+    return scanConditionalSeams(text).map((hit) => hit.offender);
+}
+
+/**
+ * Stable conditional seam identities for the shrink-only baseline. Duplicates are
+ * intentional: two branches on `deps.now` are two seams, and removing either one
+ * should tighten the ratchet.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function collectConditionalSeamKeys(text) {
+    return scanConditionalSeams(text).map((hit) => hit.key).sort();
 }
 
 /** @param {URL} rootUrl */
 async function collectSeams(rootUrl = SOURCE_ROOT) {
     /** @type {SeamEntry} */
     const seams = {};
-    /** @type {Record<string, string[]>} */
-    const conditional = {};
 
     /** @param {URL} directoryUrl @param {string} relativeDirectory */
     async function walk(directoryUrl, relativeDirectory) {
@@ -409,28 +698,23 @@ async function collectSeams(rootUrl = SOURCE_ROOT) {
             }
             if (!isProductionSourcePath(relativePath)) continue;
             const text = await Deno.readTextFile(new URL(entry.name, directoryUrl));
-            // A file is worth scanning if it names a bag directly (`__deps`) or is
-            // handed one as a typed parameter (`deps: SomethingDeps`). Testing only for
-            // the literal skipped whole modules: splitting load-plan moved four seams
-            // into plan-session-surface.ts, which never writes `__deps`, and they
-            // stopped being counted anywhere.
-            if (
-                !/__(?:test)?[Dd]eps/.test(text) && !DEPS_PARAMETER.test(text) &&
-                !declaresOptionalFallbackPorts(blankComments(text))
-            ) continue;
+            // Scan every production source file. A known-spelling prefilter made the
+            // detector self-defeating: files using `dependencies`, nested ports,
+            // ordinary options, or individual test hooks never reached the structural
+            // checks intended to catch them.
             const names = collectSeamNames(text);
-            const conditionalHits = collectConditionalSeams(text);
-            if (conditionalHits.length > 0) conditional[`src/${relativePath}`] = conditionalHits;
-            if (names.length === 0) continue;
+            const conditional = collectConditionalSeamKeys(text);
+            if (names.length === 0 && conditional.length === 0) continue;
             seams[`src/${relativePath}`] = {
                 seams: names,
                 machinery: names.filter(isMachinerySeam),
+                conditional,
             };
         }
     }
 
     await walk(rootUrl, "");
-    return { seams, conditional };
+    return seams;
 }
 
 /** @param {string[]} entries */
@@ -438,12 +722,30 @@ function formatList(entries) {
     return entries.map((entry) => `  - ${entry}`).join("\n");
 }
 
-/** @typedef {Record<string, { seams: string[], machinery: string[] }>} SeamEntry */
+/** @typedef {Record<string, { seams: string[], machinery: string[], conditional?: string[] }>} SeamEntry */
+
+/**
+ * Values present more times in `current` than in `baseline`.
+ *
+ * @param {string[]} current
+ * @param {string[]} baseline
+ */
+function multisetAdditions(current, baseline) {
+    const remaining = [...baseline];
+    return current.filter((value) => {
+        const index = remaining.indexOf(value);
+        if (index < 0) return true;
+        remaining.splice(index, 1);
+        return false;
+    });
+}
 
 async function readBaseline() {
     const parsed = JSON.parse(await Deno.readTextFile(BASELINE_PATH));
     if (!parsed || typeof parsed.files !== "object") {
-        throw new Error("injection-seam-baseline.json must contain a { files: { path: { seams, machinery } } } object");
+        throw new Error(
+            "injection-seam-baseline.json must contain a { files: { path: { seams, machinery, conditional } } } object",
+        );
     }
     return /** @type {SeamEntry} */ (parsed.files);
 }
@@ -462,10 +764,12 @@ function findRegressions(current, baseline, adoptNewModules = false) {
         const before = baseline[path];
         if (!before) {
             if (!adoptNewModules) {
+                const conditional = entry.conditional?.length || 0;
                 problems.push(
-                    `${path}: new module with ${entry.seams.length} injection seam(s) (${
-                        entry.seams.join(", ")
-                    }). Pass capability ports as required arguments instead of a dependency bag.`,
+                    `${path}: newly detected module with ${entry.seams.length} injection seam(s)` +
+                        `${conditional > 0 ? ` and ${conditional} conditional seam(s)` : ""}` +
+                        `${entry.seams.length > 0 ? ` (${entry.seams.join(", ")})` : ""}. ` +
+                        "Pass capability ports as required arguments instead of an override bag.",
                 );
             }
             continue;
@@ -475,6 +779,10 @@ function findRegressions(current, baseline, adoptNewModules = false) {
         const added = entry.seams.filter((name) => !before.seams.includes(name));
         if (added.length > 0) {
             problems.push(`${path}: new injection seam(s): ${added.join(", ")}.`);
+        }
+        const addedConditional = multisetAdditions(entry.conditional || [], before.conditional || []);
+        if (addedConditional.length > 0) {
+            problems.push(`${path}: new conditional injection seam(s): ${addedConditional.join(", ")}.`);
         }
         // Only a *new* seam over machinery is a regression. When the denylist grows to
         // recognize a seam that already existed, the code did not get worse — our
@@ -511,6 +819,12 @@ function findStaleBaseline(current, baseline) {
         if (removed.length > 0) {
             stale.push(`${path}: seam(s) removed (${removed.join(", ")}) — tighten the baseline.`);
         }
+        const removedConditional = multisetAdditions(before.conditional || [], entry.conditional || []);
+        if (removedConditional.length > 0) {
+            stale.push(
+                `${path}: conditional seam(s) removed (${removedConditional.join(", ")}) — tighten the baseline.`,
+            );
+        }
         const reclassified = entry.machinery.filter((name) => !before.machinery.includes(name));
         if (reclassified.length > 0) {
             stale.push(
@@ -537,6 +851,9 @@ function applyRenames(baseline, renames) {
         renamed[path] = {
             seams: [...new Set(entry.seams.map((name) => map.get(name) || name))].sort(),
             machinery: [...new Set(entry.machinery.map((name) => map.get(name) || name))].sort(),
+            conditional: (entry.conditional || []).map((key) =>
+                key.replace(/[A-Za-z_$][\w$]*/g, (name) => map.get(name) || name)
+            ).sort(),
         };
     }
     return renamed;
@@ -559,7 +876,11 @@ function applyMoves(baseline, moves) {
     /** @type {SeamEntry} */
     const moved = {};
     for (const [path, entry] of Object.entries(baseline)) {
-        moved[path] = { seams: [...entry.seams], machinery: [...entry.machinery] };
+        moved[path] = {
+            seams: [...entry.seams],
+            machinery: [...entry.machinery],
+            conditional: [...(entry.conditional || [])],
+        };
     }
     for (const [fromPath, name, toPath] of moves) {
         const source = moved[fromPath];
@@ -569,8 +890,8 @@ function applyMoves(baseline, moves) {
         }
         source.seams = source.seams.filter((seam) => seam !== name);
         source.machinery = source.machinery.filter((seam) => seam !== name);
-        if (source.seams.length === 0) delete moved[fromPath];
-        const target = moved[toPath] || { seams: [], machinery: [] };
+        if (source.seams.length === 0 && (source.conditional?.length || 0) === 0) delete moved[fromPath];
+        const target = moved[toPath] || { seams: [], machinery: [], conditional: [] };
         target.seams = [...new Set([...target.seams, name])].sort();
         if (isMachinerySeam(name)) target.machinery = [...new Set([...target.machinery, name])].sort();
         moved[toPath] = target;
@@ -608,21 +929,8 @@ if (import.meta.main) {
         }
         renames.push([from, to]);
     }
-    const { seams, conditional } = await collectSeams();
+    const seams = await collectSeams();
     const sortedSeams = Object.fromEntries(Object.entries(seams).sort(([a], [b]) => a.localeCompare(b)));
-
-    const conditionalPaths = Object.entries(conditional);
-    if (conditionalPaths.length > 0) {
-        console.error(
-            "Conditional injection seams are never allowed. A module whose behaviour changes because " +
-                "something unrelated was injected cannot be reasoned about from its call sites:\n" +
-                formatList(conditionalPaths.map(([path, hits]) => `${path} (${hits.join(", ")})`)) +
-                "\n\nRewrite it as an unconditional seam (`__deps?.name || realName`) or, better, a required\n" +
-                "capability port. Never gate a real implementation on whether anything was injected.\n" +
-                "Background: plans/replace-deps-bag-with-capability-ports.md.",
-        );
-        Deno.exit(1);
-    }
 
     if (update) {
         const baseline = applyMoves(applyRenames(await readBaseline().catch(() => ({})), renames), moves);
@@ -639,7 +947,7 @@ if (import.meta.main) {
                 JSON.stringify(
                     {
                         comment:
-                            "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
+                            "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
                         files: sortedSeams,
                     },
                     null,
@@ -672,6 +980,7 @@ if (import.meta.main) {
                 "part removed. Fake the environment instead — `defineGitFixture` gives a real Git repo in ~5ms and\n" +
                 "`makeValidationProjectRoot` a real Plan project.\n\n" +
                 "If you ADDED a seam: remove it and pass a capability port as a required argument instead.\n" +
+                "If you ADDED a conditional seam: remove the branch; existing conditional debt may only shrink.\n" +
                 "If you REMOVED seams: run `deno task seams:update` to tighten the baseline in the same change.\n" +
                 "Never run `--update` to silence an addition; it refuses to loosen and will reject it.\n" +
                 "Background: plans/replace-deps-bag-with-capability-ports.md and src/skills/write-tests/SKILL.md.",
@@ -682,9 +991,13 @@ if (import.meta.main) {
 
     const total = Object.values(sortedSeams).reduce((sum, entry) => sum + entry.seams.length, 0);
     const machinery = Object.values(sortedSeams).reduce((sum, entry) => sum + entry.machinery.length, 0);
+    const conditional = Object.values(sortedSeams).reduce(
+        (sum, entry) => sum + (entry.conditional?.length || 0),
+        0,
+    );
     console.log(
         `Injection-seam baseline holds: ${total} seam(s) across ${
             Object.keys(sortedSeams).length
-        } module(s), ${machinery} of them machinery still to remove.`,
+        } module(s), ${machinery} of them machinery and ${conditional} conditional seam(s) still to remove.`,
     );
 }
