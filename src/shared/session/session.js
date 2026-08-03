@@ -18,6 +18,7 @@ import {
     shouldCompact,
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
@@ -1813,7 +1814,7 @@ export async function buildAgentSession({
             cwd: sessionCwd,
             sessionManager: effectiveSessionManager,
             fallbackModel: visionFallback.model,
-            modelRegistry,
+            completeSimpleFn: completeSimple,
         }));
     }
 

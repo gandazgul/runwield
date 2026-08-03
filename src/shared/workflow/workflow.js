@@ -98,7 +98,7 @@ export function supportsPairExecution(hostedSession) {
  * @returns {Promise<PlanOutcomeResult>}
  */
 export function runPlanningAgent(options) {
-    return runPlanningAgentImpl({ ...options, ports: options?.__deps });
+    return runPlanningAgentImpl(normalizeLegacyWorkflowOptions(options));
 }
 
 /**
@@ -114,7 +114,7 @@ export function finalizePlanImplementation(options) {
  * @returns {Promise<PlanExecutionResult>}
  */
 export function executePlan(options) {
-    return executePlanImpl({ ...options, ports: options?.__deps });
+    return executePlanImpl(normalizeLegacyWorkflowOptions(options));
 }
 
 /**
@@ -139,6 +139,16 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  */
 export function startActiveExecutionWorkflow(options) {
     return /** @type {Promise<import('../session/hosted-session.js').ActiveExecutionWorkflow>} */ (startActiveExecutionWorkflowImpl(
-        { ...options, ports: options?.__deps },
+        normalizeLegacyWorkflowOptions(options),
     ));
+}
+
+/**
+ * @param {*} options
+ * @returns {*}
+ */
+function normalizeLegacyWorkflowOptions(options) {
+    const legacyDeps = options?.["__deps"];
+    if (!legacyDeps || options.runtimePorts) return options;
+    return { ...options, runtimePorts: legacyDeps };
 }

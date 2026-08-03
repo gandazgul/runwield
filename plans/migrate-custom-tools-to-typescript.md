@@ -26,11 +26,11 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:17:36-04:00"
 updatedAt: "2026-08-03T18:27:28.598Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "custom tools TypeScript"
+status: "validated_reviewer"
 ---
 
 # Migrate Direct Custom Tools to TypeScript

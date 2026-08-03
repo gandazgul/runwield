@@ -10,6 +10,7 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.js";
+import { ensureBundledAgentDefFile } from "../shared/session/agent-assets.js";
 import { loadSubAgentDefinition } from "../shared/session/subagent-definitions.ts";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import type { AgentDefinition } from "../shared/session/types.js";
@@ -73,16 +74,10 @@ function stripMarkdownFrontMatter(markdown: string): string {
     return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 }
 
-async function readRoleOverlay(
-    role: DelegatedRoleId,
-    readTextFile: (path: string | URL) => Promise<string>,
-    ensurePromptFile?: (relativePath: string) => Promise<string>,
-): Promise<string> {
+async function readRoleOverlay(role: DelegatedRoleId): Promise<string> {
     if (role !== DELEGATED_ROLE_VERIFICATION_ADVERSARY) return "";
-    const rolePath = ensurePromptFile
-        ? await ensurePromptFile(VERIFICATION_ADVERSARY_ROLE_PATH)
-        : join("src", "agent-definitions", VERIFICATION_ADVERSARY_ROLE_PATH);
-    return stripMarkdownFrontMatter(await readTextFile(rolePath));
+    const rolePath = await ensureBundledAgentDefFile(VERIFICATION_ADVERSARY_ROLE_PATH);
+    return stripMarkdownFrontMatter(await Deno.readTextFile(rolePath));
 }
 
 const PARAMETERS = Type.Object({
@@ -117,7 +112,7 @@ type RunIsolatedAgentSession = (
         thinkingLevelOverride?: ThinkingLevel;
         projectStateContext: string;
         signal?: AbortSignal;
-    }
+    },
 ) => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
 
 interface DelegateAgentToolOptions {
@@ -125,10 +120,6 @@ interface DelegateAgentToolOptions {
     cwd: string;
     parentTools: string[];
     runIsolatedAgentSession: RunIsolatedAgentSession;
-    readTextFile?: (path: string | URL) => Promise<string>;
-    ensurePromptFile?: (relativePath: string) => Promise<string>;
-    captureChangeSnapshot?: (cwd: string) => Promise<DelegatedChangeSnapshot | null>;
-    captureChangedPaths?: (cwd: string) => Promise<string[] | null>;
     modelOverride?: string;
     thinkingLevelOverride?: ThinkingLevel;
 }
@@ -186,21 +177,14 @@ export function resolveDelegatedToolNames(parentTools: string[], mode: Delegatio
 }
 
 /**
- * @param {(path: string | URL) => Promise<string>} [readTextFile]
- * @param {(relativePath: string) => Promise<string>} [ensurePromptFile]
  * @param {import('../shared/session/subagent-definitions.ts').DelegatedRoleId} [role]
  * @returns {Promise<import('../shared/session/types.js').AgentDefinition>}
  */
 export async function loadDelegatedAgentPrompt(
-    readTextFile: (path: string | URL) => Promise<string> = Deno.readTextFile,
-    ensurePromptFile?: (relativePath: string) => Promise<string>,
     _role: DelegatedRoleId = DELEGATED_ROLE_GENERAL,
 ): Promise<AgentDefinition> {
-    const agentDef = await loadSubAgentDefinition(SUBAGENTS.DELEGATED, {
-        readTextFile: (path: string) => readTextFile(path),
-        ensurePromptFile,
-    });
-    const roleOverlay = await readRoleOverlay(_role, readTextFile, ensurePromptFile);
+    const agentDef = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
+    const roleOverlay = await readRoleOverlay(_role);
     if (roleOverlay) agentDef.systemPrompt = `${agentDef.systemPrompt}\n\n${roleOverlay}`;
     return agentDef;
 }
@@ -213,7 +197,10 @@ export async function loadDelegatedAgentPrompt(
  * @param {import('../shared/session/subagent-definitions.ts').DelegatedAuthority} authorityCeiling
  * @returns {"read" | "write"}
  */
-export function resolveEffectiveDelegationMode(requestedMode: DelegationMode, authorityCeiling: DelegatedAuthority): DelegationMode {
+export function resolveEffectiveDelegationMode(
+    requestedMode: DelegationMode,
+    authorityCeiling: DelegatedAuthority,
+): DelegationMode {
     return authorityCeiling === "read" ? "read" : requestedMode;
 }
 
@@ -298,7 +285,9 @@ export async function captureDelegatedChangedPaths(cwd: string): Promise<string[
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} snapshot
  * @returns {DelegatedChangeSnapshot | null}
  */
-function normalizeDelegatedChangeSnapshot(snapshot: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null): DelegatedChangeSnapshot | null {
+function normalizeDelegatedChangeSnapshot(
+    snapshot: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): DelegatedChangeSnapshot | null {
     if (!snapshot) return null;
     if (Array.isArray(snapshot)) return { head: null, entries: snapshot };
     return snapshot;
@@ -309,7 +298,10 @@ function normalizeDelegatedChangeSnapshot(snapshot: DelegatedChangeSnapshot | De
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} after
  * @returns {string[] | null}
  */
-export function diffDelegatedChangeSnapshot(before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null, after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null): string[] | null {
+export function diffDelegatedChangeSnapshot(
+    before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+    after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): string[] | null {
     const normalizedBefore = normalizeDelegatedChangeSnapshot(before);
     const normalizedAfter = normalizeDelegatedChangeSnapshot(after);
     if (!normalizedAfter) return null;
@@ -331,7 +323,10 @@ export function diffDelegatedChangeSnapshot(before: DelegatedChangeSnapshot | De
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} after
  * @returns {boolean}
  */
-function delegatedHeadChanged(before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null, after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null): boolean {
+function delegatedHeadChanged(
+    before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+    after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): boolean {
     const normalizedBefore = normalizeDelegatedChangeSnapshot(before);
     const normalizedAfter = normalizeDelegatedChangeSnapshot(after);
     return Boolean(normalizedBefore?.head && normalizedAfter?.head && normalizedBefore.head !== normalizedAfter.head);
@@ -351,7 +346,10 @@ function truncateToolText(text: string): string {
  * @param {string | undefined} explicitOverride
  * @returns {string | undefined}
  */
-function resolveDelegatedModelOverride(hostedSession: HostedSession, explicitOverride: string | undefined): string | undefined {
+function resolveDelegatedModelOverride(
+    hostedSession: HostedSession,
+    explicitOverride: string | undefined,
+): string | undefined {
     if (explicitOverride) return explicitOverride;
     if (hostedSession.isUserModelOverride()) return undefined;
     const activeModel = hostedSession.getActiveModelState();
@@ -363,7 +361,10 @@ function resolveDelegatedModelOverride(hostedSession: HostedSession, explicitOve
  * @param {DelegateAgentDeps['thinkingLevelOverride']} explicitOverride
  * @returns {DelegateAgentDeps['thinkingLevelOverride']}
  */
-function resolveDelegatedThinkingLevelOverride(hostedSession: HostedSession, explicitOverride: ThinkingLevel | undefined): ThinkingLevel | undefined {
+function resolveDelegatedThinkingLevelOverride(
+    hostedSession: HostedSession,
+    explicitOverride: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
     return explicitOverride || hostedSession.getThinkingLevel() || undefined;
 }
 
@@ -376,7 +377,11 @@ function resolveDelegatedThinkingLevelOverride(hostedSession: HostedSession, exp
  * @param {"read" | "write"} effectiveMode
  * @returns {string[]}
  */
-function roleRequestLines(role: DelegatedRoleDefinition, requestedMode: DelegationMode, effectiveMode: DelegationMode): string[] {
+function roleRequestLines(
+    role: DelegatedRoleDefinition,
+    requestedMode: DelegationMode,
+    effectiveMode: DelegationMode,
+): string[] {
     if (role.id === DELEGATED_ROLE_GENERAL) return [];
     const lines = [`Delegated role: ${role.id}`];
     if (effectiveMode !== requestedMode) {
@@ -395,13 +400,6 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
     if (!opts.hostedSession) throw new Error("createDelegateAgentTool: hostedSession is required");
     if (!opts.cwd) throw new Error("createDelegateAgentTool: cwd is required");
     if (!opts.runIsolatedAgentSession) throw new Error("createDelegateAgentTool: runIsolatedAgentSession is required");
-    const captureChangeSnapshot = opts.captureChangeSnapshot || (opts.captureChangedPaths
-        ? async (cwd: string): Promise<DelegatedChangeSnapshot | null> => {
-            const paths = await opts.captureChangedPaths?.(cwd);
-            return paths ? { head: null, entries: paths.map((path: string) => ({ path, status: "", contentHash: "" })) } : null;
-        }
-        : captureDelegatedChangeSnapshot);
-
     return defineTool<typeof PARAMETERS, DelegateAgentDetails>({
         name: "delegate_agent",
         label: "Delegate Agent",
@@ -444,9 +442,9 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
             let beforeSnapshot: DelegatedChangeSnapshot | null = null;
             try {
                 release = opts.hostedSession.acquireDelegatedAgentLease(mode);
-                beforeSnapshot = mode === "write" ? await captureChangeSnapshot(opts.cwd) : null;
+                beforeSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 signal?.throwIfAborted?.();
-                const agentDef = await loadDelegatedAgentPrompt(opts.readTextFile, opts.ensurePromptFile, role.id);
+                const agentDef = await loadDelegatedAgentPrompt(role.id);
                 agentDef.tools = childTools;
                 const userRequest = [
                     `Delegation mode: ${mode}`,
@@ -479,7 +477,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                 const output = truncateToolText(
                     extractAssistantOutput(messages) || "(Delegated Agent returned no text.)",
                 );
-                const afterSnapshot = mode === "write" ? await captureChangeSnapshot(opts.cwd) : null;
+                const afterSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 const changedPaths = mode === "write"
                     ? diffDelegatedChangeSnapshot(beforeSnapshot, afterSnapshot)
                     : undefined;
@@ -505,7 +503,9 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     },
                 };
             } catch (error) {
-                const afterSnapshot = mode === "write" && release ? await captureChangeSnapshot(opts.cwd) : null;
+                const afterSnapshot = mode === "write" && release
+                    ? await captureDelegatedChangeSnapshot(opts.cwd)
+                    : null;
                 const changedPaths = mode === "write" && release
                     ? diffDelegatedChangeSnapshot(beforeSnapshot, afterSnapshot)
                     : undefined;

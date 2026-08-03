@@ -23,12 +23,14 @@ import type { WorkflowValidationResult } from "./validation.ts";
 
 const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 
-interface EpicContinuationChild {
+/** A child Plan of the Epic being continued. */
+export interface EpicContinuationChild {
     name: string;
     path: string;
     attrs: PlanFrontMatter;
 }
 
+/** What the Epic should do next, and why. */
 export interface EpicContinuationResolution {
     kind: "none" | "blocked" | "plan" | "readiness_execute" | "execute";
     completedPlanName: string;
@@ -39,43 +41,7 @@ export interface EpicContinuationResolution {
     reason?: string;
 }
 
-interface DependencyState {
-    state: string;
-}
-
-interface ResolveEpicContinuationDeps {
-    loadPlan?: typeof loadPlan;
-    findPlansByParent?: typeof findPlansByParent;
-    resolveSiblingChildPlanDependencies?: typeof resolveSiblingChildPlanDependencies;
-}
-
-interface ResolveEpicContinuationOptions {
-    cwd: string;
-    completedPlanName: string;
-    __deps?: ResolveEpicContinuationDeps;
-}
-
-interface RunEpicChildContinuationDeps {
-    loadPlan?: typeof loadPlan;
-    recordPlanEvent?: typeof recordPlanEvent;
-    runPlanningAgent?: typeof runPlanningAgent;
-    executePlan?: typeof executePlan;
-    runValidationLoop?: typeof runValidationLoop;
-    decidePostPlanning?: typeof decidePostPlanning;
-    decidePostExecution?: typeof decidePostExecution;
-}
-
-interface RunEpicChildContinuationOptions {
-    hostedSession: HostedSession;
-    resolution: EpicContinuationResolution;
-    sessionManager?: SessionManager;
-    __deps?: RunEpicChildContinuationDeps;
-}
-
-/**
- * @param {import('../../plan-store.js').PlanFrontMatter | undefined} attrs
- * @returns {boolean}
- */
+/** Whether these Front Matter attributes describe an Epic still doing work. */
 function isActiveProjectEpic(attrs: PlanFrontMatter | undefined): boolean {
     if (attrs?.classification !== "PROJECT") return false;
     if (
@@ -87,10 +53,7 @@ function isActiveProjectEpic(attrs: PlanFrontMatter | undefined): boolean {
     return attrs.epicCompletionMode !== "done_enough";
 }
 
-/**
- * @param {string} status
- * @returns {EpicContinuationResolution["kind"] | null}
- */
+/** The continuation action a child Plan's status calls for, if any. */
 function actionForStatus(status: string): EpicContinuationResolution["kind"] | null {
     if (status === "draft" || status === "feedback") return "plan";
     if (status === "approved") return "readiness_execute";
@@ -98,22 +61,26 @@ function actionForStatus(status: string): EpicContinuationResolution["kind"] | n
     return null;
 }
 
+/** What `resolveEpicContinuation` needs to pick the next child. */
+export interface ResolveEpicContinuationOptions {
+    cwd: string;
+    completedPlanName: string;
+}
+
+/** What `runEpicChildContinuation` needs to run the child it was given. */
+export interface RunEpicChildContinuationOptions {
+    hostedSession: HostedSession;
+    resolution: EpicContinuationResolution;
+    sessionManager?: SessionManager;
+}
+
 /**
  * Resolve the next child action after a verified child FEATURE completes.
- *
- * @param {Object} opts
- * @param {string} opts.cwd
- * @param {string} opts.completedPlanName
- * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, resolveSiblingChildPlanDependencies?: typeof resolveSiblingChildPlanDependencies }} [opts.__deps]
- * @returns {Promise<EpicContinuationResolution>}
  */
 export async function resolveEpicContinuation(
-    { cwd, completedPlanName, __deps = {} }: ResolveEpicContinuationOptions,
+    { cwd, completedPlanName }: ResolveEpicContinuationOptions,
 ): Promise<EpicContinuationResolution> {
-    const loadPlanImpl = __deps.loadPlan || loadPlan;
-    const findPlansByParentImpl = __deps.findPlansByParent || findPlansByParent;
-    const resolveDependenciesImpl = __deps.resolveSiblingChildPlanDependencies || resolveSiblingChildPlanDependencies;
-    const completed = await loadPlanImpl(cwd, completedPlanName);
+    const completed = await loadPlan(cwd, completedPlanName);
     if (!completed) return { kind: "none", reason: "completed_plan_missing", completedPlanName };
     if (
         !isPlannedChangeClassification(completed.attrs.classification) ||
@@ -123,14 +90,14 @@ export async function resolveEpicContinuation(
     }
     const parentPlanName = typeof completed.attrs.parentPlan === "string" ? completed.attrs.parentPlan.trim() : "";
     if (!parentPlanName) return { kind: "none", reason: "completed_plan_has_no_parent_epic", completedPlanName };
-    const parent = await loadPlanImpl(cwd, parentPlanName);
+    const parent = await loadPlan(cwd, parentPlanName);
     if (!parent) return { kind: "none", reason: "parent_epic_missing", completedPlanName, parentPlanName };
     if (!isActiveProjectEpic(parent.attrs)) {
         return { kind: "none", reason: "parent_epic_not_active", completedPlanName, parentPlanName };
     }
 
-    const siblings: EpicContinuationChild[] = (await findPlansByParentImpl(cwd, parentPlanName))
-        .filter((plan: EpicContinuationChild) => isPlannedChangeClassification(plan.attrs.classification))
+    const siblings = (await findPlansByParent(cwd, parentPlanName))
+        .filter((plan) => isPlannedChangeClassification(plan.attrs.classification))
         .sort(compareChildPlansByOrder);
     const next = siblings.find((plan) => !TERMINAL_CHILD_STATUSES.has(plan.attrs.status));
     if (!next) return { kind: "none", reason: "no_remaining_children", completedPlanName, parentPlanName };
@@ -158,12 +125,8 @@ export async function resolveEpicContinuation(
         };
     }
 
-    const dependencies: DependencyState[] = await resolveDependenciesImpl(
-        cwd,
-        parentPlanName,
-        next.attrs.dependencies || [],
-    );
-    const unmet = dependencies.find((dependency: DependencyState) =>
+    const dependencies = await resolveSiblingChildPlanDependencies(cwd, parentPlanName, next.attrs.dependencies || []);
+    const unmet = dependencies.find((dependency) =>
         dependency.state !== "verified" && dependency.state !== "user_verified"
     );
     if (unmet) {
@@ -198,11 +161,7 @@ export async function resolveEpicContinuation(
     };
 }
 
-/**
- * @param {string} planName
- * @param {import('../../plan-store.js').PlanFrontMatter} attrs
- * @returns {string}
- */
+/** The prompt handed to the Planner when a child Plan is resumed. */
 function buildResumeRequest(planName: string, attrs: PlanFrontMatter): string {
     return [
         `## Resuming Epic Child Plan: ${planName}`,
@@ -215,26 +174,13 @@ function buildResumeRequest(planName: string, attrs: PlanFrontMatter): string {
 
 /**
  * Execute the resolved child workflow inside the supplied fresh HostedSession.
- *
- * @param {Object} opts
- * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
- * @param {EpicContinuationResolution} opts.resolution
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} [opts.sessionManager]
- * @param {{ loadPlan?: typeof loadPlan, recordPlanEvent?: typeof recordPlanEvent, runPlanningAgent?: typeof runPlanningAgent, executePlan?: typeof executePlan, runValidationLoop?: typeof runValidationLoop, decidePostPlanning?: typeof decidePostPlanning, decidePostExecution?: typeof decidePostExecution }} [opts.__deps]
- * @returns {Promise<import('./validation.ts').WorkflowValidationResult | null>}
  */
 export async function runEpicChildContinuation(
-    { hostedSession, resolution, sessionManager, __deps = {} }: RunEpicChildContinuationOptions,
+    { hostedSession, resolution, sessionManager }: RunEpicChildContinuationOptions,
 ): Promise<WorkflowValidationResult | null> {
     if (!["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName) return null;
-    const loadPlanImpl = __deps.loadPlan || loadPlan;
-    const runPlanningAgentImpl = __deps.runPlanningAgent || runPlanningAgent;
-    const executePlanImpl = __deps.executePlan || executePlan;
-    const runValidationLoopImpl = __deps.runValidationLoop || runValidationLoop;
-    const decidePostPlanningImpl = __deps.decidePostPlanning || decidePostPlanning;
-    const decidePostExecutionImpl = __deps.decidePostExecution || decidePostExecution;
     const planName = resolution.childPlanName;
-    const plan = await loadPlanImpl(hostedSession.cwd, planName);
+    const plan = await loadPlan(hostedSession.cwd, planName);
     if (!plan) {
         emitSystemStatus(hostedSession, `Epic continuation stopped: child Plan not found: ${planName}`, {
             level: "warning",
@@ -244,14 +190,14 @@ export async function runEpicChildContinuation(
     }
 
     if (resolution.kind === "plan") {
-        const outcome = await runPlanningAgentImpl({
+        const outcome = await runPlanningAgent({
             agentName: AGENTS.PLANNER,
             initialRequest: buildResumeRequest(planName, plan.attrs),
             triageMeta: plan.attrs,
             sessionManager,
             hostedSession,
         });
-        const decision = decidePostPlanningImpl(outcome, {
+        const decision = decidePostPlanning(outcome, {
             planningAgentName: AGENTS.PLANNER,
             fallbackTriageMeta: plan.attrs,
         });
@@ -269,15 +215,15 @@ export async function runEpicChildContinuation(
         plan.attrs.status = "ready_for_work";
     }
 
-    const executionResult = await executePlanImpl({ planName, triageMeta: plan.attrs, sessionManager, hostedSession });
-    const executionDecision = decidePostExecutionImpl(executionResult, {
+    const executionResult = await executePlan({ planName, triageMeta: plan.attrs, sessionManager, hostedSession });
+    const executionDecision = decidePostExecution(executionResult, {
         planName,
         triageMeta: plan.attrs,
         executionAgentName: hostedSession.getActiveExecutionWorkflow?.()?.executionAgent || AGENTS.ENGINEER,
     });
     if (executionDecision.kind !== "run_validation") return null;
-    const latestPlan = await loadPlanImpl(hostedSession.cwd, planName);
-    return await runValidationLoopImpl({
+    const latestPlan = await loadPlan(hostedSession.cwd, planName);
+    return /** @type {any} */ (await runValidationLoop({
         hostedSession,
         planName,
         planContent: latestPlan?.markdown || plan.markdown || plan.body || "",
@@ -285,5 +231,5 @@ export async function runEpicChildContinuation(
         sessionManager,
         finalAgentName: AGENTS.ROUTER,
         executionContext: executionResult.executionContext,
-    });
+    }));
 }

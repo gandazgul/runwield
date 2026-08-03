@@ -4,9 +4,9 @@
  */
 
 import { Type } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { getModelRegistry } from "../shared/models/model-registry.js";
 import { resolveImageRef } from "../shared/session/image-attachments.js";
 
@@ -33,12 +33,8 @@ interface TextContentBlock {
     mimeType?: string;
 }
 
-type AssistantContent = string | TextContentBlock[] | null | undefined;
-interface VisionModel {
-    provider: string;
-    id: string;
-    input?: string[];
-}
+type AssistantContent = string | TextContentBlock[] | AssistantMessage["content"] | null | undefined;
+type VisionModel = Model<Api>;
 
 interface VisionAuthSuccess {
     ok: true;
@@ -58,45 +54,17 @@ interface VisionModelRegistry {
     getApiKeyAndHeaders(model: VisionModel): Promise<VisionAuth>;
 }
 
-interface VisionMessageContent {
-    type: "text" | "image";
-    text?: string;
-    data?: string;
-    mimeType?: string;
-}
-
-interface VisionMessage {
-    role: "user";
-    content: VisionMessageContent[];
-    timestamp: number;
-}
-
-interface VisionContext {
-    messages: VisionMessage[];
-}
-
-interface VisionOptions {
-    signal?: AbortSignal;
-    apiKey?: string;
-    headers?: Record<string, string>;
-    env?: Record<string, string>;
-    maxTokens: number;
-}
-
-interface VisionResponse {
-    content?: AssistantContent;
-    stopReason?: string;
-    errorMessage?: string;
-}
-
-type CompleteSimpleFunction = (model: VisionModel, context: VisionContext, options?: VisionOptions) => Promise<VisionResponse>;
+type CompleteSimpleFunction = (
+    model: VisionModel,
+    context: Context,
+    options?: SimpleStreamOptions,
+) => Promise<AssistantMessage>;
 
 interface SeeImageToolOptions {
     cwd: string;
     sessionManager?: SessionManager;
     fallbackModel: VisionModel;
-    modelRegistry?: VisionModelRegistry;
-    completeSimpleFn?: CompleteSimpleFunction;
+    completeSimpleFn: CompleteSimpleFunction;
 }
 
 interface SeeImageDetails {
@@ -112,13 +80,7 @@ export function extractAssistantText(content: AssistantContent): string {
 }
 
 export function createSeeImageTool(opts: SeeImageToolOptions) {
-    const modelRegistry = opts.modelRegistry || getModelRegistry();
-    const completeSimpleFn: CompleteSimpleFunction = opts.completeSimpleFn || ((model, context, options) =>
-        completeSimple(
-            model as Parameters<typeof completeSimple>[0],
-            context as Parameters<typeof completeSimple>[1],
-            options as Parameters<typeof completeSimple>[2],
-        ) as Promise<VisionResponse>);
+    const modelRegistry: VisionModelRegistry = getModelRegistry();
 
     return defineTool<typeof PARAMETERS, SeeImageDetails>({
         name: "see_image",
@@ -146,7 +108,7 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                 const base64 = btoa(binary);
                 const question = params.question?.trim() || DEFAULT_SEE_IMAGE_PROMPT;
 
-                const response = await completeSimpleFn(opts.fallbackModel, {
+                const response = await opts.completeSimpleFn(opts.fallbackModel, {
                     messages: [{
                         role: "user",
                         content: [

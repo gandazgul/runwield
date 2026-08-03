@@ -15,9 +15,9 @@ import { readLatestPlanOutcome } from "./workflow-results.js";
  */
 
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images, ports },
+    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images, runtimePorts },
 ) {
-    const runActiveAgentTurn = ports?.runActiveAgentTurn ||
+    const runActiveAgentTurn = runtimePorts?.runActiveAgentTurn ||
         (await import("../session/agent-switching.js")).runActiveAgentTurn;
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
 

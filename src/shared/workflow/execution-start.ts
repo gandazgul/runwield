@@ -88,7 +88,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  *   collaborationStyle?: "autonomous"|"pair",
  *   collaborationRecommendation?: "autonomous"|"pair",
- *   ports?: {
+ *   runtimePorts?: {
  *     findReusableWorktree?: typeof findReusableWorktree,
  *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
  *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
@@ -113,23 +113,23 @@ export async function startActiveExecutionWorkflow(
         hostedSession,
         collaborationStyle = CollaborationStyles.AUTONOMOUS,
         collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
-        ports,
+        runtimePorts,
     },
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const findReusable = ports?.findReusableWorktree || findReusableWorktree;
-    const prepareTarget = ports?.prepareTargetBranchRef || prepareTargetBranchRef;
-    const resolveCurrentBranch = ports?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
-    const resolveTarget = ports?.resolveTargetBranchName || resolveTargetBranchName;
-    const captureTree = ports?.captureWorktreeTree || captureWorktreeTree;
-    const loadCanonicalPlanSource = ports?.loadCanonicalExecutionPlanSource || loadCanonicalExecutionPlanSource;
-    const ensurePlanFile = ports?.ensureExecutionPlanFile || ensureExecutionPlanFile;
-    const recordWorkflowMetricFn = ports?.recordWorkflowMetric || recordWorkflowMetric;
-    const probeGit = ports?.probeGitRepository || probeGitRepository;
-    const hasConsent = ports?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
-    const confirmNonGit = ports?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
-    const now = ports?.now || (() => Date.now());
+    const findReusable = runtimePorts?.findReusableWorktree || findReusableWorktree;
+    const prepareTarget = runtimePorts?.prepareTargetBranchRef || prepareTargetBranchRef;
+    const resolveCurrentBranch = runtimePorts?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
+    const resolveTarget = runtimePorts?.resolveTargetBranchName || resolveTargetBranchName;
+    const captureTree = runtimePorts?.captureWorktreeTree || captureWorktreeTree;
+    const loadCanonicalPlanSource = runtimePorts?.loadCanonicalExecutionPlanSource || loadCanonicalExecutionPlanSource;
+    const ensurePlanFile = runtimePorts?.ensureExecutionPlanFile || ensureExecutionPlanFile;
+    const recordWorkflowMetricFn = runtimePorts?.recordWorkflowMetric || recordWorkflowMetric;
+    const probeGit = runtimePorts?.probeGitRepository || probeGitRepository;
+    const hasConsent = runtimePorts?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
+    const confirmNonGit = runtimePorts?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
+    const now = runtimePorts?.now || (() => Date.now());
     // Plan identity is durable state, so it is never sourced from an injected seam.
     // This used to fall back to a synthetic `test-plan:<name>` id whenever `ports`
     // was non-empty, which any production caller passing a single real dep tripped:

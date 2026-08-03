@@ -31,7 +31,6 @@ const PARAMETERS = Type.Object({
         description: "Optional base directory for relative edit paths. Defaults to the session working directory.",
     })),
     edits: Type.Array(fileEditSchema, {
-        minItems: 1,
         description: "One or more replacements. Use edit instead when there is exactly one replacement in one file.",
     }),
 }, { additionalProperties: false });
@@ -90,23 +89,16 @@ type PrepareArgumentsFunction = NonNullable<MultiFileEditToolDefinition["prepare
 type InputCandidate = Parameters<PrepareArgumentsFunction>[0];
 
 interface InputRecord {
-    path?: string;
-    file_path?: string;
-    oldText?: string;
-    newText?: string;
-    root?: string;
-    edits?: InputEditRecord[];
-}
-
-interface InputEditRecord {
-    path?: string;
-    file_path?: string;
-    oldText?: string;
-    newText?: string;
+    path?: InputCandidate;
+    file_path?: InputCandidate;
+    oldText?: InputCandidate;
+    newText?: InputCandidate;
+    root?: InputCandidate;
+    edits?: InputCandidate;
 }
 
 function isInputRecord(input: InputCandidate): input is InputRecord {
-    return Boolean(input) && typeof input === "object";
+    return Boolean(input) && typeof input === "object" && !Array.isArray(input);
 }
 
 function coerceErrorMessage(value: null | undefined | string | number | boolean | Error): string {
@@ -288,7 +280,7 @@ function applyEdits(normalizedContent: string, edits: MultiFileEdit[], path: str
  * @returns {MultiFileEditParams}
  */
 const prepareMultiFileEditArguments: PrepareArgumentsFunction = (input) => {
-    if (!isInputRecord(input)) return { edits: [] };
+    if (!isInputRecord(input)) return input as MultiFileEditParams;
 
     const args = input;
     const topLevelPath = typeof args.path === "string"
@@ -298,23 +290,23 @@ const prepareMultiFileEditArguments: PrepareArgumentsFunction = (input) => {
         : undefined;
 
     if (Array.isArray(args.edits)) {
-        const edits = args.edits.map((rawEdit: InputEditRecord) => {
-            const edit = rawEdit;
-            const editPath = typeof edit.path === "string"
-                ? edit.path
-                : typeof edit.file_path === "string"
-                ? edit.file_path
+        const edits = args.edits.map((rawEdit) => {
+            if (!isInputRecord(rawEdit)) return rawEdit;
+            const editPath = typeof rawEdit.path === "string"
+                ? rawEdit.path
+                : typeof rawEdit.file_path === "string"
+                ? rawEdit.file_path
                 : topLevelPath;
             return {
-                path: typeof editPath === "string" ? editPath : "",
-                oldText: typeof edit.oldText === "string" ? edit.oldText : "",
-                newText: typeof edit.newText === "string" ? edit.newText : "",
+                path: editPath,
+                oldText: rawEdit.oldText,
+                newText: rawEdit.newText,
             };
         });
         return {
             ...(typeof args.root === "string" ? { root: args.root } : {}),
             edits,
-        };
+        } as MultiFileEditParams;
     }
 
     if (topLevelPath && typeof args.oldText === "string" && typeof args.newText === "string") {
@@ -324,7 +316,7 @@ const prepareMultiFileEditArguments: PrepareArgumentsFunction = (input) => {
         };
     }
 
-    return { edits: [] };
+    return input as MultiFileEditParams;
 };
 
 /**
@@ -384,7 +376,9 @@ export function createMultiFileEditTool(cwd: string) {
                         } catch (err) {
                             const msg = err instanceof Deno.errors.NotFound
                                 ? `Could not find file: ${filePath}`
-                                : `Could not access file: ${filePath}. ${coerceErrorMessage(err instanceof Error ? err : String(err))}`;
+                                : `Could not access file: ${filePath}. ${
+                                    coerceErrorMessage(err instanceof Error ? err : String(err))
+                                }`;
                             throw new Error(msg);
                         }
 

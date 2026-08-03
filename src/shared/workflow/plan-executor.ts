@@ -20,11 +20,14 @@ import {
 import { recordWorkflowMetric } from "./metrics.js";
 import { CollaborationStyles, selectRuntimeCollaborationStyle } from "./execution-collaboration.ts";
 import { ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
-import { finalizePlanImplementation, markActiveWorktreeStatus } from "./implementation-checkpoint.ts";
+import { finalizePlanImplementation } from "./implementation-checkpoint.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
 import { runEngineerWithPlan } from "./engineer-runner.ts";
 import { startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { ActiveExecutionWorkflow, HostedSession } from "../session/hosted-session.js";
 
 function isPlanReviewRetryAccepted(response) {
     if (!response || typeof response !== "object") return false;
@@ -34,24 +37,49 @@ function isPlanReviewRetryAccepted(response) {
     return value === "yes" || value === "review_again" || value === "review";
 }
 
-/**
- * @typedef {Object} PlanExecutionResult
- * @property {boolean} repairRequired
- * @property {boolean} executionComplete
- * @property {boolean} [paused]
- * @property {boolean} [canceled]
- * @property {boolean} [intentionalComplete]
- * @property {string} [intentionalCompleteReason]
- * @property {string} [message]
- * @property {string} [feedback]
- * @property {boolean} [baselineRejected]
- * @property {"already_met"|"broken"} [baselineRejectionKind]
- * @property {string[]} [baselineRejectedCheckIds]
- * @property {"stop"|"canceled"} [pauseReason]
- * @property {string} [error]
- * @property {string} [completionReport]
- * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow} [executionContext]
- */
+export interface PlanExecutionResult {
+    repairRequired: boolean;
+    executionComplete: boolean;
+    paused?: boolean;
+    canceled?: boolean;
+    intentionalComplete?: boolean;
+    intentionalCompleteReason?: string;
+    message?: string;
+    feedback?: string;
+    baselineRejected?: boolean;
+    baselineRejectionKind?: "already_met" | "broken";
+    baselineRejectedCheckIds?: string[];
+    pauseReason?: "stop" | "canceled";
+    error?: string;
+    completionReport?: string;
+    executionContext?: ActiveExecutionWorkflow;
+}
+
+export interface ExecutePlanOptions {
+    planName: string;
+    triageMeta?: Partial<PlanFrontMatter>;
+    sessionManager?: SessionManager;
+    hostedSession: HostedSession;
+    routerMessage?: string;
+    reviewFeedback?: string;
+    reviewImages?: Array<{ base64: string; mimeType: string }>;
+    runtimePorts?: Record<string, never>;
+}
+
+export interface ExecuteSingleEngineerPlanOptions {
+    planName: string;
+    planBody: string;
+    triageMeta: Partial<PlanFrontMatter>;
+    sessionManager?: SessionManager;
+    currentStatus: import("./plan-lifecycle.js").PlanStatus;
+    hostedSession: HostedSession;
+    routerMessage?: string;
+    reviewFeedback?: string;
+    reviewImages?: Array<{ base64: string; mimeType: string }>;
+    collaborationStyle?: "autonomous" | "pair";
+    collaborationRecommendation?: "autonomous" | "pair";
+    runtimePorts?: Record<string, never>;
+}
 
 export async function executePlan({
     planName,
@@ -61,14 +89,16 @@ export async function executePlan({
     routerMessage,
     reviewFeedback,
     reviewImages,
-    ports = {},
-}) {
-    const loadPlanFn = ports.loadPlan || loadPlan;
+    runtimePorts = {},
+}: ExecutePlanOptions): Promise<PlanExecutionResult> {
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const executeSingleEngineerPlanFn = ports.executeSingleEngineerPlan || executeSingleEngineerPlan;
-    const markActiveWorktreeStatusFn = ports.markActiveWorktreeStatus || markActiveWorktreeStatus;
-    const recordWorkflowMetricFn = ports.recordWorkflowMetric || recordWorkflowMetric;
+    const loadPlanFn = runtimePorts.loadPlan || loadPlan;
+    const executeSingleEngineerPlanFn = runtimePorts.executeSingleEngineerPlan || executeSingleEngineerPlan;
+    const runPlanningAgentFn = runtimePorts.runPlanningAgent || runPlanningAgent;
+    const recordPlanEventFn = runtimePorts.recordPlanEvent || recordPlanEvent;
+    const recordWorkflowMetricFn = runtimePorts.recordWorkflowMetric || recordWorkflowMetric;
+    const requestPlanReviewFn = runtimePorts.requestPlanReview || requestHostedSessionInteraction;
     let effectiveReviewFeedback = reviewFeedback;
     let effectiveReviewImages = reviewImages;
 
@@ -94,18 +124,21 @@ export async function executePlan({
             details: { reason: initialLoad.error ? "plan_load_failed" : "plan_not_found" },
         }, { cwd: projectRoot });
 
-        const requestPlanReview = ports.requestPlanReview || requestHostedSessionInteraction;
         const planPath = join(projectRoot, PLANS_DIR_NAME, `${planName}.md`);
         let recoveryAttempt = 0;
         let recoveryReason = initialLoad.error ? "plan_load_failed" : "plan_not_found";
         let recoveryResponse = { outcome: RuntimeInteractionOutcomes.UNSUPPORTED, message: recoveryReason };
         while (!plan) {
             recoveryAttempt += 1;
-            const retryResponse = await requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, {
-                attempt: recoveryAttempt,
-                reason: recoveryReason,
-                response: recoveryResponse,
-            }).catch(() => ({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false }));
+            const retryResponse = await requestPlanReviewRetryConfirmation(
+                hostedSession,
+                requestPlanReviewFn,
+                {
+                    attempt: recoveryAttempt,
+                    reason: recoveryReason,
+                    response: recoveryResponse,
+                },
+            ).catch(() => ({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false }));
             if (!isPlanReviewRetryAccepted(retryResponse)) {
                 emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
                 return {
@@ -119,13 +152,13 @@ export async function executePlan({
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
-                    requestPlanReview(hostedSession, {
+                    requestPlanReviewFn(hostedSession, {
                         type: RuntimeInteractionTypes.PLAN_REVIEW,
                         prompt: `Review plan "${planName}"`,
                         _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
                     }),
                 requestRetry: (details) =>
-                    requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
+                    requestPlanReviewRetryConfirmation(hostedSession, requestPlanReviewFn, details),
                 onUnanswered: ({ reason }) => {
                     emitSystemStatus(
                         hostedSession,
@@ -160,7 +193,7 @@ export async function executePlan({
             }
             if (!reviewMeta.approved) {
                 const planningAgentName = _triageMeta?.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
-                const revisionOutcome = await runPlanningAgent({
+                const revisionOutcome = await runPlanningAgentFn({
                     agentName: planningAgentName,
                     initialRequest: [
                         `## Plan Review Re-opened: ${planName}`,
@@ -174,7 +207,7 @@ export async function executePlan({
                     images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
                     sessionManager,
                     hostedSession,
-                    ports: { runActiveAgentTurn: ports.runActiveAgentTurn },
+                    runtimePorts,
                 });
                 if (revisionOutcome.outcome === "approved_execute") {
                     return await executePlan({
@@ -185,7 +218,7 @@ export async function executePlan({
                         routerMessage,
                         reviewFeedback: revisionOutcome.feedback,
                         reviewImages: revisionOutcome.images,
-                        ports,
+                        runtimePorts,
                     });
                 }
                 return {
@@ -365,12 +398,12 @@ export async function executePlan({
         reviewImages: effectiveReviewImages,
         collaborationStyle: collaboration.style,
         collaborationRecommendation: collaboration.recommendation,
-        ports: { ...ports, recordWorkflowMetric: recordWorkflowMetricFn },
+        runtimePorts,
     });
     if (!result.executionComplete) {
         if (result.baselineRejected) {
             const feedback = result.feedback || result.error || "Objective-Failing Check baseline rejected execution.";
-            await recordPlanEvent({
+            await recordPlanEventFn({
                 cwd: projectRoot,
                 planName,
                 event: "review_reopened",
@@ -392,7 +425,7 @@ export async function executePlan({
                 },
             }, { cwd: projectRoot });
             const planningAgentName = effectiveMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
-            const revisionOutcome = await runPlanningAgent({
+            const revisionOutcome = await runPlanningAgentFn({
                 agentName: planningAgentName,
                 initialRequest: [
                     `## Plan Objective-Failing Check Baseline Rejected: ${planName}`,
@@ -404,7 +437,7 @@ export async function executePlan({
                 triageMeta: effectiveMeta,
                 sessionManager,
                 hostedSession,
-                ports: { runActiveAgentTurn: ports.runActiveAgentTurn },
+                runtimePorts,
             });
             if (revisionOutcome.outcome === "approved_execute") {
                 return await executePlan({
@@ -415,7 +448,7 @@ export async function executePlan({
                     routerMessage,
                     reviewFeedback: revisionOutcome.feedback,
                     reviewImages: revisionOutcome.images,
-                    ports,
+                    runtimePorts,
                 });
             }
             return {
@@ -451,11 +484,6 @@ export async function executePlan({
             executionContext,
             executionReport: result.completionReport,
             hostedSession,
-            ports: {
-                recordPlanEvent,
-                markActiveWorktreeStatus: markActiveWorktreeStatusFn,
-                recordWorkflowMetric: recordWorkflowMetricFn,
-            },
         });
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
@@ -505,26 +533,6 @@ export async function executePlan({
     };
 }
 
-/**
- * @param {{
- *     planName: string,
- *     planBody: string,
- *     triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
- *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
- *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
- *     hostedSession?: import('../session/hosted-session.js').HostedSession,
- *     routerMessage?: string,
- *     reviewFeedback?: string,
- *     reviewImages?: Array<{base64: string, mimeType: string}>,
- *     collaborationStyle?: "autonomous"|"pair",
- *     collaborationRecommendation?: "autonomous"|"pair",
- *     ports?: {
- *       recordWorkflowMetric?: typeof recordWorkflowMetric,
- *       runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
- *     },
- * }} opts
- * @returns {Promise<PlanExecutionResult>}
- */
 export async function executeSingleEngineerPlan(
     {
         planName,
@@ -538,9 +546,9 @@ export async function executeSingleEngineerPlan(
         reviewImages,
         collaborationStyle = CollaborationStyles.AUTONOMOUS,
         collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
-        ports,
-    },
-) {
+        runtimePorts,
+    }: ExecuteSingleEngineerPlanOptions,
+): Promise<PlanExecutionResult> {
     let executionContext;
     try {
         executionContext = await startActiveExecutionWorkflow({
@@ -550,7 +558,7 @@ export async function executeSingleEngineerPlan(
             hostedSession,
             collaborationStyle,
             collaborationRecommendation,
-            ports,
+            runtimePorts,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -597,7 +605,7 @@ export async function executeSingleEngineerPlan(
         reviewFeedback,
         reviewImages,
         executionContext.executionAgent,
-        ports,
+        runtimePorts,
     );
     if (!engineerResult.completed) {
         return {
