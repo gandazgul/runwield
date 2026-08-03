@@ -7,10 +7,12 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
-import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
-import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { HostedSession } from "../shared/session/hosted-session.js";
 import { AGENTS } from "../constants.js";
+import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
+import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
+import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summary for the completed task.";
 const ENGINEER_MESSAGE_DESCRIPTION =
@@ -20,28 +22,31 @@ const ENGINEER_MESSAGE_DESCRIPTION =
 const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
     " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, visible evidence, and exact blockers; Pair checkpoint acceptance is not verification evidence.";
 
-/**
- * @param {string} agentName
- * @returns {string}
- */
-function normalizeAgentName(agentName) {
+type BrowserPreflightOutcome = "succeeded" | "failed" | "externally_blocked";
+
+type TaskCompletedDetails =
+    | { outcome: "rejected"; reason: "execution_not_started" | "pair_execution_paused" | "wrong_execution_owner" }
+    | { outcome: "task_completed"; message: string; browserPreflightOutcome?: BrowserPreflightOutcome };
+
+type TaskCompletedResult = AgentToolResult<TaskCompletedDetails> & { terminate: boolean };
+
+interface TaskCompletedToolOptions {
+    hostedSession: HostedSession;
+    agentName?: string;
+    recordWorkflowMetric?: typeof recordWorkflowMetric;
+    now?: () => number;
+}
+
+function normalizeAgentName(agentName: string): string {
     return agentName.trim().toLowerCase().replaceAll(" ", "-");
 }
 
-/**
- * @param {string} agentName
- * @returns {boolean}
- */
-function isExecutionAgent(agentName) {
+function isExecutionAgent(agentName: string): boolean {
     const normalized = normalizeAgentName(agentName);
     return normalized === "engineer" || normalized === "frontend-engineer";
 }
 
-/**
- * @param {string} agentName
- * @returns {ReturnType<typeof Type.Object>}
- */
-function buildToolParams(agentName) {
+function buildToolParams(agentName: string) {
     const normalized = normalizeAgentName(agentName);
     const messageDescription = normalized === "frontend-engineer"
         ? FRONTEND_ENGINEER_MESSAGE_DESCRIPTION
@@ -68,8 +73,7 @@ function buildToolParams(agentName) {
     });
 }
 
-/** @returns {string} */
-function buildToolDescription() {
+function buildToolDescription(): string {
     return "Declare that you have finished your assigned execution task, whether it succeeded, failed, " +
         "or is blocked. " +
         "For PLANNED_CHANGE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
@@ -85,33 +89,23 @@ function buildToolDescription() {
         "just output the question in text.";
 }
 
-/**
- * Create the task_completed tool.
- *
- * @param {{
- *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
- *   agentName?: string,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- *   now?: () => number,
- * }} opts
- * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
- */
 export function createTaskCompletedTool(
     {
         hostedSession,
         agentName = "agent",
         recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
         now = () => Date.now(),
-    } = /** @type {any} */ ({}),
+    }: TaskCompletedToolOptions,
 ) {
     if (!hostedSession) throw new Error("createTaskCompletedTool: hostedSession is required");
     const targetHostedSession = hostedSession;
-    return defineTool({
+    const PARAMETERS = buildToolParams(agentName);
+    return defineTool<typeof PARAMETERS, TaskCompletedDetails>({
         name: "task_completed",
         label: "Task Completed",
         description: buildToolDescription(),
-        parameters: buildToolParams(agentName),
-        async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params): Promise<TaskCompletedResult> {
             await Promise.resolve();
             const activeWorkflow = targetHostedSession.getActiveExecutionWorkflow?.();
             const normalizedAgentName = normalizeAgentName(agentName);
@@ -136,13 +130,6 @@ export function createTaskCompletedTool(
                     terminate: false,
                 };
             }
-            // Repair agents finish work on behalf of the execution owner. Validation
-            // keeps `executionAgent` pointing at the owner (engineer/frontend-engineer)
-            // while a Reviewer-Feedback Engineer repairs review findings, so comparing
-            // the caller to the owner rejects the very completion the validation loop is
-            // waiting for. The loop then reads `outcome: "rejected"` as "repair did not
-            // finish" and stalls, with the owner unable to help because its own
-            // completion was already spent.
             const completingOnBehalfOfOwner = normalizedAgentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER;
             if (
                 activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName &&
@@ -200,7 +187,7 @@ export function createTaskCompletedTool(
                     outcome: "task_completed",
                     message: report,
                     ...(normalizedAgentName === "frontend-engineer"
-                        ? { browserPreflightOutcome: params.browserPreflightOutcome }
+                        ? { browserPreflightOutcome: params.browserPreflightOutcome as BrowserPreflightOutcome }
                         : {}),
                 },
                 terminate: true,

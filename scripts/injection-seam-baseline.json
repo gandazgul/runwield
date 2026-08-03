@@ -249,42 +249,28 @@
             ],
             "conditional": []
         },
-        "src/tools/delegate-agent.js": {
-            "seams": [
-                "readTextFile"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/tools/pair-checkpoint.js": {
+        "src/tools/pair-checkpoint.ts": {
             "seams": [
                 "recordWorkflowMetric"
             ],
             "machinery": [],
             "conditional": []
         },
-        "src/tools/review-complete.js": {
+        "src/tools/review-complete.ts": {
             "seams": [
                 "recordWorkflowMetric"
             ],
             "machinery": [],
             "conditional": []
         },
-        "src/tools/see-image.js": {
-            "seams": [
-                "completeSimpleFn"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/tools/task-completed.js": {
+        "src/tools/task-completed.ts": {
             "seams": [
                 "recordWorkflowMetric"
             ],
             "machinery": [],
             "conditional": []
         },
-        "src/tools/triage-report.js": {
+        "src/tools/triage-report.ts": {
             "seams": [
                 "recordWorkflowMetric"
             ],

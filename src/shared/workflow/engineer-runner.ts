@@ -3,7 +3,7 @@ import { AGENTS } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
-import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestTaskCompletedMessage, readLatestTaskCompletedOutcome } from "./workflow-results.js";

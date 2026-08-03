@@ -1,6 +1,6 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertStrictEquals } from "@std/assert";
 import { join } from "@std/path";
-import { createMultiFileEditTool } from "../multi_file_edit.js";
+import { createMultiFileEditTool } from "../multi_file_edit.ts";
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>} tool
@@ -88,4 +88,22 @@ Deno.test("multi_file_edit accepts legacy single-file multi-replace shape", () =
             { path: "legacy.txt", oldText: "b", newText: "B" },
         ],
     });
+});
+
+Deno.test("multi_file_edit prepareArguments leaves malformed calls for schema validation", () => {
+    const tool = createMultiFileEditTool("/tmp");
+
+    const nonRecordInput = "not an edit request";
+    assertStrictEquals(tool.prepareArguments?.(nonRecordInput), nonRecordInput);
+
+    const unrecognizedInput = { foo: "bar" };
+    assertStrictEquals(tool.prepareArguments?.(unrecognizedInput), unrecognizedInput);
+
+    const malformedPrepared = tool.prepareArguments?.({
+        path: "legacy.txt",
+        edits: [{ oldText: "a" }],
+    });
+    assertEquals(malformedPrepared?.edits[0].path, "legacy.txt");
+    assertEquals(malformedPrepared?.edits[0].oldText, "a");
+    assertStrictEquals(malformedPrepared?.edits[0].newText, undefined);
 });

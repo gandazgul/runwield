@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { type ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadPlan } from "../../plan-store.js";
-import { createTaskCompletedTool } from "../../tools/task-completed.js";
+import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { listPendingTaskCompletions } from "../session/task-completion-session.ts";
 import { finalizePlanImplementation } from "./implementation-checkpoint.ts";

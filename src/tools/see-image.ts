@@ -4,15 +4,16 @@
  */
 
 import { Type } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { getModelRegistry } from "../shared/models/model-registry.js";
 import { resolveImageRef } from "../shared/session/image-attachments.js";
 
 export const DEFAULT_SEE_IMAGE_PROMPT =
     "Describe this image in detail for a text-only coding agent. Include all visible UI/content, readable text and error messages, relevant layout, controls, highlighted regions, and visual state. If text or details are unclear, say so explicitly.";
 
-const TOOL_PARAMS = Type.Object({
+const PARAMETERS = Type.Object({
     imageRef: Type.String({
         minLength: 1,
         description:
@@ -25,38 +26,71 @@ const TOOL_PARAMS = Type.Object({
     })),
 }, { additionalProperties: false });
 
-/**
- * @param {unknown} content
- * @returns {string}
- */
-export function extractAssistantText(content) {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map((block) => {
-        if (!block || typeof block !== "object") return "";
-        const typed = /** @type {{ type?: string, text?: string }} */ (block);
-        return typed.type === "text" ? typed.text || "" : "";
-    }).filter(Boolean).join("\n").trim();
+interface TextContentBlock {
+    type?: string;
+    text?: string;
+    data?: string;
+    mimeType?: string;
 }
 
-/**
- * @param {{ cwd: string, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager, fallbackModel: any, modelRegistry?: any, completeSimpleFn?: (model: any, context: any, options?: any) => Promise<any> }} opts
- * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
- */
-export function createSeeImageTool(opts) {
-    const modelRegistry = opts.modelRegistry || getModelRegistry();
-    const completeSimpleFn = opts.completeSimpleFn || completeSimple;
+type AssistantContent = string | TextContentBlock[] | AssistantMessage["content"] | null | undefined;
+type VisionModel = Model<Api>;
 
-    return defineTool({
+interface VisionAuthSuccess {
+    ok: true;
+    apiKey?: string;
+    headers?: Record<string, string>;
+    env?: Record<string, string>;
+}
+
+interface VisionAuthFailure {
+    ok: false;
+    error?: string;
+}
+
+type VisionAuth = VisionAuthSuccess | VisionAuthFailure;
+
+interface VisionModelRegistry {
+    getApiKeyAndHeaders(model: VisionModel): Promise<VisionAuth>;
+}
+
+type CompleteSimpleFunction = (
+    model: VisionModel,
+    context: Context,
+    options?: SimpleStreamOptions,
+) => Promise<AssistantMessage>;
+
+interface SeeImageToolOptions {
+    cwd: string;
+    sessionManager?: SessionManager;
+    fallbackModel: VisionModel;
+    completeSimpleFn: CompleteSimpleFunction;
+}
+
+interface SeeImageDetails {
+    ok: boolean;
+}
+
+type SeeImageResult = AgentToolResult<SeeImageDetails> & { isError?: boolean };
+
+export function extractAssistantText(content: AssistantContent): string {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content.map((block) => block.type === "text" ? block.text || "" : "").filter(Boolean).join("\n").trim();
+}
+
+export function createSeeImageTool(opts: SeeImageToolOptions) {
+    const modelRegistry: VisionModelRegistry = getModelRegistry();
+
+    return defineTool<typeof PARAMETERS, SeeImageDetails>({
         name: "see_image",
         label: "see_image",
         description:
             "Inspect an image only using the configured visionFallback.model. imageRef must be an attachment:<uuid> reference or a safe project-relative .png, .jpg, .jpeg, .gif, or .webp path. This tool cannot inspect documents, source files, or other non-image files; use the appropriate file-reading tool instead. Returns a textual description for text-only primary models.",
-        parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<SeeImageResult> {
             try {
-                const typedParams = /** @type {{ imageRef: string, question?: string }} */ (params);
-                const resolved = await resolveImageRef(typedParams.imageRef, {
+                const resolved = await resolveImageRef(params.imageRef, {
                     cwd: opts.cwd,
                     sessionManager: opts.sessionManager,
                 });
@@ -72,9 +106,9 @@ export function createSeeImageTool(opts) {
                 let binary = "";
                 for (const byte of bytes) binary += String.fromCharCode(byte);
                 const base64 = btoa(binary);
-                const question = typedParams.question?.trim() || DEFAULT_SEE_IMAGE_PROMPT;
+                const question = params.question?.trim() || DEFAULT_SEE_IMAGE_PROMPT;
 
-                const response = await completeSimpleFn(opts.fallbackModel, {
+                const response = await opts.completeSimpleFn(opts.fallbackModel, {
                     messages: [{
                         role: "user",
                         content: [
@@ -96,10 +130,10 @@ export function createSeeImageTool(opts) {
                 }
 
                 const text = extractAssistantText(response.content) || "(visionFallback.model returned no text)";
-                return { content: [{ type: "text", text }], details: { ok: true } };
+                return { content: [{ type: "text" as const, text }], details: { ok: true } };
             } catch (error) {
                 return {
-                    content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+                    content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
                     details: { ok: false },
                     isError: true,
                 };

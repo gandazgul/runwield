@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { loadPlan } from "../../plan-store.js";
-import { createTaskCompletedTool } from "../../tools/task-completed.js";
+import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { runValidationLoop } from "./validation.ts";

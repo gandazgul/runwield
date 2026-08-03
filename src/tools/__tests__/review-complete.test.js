@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { createReviewCompletedTool } from "../review-complete.js";
+import { createReviewCompletedTool } from "../review-complete.ts";
 
 for (const approved of [true, false]) {
     Deno.test(`review_complete emits one semantic result when approved=${approved}`, async () => {

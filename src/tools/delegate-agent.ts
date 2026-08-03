@@ -6,14 +6,14 @@
 import { join } from "@std/path";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.js";
-import {
-    DELEGATED_ROLE_GENERAL,
-    DELEGATED_ROLE_IDS,
-    getDelegatedRole,
-    loadSubAgentDefinition,
-} from "../shared/session/subagent-definitions.ts";
+import { ensureBundledAgentDefFile } from "../shared/session/agent-assets.js";
+import { loadSubAgentDefinition } from "../shared/session/subagent-definitions.ts";
+import type { HostedSession } from "../shared/session/hosted-session.js";
+import type { AgentDefinition } from "../shared/session/types.js";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
 
 const READ_TOOLS = Object.freeze([
@@ -42,7 +42,45 @@ const WRITE_TOOLS = Object.freeze([
     "multi_file_edit",
 ]);
 
-const TOOL_PARAMS = Type.Object({
+const DELEGATED_ROLE_GENERAL = "general";
+const DELEGATED_ROLE_VERIFICATION_ADVERSARY = "verification-adversary";
+const DELEGATED_ROLE_IDS = Object.freeze([DELEGATED_ROLE_GENERAL, DELEGATED_ROLE_VERIFICATION_ADVERSARY] as const);
+const VERIFICATION_ADVERSARY_ROLE_PATH = "subagent-definitions/roles/verification-adversary.md";
+
+type DelegationMode = "read" | "write";
+type DelegatedRoleId = typeof DELEGATED_ROLE_IDS[number];
+type DelegatedAuthority = DelegationMode;
+
+interface DelegatedRoleDefinition {
+    id: DelegatedRoleId;
+    authorityCeiling: DelegatedAuthority;
+}
+
+const DELEGATED_ROLES: Readonly<Record<DelegatedRoleId, DelegatedRoleDefinition>> = Object.freeze({
+    [DELEGATED_ROLE_GENERAL]: Object.freeze({ id: DELEGATED_ROLE_GENERAL, authorityCeiling: "write" }),
+    [DELEGATED_ROLE_VERIFICATION_ADVERSARY]: Object.freeze({
+        id: DELEGATED_ROLE_VERIFICATION_ADVERSARY,
+        authorityCeiling: "read",
+    }),
+});
+
+function getDelegatedRole(roleId: string): DelegatedRoleDefinition | null {
+    return roleId === DELEGATED_ROLE_GENERAL || roleId === DELEGATED_ROLE_VERIFICATION_ADVERSARY
+        ? DELEGATED_ROLES[roleId]
+        : null;
+}
+
+function stripMarkdownFrontMatter(markdown: string): string {
+    return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+}
+
+async function readRoleOverlay(role: DelegatedRoleId): Promise<string> {
+    if (role !== DELEGATED_ROLE_VERIFICATION_ADVERSARY) return "";
+    const rolePath = await ensureBundledAgentDefFile(VERIFICATION_ADVERSARY_ROLE_PATH);
+    return stripMarkdownFrontMatter(await Deno.readTextFile(rolePath));
+}
+
+const PARAMETERS = Type.Object({
     mode: StringEnum(["read", "write"], {
         description:
             "Delegation authority. Use read for investigation/review and write for one exclusive implementation task.",
@@ -59,55 +97,72 @@ const TOOL_PARAMS = Type.Object({
     }),
 }, { additionalProperties: false });
 
-/**
- * @typedef {Object} DelegateAgentDeps
- * @property {typeof import('../shared/session/session.js').runIsolatedAgentSession} runIsolatedAgentSession
- * @property {(path: string | URL) => Promise<string>} [readTextFile]
- * @property {(relativePath: string) => Promise<string>} [ensurePromptFile]
- * @property {(cwd: string) => Promise<DelegatedChangeSnapshot | null>} [captureChangeSnapshot]
- * @property {(cwd: string) => Promise<string[] | null>} [captureChangedPaths]
- * @property {string} [modelOverride]
- * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [thinkingLevelOverride]
- */
+type DelegateAgentToolDefinition = ToolDefinition<typeof PARAMETERS, DelegateAgentDetails>;
+type RunIsolatedAgentSession = (
+    opts: Parameters<NonNullable<DelegateAgentToolDefinition["execute"]>>[4] extends never ? never : {
+        hostedSession: HostedSession;
+        agentName: string;
+        userRequest: string;
+        cwd: string;
+        _agentDefOverride: AgentDefinition;
+        toolNames: string[];
+        includeEditFallback: boolean;
+        allowReturnToRouter: boolean;
+        modelOverride?: string;
+        thinkingLevelOverride?: ThinkingLevel;
+        projectStateContext: string;
+        signal?: AbortSignal;
+    },
+) => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
 
-/**
- * @typedef {Object} DelegateAgentToolOptions
- * @property {import('../shared/session/hosted-session.js').HostedSession} hostedSession
- * @property {string} cwd
- * @property {string[]} parentTools
- * @property {DelegateAgentDeps['runIsolatedAgentSession']} runIsolatedAgentSession
- * @property {DelegateAgentDeps['readTextFile']} [readTextFile]
- * @property {DelegateAgentDeps['ensurePromptFile']} [ensurePromptFile]
- * @property {DelegateAgentDeps['captureChangeSnapshot']} [captureChangeSnapshot]
- * @property {DelegateAgentDeps['captureChangedPaths']} [captureChangedPaths]
- * @property {DelegateAgentDeps['modelOverride']} [modelOverride]
- * @property {DelegateAgentDeps['thinkingLevelOverride']} [thinkingLevelOverride]
- */
+interface DelegateAgentToolOptions {
+    hostedSession: HostedSession;
+    cwd: string;
+    parentTools: string[];
+    runIsolatedAgentSession: RunIsolatedAgentSession;
+    modelOverride?: string;
+    thinkingLevelOverride?: ThinkingLevel;
+}
 
-/**
- * @typedef {Object} DelegatedChangeEntry
- * @property {string} path
- * @property {string} status
- * @property {string | null} contentHash
- */
+export interface DelegatedChangeEntry {
+    path: string;
+    status: string;
+    contentHash: string | null;
+}
 
-/**
- * @typedef {Object} DelegatedChangeSnapshot
- * @property {string | null} head
- * @property {DelegatedChangeEntry[]} entries
- */
+export interface DelegatedChangeSnapshot {
+    head: string | null;
+    entries: DelegatedChangeEntry[];
+}
 
-/**
- * @typedef {Object} PorcelainStatusEntry
- * @property {string} status
- * @property {string} path
- */
+interface PorcelainStatusEntry {
+    status: string;
+    path: string;
+}
+
+interface DelegateAgentDetails {
+    ok: boolean;
+    mode: DelegationMode;
+    role: string;
+    requestedAuthority?: DelegationMode;
+    effectiveAuthority?: DelegationMode;
+    roleAuthorityCeiling?: DelegatedAuthority;
+    output?: string;
+    tools?: string[];
+    changedPaths?: string[] | null;
+    changeAttributionComplete?: boolean;
+    committedChangesDetected?: boolean;
+    error?: string;
+    validRoles?: DelegatedRoleId[];
+}
+
+type DelegateAgentResult = AgentToolResult<DelegateAgentDetails> & { isError?: boolean };
 
 /**
  * @param {unknown} value
  * @returns {string}
  */
-function errorMessage(value) {
+function errorMessage(value: null | undefined | string | number | boolean | Error): string {
     return value instanceof Error ? value.message : String(value);
 }
 
@@ -116,27 +171,22 @@ function errorMessage(value) {
  * @param {"read" | "write"} mode
  * @returns {string[]}
  */
-export function resolveDelegatedToolNames(parentTools, mode) {
+export function resolveDelegatedToolNames(parentTools: string[], mode: DelegationMode): string[] {
     const allowed = new Set(mode === "read" ? READ_TOOLS : WRITE_TOOLS);
     return [...new Set(parentTools)].filter((toolName) => allowed.has(toolName));
 }
 
 /**
- * @param {(path: string | URL) => Promise<string>} [readTextFile]
- * @param {(relativePath: string) => Promise<string>} [ensurePromptFile]
  * @param {import('../shared/session/subagent-definitions.ts').DelegatedRoleId} [role]
  * @returns {Promise<import('../shared/session/types.js').AgentDefinition>}
  */
 export async function loadDelegatedAgentPrompt(
-    readTextFile = Deno.readTextFile,
-    ensurePromptFile,
-    role = DELEGATED_ROLE_GENERAL,
-) {
-    return await loadSubAgentDefinition(SUBAGENTS.DELEGATED, {
-        delegatedRole: role,
-        readTextFile: (path) => readTextFile(path),
-        ensurePromptFile,
-    });
+    _role: DelegatedRoleId = DELEGATED_ROLE_GENERAL,
+): Promise<AgentDefinition> {
+    const agentDef = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
+    const roleOverlay = await readRoleOverlay(_role);
+    if (roleOverlay) agentDef.systemPrompt = `${agentDef.systemPrompt}\n\n${roleOverlay}`;
+    return agentDef;
 }
 
 /**
@@ -147,7 +197,10 @@ export async function loadDelegatedAgentPrompt(
  * @param {import('../shared/session/subagent-definitions.ts').DelegatedAuthority} authorityCeiling
  * @returns {"read" | "write"}
  */
-export function resolveEffectiveDelegationMode(requestedMode, authorityCeiling) {
+export function resolveEffectiveDelegationMode(
+    requestedMode: DelegationMode,
+    authorityCeiling: DelegatedAuthority,
+): DelegationMode {
     return authorityCeiling === "read" ? "read" : requestedMode;
 }
 
@@ -156,7 +209,7 @@ export function resolveEffectiveDelegationMode(requestedMode, authorityCeiling) 
  * @param {string[]} args
  * @returns {Promise<string>}
  */
-async function runGit(cwd, args) {
+async function runGit(cwd: string, args: string[]): Promise<string> {
     const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
     const output = await command.output();
     if (!output.success) {
@@ -170,7 +223,7 @@ async function runGit(cwd, args) {
  * @param {string} path
  * @returns {Promise<string | null>}
  */
-async function hashWorktreeFile(cwd, path) {
+async function hashWorktreeFile(cwd: string, path: string): Promise<string | null> {
     try {
         const bytes = await Deno.readFile(join(cwd, path));
         const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -184,7 +237,7 @@ async function hashWorktreeFile(cwd, path) {
  * @param {string} line
  * @returns {PorcelainStatusEntry | null}
  */
-function parsePorcelainLine(line) {
+function parsePorcelainLine(line: string): PorcelainStatusEntry | null {
     if (!line.trim()) return null;
     const status = line.slice(0, 2);
     const rawPath = line.slice(3).trim();
@@ -197,7 +250,7 @@ function parsePorcelainLine(line) {
  * @param {string} cwd
  * @returns {Promise<DelegatedChangeSnapshot | null>}
  */
-export async function captureDelegatedChangeSnapshot(cwd) {
+export async function captureDelegatedChangeSnapshot(cwd: string): Promise<DelegatedChangeSnapshot | null> {
     try {
         const [head, output] = await Promise.all([
             runGit(cwd, ["rev-parse", "HEAD"]).then((value) => value.trim()).catch(() => null),
@@ -223,7 +276,7 @@ export async function captureDelegatedChangeSnapshot(cwd) {
  * @param {string} cwd
  * @returns {Promise<string[] | null>}
  */
-export async function captureDelegatedChangedPaths(cwd) {
+export async function captureDelegatedChangedPaths(cwd: string): Promise<string[] | null> {
     const snapshot = await captureDelegatedChangeSnapshot(cwd);
     return snapshot ? snapshot.entries.map((entry) => entry.path) : null;
 }
@@ -232,7 +285,9 @@ export async function captureDelegatedChangedPaths(cwd) {
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} snapshot
  * @returns {DelegatedChangeSnapshot | null}
  */
-function normalizeDelegatedChangeSnapshot(snapshot) {
+function normalizeDelegatedChangeSnapshot(
+    snapshot: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): DelegatedChangeSnapshot | null {
     if (!snapshot) return null;
     if (Array.isArray(snapshot)) return { head: null, entries: snapshot };
     return snapshot;
@@ -243,7 +298,10 @@ function normalizeDelegatedChangeSnapshot(snapshot) {
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} after
  * @returns {string[] | null}
  */
-export function diffDelegatedChangeSnapshot(before, after) {
+export function diffDelegatedChangeSnapshot(
+    before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+    after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): string[] | null {
     const normalizedBefore = normalizeDelegatedChangeSnapshot(before);
     const normalizedAfter = normalizeDelegatedChangeSnapshot(after);
     if (!normalizedAfter) return null;
@@ -265,7 +323,10 @@ export function diffDelegatedChangeSnapshot(before, after) {
  * @param {DelegatedChangeSnapshot | DelegatedChangeEntry[] | null} after
  * @returns {boolean}
  */
-function delegatedHeadChanged(before, after) {
+function delegatedHeadChanged(
+    before: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+    after: DelegatedChangeSnapshot | DelegatedChangeEntry[] | null,
+): boolean {
     const normalizedBefore = normalizeDelegatedChangeSnapshot(before);
     const normalizedAfter = normalizeDelegatedChangeSnapshot(after);
     return Boolean(normalizedBefore?.head && normalizedAfter?.head && normalizedBefore.head !== normalizedAfter.head);
@@ -275,7 +336,7 @@ function delegatedHeadChanged(before, after) {
  * @param {string} text
  * @returns {string}
  */
-function truncateToolText(text) {
+function truncateToolText(text: string): string {
     const trimmed = text.trim();
     return trimmed.length > 20000 ? `${trimmed.slice(0, 19950)}\n\n[Delegated output truncated]` : trimmed;
 }
@@ -285,7 +346,10 @@ function truncateToolText(text) {
  * @param {string | undefined} explicitOverride
  * @returns {string | undefined}
  */
-function resolveDelegatedModelOverride(hostedSession, explicitOverride) {
+function resolveDelegatedModelOverride(
+    hostedSession: HostedSession,
+    explicitOverride: string | undefined,
+): string | undefined {
     if (explicitOverride) return explicitOverride;
     if (hostedSession.isUserModelOverride()) return undefined;
     const activeModel = hostedSession.getActiveModelState();
@@ -297,7 +361,10 @@ function resolveDelegatedModelOverride(hostedSession, explicitOverride) {
  * @param {DelegateAgentDeps['thinkingLevelOverride']} explicitOverride
  * @returns {DelegateAgentDeps['thinkingLevelOverride']}
  */
-function resolveDelegatedThinkingLevelOverride(hostedSession, explicitOverride) {
+function resolveDelegatedThinkingLevelOverride(
+    hostedSession: HostedSession,
+    explicitOverride: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
     return explicitOverride || hostedSession.getThinkingLevel() || undefined;
 }
 
@@ -310,7 +377,11 @@ function resolveDelegatedThinkingLevelOverride(hostedSession, explicitOverride) 
  * @param {"read" | "write"} effectiveMode
  * @returns {string[]}
  */
-function roleRequestLines(role, requestedMode, effectiveMode) {
+function roleRequestLines(
+    role: DelegatedRoleDefinition,
+    requestedMode: DelegationMode,
+    effectiveMode: DelegationMode,
+): string[] {
     if (role.id === DELEGATED_ROLE_GENERAL) return [];
     const lines = [`Delegated role: ${role.id}`];
     if (effectiveMode !== requestedMode) {
@@ -325,30 +396,23 @@ function roleRequestLines(role, requestedMode, effectiveMode) {
  * @param {DelegateAgentToolOptions} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createDelegateAgentTool(opts) {
+export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
     if (!opts.hostedSession) throw new Error("createDelegateAgentTool: hostedSession is required");
     if (!opts.cwd) throw new Error("createDelegateAgentTool: cwd is required");
     if (!opts.runIsolatedAgentSession) throw new Error("createDelegateAgentTool: runIsolatedAgentSession is required");
-    const captureChangeSnapshot = opts.captureChangeSnapshot || (opts.captureChangedPaths
-        ? async (cwd) => {
-            const paths = await opts.captureChangedPaths?.(cwd);
-            return paths ? { head: null, entries: paths.map((path) => ({ path, status: "", contentHash: "" })) } : null;
-        }
-        : captureDelegatedChangeSnapshot);
-
-    return defineTool({
+    return defineTool<typeof PARAMETERS, DelegateAgentDetails>({
         name: "delegate_agent",
         label: "Delegate Agent",
         description:
             "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. Pass an optional role to specialize the delegate: 'verification-adversary' attacks a draft Plan with the cheapest counterfeit implementation that would pass its checks. The parent waits for the result.",
-        parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-            const requestedMode = /** @type {"read" | "write"} */ (params.mode);
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<DelegateAgentResult> {
+            const requestedMode: DelegationMode = params.mode === "write" ? "write" : "read";
             const requestedRole = typeof params.role === "string" && params.role ? params.role : DELEGATED_ROLE_GENERAL;
             const brief = typeof params.brief === "string" ? params.brief.trim() : "";
             if (!brief) {
                 return {
-                    content: [{ type: "text", text: "Delegation failed: brief is required." }],
+                    content: [{ type: "text" as const, text: "Delegation failed: brief is required." }],
                     details: { ok: false, mode: requestedMode, role: requestedRole, error: "brief_required" },
                     isError: true,
                 };
@@ -360,7 +424,7 @@ export function createDelegateAgentTool(opts) {
                     DELEGATED_ROLE_IDS.join(", ")
                 }.`;
                 return {
-                    content: [{ type: "text", text: message }],
+                    content: [{ type: "text" as const, text: message }],
                     details: {
                         ok: false,
                         mode: requestedMode,
@@ -374,15 +438,13 @@ export function createDelegateAgentTool(opts) {
 
             const mode = resolveEffectiveDelegationMode(requestedMode, role.authorityCeiling);
             const childTools = resolveDelegatedToolNames(opts.parentTools, mode);
-            /** @type {undefined | (() => void)} */
-            let release;
-            /** @type {DelegatedChangeSnapshot | null} */
-            let beforeSnapshot = null;
+            let release: (() => void) | undefined;
+            let beforeSnapshot: DelegatedChangeSnapshot | null = null;
             try {
                 release = opts.hostedSession.acquireDelegatedAgentLease(mode);
-                beforeSnapshot = mode === "write" ? await captureChangeSnapshot(opts.cwd) : null;
+                beforeSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 signal?.throwIfAborted?.();
-                const agentDef = await loadDelegatedAgentPrompt(opts.readTextFile, opts.ensurePromptFile, role.id);
+                const agentDef = await loadDelegatedAgentPrompt(role.id);
                 agentDef.tools = childTools;
                 const userRequest = [
                     `Delegation mode: ${mode}`,
@@ -415,7 +477,7 @@ export function createDelegateAgentTool(opts) {
                 const output = truncateToolText(
                     extractAssistantOutput(messages) || "(Delegated Agent returned no text.)",
                 );
-                const afterSnapshot = mode === "write" ? await captureChangeSnapshot(opts.cwd) : null;
+                const afterSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 const changedPaths = mode === "write"
                     ? diffDelegatedChangeSnapshot(beforeSnapshot, afterSnapshot)
                     : undefined;
@@ -423,7 +485,7 @@ export function createDelegateAgentTool(opts) {
                     ? delegatedHeadChanged(beforeSnapshot, afterSnapshot)
                     : undefined;
                 return {
-                    content: [{ type: "text", text: output }],
+                    content: [{ type: "text" as const, text: output }],
                     details: {
                         ok: true,
                         mode,
@@ -441,16 +503,19 @@ export function createDelegateAgentTool(opts) {
                     },
                 };
             } catch (error) {
-                const afterSnapshot = mode === "write" && release ? await captureChangeSnapshot(opts.cwd) : null;
+                const afterSnapshot = mode === "write" && release
+                    ? await captureDelegatedChangeSnapshot(opts.cwd)
+                    : null;
                 const changedPaths = mode === "write" && release
                     ? diffDelegatedChangeSnapshot(beforeSnapshot, afterSnapshot)
                     : undefined;
                 const committedChangesDetected = mode === "write" && release
                     ? delegatedHeadChanged(beforeSnapshot, afterSnapshot)
                     : undefined;
-                const message = `Delegation failed: ${errorMessage(error)}`;
+                const caughtMessage = errorMessage(error instanceof Error ? error : String(error));
+                const message = `Delegation failed: ${caughtMessage}`;
                 return {
-                    content: [{ type: "text", text: message }],
+                    content: [{ type: "text" as const, text: message }],
                     details: {
                         ok: false,
                         mode,
@@ -458,7 +523,7 @@ export function createDelegateAgentTool(opts) {
                         requestedAuthority: requestedMode,
                         effectiveAuthority: mode,
                         roleAuthorityCeiling: role.authorityCeiling,
-                        error: errorMessage(error),
+                        error: caughtMessage,
                         tools: childTools,
                         changedPaths,
                         changeAttributionComplete: mode === "write" && release

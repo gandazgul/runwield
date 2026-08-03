@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { createUserInterviewTool } from "../../tools/user-interview.js";
+import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 
 /** @param {Array<string | null>} [responses] */
@@ -23,7 +23,7 @@ function createInterviewTool(responses = []) {
  */
 async function executeTool(tool, params) {
     const execute =
-        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ details: import('../../tools/user-interview.js').InterviewResultDetails }>} */ (tool
+        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ details: import('../../tools/user-interview.ts').InterviewResultDetails }>} */ (tool
             .execute);
     return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
