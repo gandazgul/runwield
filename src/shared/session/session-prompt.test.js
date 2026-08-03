@@ -13,6 +13,7 @@ import {
     runNonInteractiveAgentPrompt,
     runPrompt,
     runRootTurn,
+    shouldBypassAutoCompactionForAssistantMessage,
     shouldReuseExistingRootSession,
 } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
@@ -300,6 +301,30 @@ sessionPromptTest("shouldReuseExistingRootSession ignores undefined optional ove
             userRequest: "commit",
             modelOverride: "test/model",
         }, AGENTS.OPERATOR),
+        false,
+    );
+});
+
+sessionPromptTest("task_completed assistant messages bypass post-turn auto-compaction", () => {
+    assertEquals(
+        shouldBypassAutoCompactionForAssistantMessage({
+            role: "assistant",
+            content: [{ type: "tool_use", name: "task_completed", input: { message: "Done" } }],
+        }),
+        true,
+    );
+    assertEquals(
+        shouldBypassAutoCompactionForAssistantMessage({
+            role: "assistant",
+            content: [{ type: "toolCall", name: "task_completed", arguments: { message: "Done" } }],
+        }),
+        true,
+    );
+    assertEquals(
+        shouldBypassAutoCompactionForAssistantMessage({
+            role: "assistant",
+            content: [{ type: "tool_use", name: "bash", input: { command: "deno task test" } }],
+        }),
         false,
     );
 });

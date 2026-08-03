@@ -1869,6 +1869,7 @@ export async function buildAgentSession({
     });
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     installEarlySteeringInterruption(/** @type {any} */ (session));
+    installTaskCompletedAutoCompactionExclusion(session);
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
     const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
@@ -1989,6 +1990,60 @@ function estimateAgentMessagesTokens(messages) {
         tokens += estimateTokens(message);
     }
     return tokens;
+}
+
+/**
+ * @typedef {Object} AssistantToolCallContent
+ * @property {string} [type]
+ * @property {string} [name]
+ */
+
+/**
+ * @typedef {Object} AssistantMessageLike
+ * @property {string} [role]
+ * @property {unknown} [content]
+ */
+
+/**
+ * @typedef {Object} AutoCompactionSessionPatch
+ * @property {(assistantMessage: unknown, skipAbortedCheck?: boolean) => Promise<boolean> | boolean} [_checkCompaction]
+ * @property {boolean} [__runWieldTaskCompletedAutoCompactionExcluded]
+ */
+
+/**
+ * @param {unknown} message
+ * @returns {boolean}
+ */
+export function shouldBypassAutoCompactionForAssistantMessage(message) {
+    const typedMessage = /** @type {AssistantMessageLike} */ (message);
+    if (typedMessage.role !== "assistant" || !Array.isArray(typedMessage.content)) return false;
+
+    return typedMessage.content.some((block) => {
+        const typedBlock = /** @type {AssistantToolCallContent} */ (block);
+        return (typedBlock.type === "tool_use" || typedBlock.type === "toolCall") &&
+            typedBlock.name === "task_completed";
+    });
+}
+
+/**
+ * Pi checks threshold auto-compaction after each assistant message, including
+ * assistant messages that only exist to call a tool. `task_completed` is usually
+ * a terminal workflow signal, so compacting immediately before the session ends
+ * burns an extra model call without preserving useful future context. Other
+ * tool calls keep Pi's normal auto-compaction behavior.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ */
+function installTaskCompletedAutoCompactionExclusion(session) {
+    const target = /** @type {AutoCompactionSessionPatch} */ (/** @type {unknown} */ (session));
+    if (target.__runWieldTaskCompletedAutoCompactionExcluded || typeof target._checkCompaction !== "function") return;
+
+    const originalCheckCompaction = target._checkCompaction;
+    target._checkCompaction = function (assistantMessage, skipAbortedCheck = true) {
+        if (shouldBypassAutoCompactionForAssistantMessage(assistantMessage)) return Promise.resolve(false);
+        return originalCheckCompaction.call(this, assistantMessage, skipAbortedCheck);
+    };
+    target.__runWieldTaskCompletedAutoCompactionExcluded = true;
 }
 
 /**
