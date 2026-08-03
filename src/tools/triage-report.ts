@@ -12,6 +12,8 @@ import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
+const TRIAGE_COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+
 const PARAMETERS = Type.Object({
     routingIntent: Type.Optional(StringEnum(ROUTING_INTENTS, {
         description:
@@ -21,7 +23,7 @@ const PARAMETERS = Type.Object({
         description:
             "Legacy compatibility field. Use routingIntent for new calls. FEATURE here is accepted and normalized to PLANNED_CHANGE.",
     })),
-    complexity: StringEnum(["LOW", "MEDIUM", "HIGH"], {
+    complexity: StringEnum([...TRIAGE_COMPLEXITIES], {
         description: "How complex is this request?",
     }),
     summary: Type.String({
@@ -43,14 +45,19 @@ const PARAMETERS = Type.Object({
 
 type TriageParameters = Static<typeof PARAMETERS>;
 
-interface TriageReportDetails {
-    routingIntent: string;
-    classification?: string;
-    complexity: string;
+export type TriageRoutingIntent = NonNullable<ReturnType<typeof normalizeRoutingIntent>>;
+export type TriageWorkKind = NonNullable<ReturnType<typeof normalizeWorkKind>>;
+export type TriageComplexity = typeof TRIAGE_COMPLEXITIES[number];
+export type TriageClassification = Extract<TriageRoutingIntent, "PLANNED_CHANGE" | "PROJECT">;
+
+export interface TriageReportDetails {
+    routingIntent: TriageRoutingIntent;
+    classification?: TriageClassification;
+    complexity: TriageComplexity;
     summary: string;
     sessionName: string;
     affectedPaths: string[];
-    workKind?: string;
+    workKind?: TriageWorkKind;
 }
 
 type TriageReportResult = AgentToolResult<TriageReportDetails> & { terminate: boolean };
@@ -64,6 +71,11 @@ function normalizeSessionName(params: TriageParameters): string {
     return sanitizeSessionName(params.sessionName) || sanitizeSessionName(params.summary) || "RunWield session";
 }
 
+function normalizeTriageComplexity(value: string): TriageComplexity {
+    if (value === "LOW" || value === "MEDIUM" || value === "HIGH") return value;
+    throw new TypeError("triage_report requires a valid complexity");
+}
+
 function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
     const routingIntent = normalizeRoutingIntent(params.routingIntent) || normalizeRoutingIntent(params.classification);
     if (!routingIntent) {
@@ -72,7 +84,7 @@ function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
 
     const details: TriageReportDetails = {
         routingIntent,
-        complexity: params.complexity,
+        complexity: normalizeTriageComplexity(params.complexity),
         summary: params.summary,
         sessionName: normalizeSessionName(params),
         affectedPaths: params.affectedPaths,
@@ -93,7 +105,8 @@ function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
 }
 
 export function createTriageReportTool(
-    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: TriageReportToolOptions = {},
+    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: TriageReportToolOptions =
+        {},
 ) {
     return defineTool<typeof PARAMETERS, TriageReportDetails>({
         name: "triage_report",

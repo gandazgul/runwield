@@ -31,6 +31,7 @@ const PARAMETERS = Type.Object({
         description: "Optional base directory for relative edit paths. Defaults to the session working directory.",
     })),
     edits: Type.Array(fileEditSchema, {
+        minItems: 1,
         description: "One or more replacements. Use edit instead when there is exactly one replacement in one file.",
     }),
 }, { additionalProperties: false });

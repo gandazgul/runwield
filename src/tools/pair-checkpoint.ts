@@ -15,12 +15,14 @@ import {
 } from "../shared/session/session-runtime-interactions.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
-const CHECKPOINT_DECISIONS = Object.freeze({
+const CHECKPOINT_DECISIONS = {
+    INACTIVE: "inactive",
+    CANCELED: "canceled",
     CONTINUE: "continue",
     REVISE: "revise",
     SWITCH_TO_AUTONOMOUS: "switch_to_autonomous",
     STOP: "stop",
-});
+} as const;
 
 const PARAMETERS = Type.Object({
     summary: Type.String({
@@ -48,15 +50,36 @@ const PARAMETERS = Type.Object({
     ),
 }, { additionalProperties: false });
 
-type PairCheckpointParams = Static<typeof PARAMETERS>;
-type PairCheckpointDecision = string;
+export type PairCheckpointParameters = Static<typeof PARAMETERS>;
 
-interface PairCheckpointDetails {
-    decision: PairCheckpointDecision;
-    checkpointNumber?: number;
-    feedback?: string;
-    reason?: string;
-}
+export type PairCheckpointDetails =
+    | {
+        decision: "inactive";
+        reason: "pair_execution_inactive" | "pair_execution_paused";
+    }
+    | {
+        decision: "canceled";
+        checkpointNumber: number;
+        reason: "checkpoint_interaction_canceled" | "revision_feedback_required";
+    }
+    | {
+        decision: "continue";
+        checkpointNumber: number;
+    }
+    | {
+        decision: "revise";
+        checkpointNumber: number;
+        feedback: string;
+    }
+    | {
+        decision: "switch_to_autonomous";
+        checkpointNumber: number;
+        reason?: "pair_capability_lost" | "invalid_checkpoint_response";
+    }
+    | {
+        decision: "stop";
+        checkpointNumber: number;
+    };
 
 type PairCheckpointResult = AgentToolResult<PairCheckpointDetails> & { terminate: boolean };
 
@@ -85,13 +108,15 @@ export function createPairCheckpointTool(
 ) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
     function recordDecision(details: PairCheckpointDetails): void {
+        const reason = "reason" in details ? details.reason : undefined;
+        const checkpointNumber = "checkpointNumber" in details ? details.checkpointNumber : undefined;
         void recordWorkflowMetricImpl({
             category: "execution",
             event: "pair_checkpoint_decided",
             details: {
-                checkpointNumber: details.checkpointNumber,
+                checkpointNumber,
                 decision: details.decision,
-                reason: details.reason,
+                reason,
             },
         }, { cwd: hostedSession.cwd });
     }
@@ -109,13 +134,13 @@ export function createPairCheckpointTool(
             ) {
                 return checkpointResult(
                     "Pair checkpoint is inactive; continue autonomously.",
-                    { decision: "inactive", reason: "pair_execution_inactive" },
+                    { decision: CHECKPOINT_DECISIONS.INACTIVE, reason: "pair_execution_inactive" },
                 );
             }
             if (workflow.pairPauseReason || workflow.pairStopRequested) {
                 return checkpointResult(
                     "Pair Execution is already paused. Do not continue implementation or call task_completed until the user deliberately resumes execution.",
-                    { decision: "inactive", reason: "pair_execution_paused" },
+                    { decision: CHECKPOINT_DECISIONS.INACTIVE, reason: "pair_execution_paused" },
                     true,
                 );
             }
@@ -155,13 +180,17 @@ export function createPairCheckpointTool(
             if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
                 hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
                 recordDecision({
-                    decision: "canceled",
+                    decision: CHECKPOINT_DECISIONS.CANCELED,
                     checkpointNumber,
                     reason: "checkpoint_interaction_canceled",
                 });
                 return checkpointResult(
                     "The Pair checkpoint interaction was canceled. Pause this turn without task_completed; no increment approval was recorded.",
-                    { decision: "canceled", checkpointNumber, reason: "checkpoint_interaction_canceled" },
+                    {
+                        decision: CHECKPOINT_DECISIONS.CANCELED,
+                        checkpointNumber,
+                        reason: "checkpoint_interaction_canceled",
+                    },
                     true,
                 );
             }
@@ -208,15 +237,23 @@ export function createPairCheckpointTool(
                 const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback.trim() : "";
                 if (!feedback) {
                     hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
-                    recordDecision({ decision: "canceled", checkpointNumber, reason: "revision_feedback_required" });
+                    recordDecision({
+                        decision: CHECKPOINT_DECISIONS.CANCELED,
+                        checkpointNumber,
+                        reason: "revision_feedback_required",
+                    });
                     return checkpointResult(
                         "Revision was selected without feedback. Pause this turn without task_completed; no increment approval was recorded.",
-                        { decision: "canceled", checkpointNumber, reason: "revision_feedback_required" },
+                        {
+                            decision: CHECKPOINT_DECISIONS.CANCELED,
+                            checkpointNumber,
+                            reason: "revision_feedback_required",
+                        },
                         true,
                     );
                 }
                 hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
-                recordDecision({ decision, checkpointNumber });
+                recordDecision({ decision, checkpointNumber, feedback });
                 return checkpointResult(
                     `Revise this increment using the user's feedback: ${feedback}`,
                     { decision, feedback, checkpointNumber },

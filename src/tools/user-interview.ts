@@ -85,16 +85,11 @@ const PARAMETERS = Type.Object({
 
 type InterviewParameters = Static<typeof PARAMETERS>;
 
-interface InterviewError {
+export interface InterviewError {
     code: string;
     message: string;
     questionIndex?: number;
     questionId?: string;
-}
-
-interface InterviewChoice {
-    value: string;
-    label?: string;
 }
 
 interface SelectOption {
@@ -102,33 +97,12 @@ interface SelectOption {
     label: string;
 }
 
-interface MultipleChoiceQuestionInput {
-    id?: string;
-    type: string;
-    prompt: string;
-    choices: InterviewChoice[];
-    default?: string | boolean;
-    allowOther?: boolean;
+export interface InterviewChoice {
+    value: string;
+    label?: string;
 }
 
-interface YesNoQuestionInput {
-    id?: string;
-    type: string;
-    prompt: string;
-    default?: string | boolean;
-    allowOther?: boolean;
-}
-
-interface TextQuestionInput {
-    id?: string;
-    type: string;
-    prompt: string;
-    default?: string | boolean;
-    placeholder?: string;
-    allowEmpty?: boolean;
-}
-
-interface YesNoInterviewQuestion {
+export interface YesNoInterviewQuestion {
     id?: string;
     type: "yes_no";
     prompt: string;
@@ -136,7 +110,7 @@ interface YesNoInterviewQuestion {
     allowOther?: boolean;
 }
 
-interface TextInterviewQuestion {
+export interface TextInterviewQuestion {
     id?: string;
     type: "text";
     prompt: string;
@@ -145,7 +119,7 @@ interface TextInterviewQuestion {
     allowEmpty?: boolean;
 }
 
-interface MultipleChoiceInterviewQuestion {
+export interface MultipleChoiceInterviewQuestion {
     id?: string;
     type: "multiple_choice";
     prompt: string;
@@ -154,11 +128,13 @@ interface MultipleChoiceInterviewQuestion {
     allowOther?: boolean;
 }
 
-type InterviewQuestion = YesNoInterviewQuestion | TextInterviewQuestion | MultipleChoiceInterviewQuestion;
-type InterviewAnswerValue = boolean | string;
-type InterviewStatus = "completed" | "canceled" | "invalid_request" | "validation_error";
+export type InterviewQuestion =
+    | YesNoInterviewQuestion
+    | TextInterviewQuestion
+    | MultipleChoiceInterviewQuestion;
+export type InterviewAnswerValue = boolean | string;
 
-interface InterviewResultAnswer {
+export interface InterviewResultAnswer {
     index: number;
     id?: string;
     type: InterviewQuestion["type"];
@@ -168,17 +144,51 @@ interface InterviewResultAnswer {
     otherText?: string;
 }
 
-export interface InterviewResultDetails {
-    status: InterviewStatus;
-    canceled: boolean;
-    completed: boolean;
+interface InterviewResultBase {
     totalQuestions: number;
     answeredCount: number;
     remainingCount: number;
-    canceledAt?: number;
     answers: InterviewResultAnswer[];
     errors?: InterviewError[];
 }
+
+export interface CompletedInterviewResultDetails extends InterviewResultBase {
+    status: "completed";
+    canceled: false;
+    completed: true;
+    remainingCount: 0;
+    canceledAt?: never;
+}
+
+export interface CanceledInterviewResultDetails extends InterviewResultBase {
+    status: "canceled";
+    canceled: true;
+    completed: false;
+    canceledAt: number;
+    errors: InterviewError[];
+}
+
+export interface InvalidInterviewResultDetails extends InterviewResultBase {
+    status: "invalid_request";
+    canceled: false;
+    completed: false;
+    canceledAt?: never;
+    errors: InterviewError[];
+}
+
+export interface ValidationErrorInterviewResultDetails extends InterviewResultBase {
+    status: "validation_error";
+    canceled: false;
+    completed: false;
+    canceledAt?: never;
+    errors: InterviewError[];
+}
+
+export type InterviewResultDetails =
+    | CompletedInterviewResultDetails
+    | CanceledInterviewResultDetails
+    | InvalidInterviewResultDetails
+    | ValidationErrorInterviewResultDetails;
 
 type InterviewAnswer =
     | { canceled: true }
@@ -195,39 +205,35 @@ interface UserInterviewToolOptions {
     hostedSession?: HostedSession;
 }
 
-function toInterviewQuestion(question: Static<typeof INTERVIEW_QUESTION>): InterviewQuestion {
+function toInterviewQuestion(question: Static<typeof INTERVIEW_QUESTION>): InterviewQuestion | null {
     if (question.type === "multiple_choice") {
-        const multipleChoiceQuestion = question as MultipleChoiceQuestionInput;
+        if (!("choices" in question) || !Array.isArray(question.choices)) return null;
         return {
-            id: multipleChoiceQuestion.id,
+            id: question.id,
             type: "multiple_choice",
-            prompt: multipleChoiceQuestion.prompt,
-            choices: multipleChoiceQuestion.choices.map((choice: InterviewChoice) => ({
-                value: choice.value,
-                label: choice.label,
-            })),
-            default: typeof multipleChoiceQuestion.default === "string" ? multipleChoiceQuestion.default : undefined,
-            allowOther: multipleChoiceQuestion.allowOther,
+            prompt: question.prompt,
+            choices: question.choices.map((choice) => ({ value: choice.value, label: choice.label })),
+            default: typeof question.default === "string" ? question.default : undefined,
+            allowOther: "allowOther" in question ? question.allowOther : undefined,
         };
     }
     if (question.type === "yes_no") {
-        const yesNoQuestion = question as YesNoQuestionInput;
         return {
-            id: yesNoQuestion.id,
+            id: question.id,
             type: "yes_no",
-            prompt: yesNoQuestion.prompt,
-            default: typeof yesNoQuestion.default === "boolean" ? yesNoQuestion.default : undefined,
-            allowOther: yesNoQuestion.allowOther,
+            prompt: question.prompt,
+            default: typeof question.default === "boolean" ? question.default : undefined,
+            allowOther: "allowOther" in question ? question.allowOther : undefined,
         };
     }
-    const textQuestion = question as TextQuestionInput;
+    if (question.type !== "text") return null;
     return {
-        id: textQuestion.id,
+        id: question.id,
         type: "text",
-        prompt: textQuestion.prompt,
-        default: typeof textQuestion.default === "string" ? textQuestion.default : undefined,
-        placeholder: textQuestion.placeholder,
-        allowEmpty: textQuestion.allowEmpty,
+        prompt: question.prompt,
+        default: typeof question.default === "string" ? question.default : undefined,
+        placeholder: "placeholder" in question ? question.placeholder : undefined,
+        allowEmpty: "allowEmpty" in question ? question.allowEmpty : undefined,
     };
 }
 
@@ -354,7 +360,15 @@ function normalizeBatch(params: InterviewParameters): NormalizeBatchResult {
         return { ok: false, questions: [], error: "Invalid batch size. Ask 1 to 3 questions per tool call." };
     }
 
-    return { ok: true, questions: questionInputs.map(toInterviewQuestion) };
+    const questions: InterviewQuestion[] = [];
+    for (const questionInput of questionInputs) {
+        const question = toInterviewQuestion(questionInput);
+        if (!question) {
+            return { ok: false, questions: [], error: "Invalid interview question type." };
+        }
+        questions.push(question);
+    }
+    return { ok: true, questions };
 }
 
 function validateBatch(questions: InterviewQuestion[]): InterviewError[] {
@@ -493,13 +507,13 @@ async function askSelect(
     question: InterviewQuestion,
     options: SelectOption[],
     hostedSession: HostedSession | undefined,
-    extra: { defaultValue?: string } = {},
+    defaultValue?: string,
 ): Promise<InterviewAnswer> {
     const brokerResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
         prompt: question.prompt,
         options,
-        defaultValue: extra.defaultValue,
+        defaultValue,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
     });
     const brokerFailure = brokerFailureToAnswer(brokerResponse, question);
@@ -549,9 +563,12 @@ async function askQuestion(
             { value: OTHER_VALUE, label: "Other" },
         ];
         while (true) {
-            const selected = await askSelect(question, options, hostedSession, {
-                defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
-            });
+            const selected = await askSelect(
+                question,
+                options,
+                hostedSession,
+                typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
+            );
             if ("canceled" in selected || "error" in selected) return selected;
             if (selected.value === OTHER_VALUE) {
                 const otherAnswer = await askOther(question, hostedSession);
@@ -580,7 +597,7 @@ async function askQuestion(
         }));
         options.push({ value: OTHER_VALUE, label: "Other" });
         while (true) {
-            const selected = await askSelect(question, options, hostedSession, { defaultValue: question.default });
+            const selected = await askSelect(question, options, hostedSession, question.default);
             if ("canceled" in selected || "error" in selected) return selected;
             if (selected.value === OTHER_VALUE) {
                 const otherAnswer = await askOther(question, hostedSession);
@@ -629,17 +646,7 @@ async function askQuestion(
 }
 
 function buildResult(details: InterviewResultDetails): UserInterviewResult {
-    const payload: InterviewResultDetails = {
-        status: details.status,
-        canceled: details.canceled,
-        completed: details.completed,
-        totalQuestions: details.totalQuestions,
-        answeredCount: details.answeredCount,
-        remainingCount: details.remainingCount,
-        canceledAt: details.canceledAt,
-        answers: details.answers,
-        errors: details.errors || [],
-    };
+    const payload = { ...details, errors: details.errors || [] };
 
     return {
         content: [{

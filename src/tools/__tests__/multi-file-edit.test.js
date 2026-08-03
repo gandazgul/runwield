@@ -23,6 +23,7 @@ Deno.test("multi_file_edit exposes distinct multi-file schema", () => {
 
     const properties = /** @type {{ properties: Record<string, any> }} */ (tool.parameters).properties;
     assertEquals(Object.keys(properties), ["root", "edits"]);
+    assertEquals(properties.edits.minItems, 1);
 
     const editProperties = properties.edits.items.properties;
     assertEquals(Object.keys(editProperties), ["path", "oldText", "newText"]);

@@ -162,7 +162,7 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
 });
 
 Deno.test("delegate_agent returns child output without inheriting workflow tools", async () => {
-    /** @type {Array<Record<string, unknown>>} */
+    /** @type {Array<import('../delegate-agent.ts').DelegatedAgentSessionOptions>} */
     const calls = [];
     const hostedSession = new HostedSession({ id: "delegate-read", cwd: Deno.cwd() });
     const tool = createDelegateAgentTool({
@@ -200,10 +200,8 @@ Deno.test("delegate_agent returns child output without inheriting workflow tools
 });
 
 Deno.test("delegate_agent applies verification-adversary read-only role ceiling", async () => {
-    /** @type {Array<Record<string, unknown>>} */
+    /** @type {Array<import('../delegate-agent.ts').DelegatedAgentSessionOptions>} */
     const calls = [];
-    /** @type {string[]} */
-    const snapshotCwds = [];
     const hostedSession = new HostedSession({ id: "delegate-adversary", cwd: Deno.cwd() });
     /** @type {Array<{ readers: number, writer: boolean }>} */
     const leaseStates = [];
@@ -228,7 +226,6 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
     assertEquals(leaseStates[0], { readers: 1, writer: false });
     assertEquals(calls[0].toolNames, ["read", "grep"]);
     assertEquals(calls[0].includeEditFallback, false);
-    assertEquals(snapshotCwds, []);
     assertEquals(result.details.changedPaths, undefined);
     assertEquals(result.details.changeAttributionComplete, undefined);
     assertEquals(result.details.committedChangesDetected, undefined);
@@ -242,7 +239,8 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
     assertStringIncludes(String(calls[0].userRequest || ""), "Delegated role: verification-adversary");
     assertStringIncludes(String(calls[0].userRequest || ""), "so this session runs as read");
     // The composed prompt is the real base prompt plus the real role overlay.
-    const agentDef = /** @type {{ systemPrompt: string }} */ (calls[0]._agentDefOverride);
+    const agentDef = /** @type {{ displayName: string, systemPrompt: string }} */ (calls[0]._agentDefOverride);
+    assertEquals(agentDef.displayName, "Verification Adversary");
     assertStringIncludes(agentDef.systemPrompt, "Complete only the supplied brief.");
     assertStringIncludes(agentDef.systemPrompt, "not-discriminating");
     assertEquals(hostedSession.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
@@ -273,7 +271,7 @@ Deno.test("delegate_agent rejects an unknown role before a child session starts"
 });
 
 Deno.test("delegate_agent propagates parent model and thinking state", async () => {
-    /** @type {Array<Record<string, unknown>>} */
+    /** @type {Array<import('../delegate-agent.ts').DelegatedAgentSessionOptions>} */
     const calls = [];
     const hostedSession = new HostedSession({ id: "delegate-parent-state", cwd: Deno.cwd() });
     hostedSession.pushAgentInfo("Engineer", "anthropic/claude-sonnet-4", "anthropic", "engineer");
@@ -301,7 +299,7 @@ Deno.test("delegate_agent preserves failed writer changes and releases lease", a
     try {
         await Deno.writeTextFile(join(executionCwd, "src", "pre-existing.js"), "modified\n");
         const hostedSession = new HostedSession({ id: "delegate-write-fail", cwd: Deno.cwd() });
-        /** @type {Array<Record<string, unknown>>} */
+        /** @type {Array<import('../delegate-agent.ts').DelegatedAgentSessionOptions>} */
         const calls = [];
         const tool = createDelegateAgentTool({
             hostedSession,

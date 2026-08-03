@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
+import { getHomeDir } from "../constants.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
 import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.ts";
@@ -67,7 +68,7 @@ async function writeVisionModelConfig(tempHome) {
 
 Deno.test("see_image invokes fallback model with local image and default prompt", async () => {
     await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
+        const originalHome = getHomeDir();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-home-" });
         const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-" });
         try {
@@ -103,8 +104,7 @@ Deno.test("see_image invokes fallback model with local image and default prompt"
             assertEquals(calls[0].context.messages[0].content[1].mimeType, "image/png");
             assertEquals(calls[0].options.apiKey, "key");
         } finally {
-            if (originalHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", originalHome);
+            Deno.env.set("HOME", originalHome);
             await Deno.remove(tempHome, { recursive: true });
             await Deno.remove(cwd, { recursive: true });
         }
@@ -113,7 +113,7 @@ Deno.test("see_image invokes fallback model with local image and default prompt"
 
 Deno.test("see_image returns tool error on auth failure", async () => {
     await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
+        const originalHome = getHomeDir();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-home-" });
         const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-" });
         try {
@@ -128,8 +128,7 @@ Deno.test("see_image returns tool error on auth failure", async () => {
             assertEquals(result.isError, true);
             assertEquals(result.content[0].text, "No configured auth for provider missing-vision");
         } finally {
-            if (originalHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", originalHome);
+            Deno.env.set("HOME", originalHome);
             await Deno.remove(tempHome, { recursive: true });
             await Deno.remove(cwd, { recursive: true });
         }
@@ -138,7 +137,7 @@ Deno.test("see_image returns tool error on auth failure", async () => {
 
 Deno.test("see_image resolves attachment refs from the session image directory", async () => {
     await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
+        const originalHome = getHomeDir();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-home-" });
         const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-attachment-" });
         try {
@@ -177,8 +176,7 @@ Deno.test("see_image resolves attachment refs from the session image directory",
             assertEquals(calls[0].mimeType, "image/png");
             assertEquals(calls[0].data, btoa("img"));
         } finally {
-            if (originalHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", originalHome);
+            Deno.env.set("HOME", originalHome);
             await Deno.remove(tempHome, { recursive: true });
             await Deno.remove(cwd, { recursive: true });
         }

@@ -6,12 +6,21 @@
 import { join } from "@std/path";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.js";
-import { ensureBundledAgentDefFile } from "../shared/session/agent-assets.js";
-import { loadSubAgentDefinition } from "../shared/session/subagent-definitions.ts";
+import {
+    DELEGATED_ROLE_GENERAL,
+    DELEGATED_ROLE_IDS,
+    getDelegatedRole,
+    loadSubAgentDefinition,
+} from "../shared/session/subagent-definitions.ts";
+import type {
+    DelegatedAuthority,
+    DelegatedRoleDefinition,
+    DelegatedRoleId,
+} from "../shared/session/subagent-definitions.ts";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import type { AgentDefinition } from "../shared/session/types.js";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
@@ -42,43 +51,7 @@ const WRITE_TOOLS = Object.freeze([
     "multi_file_edit",
 ]);
 
-const DELEGATED_ROLE_GENERAL = "general";
-const DELEGATED_ROLE_VERIFICATION_ADVERSARY = "verification-adversary";
-const DELEGATED_ROLE_IDS = Object.freeze([DELEGATED_ROLE_GENERAL, DELEGATED_ROLE_VERIFICATION_ADVERSARY] as const);
-const VERIFICATION_ADVERSARY_ROLE_PATH = "subagent-definitions/roles/verification-adversary.md";
-
 type DelegationMode = "read" | "write";
-type DelegatedRoleId = typeof DELEGATED_ROLE_IDS[number];
-type DelegatedAuthority = DelegationMode;
-
-interface DelegatedRoleDefinition {
-    id: DelegatedRoleId;
-    authorityCeiling: DelegatedAuthority;
-}
-
-const DELEGATED_ROLES: Readonly<Record<DelegatedRoleId, DelegatedRoleDefinition>> = Object.freeze({
-    [DELEGATED_ROLE_GENERAL]: Object.freeze({ id: DELEGATED_ROLE_GENERAL, authorityCeiling: "write" }),
-    [DELEGATED_ROLE_VERIFICATION_ADVERSARY]: Object.freeze({
-        id: DELEGATED_ROLE_VERIFICATION_ADVERSARY,
-        authorityCeiling: "read",
-    }),
-});
-
-function getDelegatedRole(roleId: string): DelegatedRoleDefinition | null {
-    return roleId === DELEGATED_ROLE_GENERAL || roleId === DELEGATED_ROLE_VERIFICATION_ADVERSARY
-        ? DELEGATED_ROLES[roleId]
-        : null;
-}
-
-function stripMarkdownFrontMatter(markdown: string): string {
-    return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
-}
-
-async function readRoleOverlay(role: DelegatedRoleId): Promise<string> {
-    if (role !== DELEGATED_ROLE_VERIFICATION_ADVERSARY) return "";
-    const rolePath = await ensureBundledAgentDefFile(VERIFICATION_ADVERSARY_ROLE_PATH);
-    return stripMarkdownFrontMatter(await Deno.readTextFile(rolePath));
-}
 
 const PARAMETERS = Type.Object({
     mode: StringEnum(["read", "write"], {
@@ -97,23 +70,22 @@ const PARAMETERS = Type.Object({
     }),
 }, { additionalProperties: false });
 
-type DelegateAgentToolDefinition = ToolDefinition<typeof PARAMETERS, DelegateAgentDetails>;
-type RunIsolatedAgentSession = (
-    opts: Parameters<NonNullable<DelegateAgentToolDefinition["execute"]>>[4] extends never ? never : {
-        hostedSession: HostedSession;
-        agentName: string;
-        userRequest: string;
-        cwd: string;
-        _agentDefOverride: AgentDefinition;
-        toolNames: string[];
-        includeEditFallback: boolean;
-        allowReturnToRouter: boolean;
-        modelOverride?: string;
-        thinkingLevelOverride?: ThinkingLevel;
-        projectStateContext: string;
-        signal?: AbortSignal;
-    },
-) => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
+export interface DelegatedAgentSessionOptions {
+    hostedSession: HostedSession;
+    agentName: string;
+    userRequest: string;
+    cwd: string;
+    _agentDefOverride: AgentDefinition;
+    toolNames: string[];
+    includeEditFallback: boolean;
+    allowReturnToRouter: boolean;
+    modelOverride?: string;
+    thinkingLevelOverride?: ThinkingLevel;
+    projectStateContext: string;
+    signal?: AbortSignal;
+}
+
+type RunIsolatedAgentSession = (opts: DelegatedAgentSessionOptions) => Promise<AgentMessage[]>;
 
 interface DelegateAgentToolOptions {
     hostedSession: HostedSession;
@@ -158,10 +130,6 @@ interface DelegateAgentDetails {
 
 type DelegateAgentResult = AgentToolResult<DelegateAgentDetails> & { isError?: boolean };
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 function errorMessage(value: null | undefined | string | number | boolean | Error): string {
     return value instanceof Error ? value.message : String(value);
 }
@@ -181,12 +149,9 @@ export function resolveDelegatedToolNames(parentTools: string[], mode: Delegatio
  * @returns {Promise<import('../shared/session/types.js').AgentDefinition>}
  */
 export async function loadDelegatedAgentPrompt(
-    _role: DelegatedRoleId = DELEGATED_ROLE_GENERAL,
+    role: DelegatedRoleId = DELEGATED_ROLE_GENERAL,
 ): Promise<AgentDefinition> {
-    const agentDef = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
-    const roleOverlay = await readRoleOverlay(_role);
-    if (roleOverlay) agentDef.systemPrompt = `${agentDef.systemPrompt}\n\n${roleOverlay}`;
-    return agentDef;
+    return await loadSubAgentDefinition(SUBAGENTS.DELEGATED, { delegatedRole: role });
 }
 
 /**
@@ -356,11 +321,6 @@ function resolveDelegatedModelOverride(
     return activeModel.model ? formatProviderModelReference(activeModel) : undefined;
 }
 
-/**
- * @param {import('../shared/session/hosted-session.js').HostedSession} hostedSession
- * @param {DelegateAgentDeps['thinkingLevelOverride']} explicitOverride
- * @returns {DelegateAgentDeps['thinkingLevelOverride']}
- */
 function resolveDelegatedThinkingLevelOverride(
     hostedSession: HostedSession,
     explicitOverride: ThinkingLevel | undefined,
