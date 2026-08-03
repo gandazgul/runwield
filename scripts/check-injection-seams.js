@@ -87,10 +87,15 @@ const SOURCE_FILE_PATTERN = /\.(?:[jt]sx?|mjs|mts)$/;
 /**
  * A parameter or property annotated as a dependency bag: `deps: LoadPlanTestDeps`.
  *
+ * `…Ports` counts too. Renaming the bag does not change what it is, and a split
+ * that introduced `ports?.name || realName` proved the point — the shape survived
+ * the rename intact. Whether it is a bag is decided by `isOverrideBagType`, not by
+ * the noun: an all-required port set passes, an all-optional override bag does not.
+ *
  * Global-flagged regexes carry `lastIndex`, so this is rebuilt per use rather than
  * shared; the constant is the pattern, not a live matcher.
  */
-const DEPS_PARAMETER_SOURCE = "([A-Za-z_$][\\w$]*)\\s*\\??\\s*:\\s*([A-Za-z_$][\\w$]*Deps)\\b";
+const DEPS_PARAMETER_SOURCE = "([A-Za-z_$][\\w$]*)\\s*\\??\\s*:\\s*([A-Za-z_$][\\w$]*(?:Deps|Ports))\\b";
 const DEPS_PARAMETER = new RegExp(DEPS_PARAMETER_SOURCE);
 
 const MACHINERY_SEAMS = [

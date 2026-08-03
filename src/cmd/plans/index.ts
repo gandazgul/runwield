@@ -9,12 +9,12 @@ import { countChildPlanProgress, groupPlanHierarchy, listPlans } from "../../pla
 import { printCommandHelp } from "../help/index.js";
 import { runPlansArchiveCommand } from "./archive.ts";
 import { runPlansDoctorCommand } from "./doctor.ts";
-import { runPlansPullCommand } from "./pull.js";
-import { runPlansPushCommand } from "./push.js";
+import { runPlansPullCommand } from "./pull.ts";
+import { runPlansPushCommand } from "./push.ts";
 import { runPlansReadCommand } from "./read.ts";
-import { runPlansShareCommand } from "./share.js";
+import { runPlansShareCommand } from "./share.ts";
 import { runPlansUiCommand } from "./ui.ts";
-import { runPlansUnshareCommand } from "./unshare.js";
+import { runPlansUnshareCommand } from "./unshare.ts";
 
 type PlanEntry = Awaited<ReturnType<typeof listPlans>>[number];
 

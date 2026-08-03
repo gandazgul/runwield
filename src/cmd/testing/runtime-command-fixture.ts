@@ -55,13 +55,17 @@ export async function withRuntimeCommandFixture(
                             id: TEST_MODEL,
                             name: "Runtime Command Fixture Model",
                             api: TEST_API,
-                            input: ["text"],
+                            input: ["text", "image"],
                             contextWindow: 128000,
                             maxTokens: 4096,
                         }],
                     },
                 },
             }),
+        );
+        await Deno.writeTextFile(
+            join(runwieldDir, "auth.json"),
+            JSON.stringify({ [TEST_PROVIDER]: { type: "api_key", key: "fixture-key" } }),
         );
         await Deno.writeTextFile(
             settingsPath,
@@ -77,7 +81,7 @@ export async function withRuntimeCommandFixture(
             api: TEST_API,
             provider: TEST_PROVIDER,
             tokensPerSecond: 1000,
-            models: [{ id: TEST_MODEL, name: "Runtime Command Fixture Model", input: ["text"] }],
+            models: [{ id: TEST_MODEL, name: "Runtime Command Fixture Model", input: ["text", "image"] }],
         });
 
         try {

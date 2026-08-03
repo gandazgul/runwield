@@ -3,20 +3,17 @@
  * Pull encrypted remote Shared Space feedback into a local locked Plan.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import {
-    createPulledCollaborationPlan as createPulledCollaborationPlanFn,
-    hashPlanBody as hashPlanBodyFn,
-    listPlanResources as listPlanResourcesFn,
-    updatePlanCollaborationMetadata as updatePlanCollaborationMetadataFn,
+    createPulledCollaborationPlan,
+    hashPlanBody,
+    listPlanResources,
+    updatePlanCollaborationMetadata,
 } from "../../plan-store.js";
 import { MAINTAINER_SCOPE, redactSecrets } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient as createCollaborationClientFn } from "../../shared/collaboration/client.js";
-import {
-    decryptJsonPayload as decryptJsonPayloadFn,
-    importContentKey as importContentKeyFn,
-} from "../../shared/collaboration/crypto.js";
+import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { decryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import {
     normalizeDecryptedReviewCommentPayload,
@@ -26,37 +23,89 @@ import {
     normalizeSharedSpaceMetadata,
 } from "../../shared/collaboration/protocol.js";
 import {
-    assertCompatiblePullSecretRecord as assertCompatiblePullSecretRecordFn,
-    ensureProjectSecretStoreIgnored as ensureProjectSecretStoreIgnoredFn,
-    getGlobalSecretStorePath as getGlobalSecretStorePathFn,
-    getProjectSecretStorePath as getProjectSecretStorePathFn,
-    putCompatibleSecretRecord as putCompatibleSecretRecordFn,
-    resolvePullSecretRecord as resolvePullSecretRecordFn,
+    assertCompatiblePullSecretRecord,
+    ensureProjectSecretStoreIgnored,
+    getGlobalSecretStorePath,
+    getProjectSecretStorePath,
+    putCompatibleSecretRecord,
+    resolvePullSecretRecord,
     secretRecordKey,
 } from "../../shared/collaboration/secrets.js";
-import {
-    parseCollaborationUrl as parseCollaborationUrlFn,
-    redactCollaborationUrl,
-} from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl as normalizePlanServerUrlFn } from "../../shared/settings.js";
+import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
+import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import {
     buildPullRevisionRequest,
     selectPullPlanningAgent,
     summarizePullPlanningOutcome,
 } from "../../shared/workflow/collaboration-pull.js";
 
-/**
- * @typedef {Object} PlansPullArgs
- * @property {string} [target]
- * @property {string} [planServer]
- * @property {boolean} projectSecrets
- * @property {string} [to]
- * @property {boolean} help
- */
+interface PlansPullArgs {
+    target?: string;
+    planServer?: string;
+    projectSecrets: boolean;
+    to?: string;
+    help: boolean;
+}
+
+export interface PullPlanForRevisionOptions {
+    cwd?: string;
+    target: string;
+    planServer?: string;
+    projectSecrets?: boolean;
+    to?: string;
+}
+
+export interface RunPlansPullOptions {
+    sessionRuntime?: SessionRuntime;
+    sessionId?: string;
+}
+
+interface WireRecord {
+    [key: string]: WireValue;
+}
+
+type WireValue = boolean | number | string | null | WireRecord | WireValue[] | undefined;
+type PlanResource = Awaited<ReturnType<typeof listPlanResources>>[number];
+type PlanAttrs = PlanResource["attrs"];
+type PullReviewComment = Parameters<typeof buildPullRevisionRequest>[0]["comments"][number];
+type EncryptedComment = ReturnType<typeof normalizeEncryptedCommentRecord>;
+
+interface ResolvedPull {
+    serverUrl: string;
+    spaceId: string;
+    contentKey: string;
+    maintainerCapability: string;
+    planName?: string;
+    localResource?: PlanResource;
+}
+
+interface LocalPull {
+    planName: string;
+    path?: string;
+    attrs: PlanAttrs;
+    action: "created" | "updated" | "up-to-date";
+}
+
+export interface PulledPlanRevision {
+    planName: string;
+    planPath?: string;
+    title: string;
+    attrs: PlanAttrs;
+    action: LocalPull["action"];
+    serverUrl: string;
+    spaceId: string;
+    remoteStatus: string;
+    expiresAt?: string;
+    revision: number;
+    comments: PullReviewComment[];
+    unreadableCommentCount: number;
+    secretImported: boolean;
+}
 
 /** @param {string[]} argv */
-export function parsePlansPullArgs(argv) {
-    const parsed = parseArgsFn(argv, {
+export function parsePlansPullArgs(argv: string[]): PlansPullArgs {
+    const parsed = parseArgs(argv, {
         boolean: ["help", "project-secrets"],
         string: ["plan-server", "to"],
         alias: { h: "help" },
@@ -83,48 +132,44 @@ Pulls a remote Shared Space revision and encrypted review comments, updates/crea
 }
 
 /** @param {string} value */
-function looksLikeUrl(value) {
+function looksLikeUrl(value: string): boolean {
     return /^https?:\/\//i.test(value);
 }
 
-/** @param {unknown} value */
-function normalizeSpaceResponse(value) {
+function normalizeSpaceResponse(value: WireValue): ReturnType<typeof normalizeSharedSpaceMetadata> {
     if (value && typeof value === "object" && !Array.isArray(value) && "space" in value) {
-        return normalizeSpaceResponse(/** @type {{ space: unknown }} */ (value).space);
+        return normalizeSpaceResponse(value.space);
     }
     return normalizeSharedSpaceMetadata(value);
 }
 
-/** @param {unknown} value */
-function normalizeRevisionResponse(value) {
+function normalizeRevisionResponse(value: WireValue): ReturnType<typeof normalizeRevisionMetadata> {
     if (
         value && typeof value === "object" && !Array.isArray(value) &&
-        typeof /** @type {{ revision?: unknown }} */ (value).revision === "object"
+        typeof value.revision === "object"
     ) {
-        return normalizeRevisionResponse(/** @type {{ revision: unknown }} */ (value).revision);
+        return normalizeRevisionResponse(value.revision);
     }
     return normalizeRevisionMetadata(value);
 }
 
-/** @param {unknown} value */
-function normalizeCommentsResponse(value) {
+function normalizeCommentsResponse(value: WireValue): EncryptedComment[] {
     if (Array.isArray(value)) return value.map(normalizeEncryptedCommentRecord);
     if (value && typeof value === "object" && !Array.isArray(value)) {
-        const comments = /** @type {{ comments?: unknown }} */ (value).comments;
+        const comments = value.comments;
         if (Array.isArray(comments)) return comments.map(normalizeEncryptedCommentRecord);
     }
     throw new Error("Remote comments response must be an array or an object with a comments array.");
 }
 
-/** @param {string} cwd @param {boolean} projectSecrets @param {any} deps */
-function secretPaths(cwd, projectSecrets, deps) {
-    const globalPath = (deps.getGlobalSecretStorePath || getGlobalSecretStorePathFn)();
-    const projectPath = (deps.getProjectSecretStorePath || getProjectSecretStorePathFn)(cwd);
+/** @param {string} cwd @param {boolean} projectSecrets */
+function secretPaths(cwd: string, projectSecrets: boolean): string[] {
+    const globalPath = getGlobalSecretStorePath();
+    const projectPath = getProjectSecretStorePath(cwd);
     return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
 }
 
-/** @param {any[]} resources @param {string} planId */
-function findResourceByPlanId(resources, planId) {
+function findResourceByPlanId(resources: PlanResource[], planId: string): PlanResource | null {
     const matches = resources.filter((resource) => resource.planId === planId || resource.attrs?.planId === planId);
     if (matches.length > 1) {
         throw new Error(`Duplicate planId values found for ${planId}; repair plan front matter before continuing.`);
@@ -132,8 +177,7 @@ function findResourceByPlanId(resources, planId) {
     return matches[0] || null;
 }
 
-/** @param {any[]} resources @param {string} target */
-function findResourceByNameOrId(resources, target) {
+function findResourceByNameOrId(resources: PlanResource[], target: string): PlanResource | null {
     const matches = resources.filter((resource) =>
         resource.planName === target || resource.name === target || resource.planId === target ||
         resource.attrs?.planId === target
@@ -142,42 +186,27 @@ function findResourceByNameOrId(resources, target) {
     return matches[0] || null;
 }
 
-/** @param {Record<string, unknown>} attrs */
-function hasCompleteRemoteCanonicalMetadata(attrs) {
+function hasCompleteRemoteCanonicalMetadata(attrs: PlanAttrs): boolean {
     return attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL &&
         typeof attrs.collaborationServerUrl === "string" && attrs.collaborationServerUrl.length > 0 &&
         typeof attrs.collaborationSpaceId === "string" && attrs.collaborationSpaceId.length > 0 &&
         typeof attrs.collaborationBodyHash === "string" && attrs.collaborationBodyHash.length > 0;
 }
 
-/** @param {unknown} error @param {string[]} secrets */
-function redactedError(error, secrets) {
+function redactedError(error: Error, secrets: string[]): string {
     return redactSecrets(error, secrets);
 }
 
-/**
- * @param {{ cwd?: string, target: string, planServer?: string, projectSecrets?: boolean, to?: string }} pullOptions
- * @param {Record<string, any>} [deps]
- */
-export async function pullPlanForRevision(pullOptions, deps = {}) {
-    const cwd = pullOptions.cwd || deps.cwd || getCwd();
-    const now = deps.now || new Date().toISOString();
+export async function pullPlanForRevision(
+    pullOptions: PullPlanForRevisionOptions,
+): Promise<PulledPlanRevision> {
+    const cwd = pullOptions.cwd || getCwd();
+    const now = new Date().toISOString();
     const target = pullOptions.target;
     const isUrl = looksLikeUrl(target);
     if (!isUrl && pullOptions.to) throw new Error("--to is only supported when pulling from a maintainer URL.");
 
-    const parseCollaborationUrl = deps.parseCollaborationUrl || parseCollaborationUrlFn;
-    const normalizePlanServerUrl = deps.normalizePlanServerUrl || normalizePlanServerUrlFn;
-    const listPlanResources = deps.listPlanResources || listPlanResourcesFn;
-    const createCollaborationClient = deps.createCollaborationClient || createCollaborationClientFn;
-    const importContentKey = deps.importContentKey || importContentKeyFn;
-    const decryptJsonPayload = deps.decryptJsonPayload || decryptJsonPayloadFn;
-    const hashPlanBody = deps.hashPlanBody || hashPlanBodyFn;
-    const updatePlanCollaborationMetadata = deps.updatePlanCollaborationMetadata || updatePlanCollaborationMetadataFn;
-    const createPulledCollaborationPlan = deps.createPulledCollaborationPlan || createPulledCollaborationPlanFn;
-
-    /** @type {{ serverUrl: string, spaceId: string, contentKey: string, maintainerCapability: string, planName?: string, localResource?: any }} */
-    let resolved;
+    let resolved: ResolvedPull;
     if (isUrl) {
         const parsed = parseCollaborationUrl(target);
         if (parsed.role !== MAINTAINER_SCOPE) {
@@ -200,8 +229,7 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
         if (!planId || !spaceId || !resource.attrs.collaborationServerUrl) {
             throw new Error("Shared Plan is missing collaboration metadata; cannot pull.");
         }
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets), deps);
-        const resolvePullSecretRecord = deps.resolvePullSecretRecord || resolvePullSecretRecordFn;
+        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const found = await resolvePullSecretRecord(paths, planId, spaceId);
         if (!found?.record?.contentKey || !found.record.maintainerCapability) {
             throw new Error(
@@ -228,13 +256,17 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
         const client = createCollaborationClient({
             serverUrl: resolved.serverUrl,
             bearerCapability: resolved.maintainerCapability,
-            fetch: deps.fetch,
         });
-        space = normalizeSpaceResponse(await client.getSharedSpace(resolved.spaceId));
-        revision = normalizeRevisionResponse(await client.getRevision(resolved.spaceId, space.latestRevision));
-        comments = normalizeCommentsResponse(await client.listComments(resolved.spaceId, revision.revision));
+        space = normalizeSpaceResponse(await client.getSharedSpace(resolved.spaceId) as WireValue);
+        revision = normalizeRevisionResponse(
+            await client.getRevision(resolved.spaceId, space.latestRevision) as WireValue,
+        );
+        comments = normalizeCommentsResponse(
+            await client.listComments(resolved.spaceId, revision.revision) as WireValue,
+        );
     } catch (error) {
-        throw new Error(`Unable to fetch remote Shared Space: ${redactedError(error, secrets)}`);
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw new Error(`Unable to fetch remote Shared Space: ${redactedError(cause, secrets)}`);
     }
 
     let key;
@@ -243,14 +275,15 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
         key = await importContentKey(resolved.contentKey);
         planPayload = normalizeEncryptedPlanPayload(await decryptJsonPayload(revision.payloadCiphertext, key));
     } catch (error) {
-        throw new Error(`Unable to decrypt remote Plan revision: ${redactedError(error, secrets)}`);
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw new Error(`Unable to decrypt remote Plan revision: ${redactedError(cause, secrets)}`);
     }
     if (planPayload.planId !== space.planId) {
         throw new Error("Remote Plan payload planId does not match Shared Space metadata.");
     }
 
     if (isUrl) {
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets), deps);
+        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const importedSecretRecord = {
             planId: planPayload.planId,
             spaceId: resolved.spaceId,
@@ -258,24 +291,23 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
             maintainerCapability: resolved.maintainerCapability,
             updatedAt: now,
         };
-        await (deps.assertCompatiblePullSecretRecord || assertCompatiblePullSecretRecordFn)(
+        await assertCompatiblePullSecretRecord(
             paths,
             planPayload.planId,
             resolved.spaceId,
             importedSecretRecord,
         );
         if (pullOptions.projectSecrets) {
-            await (deps.ensureProjectSecretStoreIgnored || ensureProjectSecretStoreIgnoredFn)(cwd);
+            await ensureProjectSecretStoreIgnored(cwd);
         }
-        await (deps.putCompatibleSecretRecord || putCompatibleSecretRecordFn)(
+        await putCompatibleSecretRecord(
             paths[0],
             secretRecordKey(planPayload.planId, resolved.spaceId),
             importedSecretRecord,
         );
     }
 
-    /** @type {import("../../shared/workflow/collaboration-pull.js").PullReviewComment[]} */
-    const decryptedComments = [];
+    const decryptedComments: PullReviewComment[] = [];
     for (const comment of comments) {
         try {
             const payload = normalizeDecryptedReviewCommentPayload(await decryptJsonPayload(comment.ciphertext, key));
@@ -291,12 +323,13 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
                 ...(payload.anchor ? { anchor: payload.anchor } : {}),
             });
         } catch (error) {
+            const cause = error instanceof Error ? error : new Error(String(error));
             decryptedComments.push({
                 id: comment.id,
                 createdAt: comment.createdAt,
                 resolved: comment.resolved,
                 readable: false,
-                error: redactedError(error, secrets),
+                error: redactedError(cause, secrets),
             });
         }
     }
@@ -307,8 +340,7 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
         throw new Error("--to is only supported for fresh maintainer URL pulls with no matching local Plan.");
     }
     const remoteBodyHash = await hashPlanBody(planPayload.body);
-    /** @type {{ planName: string, path?: string, attrs: any, action: "created" | "updated" | "up-to-date" }} */
-    let local;
+    let local: LocalPull;
 
     if (existingById) {
         const attrs = existingById.attrs || {};
@@ -365,7 +397,9 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
             attrs: {
                 ...planPayload.metadata,
                 planId: planPayload.planId,
-                summary: planPayload.metadata.summary || planPayload.title,
+                summary: typeof planPayload.metadata.summary === "string"
+                    ? planPayload.metadata.summary
+                    : planPayload.title,
                 collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
                 collaborationServerUrl: resolved.serverUrl,
                 collaborationSpaceId: resolved.spaceId,
@@ -395,12 +429,7 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
     };
 }
 
-/**
- * @param {ReturnType<typeof pullPlanForRevision> extends Promise<infer T> ? T : never} pulled
- * @param {{ sessionRuntime?: any, sessionId?: string, __testDeps?: Record<string, any> }} options
- */
-async function launchPlanningAgent(pulled, options) {
-    const deps = options.__testDeps || {};
+async function launchPlanningAgent(pulled: PulledPlanRevision, options: RunPlansPullOptions) {
     const agentName = selectPullPlanningAgent(pulled.attrs);
     const initialRequest = buildPullRevisionRequest({
         planName: pulled.planName,
@@ -417,17 +446,12 @@ async function launchPlanningAgent(pulled, options) {
         comments: pulled.comments,
         unreadableCommentCount: pulled.unreadableCommentCount,
     });
-    if (deps.runPlanningAgent) {
-        return await deps.runPlanningAgent({ agentName, initialRequest, triageMeta: pulled.attrs });
-    }
-
     let sessionRuntime = options.sessionRuntime;
     let sessionId = options.sessionId;
     if (!sessionRuntime || !sessionId) {
-        const startInteractiveSession = deps.startInteractiveSession ||
-            (await import("../../ui/tui/" + "chat-session.js")).startInteractiveSession;
+        const { startInteractiveSession } = await import("../../ui/tui/" + "chat-session.js");
         await startInteractiveSession(null, {
-            onSessionReady: (/** @type {string} */ nextSessionId, /** @type {any} */ nextRuntime) => {
+            onSessionReady: (nextSessionId: string, nextRuntime: SessionRuntime) => {
                 sessionId = nextSessionId;
                 sessionRuntime = nextRuntime;
             },
@@ -442,25 +466,22 @@ async function launchPlanningAgent(pulled, options) {
     return await sessionRuntime.runPlanningAgent(sessionId, { agentName, initialRequest, triageMeta: pulled.attrs });
 }
 
-/**
- * @param {string[]} argv
- * @param {{ __testDeps?: Record<string, any>, sessionRuntime?: any, sessionId?: string }} [options]
- */
-export async function runPlansPullCommand(argv, options = {}) {
-    const deps = options.__testDeps || {};
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const parsed = parsePlansPullArgsWith(parseArgs, argv);
+export async function runPlansPullCommand(
+    argv: string[],
+    options: RunPlansPullOptions = {},
+): Promise<void> {
+    const parsed = parsePlansPullArgs(argv);
     if (parsed.help) {
         printPullHelp();
         return;
     }
     const pulled = await pullPlanForRevision({
-        target: /** @type {string} */ (parsed.target),
-        cwd: deps.cwd || getCwd(),
+        target: parsed.target as string,
+        cwd: getCwd(),
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         to: parsed.to,
-    }, deps);
+    });
     const selectedAgent = selectPullPlanningAgent(pulled.attrs);
     const outcome = await launchPlanningAgent(pulled, options);
     console.log(
@@ -484,26 +505,4 @@ export async function runPlansPullCommand(argv, options = {}) {
     );
     console.log(`[RunWield] Selected planning Agent: ${selectedAgent}.`);
     console.log(`[RunWield] ${summarizePullPlanningOutcome(outcome, pulled.planName)}`);
-}
-
-/** @param {typeof parseArgsFn} parseArgs @param {string[]} argv */
-export function parsePlansPullArgsWith(parseArgs, argv) {
-    const original = parseArgsFn;
-    if (parseArgs === original) return parsePlansPullArgs(argv);
-    const parsed = parseArgs(argv, {
-        boolean: ["help", "project-secrets"],
-        string: ["plan-server", "to"],
-        alias: { h: "help" },
-    });
-    const positionals = parsed._.map(String);
-    if (parsed.help) return { help: true, projectSecrets: Boolean(parsed["project-secrets"]) };
-    if (positionals.length === 0) throw new Error("Missing maintainer URL or Plan name/id for pull.");
-    if (positionals.length > 1) throw new Error(`Unexpected pull argument: ${positionals[1]}`);
-    return {
-        target: positionals[0],
-        planServer: typeof parsed["plan-server"] === "string" ? parsed["plan-server"] : undefined,
-        projectSecrets: Boolean(parsed["project-secrets"]),
-        to: typeof parsed.to === "string" ? parsed.to : undefined,
-        help: false,
-    };
 }

@@ -7,6 +7,11 @@ import { createDelegateAgentTool, diffDelegatedChangeSnapshot, resolveDelegatedT
  * @typedef {Object} DelegateToolDetails
  * @property {boolean} ok
  * @property {"read" | "write"} mode
+ * @property {string} [role]
+ * @property {"read" | "write"} [requestedAuthority]
+ * @property {"read" | "write"} [effectiveAuthority]
+ * @property {"read" | "write"} [roleAuthorityCeiling]
+ * @property {string[]} [validRoles]
  * @property {string[]} [tools]
  * @property {string[]} [changedPaths]
  * @property {boolean} [changeAttributionComplete]
@@ -156,6 +161,100 @@ Deno.test("delegate_agent returns child output without inheriting workflow tools
     assertEquals(result.content[0].text, "done");
     assertEquals(calls[0].toolNames, ["read"]);
     assertStringIncludes(String(calls[0].userRequest || ""), "Inspect src/foo.js");
+    // Omitting role resolves to the unspecialized default and changes nothing about the request.
+    assertEquals(result.details.role, "general");
+    assertEquals(result.details.requestedAuthority, "read");
+    assertEquals(result.details.effectiveAuthority, "read");
+    assertEquals(
+        calls[0].userRequest,
+        [
+            "Delegation mode: read",
+            "",
+            "You are running as a context-isolated child. Complete only the brief below and return a concise handoff.",
+            "",
+            "## Brief",
+            "Inspect src/foo.js",
+        ].join("\n"),
+    );
+});
+
+Deno.test("delegate_agent applies verification-adversary read-only role ceiling", async () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const calls = [];
+    /** @type {string[]} */
+    const snapshotCwds = [];
+    const hostedSession = new HostedSession({ id: "delegate-adversary", cwd: Deno.cwd() });
+    /** @type {Array<{ readers: number, writer: boolean }>} */
+    const leaseStates = [];
+    const tool = createDelegateAgentTool({
+        hostedSession,
+        cwd: Deno.cwd(),
+        parentTools: ["read", "grep", "bash", "edit", "write", "multi_file_edit", "delegate_agent"],
+        captureChangeSnapshot: (cwd) => {
+            snapshotCwds.push(cwd);
+            return Promise.resolve({ head: "same", entries: [] });
+        },
+        runIsolatedAgentSession: (opts) => {
+            calls.push(opts);
+            leaseStates.push(hostedSession.getDelegatedAgentLeaseState());
+            return assistantDone();
+        },
+    });
+
+    const result = await execute(tool, {
+        mode: "write",
+        role: "verification-adversary",
+        brief: "Attack the draft Plan below.",
+    });
+
+    // The role ceiling wins over the requested mode: read lease, read tools, no write machinery.
+    assertEquals(leaseStates[0], { readers: 1, writer: false });
+    assertEquals(calls[0].toolNames, ["read", "grep"]);
+    assertEquals(calls[0].includeEditFallback, false);
+    assertEquals(snapshotCwds, []);
+    assertEquals(result.details.changedPaths, undefined);
+    assertEquals(result.details.changeAttributionComplete, undefined);
+    assertEquals(result.details.committedChangesDetected, undefined);
+    // The parent can see the downgrade it did not ask for.
+    assertEquals(result.details.ok, true);
+    assertEquals(result.details.role, "verification-adversary");
+    assertEquals(result.details.requestedAuthority, "write");
+    assertEquals(result.details.effectiveAuthority, "read");
+    assertEquals(result.details.roleAuthorityCeiling, "read");
+    assertEquals(result.details.mode, "read");
+    assertStringIncludes(String(calls[0].userRequest || ""), "Delegated role: verification-adversary");
+    assertStringIncludes(String(calls[0].userRequest || ""), "so this session runs as read");
+    // The composed prompt is the real base prompt plus the real role overlay.
+    const agentDef = /** @type {{ systemPrompt: string }} */ (calls[0]._agentDefOverride);
+    assertStringIncludes(agentDef.systemPrompt, "Complete only the supplied brief.");
+    assertStringIncludes(agentDef.systemPrompt, "not-discriminating");
+    assertEquals(hostedSession.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
+});
+
+Deno.test("delegate_agent rejects an unknown role before a child session starts", async () => {
+    let sessionStarts = 0;
+    const hostedSession = new HostedSession({ id: "delegate-unknown-role", cwd: Deno.cwd() });
+    const tool = createDelegateAgentTool({
+        hostedSession,
+        cwd: Deno.cwd(),
+        parentTools: ["read"],
+        runIsolatedAgentSession: () => {
+            sessionStarts += 1;
+            return assistantDone();
+        },
+        readTextFile: () => Promise.resolve("---\nname: Delegated Agent\n---\nPrompt"),
+        ensurePromptFile: () => Promise.resolve("/tmp/delegated.md"),
+    });
+
+    const result = await execute(tool, { mode: "read", role: "researcher", brief: "Investigate" });
+
+    assertEquals(sessionStarts, 0);
+    assertEquals(result.isError, true);
+    assertEquals(result.details.ok, false);
+    assertEquals(result.details.error, "unknown_role");
+    assertEquals(result.details.validRoles, ["general", "verification-adversary"]);
+    assertStringIncludes(result.content[0].text, "verification-adversary");
+    assertEquals(hostedSession.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
 });
 
 Deno.test("delegate_agent propagates parent model and thinking state", async () => {

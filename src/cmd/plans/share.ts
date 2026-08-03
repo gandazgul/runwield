@@ -3,85 +3,61 @@
  * Publish an active saved Plan as a remote-canonical Shared Space.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import {
-    ensurePlanIdentity as ensurePlanIdentityFn,
-    hashPlanBody as hashPlanBodyFn,
-    listPlanResources as listPlanResourcesFn,
-    loadPlan as loadPlanFn,
-    updatePlanCollaborationMetadata as updatePlanCollaborationMetadataFn,
+    ensurePlanIdentity,
+    hashPlanBody,
+    listPlanResources,
+    loadPlan,
+    updatePlanCollaborationMetadata,
 } from "../../plan-store.js";
 import {
-    generateBearerCapability as generateBearerCapabilityFn,
-    hashCapability as hashCapabilityFn,
+    generateBearerCapability,
+    hashCapability,
     MAINTAINER_SCOPE,
     redactSecrets,
     REVIEWER_SCOPE,
 } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient as createCollaborationClientFn } from "../../shared/collaboration/client.js";
-import {
-    encryptJsonPayload as encryptJsonPayloadFn,
-    exportContentKey as exportContentKeyFn,
-    generateContentKey as generateContentKeyFn,
-} from "../../shared/collaboration/crypto.js";
+import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { encryptJsonPayload, exportContentKey, generateContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
-    deleteSecretRecord as deleteSecretRecordFn,
-    ensureProjectSecretStoreIgnored as ensureProjectSecretStoreIgnoredFn,
-    getGlobalSecretStorePath as getGlobalSecretStorePathFn,
-    getProjectSecretStorePath as getProjectSecretStorePathFn,
-    getSecretRecord as getSecretRecordFn,
-    putSecretRecord as putSecretRecordFn,
+    deleteSecretRecord,
+    ensureProjectSecretStoreIgnored,
+    getGlobalSecretStorePath,
+    getProjectSecretStorePath,
+    getSecretRecord,
+    putSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import {
-    buildCollaborationUrl as buildCollaborationUrlFn,
-    redactCollaborationUrl,
-} from "../../shared/collaboration/urls.js";
-import {
-    getDefaultPlanServerUrl as getDefaultPlanServerUrlFn,
-    normalizePlanServerUrl as normalizePlanServerUrlFn,
-} from "../../shared/settings.js";
+import { buildCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
+import { getDefaultPlanServerUrl, normalizePlanServerUrl } from "../../shared/settings.js";
 
-/**
- * @typedef {Object} PlansShareArgs
- * @property {string} [planServer]
- * @property {boolean} projectSecrets
- * @property {boolean} help
- * @property {string} [target]
- */
+interface PlansShareArgs {
+    planServer?: string;
+    projectSecrets: boolean;
+    help: boolean;
+    target?: string;
+}
 
-/**
- * @typedef {Object} ShareCommandDependencies
- * @property {typeof parseArgsFn} [parseArgs]
- * @property {typeof loadPlanFn} [loadPlan]
- * @property {typeof listPlanResourcesFn} [listPlanResources]
- * @property {typeof ensurePlanIdentityFn} [ensurePlanIdentity]
- * @property {typeof hashPlanBodyFn} [hashPlanBody]
- * @property {typeof updatePlanCollaborationMetadataFn} [updatePlanCollaborationMetadata]
- * @property {typeof getDefaultPlanServerUrlFn} [getDefaultPlanServerUrl]
- * @property {typeof normalizePlanServerUrlFn} [normalizePlanServerUrl]
- * @property {typeof generateContentKeyFn} [generateContentKey]
- * @property {typeof exportContentKeyFn} [exportContentKey]
- * @property {typeof encryptJsonPayloadFn} [encryptJsonPayload]
- * @property {typeof generateBearerCapabilityFn} [generateBearerCapability]
- * @property {typeof hashCapabilityFn} [hashCapability]
- * @property {typeof createCollaborationClientFn} [createCollaborationClient]
- * @property {typeof getGlobalSecretStorePathFn} [getGlobalSecretStorePath]
- * @property {typeof getProjectSecretStorePathFn} [getProjectSecretStorePath]
- * @property {typeof ensureProjectSecretStoreIgnoredFn} [ensureProjectSecretStoreIgnored]
- * @property {typeof getSecretRecordFn} [getSecretRecord]
- * @property {typeof putSecretRecordFn} [putSecretRecord]
- * @property {typeof deleteSecretRecordFn} [deleteSecretRecord]
- * @property {typeof buildCollaborationUrlFn} [buildCollaborationUrl]
- * @property {string} [cwd]
- * @property {string} [now]
- */
+interface CreateResponse {
+    spaceId: string;
+    latestRevision: number;
+    expiresAt?: string;
+}
+
+interface WireRecord {
+    [key: string]: WireValue;
+}
+
+type WireValue = boolean | number | string | null | WireRecord | WireValue[] | undefined;
+
+type CreateSharedSpacePayload = Parameters<ReturnType<typeof createCollaborationClient>["createSharedSpace"]>[0];
 
 /** @param {string[]} argv */
-export function parsePlansShareArgs(argv) {
-    const parsed = parseArgsFn(argv, {
+export function parsePlansShareArgs(argv: string[]): PlansShareArgs {
+    const parsed = parseArgs(argv, {
         boolean: ["help", "project-secrets"],
         string: ["plan-server"],
         alias: { h: "help" },
@@ -104,13 +80,9 @@ function printShareHelp() {
 Publishes an active saved Plan to a remote Plan Server and prints secret reviewer/maintainer URLs once.`);
 }
 
-/**
- * @param {unknown} value
- * @returns {{ spaceId: string, latestRevision: number, expiresAt?: string }}
- */
-function normalizeCreateResponse(value) {
+function normalizeCreateResponse(value: WireValue): CreateResponse {
     if (value && typeof value === "object" && !Array.isArray(value) && "space" in value) {
-        return normalizeCreateResponse(/** @type {{ space: unknown }} */ (value).space);
+        return normalizeCreateResponse(value.space);
     }
     const metadata = normalizeSharedSpaceMetadata(value);
     if (metadata.latestRevision !== 1) throw new Error("Plan Server create response must report latestRevision 1.");
@@ -120,13 +92,8 @@ function normalizeCreateResponse(value) {
 /**
  * @param {string} cwd
  * @param {string} target
- * @param {ShareCommandDependencies} deps
  */
-async function resolveActivePlan(cwd, target, deps) {
-    const loadPlan = deps.loadPlan || loadPlanFn;
-    const ensurePlanIdentity = deps.ensurePlanIdentity || ensurePlanIdentityFn;
-    const listPlanResources = deps.listPlanResources || listPlanResourcesFn;
-
+async function resolveActivePlan(cwd: string, target: string) {
     if (target.replaceAll("\\", "/").startsWith("archived/")) {
         throw new Error("Cannot share archived Plans. Restore the Plan first, then run `wld plans share <plan>`.");
     }
@@ -156,12 +123,9 @@ async function resolveActivePlan(cwd, target, deps) {
 
 /**
  * @param {PlansShareArgs} args
- * @param {ShareCommandDependencies} deps
  */
-function resolvePlanServerUrl(args, deps) {
-    const normalizePlanServerUrl = deps.normalizePlanServerUrl || normalizePlanServerUrlFn;
+function resolvePlanServerUrl(args: PlansShareArgs): string {
     if (args.planServer) return normalizePlanServerUrl(args.planServer);
-    const getDefaultPlanServerUrl = deps.getDefaultPlanServerUrl || getDefaultPlanServerUrlFn;
     const configured = getDefaultPlanServerUrl();
     if (!configured) {
         throw new Error(
@@ -175,18 +139,20 @@ function resolvePlanServerUrl(args, deps) {
  * @param {string} planId
  * @param {string} spaceId
  */
-function secretRecordKey(planId, spaceId) {
+function secretRecordKey(planId: string, spaceId: string): string {
     return `${planId}:${spaceId}`;
 }
 
 /**
- * @param {ShareCommandDependencies} deps
  * @param {string} secretStorePath
  * @param {string} planId
  * @param {string} spaceId
  */
-async function assertNoConflictingSecretRecord(deps, secretStorePath, planId, spaceId) {
-    const getSecretRecord = deps.getSecretRecord || getSecretRecordFn;
+async function assertNoConflictingSecretRecord(
+    secretStorePath: string,
+    planId: string,
+    spaceId: string,
+): Promise<void> {
     const existingByPlan = await getSecretRecord(secretStorePath, planId);
     if (existingByPlan && existingByPlan.spaceId && existingByPlan.spaceId !== spaceId) {
         throw new Error(`Local collaboration secrets already exist for planId ${planId} and a different remote space.`);
@@ -198,56 +164,51 @@ async function assertNoConflictingSecretRecord(deps, secretStorePath, planId, sp
 }
 
 /**
- * @param {ShareCommandDependencies} deps
  * @param {string} serverUrl
  * @param {string} spaceId
  * @param {string} maintainerCapability
  */
-async function cleanupRemoteSpace(deps, serverUrl, spaceId, maintainerCapability) {
-    const createCollaborationClient = deps.createCollaborationClient || createCollaborationClientFn;
+async function cleanupRemoteSpace(
+    serverUrl: string,
+    spaceId: string,
+    maintainerCapability: string,
+): Promise<void> {
     const client = createCollaborationClient({ serverUrl, bearerCapability: maintainerCapability });
     await client.updateSharedSpaceLifecycle(spaceId, { action: "delete" });
 }
 
-/**
- * @typedef {Object} SharePlanForReviewOptions
- * @property {string} target
- * @property {string} [cwd]
- * @property {string} [planServer]
- * @property {boolean} [projectSecrets]
- * @property {boolean} [allowExisting]
- */
+export interface SharePlanForReviewOptions {
+    target: string;
+    cwd?: string;
+    planServer?: string;
+    projectSecrets?: boolean;
+    allowExisting?: boolean;
+}
 
-/**
- * @typedef {Object} SharedPlanReviewLink
- * @property {string} planName
- * @property {string} planId
- * @property {string} reviewerUrl
- * @property {string} maintainerUrl
- * @property {string} serverUrl
- * @property {string} spaceId
- * @property {number} revision
- * @property {string} [expiresAt]
- * @property {boolean} reused
- */
+export interface SharedPlanReviewLink {
+    planName: string;
+    planId: string;
+    reviewerUrl: string;
+    maintainerUrl: string;
+    serverUrl: string;
+    spaceId: string;
+    revision: number;
+    expiresAt?: string;
+    reused: boolean;
+}
 
-/**
- * @param {SharePlanForReviewOptions} shareOptions
- * @param {ShareCommandDependencies} [deps]
- * @returns {Promise<SharedPlanReviewLink>}
- */
-export async function sharePlanForReview(shareOptions, deps = {}) {
-    const cwd = shareOptions.cwd || deps.cwd || getCwd();
+export async function sharePlanForReview(
+    shareOptions: SharePlanForReviewOptions,
+): Promise<SharedPlanReviewLink> {
+    const cwd = shareOptions.cwd || getCwd();
     const target = shareOptions.target;
-    const resource = await resolveActivePlan(cwd, target, deps);
+    const resource = await resolveActivePlan(cwd, target);
     const args = {
         target,
         planServer: shareOptions.planServer,
         projectSecrets: Boolean(shareOptions.projectSecrets),
         help: false,
     };
-    const buildCollaborationUrl = deps.buildCollaborationUrl || buildCollaborationUrlFn;
-
     if (resource.attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL) {
         if (!shareOptions.allowExisting) {
             throw new Error(
@@ -260,15 +221,12 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
         }
         const spaceId = String(resource.attrs.collaborationSpaceId || "");
         if (!spaceId) throw new Error("Shared Plan is missing collaborationSpaceId; cannot reconstruct review URL.");
-        const getGlobalSecretStorePath = deps.getGlobalSecretStorePath || getGlobalSecretStorePathFn;
-        const getProjectSecretStorePath = deps.getProjectSecretStorePath || getProjectSecretStorePathFn;
         const explicitSecretStorePath = shareOptions.projectSecrets
             ? getProjectSecretStorePath(cwd)
             : getGlobalSecretStorePath();
         const fallbackSecretStorePath = shareOptions.projectSecrets
             ? getGlobalSecretStorePath()
             : getProjectSecretStorePath(cwd);
-        const getSecretRecord = deps.getSecretRecord || getSecretRecordFn;
         const secretRecord =
             await getSecretRecord(explicitSecretStorePath, secretRecordKey(resource.planId, spaceId)) ||
             await getSecretRecord(explicitSecretStorePath, resource.planId) ||
@@ -303,14 +261,8 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
         };
     }
 
-    const serverUrl = resolvePlanServerUrl(args, deps);
-    const now = deps.now || new Date().toISOString();
-    const generateContentKey = deps.generateContentKey || generateContentKeyFn;
-    const exportContentKey = deps.exportContentKey || exportContentKeyFn;
-    const encryptJsonPayload = deps.encryptJsonPayload || encryptJsonPayloadFn;
-    const generateBearerCapability = deps.generateBearerCapability || generateBearerCapabilityFn;
-    const hashCapability = deps.hashCapability || hashCapabilityFn;
-    const createCollaborationClient = deps.createCollaborationClient || createCollaborationClientFn;
+    const serverUrl = resolvePlanServerUrl(args);
+    const now = new Date().toISOString();
 
     const contentKey = await generateContentKey();
     const exportedContentKey = await exportContentKey(contentKey);
@@ -324,8 +276,7 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
     }, contentKey);
     const reviewerHash = await hashCapability(reviewerCapability);
     const maintainerHash = await hashCapability(maintainerCapability);
-    /** @type {import("../../shared/collaboration/protocol.js").CreateSharedSpacePayload} */
-    const createPayload = {
+    const createPayload: CreateSharedSpacePayload = {
         planId: resource.planId,
         initialRevision: { payloadCiphertext },
         capabilities: [
@@ -341,7 +292,9 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
     let secretStorePath = "";
     let localSecretKey = "";
     try {
-        created = normalizeCreateResponse(await unauthenticatedClient.createSharedSpace(createPayload));
+        created = normalizeCreateResponse(
+            await unauthenticatedClient.createSharedSpace(createPayload) as WireValue,
+        );
         reviewerUrl = buildCollaborationUrl({
             serverUrl,
             spaceId: created.spaceId,
@@ -357,16 +310,11 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
             role: MAINTAINER_SCOPE,
         });
 
-        const getGlobalSecretStorePath = deps.getGlobalSecretStorePath || getGlobalSecretStorePathFn;
-        const getProjectSecretStorePath = deps.getProjectSecretStorePath || getProjectSecretStorePathFn;
         secretStorePath = args.projectSecrets ? getProjectSecretStorePath(cwd) : getGlobalSecretStorePath();
         if (args.projectSecrets) {
-            const ensureProjectSecretStoreIgnored = deps.ensureProjectSecretStoreIgnored ||
-                ensureProjectSecretStoreIgnoredFn;
             await ensureProjectSecretStoreIgnored(cwd);
         }
-        await assertNoConflictingSecretRecord(deps, secretStorePath, resource.planId, created.spaceId);
-        const putSecretRecord = deps.putSecretRecord || putSecretRecordFn;
+        await assertNoConflictingSecretRecord(secretStorePath, resource.planId, created.spaceId);
         localSecretKey = secretRecordKey(resource.planId, created.spaceId);
         await putSecretRecord(secretStorePath, localSecretKey, {
             planId: resource.planId,
@@ -377,9 +325,6 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
             updatedAt: now,
         });
 
-        const hashPlanBody = deps.hashPlanBody || hashPlanBodyFn;
-        const updatePlanCollaborationMetadata = deps.updatePlanCollaborationMetadata ||
-            updatePlanCollaborationMetadataFn;
         await updatePlanCollaborationMetadata(
             cwd,
             resource.name,
@@ -397,7 +342,7 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
     } catch (error) {
         if (!created) throw error;
         try {
-            await cleanupRemoteSpace(deps, serverUrl, created.spaceId, maintainerCapability);
+            await cleanupRemoteSpace(serverUrl, created.spaceId, maintainerCapability);
         } catch (cleanupError) {
             console.error(
                 `[RunWield] Failed to clean up remote Shared Space ${created.spaceId}: ${
@@ -413,7 +358,6 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
             );
         }
         if (secretStorePath && localSecretKey) {
-            const deleteSecretRecord = deps.deleteSecretRecord || deleteSecretRecordFn;
             try {
                 await deleteSecretRecord(secretStorePath, localSecretKey);
             } catch (secretCleanupError) {
@@ -452,23 +396,20 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
 
 /**
  * @param {string[]} argv
- * @param {{ __testDeps?: ShareCommandDependencies }} [options]
  */
-export async function runPlansShareCommand(argv, options = {}) {
-    const deps = /** @type {ShareCommandDependencies} */ (options.__testDeps || {});
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const args = parsePlansShareArgsWith(parseArgs, argv);
+export async function runPlansShareCommand(argv: string[]): Promise<void> {
+    const args = parsePlansShareArgs(argv);
     if (args.help) {
         printShareHelp();
         return;
     }
     const shared = await sharePlanForReview({
-        target: /** @type {string} */ (args.target),
-        cwd: deps.cwd || getCwd(),
+        target: args.target as string,
+        cwd: getCwd(),
         planServer: args.planServer,
         projectSecrets: args.projectSecrets,
         allowExisting: false,
-    }, deps);
+    });
     console.log(
         `[RunWield] Shared Plan ${shared.planName} as remote Shared Space ${shared.spaceId} (revision ${shared.revision}).`,
     );
@@ -489,27 +430,4 @@ export async function runPlansShareCommand(argv, options = {}) {
             redactCollaborationUrl(shared.serverUrl)
         }`,
     );
-}
-
-/**
- * @param {typeof parseArgsFn} parseArgs
- * @param {string[]} argv
- * @returns {PlansShareArgs}
- */
-function parsePlansShareArgsWith(parseArgs, argv) {
-    const parsed = parseArgs(argv, {
-        boolean: ["help", "project-secrets"],
-        string: ["plan-server"],
-        alias: { h: "help" },
-    });
-    const positionals = parsed._.map(String);
-    if (parsed.help) return { help: true, projectSecrets: Boolean(parsed["project-secrets"]) };
-    if (positionals.length === 0) throw new Error("Missing Plan name or id for share.");
-    if (positionals.length > 1) throw new Error(`Unexpected share argument: ${positionals[1]}`);
-    return {
-        planServer: typeof parsed["plan-server"] === "string" ? parsed["plan-server"] : undefined,
-        projectSecrets: Boolean(parsed["project-secrets"]),
-        help: false,
-        target: positionals[0],
-    };
 }

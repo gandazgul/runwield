@@ -3,36 +3,68 @@
  * Destructively delete a remote Shared Space and intentionally clear local collaboration state.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
-import {
-    clearPlanCollaborationMetadata as clearPlanCollaborationMetadataFn,
-    listPlanResources as listPlanResourcesFn,
-} from "../../plan-store.js";
+import { clearPlanCollaborationMetadata, listPlanResources } from "../../plan-store.js";
 import { redactSecrets } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient as createCollaborationClientFn } from "../../shared/collaboration/client.js";
+import { CollaborationApiError, createCollaborationClient } from "../../shared/collaboration/client.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
-    deleteCompatibleSecretRecords as deleteCompatibleSecretRecordsFn,
-    getGlobalSecretStorePath as getGlobalSecretStorePathFn,
-    getProjectSecretStorePath as getProjectSecretStorePathFn,
-    resolveCompatibleSecretRecord as resolveCompatibleSecretRecordFn,
+    deleteCompatibleSecretRecords,
+    getGlobalSecretStorePath,
+    getProjectSecretStorePath,
+    resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import { normalizePlanServerUrl as normalizePlanServerUrlFn } from "../../shared/settings.js";
+import { normalizePlanServerUrl } from "../../shared/settings.js";
 
-/**
- * @typedef {Object} PlansUnshareArgs
- * @property {string} [target]
- * @property {string} [planServer]
- * @property {boolean} projectSecrets
- * @property {boolean} force
- * @property {boolean} help
- */
+interface PlansUnshareArgs {
+    target?: string;
+    planServer?: string;
+    projectSecrets: boolean;
+    force: boolean;
+    help: boolean;
+}
+
+export interface UnsharePlanOptions {
+    target: string;
+    cwd?: string;
+    planServer?: string;
+    projectSecrets?: boolean;
+    force?: boolean;
+}
+
+export interface UnsharedPlan {
+    planName: string;
+    planId: string;
+    serverUrl: string;
+    spaceId: string;
+    revision: number;
+    alreadyDeleted: boolean;
+    deletedSecretCount: number;
+    localMetadataCleared: true;
+}
+
+interface RemoteDetails {
+    planName: string;
+    serverUrl: string;
+    spaceId: string;
+    revision: number;
+    status?: string;
+    alreadyDeleted?: boolean;
+}
+
+interface WireRecord {
+    [key: string]: WireValue;
+}
+
+type WireValue = boolean | number | string | null | WireRecord | WireValue[] | undefined;
+type PlanResource = Awaited<ReturnType<typeof listPlanResources>>[number];
+type PlanAttrs = PlanResource["attrs"];
 
 /** @param {string[]} argv */
-export function parsePlansUnshareArgs(argv) {
-    const parsed = parseArgsFn(argv, {
+export function parsePlansUnshareArgs(argv: string[]): PlansUnshareArgs {
+    const parsed = parseArgs(argv, {
         boolean: ["help", "project-secrets", "force"],
         string: ["plan-server"],
         alias: { h: "help" },
@@ -58,23 +90,21 @@ function printUnshareHelp() {
 Deletes the remote Shared Space using maintainer secrets, then clears local collaboration secrets and lock metadata. This is destructive for all reviewer and maintainer links.`);
 }
 
-/** @param {unknown} value */
-function normalizeSpaceResponse(value) {
+function normalizeSpaceResponse(value: WireValue): ReturnType<typeof normalizeSharedSpaceMetadata> {
     if (value && typeof value === "object" && !Array.isArray(value) && "space" in value) {
-        return normalizeSpaceResponse(/** @type {{ space: unknown }} */ (value).space);
+        return normalizeSpaceResponse(value.space);
     }
     return normalizeSharedSpaceMetadata(value);
 }
 
-/** @param {string} cwd @param {boolean} projectSecrets @param {any} deps */
-function secretPaths(cwd, projectSecrets, deps) {
-    const globalPath = (deps.getGlobalSecretStorePath || getGlobalSecretStorePathFn)();
-    const projectPath = (deps.getProjectSecretStorePath || getProjectSecretStorePathFn)(cwd);
+/** @param {string} cwd @param {boolean} projectSecrets */
+function secretPaths(cwd: string, projectSecrets: boolean): string[] {
+    const globalPath = getGlobalSecretStorePath();
+    const projectPath = getProjectSecretStorePath(cwd);
     return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
 }
 
-/** @param {any[]} resources @param {string} target */
-function findResourceByNameOrId(resources, target) {
+function findResourceByNameOrId(resources: PlanResource[], target: string): PlanResource | null {
     const matches = resources.filter((resource) =>
         resource.planName === target || resource.name === target || resource.planId === target ||
         resource.attrs?.planId === target
@@ -83,65 +113,50 @@ function findResourceByNameOrId(resources, target) {
     return matches[0] || null;
 }
 
-/** @param {Record<string, unknown>} attrs */
-function hasCompleteRemoteCanonicalMetadata(attrs) {
+function hasCompleteRemoteCanonicalMetadata(attrs: PlanAttrs): boolean {
     return attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL &&
         typeof attrs.collaborationServerUrl === "string" && attrs.collaborationServerUrl.length > 0 &&
         typeof attrs.collaborationSpaceId === "string" && attrs.collaborationSpaceId.length > 0 &&
         Number.isInteger(Number(attrs.collaborationRevision)) && Number(attrs.collaborationRevision) > 0;
 }
 
-/** @param {unknown} error */
-function errorStatus(error) {
-    const status = /** @type {{ status?: unknown }} */ (error).status;
-    return typeof status === "number" ? status : undefined;
+function errorStatus(error: Error): number | undefined {
+    return error instanceof CollaborationApiError ? error.status : undefined;
 }
 
-/** @param {unknown} error */
-function isNotFoundError(error) {
+function isNotFoundError(error: Error): boolean {
     return errorStatus(error) === 404;
 }
 
-/** @param {unknown} error */
-function isAmbiguousRemoteError(error) {
+function isAmbiguousRemoteError(error: Error): boolean {
     const status = errorStatus(error);
     if (status && status >= 500) return true;
     return /(?:Plan Server error 5\d\d|Network failure|ECONN|ETIMEDOUT|timeout|fetch failed)/i.test(
-        String(/** @type {Error} */ (error)?.message || error),
+        error.message,
     );
 }
 
-/** @param {unknown} error @param {string[]} secrets */
-function redactedError(error, secrets) {
+function redactedError(error: Error, secrets: string[]): string {
     return redactSecrets(error, secrets);
 }
 
-/** @param {string} message @param {Record<string, any>} deps */
-async function confirm(message, deps) {
-    if (deps.confirm) return Boolean(await deps.confirm(message));
+/** @param {string} message */
+function confirm(message: string): boolean {
     const answer = globalThis.prompt(`${message}\nType yes to continue: `) || "";
     return /^(?:y|yes)$/i.test(answer.trim());
 }
 
-/**
- * @param {{ planName: string, serverUrl: string, spaceId: string, revision: number, status?: string, alreadyDeleted?: boolean }} details
- */
-function confirmationMessage(details) {
+function confirmationMessage(details: RemoteDetails): string {
     const state = details.alreadyDeleted ? "clear local collaboration state for already-deleted" : "delete";
     return `Destructive unshare will ${state} Shared Space ${details.spaceId} for Plan ${details.planName} on ${details.serverUrl} (revision ${details.revision}, status ${
         details.status || "unknown"
     }). Reviewer and maintainer links will stop working, and other checkouts or browser sessions will need deleted-remote recovery.`;
 }
 
-/**
- * @param {{ target: string, cwd?: string, planServer?: string, projectSecrets?: boolean, force?: boolean }} unshareOptions
- * @param {Record<string, any>} [deps]
- */
-export async function unsharePlan(unshareOptions, deps = {}) {
-    const cwd = unshareOptions.cwd || deps.cwd || getCwd();
-    const now = deps.now || new Date().toISOString();
+export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<UnsharedPlan> {
+    const cwd = unshareOptions.cwd || getCwd();
+    const now = new Date().toISOString();
     const target = unshareOptions.target;
-    const listPlanResources = deps.listPlanResources || listPlanResourcesFn;
     const resource = findResourceByNameOrId(await listPlanResources(cwd, { backfillMissing: false }), target);
     if (!resource) throw new Error(`Active Plan not found: ${target}`);
     const attrs = resource.attrs || {};
@@ -157,7 +172,6 @@ export async function unsharePlan(unshareOptions, deps = {}) {
     const localRevision = Number(attrs.collaborationRevision);
     if (!planId) throw new Error("Shared Plan is missing planId; cannot unshare.");
 
-    const normalizePlanServerUrl = deps.normalizePlanServerUrl || normalizePlanServerUrlFn;
     const serverUrl = unshareOptions.planServer
         ? normalizePlanServerUrl(unshareOptions.planServer)
         : String(attrs.collaborationServerUrl);
@@ -167,8 +181,7 @@ export async function unsharePlan(unshareOptions, deps = {}) {
         );
     }
 
-    const paths = secretPaths(cwd, Boolean(unshareOptions.projectSecrets), deps);
-    const resolveCompatibleSecretRecord = deps.resolveCompatibleSecretRecord || resolveCompatibleSecretRecordFn;
+    const paths = secretPaths(cwd, Boolean(unshareOptions.projectSecrets));
     const found = await resolveCompatibleSecretRecord(paths, planId, spaceId);
     if (!found?.record?.contentKey) {
         throw new Error("Shared Plan local content key is missing; pull with the maintainer URL to import secrets.");
@@ -180,31 +193,34 @@ export async function unsharePlan(unshareOptions, deps = {}) {
     }
 
     const secretRecord = found.record;
-    const secrets = [secretRecord.contentKey, secretRecord.maintainerCapability, secretRecord.reviewerCapability || ""];
-    const createCollaborationClient = deps.createCollaborationClient || createCollaborationClientFn;
+    const secrets = [
+        secretRecord.contentKey,
+        secretRecord.maintainerCapability,
+        secretRecord.reviewerCapability,
+    ].filter((value) => typeof value === "string");
     const client = createCollaborationClient({
         serverUrl,
         bearerCapability: secretRecord.maintainerCapability,
-        fetch: deps.fetch,
     });
 
-    let space = /** @type {ReturnType<typeof normalizeSharedSpaceMetadata> | null} */ (null);
+    let space: ReturnType<typeof normalizeSharedSpaceMetadata> | null = null;
     let alreadyDeleted = false;
     try {
-        space = normalizeSpaceResponse(await client.getSharedSpace(spaceId));
+        space = normalizeSpaceResponse(await client.getSharedSpace(spaceId) as WireValue);
     } catch (error) {
-        if (isNotFoundError(error)) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        if (isNotFoundError(cause)) {
             alreadyDeleted = true;
-        } else if (isAmbiguousRemoteError(error)) {
+        } else if (isAmbiguousRemoteError(cause)) {
             throw new Error(
                 `Unable to verify remote Shared Space; local collaboration metadata was not changed. Retry when the Plan Server is reachable. ${
-                    redactedError(error, secrets)
+                    redactedError(cause, secrets)
                 }`,
             );
         } else {
             throw new Error(
                 `Unable to fetch remote Shared Space; local collaboration metadata was not changed. ${
-                    redactedError(error, secrets)
+                    redactedError(cause, secrets)
                 }`,
             );
         }
@@ -228,7 +244,7 @@ export async function unsharePlan(unshareOptions, deps = {}) {
         alreadyDeleted,
     };
     if (!unshareOptions.force) {
-        const accepted = await confirm(confirmationMessage(remoteDetails), deps);
+        const accepted = confirm(confirmationMessage(remoteDetails));
         if (!accepted) {
             throw new Error(
                 "Unshare cancelled; remote Shared Space and local collaboration metadata were not changed.",
@@ -241,19 +257,20 @@ export async function unsharePlan(unshareOptions, deps = {}) {
         try {
             await client.updateSharedSpaceLifecycle(spaceId, { action: "delete" });
         } catch (error) {
-            if (isNotFoundError(error)) {
+            const cause = error instanceof Error ? error : new Error(String(error));
+            if (isNotFoundError(cause)) {
                 alreadyDeleted = true;
                 deletedDuringDelete = true;
-            } else if (isAmbiguousRemoteError(error)) {
+            } else if (isAmbiguousRemoteError(cause)) {
                 throw new Error(
                     `Remote delete result is ambiguous; local collaboration metadata was not changed. Retry or verify before cleanup. ${
-                        redactedError(error, secrets)
+                        redactedError(cause, secrets)
                     }`,
                 );
             } else {
                 throw new Error(
                     `Unable to delete remote Shared Space; local collaboration metadata was not changed. ${
-                        redactedError(error, secrets)
+                        redactedError(cause, secrets)
                     }`,
                 );
             }
@@ -261,7 +278,7 @@ export async function unsharePlan(unshareOptions, deps = {}) {
     }
 
     if (deletedDuringDelete && !unshareOptions.force) {
-        const accepted = await confirm(confirmationMessage({ ...remoteDetails, alreadyDeleted: true }), deps);
+        const accepted = confirm(confirmationMessage({ ...remoteDetails, alreadyDeleted: true }));
         if (!accepted) {
             throw new Error(
                 "Local cleanup cancelled for already-deleted Shared Space; local collaboration metadata was not changed.",
@@ -269,25 +286,25 @@ export async function unsharePlan(unshareOptions, deps = {}) {
         }
     }
 
-    const deleteCompatibleSecretRecords = deps.deleteCompatibleSecretRecords || deleteCompatibleSecretRecordsFn;
     let deletedSecrets;
     try {
         deletedSecrets = await deleteCompatibleSecretRecords(paths, planId, spaceId);
     } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
         throw new Error(
             `Remote Shared Space ${spaceId} is deleted, but local collaboration secret cleanup failed. Local Plan remains locked until cleanup is retried. ${
-                redactedError(error, secrets)
+                redactedError(cause, secrets)
             }`,
         );
     }
 
-    const clearPlanCollaborationMetadata = deps.clearPlanCollaborationMetadata || clearPlanCollaborationMetadataFn;
     try {
         await clearPlanCollaborationMetadata(cwd, planName, COLLABORATION_LOCK_BYPASS.unshare, { updatedAt: now });
     } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
         throw new Error(
             `Remote Shared Space ${spaceId} is deleted and ${deletedSecrets.length} local secret record(s) were removed, but local collaboration metadata cleanup failed. Remove the lock metadata or retry unshare before editing. ${
-                redactedError(error, secrets)
+                redactedError(cause, secrets)
             }`,
         );
     }
@@ -306,48 +323,22 @@ export async function unsharePlan(unshareOptions, deps = {}) {
 
 /**
  * @param {string[]} argv
- * @param {{ __testDeps?: Record<string, any> }} [options]
  */
-export async function runPlansUnshareCommand(argv, options = {}) {
-    const deps = options.__testDeps || {};
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const parsed = parsePlansUnshareArgsWith(parseArgs, argv);
+export async function runPlansUnshareCommand(argv: string[]): Promise<void> {
+    const parsed = parsePlansUnshareArgs(argv);
     if (parsed.help) {
         printUnshareHelp();
         return;
     }
     const result = await unsharePlan({
-        target: /** @type {string} */ (parsed.target),
-        cwd: deps.cwd || getCwd(),
+        target: parsed.target as string,
+        cwd: getCwd(),
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         force: parsed.force,
-    }, deps);
+    });
     const remoteState = result.alreadyDeleted ? "was already deleted" : "deleted";
     console.log(`[RunWield] Unshared ${result.planName}: remote Shared Space ${result.spaceId} ${remoteState}.`);
     console.log(`[RunWield] Removed ${result.deletedSecretCount} local collaboration secret record(s).`);
     console.log("[RunWield] Cleared local collaboration lock metadata; the Plan body was preserved.");
-}
-
-/** @param {typeof parseArgsFn} parseArgs @param {string[]} argv @returns {PlansUnshareArgs} */
-function parsePlansUnshareArgsWith(parseArgs, argv) {
-    if (parseArgs === parseArgsFn) return parsePlansUnshareArgs(argv);
-    const parsed = parseArgs(argv, {
-        boolean: ["help", "project-secrets", "force"],
-        string: ["plan-server"],
-        alias: { h: "help" },
-    });
-    const positionals = parsed._.map(String);
-    if (parsed.help) {
-        return { help: true, projectSecrets: Boolean(parsed["project-secrets"]), force: Boolean(parsed.force) };
-    }
-    if (positionals.length === 0) throw new Error("Missing Plan name or id for unshare.");
-    if (positionals.length > 1) throw new Error(`Unexpected unshare argument: ${positionals[1]}`);
-    return {
-        target: positionals[0],
-        planServer: typeof parsed["plan-server"] === "string" ? parsed["plan-server"] : undefined,
-        projectSecrets: Boolean(parsed["project-secrets"]),
-        force: Boolean(parsed.force),
-        help: false,
-    };
 }

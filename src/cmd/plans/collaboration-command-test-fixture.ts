@@ -1,0 +1,30 @@
+import { createWorkspaceApp } from "../../ui/workspace/server.js";
+import { createRemoteWorkspaceAdapter } from "../../ui/workspace/server/remote-adapter.js";
+
+type RemoteWorkspaceAdapter = ReturnType<typeof createRemoteWorkspaceAdapter>;
+
+export interface CollaborationServerFixture {
+    adapter: RemoteWorkspaceAdapter;
+    serverUrl: string;
+}
+
+export async function withCollaborationServer(
+    run: (fixture: CollaborationServerFixture) => Promise<void>,
+): Promise<void> {
+    const adapter = createRemoteWorkspaceAdapter();
+    const handler = createWorkspaceApp({ mode: "remote", adapter }).handler();
+    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, handler);
+    const address = server.addr;
+    if (address.transport !== "tcp") {
+        await server.shutdown();
+        adapter.close();
+        throw new Error("Collaboration test server did not bind a TCP address.");
+    }
+
+    try {
+        await run({ adapter, serverUrl: `http://${address.hostname}:${address.port}` });
+    } finally {
+        await server.shutdown();
+        adapter.close();
+    }
+}

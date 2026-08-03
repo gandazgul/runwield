@@ -8,7 +8,12 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.js";
-import { loadSubAgentDefinition } from "../shared/session/subagent-definitions.ts";
+import {
+    DELEGATED_ROLE_GENERAL,
+    DELEGATED_ROLE_IDS,
+    getDelegatedRole,
+    loadSubAgentDefinition,
+} from "../shared/session/subagent-definitions.ts";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
 
 const READ_TOOLS = Object.freeze([
@@ -42,6 +47,10 @@ const TOOL_PARAMS = Type.Object({
         description:
             "Delegation authority. Use read for investigation/review and write for one exclusive implementation task.",
     }),
+    role: Type.Optional(StringEnum([...DELEGATED_ROLE_IDS], {
+        description:
+            "Optional Delegated Agent Role. Omit (or use 'general') for an unspecialized delegate. Use 'verification-adversary' to have a read-only delegate attack a draft Plan's checks with the cheapest counterfeit implementation; a role's authority ceiling can reduce the requested mode.",
+    })),
     brief: Type.String({
         minLength: 1,
         maxLength: 12000,
@@ -115,16 +124,31 @@ export function resolveDelegatedToolNames(parentTools, mode) {
 /**
  * @param {(path: string | URL) => Promise<string>} [readTextFile]
  * @param {(relativePath: string) => Promise<string>} [ensurePromptFile]
+ * @param {import('../shared/session/subagent-definitions.ts').DelegatedRoleId} [role]
  * @returns {Promise<import('../shared/session/types.js').AgentDefinition>}
  */
 export async function loadDelegatedAgentPrompt(
     readTextFile = Deno.readTextFile,
     ensurePromptFile,
+    role = DELEGATED_ROLE_GENERAL,
 ) {
     return await loadSubAgentDefinition(SUBAGENTS.DELEGATED, {
+        delegatedRole: role,
         readTextFile: (path) => readTextFile(path),
         ensurePromptFile,
     });
+}
+
+/**
+ * A role's authority ceiling is the most authority that role may receive; the effective
+ * delegation mode is the intersection of what the caller asked for and what the role allows.
+ *
+ * @param {"read" | "write"} requestedMode
+ * @param {import('../shared/session/subagent-definitions.ts').DelegatedAuthority} authorityCeiling
+ * @returns {"read" | "write"}
+ */
+export function resolveEffectiveDelegationMode(requestedMode, authorityCeiling) {
+    return authorityCeiling === "read" ? "read" : requestedMode;
 }
 
 /**
@@ -278,6 +302,26 @@ function resolveDelegatedThinkingLevelOverride(hostedSession, explicitOverride) 
 }
 
 /**
+ * Role context for the child's user request. A general delegation adds nothing, so its
+ * request text stays byte-identical to pre-role delegation.
+ *
+ * @param {import('../shared/session/subagent-definitions.ts').DelegatedRoleDefinition} role
+ * @param {"read" | "write"} requestedMode
+ * @param {"read" | "write"} effectiveMode
+ * @returns {string[]}
+ */
+function roleRequestLines(role, requestedMode, effectiveMode) {
+    if (role.id === DELEGATED_ROLE_GENERAL) return [];
+    const lines = [`Delegated role: ${role.id}`];
+    if (effectiveMode !== requestedMode) {
+        lines.push(
+            `The parent requested ${requestedMode} mode; the ${role.id} role has a ${role.authorityCeiling}-only authority ceiling, so this session runs as ${effectiveMode}.`,
+        );
+    }
+    return lines;
+}
+
+/**
  * @param {DelegateAgentToolOptions} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
@@ -296,19 +340,39 @@ export function createDelegateAgentTool(opts) {
         name: "delegate_agent",
         label: "Delegate Agent",
         description:
-            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. The parent waits for the result.",
+            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. Pass an optional role to specialize the delegate: 'verification-adversary' attacks a draft Plan with the cheapest counterfeit implementation that would pass its checks. The parent waits for the result.",
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-            const mode = /** @type {"read" | "write"} */ (params.mode);
+            const requestedMode = /** @type {"read" | "write"} */ (params.mode);
+            const requestedRole = typeof params.role === "string" && params.role ? params.role : DELEGATED_ROLE_GENERAL;
             const brief = typeof params.brief === "string" ? params.brief.trim() : "";
             if (!brief) {
                 return {
                     content: [{ type: "text", text: "Delegation failed: brief is required." }],
-                    details: { ok: false, mode, error: "brief_required" },
+                    details: { ok: false, mode: requestedMode, role: requestedRole, error: "brief_required" },
                     isError: true,
                 };
             }
 
+            const role = getDelegatedRole(requestedRole);
+            if (!role) {
+                const message = `Delegation failed: unknown role "${requestedRole}". Valid roles: ${
+                    DELEGATED_ROLE_IDS.join(", ")
+                }.`;
+                return {
+                    content: [{ type: "text", text: message }],
+                    details: {
+                        ok: false,
+                        mode: requestedMode,
+                        role: requestedRole,
+                        error: "unknown_role",
+                        validRoles: [...DELEGATED_ROLE_IDS],
+                    },
+                    isError: true,
+                };
+            }
+
+            const mode = resolveEffectiveDelegationMode(requestedMode, role.authorityCeiling);
             const childTools = resolveDelegatedToolNames(opts.parentTools, mode);
             /** @type {undefined | (() => void)} */
             let release;
@@ -318,10 +382,11 @@ export function createDelegateAgentTool(opts) {
                 release = opts.hostedSession.acquireDelegatedAgentLease(mode);
                 beforeSnapshot = mode === "write" ? await captureChangeSnapshot(opts.cwd) : null;
                 signal?.throwIfAborted?.();
-                const agentDef = await loadDelegatedAgentPrompt(opts.readTextFile, opts.ensurePromptFile);
+                const agentDef = await loadDelegatedAgentPrompt(opts.readTextFile, opts.ensurePromptFile, role.id);
                 agentDef.tools = childTools;
                 const userRequest = [
                     `Delegation mode: ${mode}`,
+                    ...roleRequestLines(role, requestedMode, mode),
                     "",
                     "You are running as a context-isolated child. Complete only the brief below and return a concise handoff.",
                     "",
@@ -362,6 +427,10 @@ export function createDelegateAgentTool(opts) {
                     details: {
                         ok: true,
                         mode,
+                        role: role.id,
+                        requestedAuthority: requestedMode,
+                        effectiveAuthority: mode,
+                        roleAuthorityCeiling: role.authorityCeiling,
                         output,
                         tools: childTools,
                         changedPaths,
@@ -385,6 +454,10 @@ export function createDelegateAgentTool(opts) {
                     details: {
                         ok: false,
                         mode,
+                        role: role.id,
+                        requestedAuthority: requestedMode,
+                        effectiveAuthority: mode,
+                        roleAuthorityCeiling: role.authorityCeiling,
                         error: errorMessage(error),
                         tools: childTools,
                         changedPaths,
