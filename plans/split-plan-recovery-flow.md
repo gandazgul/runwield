@@ -57,10 +57,13 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"
-updatedAt: "2026-08-03T18:22:38.045Z"
-status: "in_progress"
+updatedAt: "2026-08-03T18:45:37.940Z"
+status: "implemented"
 origin: "internal"
+failureReason: "Reviewer-Feedback Engineer stopped without task_completed during semantic repair."
+implementedAt: "2026-08-03T18:42:18.664Z"
 userVerifiedAt: null
+executionReport: "- Implemented Plan Recovery split: coordinator now owns live context/menu/outcome translation; smaller actions, reset paths, and manual merge publication moved to typed action modules with transaction wrappers preserved.\n- Migrated `architecture-boundary.test.js` to TypeScript and expanded lifecycle/publication scanning across all Plan Recovery modules.\n- Added/updated tests: +3 focused Plan Recovery tests, +1 integration hold terminal test; the 4 architecture tests were rewritten from JS to TS with strengthened scan coverage (no behavior-only test coverage deleted).\n- Verified module size/objective guards: flow 393 lines, actions 397, reset 307, merge 417; no branch-level bare `continue` remains in extracted modules.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, targeted recovery/integration/architecture tests, golden load-plan workflow tests, and `deno task ci`."
 humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
@@ -69,9 +72,11 @@ worktreeId: "ebee1e3c"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-split-plan-recovery-flow-ebee1e3c"
 worktreeBranch: "runwield/worktree/split-plan-recovery-flow-ebee1e3c"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "validation_failed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Split Plan Recovery Flow

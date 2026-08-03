@@ -22,7 +22,7 @@
   - [x] run-objective-checks-in-mechanical-validation
   - [x] baseline-objective-checks-before-execution (depends on 1)
   - [x] formalize-subagent-definitions
-  - [ ] delegate-agent-roles (depends on 3)
+  - [x] delegate-agent-roles (depends on 3)
   - [ ] re-anchor-agents-after-compaction (independent)
 
 - [ ] planner is just spitting its execution policy intructions into the plan instead of recommending an execution mode

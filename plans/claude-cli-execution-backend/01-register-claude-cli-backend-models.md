@@ -1,125 +1,297 @@
 ---
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
-complexity: "MEDIUM"
-summary: "Make `claude-cli/<model-or-alias>` a valid, selectable RunWield model reference without changing execution routing yet. This establishes backend metadata, availability/auth-health semantics, settings preservation, and strict provider/model validation coverage."
+complexity: "HIGH"
+summary: "Register pass-through `claude-cli/<selector>` references with four advertised aliases, deferred default selection, explicit non-Pi readiness metadata, and safe pre-runtime rejection."
 affectedPaths:
-    - "src/shared/models/model-registry.js"
-    - "src/shared/models/model-validation.js"
-    - "src/shared/settings.js"
+    - "src/shared/models/model-registry.ts"
+    - "src/shared/models/model-validation.ts"
+    - "src/shared/models/model-execution.ts"
+    - "src/shared/models/claude-cli-models.test.ts"
     - "src/shared/models/model-registry.test.js"
     - "src/shared/models/model-validation.test.js"
-    - "src/shared/settings.test.js"
+    - "src/shared/session/claude-cli-model-selection.test.ts"
+    - "src/shared/session/session.js"
+    - "src/shared/session/session-runtime.js"
+    - "src/shared/session/session-runtime.test.js"
+    - "src/shared/session/image-attachments.js"
+    - "src/cmd/auth/"
+    - "src/cmd/init/"
+    - "src/cmd/models/"
+    - "src/cmd/resume/"
+    - "src/tools/"
+    - "src/ui/tui/"
+    - "scripts/language-policy-baseline.json"
 executionAgent: "engineer"
-createdAt: "2026-08-03T18:20:03.221Z"
-updatedAt: "2026-08-03T18:20:03.221Z"
+collaborationRecommendation: "autonomous"
+devServerCommand: null
+devServerUrl: null
+devServerHmr: null
+createdAt: "2026-08-03T14:20:03-04:00"
+updatedAt: "2026-08-03T14:38:55-04:00"
 status: "draft"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 1
-dependencies:
-    []
+dependencies: []
 ---
 
 # Register Claude CLI Backend Models
 
 ## Context
 
-RunWield currently treats selectable models as Pi-backed provider/model references. The Claude CLI Epic needs
-`claude-cli/<alias-or-id>` references to be valid in the same places as existing model selections, while making clear
-that `claude-cli` is an execution backend facade rather than an API-key provider that Pi should call directly.
+RunWield's model registry currently assumes every selectable model is a Pi-backed provider model: `getAvailable()`
+filters by `hasConfiguredAuth()`, strict template resolution requires the same application programming interface (API)
+auth predicate, and `buildAgentSession()` passes the resolved model directly to Pi's `createAgentSession()`. Claude CLI
+is a different execution backend. Its authentication and health belong to the external `claude` process, not Pi's
+API-key/OAuth provider runtime.
 
-This child establishes the model/provider configuration foundation only. It should not route agent execution to Claude
-yet.
+This child establishes a coherent intermediate state before child 02 adds execution. Users can store
+`claude-cli/<selector>` as a deferred default, the registry identifies it as selectable but not runnable, and the
+current Session remains on its existing model. Any fresh Session or configured-agent path that attempts to activate the
+deferred reference fails clearly before Pi `AgentSession` construction. This child does not spawn `claude`, perform CLI
+health/auth checks, or route a turn to Claude yet.
+
+The existing settings layer is already provider-agnostic: `agents`, `activeModelPreset`, and `modelPresets` are
+preserved as complete RunWield custom values. No new `claudeCli` settings object or `src/shared/settings.js` behavior is
+needed in this child.
+
+The current working tree has unrelated uncommitted changes in files this Plan must touch, currently including
+`src/shared/models/model-registry.js`, `src/shared/session/session.js`, `src/shared/session/session-runtime.js`, and
+`scripts/language-policy-baseline.json`. Per the user's decision, all overlapping changes must be committed/landed
+before execution. The landed versions are authoritative; this Plan must not overwrite or reconstruct the dirty copies.
 
 ## Objective
 
-Add Claude CLI backend models to RunWield model resolution and settings behavior so users and later runtime work can
-select references such as `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, or a full Claude model id through
-`agents.<agent>.model`, `activeModelPreset`, and `modelPresets` without weakening strict errors for existing providers.
+Make `claude-cli/<selector>` a valid RunWield model reference in agent settings, active presets, model presets, strict
+template resolution, and model selection while preserving existing strict provider qualification. Advertise `sonnet`,
+`opus`, `haiku`, and `fable`; resolve any non-empty Claude CLI selector as a pass-through value because Claude CLI is
+authoritative for selector validity; attach explicit non-Pi backend metadata; keep API auth and selection eligibility
+distinct; preserve onboarding's definition of a model that is runnable now; save explicit Claude selection as a deferred
+default without changing the active Session; and reject attempted activation with a clear backend-not-installed error
+until child 02 lands.
+
+As required by the repository language policy, migrate the materially changed model registry and validation modules to
+Deno-native TypeScript without changing existing Pi provider, credential, migration, or OpenAI-compatible discovery
+behavior.
 
 ## Approach
 
-Represent `claude-cli` as a narrow RunWield backend/provider facade in the model registry with explicit metadata
-indicating that execution is handled by the Claude CLI backend, not by Pi's normal provider runtime. Keep strict
-provider/model parsing unchanged in spirit: `provider/id` remains required, unknown non-Claude providers still fail, and
-Claude CLI aliases are accepted only through deliberate registry support.
+Migrate `model-registry.js` and `model-validation.js` to `.ts`, preserving their public exports while replacing broad
+JSDoc shapes with named TypeScript interfaces/unions. Add a narrow TypeScript execution guard module so the legacy
+`session.js` composition layer only wires a typed check before `createAgentSession()`; child 02 can replace that guard
+with backend dispatch without changing how backend identity is represented.
 
-Settings writes should preserve Claude CLI model preset values and any Claude CLI backend settings as RunWield-owned
-custom settings, without treating Claude CLI availability as API-key auth.
+Represent Claude CLI models as a registry-owned overlay, not as a Pi provider registration. The overlay lists four
+recommended aliases and synthesizes a Claude CLI model descriptor when `find("claude-cli", selector)` receives any
+non-empty selector. Claude descriptors carry explicit `executionBackend: "claude-cli"`, external-CLI authentication, and
+deferred execution-preflight health metadata. Existing Pi models continue to default to `executionBackend: "pi"` without
+mutating Pi's model objects.
+
+Keep `getAvailable()` as the existing runnable-now view used by onboarding and API-auth status. Add
+`RunWieldModelRegistry.isSelectable(model)` and `getSelectable()` for references that can be configured: Claude CLI
+descriptors are selectable but are excluded from `getAvailable()` until child 02 supplies runtime health. Strict
+template resolution and resume retention use `isSelectable()`; Vision Fallback and API auth continue using
+`hasConfiguredAuth()`. `hasConfiguredAuth()` and `getProviderAuthStatus("claude-cli")` explicitly remain false even if
+someone writes a misleading `claude-cli` entry to Pi auth/config files. Claude's descriptor metadata—not `/auth`
+status—states `authenticationKind: "external-cli"` and `healthCheck: "execution-preflight"`.
+
+Explicit `/model claude-cli/<selector>` uses the selectable view, attempts normal activation, and handles the typed
+backend-unavailable rejection by persisting the default as deferred while leaving the active Session model/agent pair
+unchanged. `SessionRuntime.reconfigureSessionModel()` must roll back its user-model override if activation fails, so no
+Claude projection can coexist with the previous Pi root agent. The command reports “saved for later,” never “switched.”
+Onboarding continues to use runnable models, but when the selected default is deferred it explains that the Claude CLI
+backend—not an API key—is missing and offers normal model setup/recovery.
+
+Existing `provider/id` parsing remains generic and strict; only the `claude-cli` facade gains pass-through model
+synthesis, so unknown non-Claude providers/models still fail.
+
+Do not add a backend-specific settings schema. Protect existing settings precedence/preservation tests because arbitrary
+provider-qualified strings already survive `SettingsManager` writes.
 
 ## Files to Modify
 
-- `src/shared/models/model-registry.js` — expose Claude CLI aliases/full-id handling and backend metadata through the
-  RunWield model registry facade.
-- `src/shared/models/model-validation.js` — ensure strict provider/model parsing and formatting continues to accept
-  `claude-cli/<model-or-alias>` references without relaxing invalid formats.
-- `src/shared/settings.js` — preserve Claude CLI backend settings and model preset values through settings writes.
-- `src/shared/models/model-registry.test.js` — cover Claude CLI registry availability, auth-health semantics, and non-Pi
-  backend metadata.
-- `src/shared/models/model-validation.test.js` — cover `claude-cli/<model>` parsing/resolution while preserving existing
-  invalid-format behavior.
-- `src/shared/settings.test.js` — cover preservation of Claude CLI provider/backend settings and preset values.
+- `src/shared/models/model-registry.js` → `src/shared/models/model-registry.ts` — preserve the
+  registry/runtime/credential facade while adding typed Claude CLI descriptors, four advertised aliases, pass-through
+  selector lookup, execution-backend/readiness metadata, `isSelectable()`, and `getSelectable()`. Keep `getAvailable()`,
+  `hasConfiguredAuth()`, and provider auth status runnable/API-auth-specific; do not register Claude CLI with Pi.
+- `src/shared/models/model-validation.js` → `src/shared/models/model-validation.ts` — preserve strict `provider/id`
+  parsing/formatting and make `resolveTemplateModel()` consume the registry's selection-eligibility contract rather than
+  equating selection with API auth.
+- `src/shared/models/model-execution.ts` — add a typed `UnsupportedModelExecutionBackendError` and pre-runtime guard
+  that accepts Pi-backed models and rejects `executionBackend: "claude-cli"` with a stable, actionable error before Pi
+  session construction; expose a predicate usable by command/onboarding adapters without parsing error text.
+- `src/shared/session/session.js` — update real `.ts` imports, use `isSelectable()` when resolving configured
+  candidates, record selection eligibility separately from API-auth state, and invoke the imported execution guard
+  before image fallback, tool assembly, or `createAgentSession()`. Keep the guard logic out of this legacy composition
+  module.
+- `src/shared/session/session-runtime.js` — update the registry import and make `reconfigureSessionModel()`
+  transactional: capture the previous user override, tentatively activate the requested model, commit/emit only on
+  success, and restore the exact previous override when activation rejects. Preserve managed/deferred Session behavior.
+- `src/shared/session/session-runtime.test.js` — prove failed model activation retains the previous active model, root
+  agent, handler, and projection and emits no false `MODEL_CHANGED` event.
+- `src/shared/models/claude-cli-models.test.ts` — add focused registry/validation tests for aliases, arbitrary non-empty
+  pass-through selectors, metadata, listing/deduplication, API-auth false versus selectable true, and strict
+  unknown-provider failures.
+- `src/shared/session/claude-cli-model-selection.test.ts` — prove configured Claude activation reaches the explicit
+  pre-runtime rejection before Pi construction and that explicit selection persists a deferred default while the current
+  Session's active model/agent pair remains unchanged, using real settings/session fixtures rather than a new dependency
+  bag.
+- `src/shared/models/model-registry.test.js` and `src/shared/models/model-validation.test.js` — point imports and source
+  characterization at `.ts`, adapt typed test doubles, and retain all current migration, provider availability, auth,
+  parser, and discovery coverage.
+- `src/cmd/models/index.ts` and `src/cmd/models/index.test.ts` — consume a typed activation result and report deferred
+  Claude defaults as saved/not active rather than claiming the Session switched; retain existing Pi selection behavior.
+- `src/cmd/models/getArgumentCompletions.js` — use `getSelectable()` so completions advertise `sonnet`, `opus`, `haiku`,
+  and `fable` while no-argument Pi selector behavior remains child 05 scope.
+- `src/cmd/resume/index.ts` and `src/cmd/resume/index.test.ts` — retain persisted Claude references via `isSelectable()`
+  instead of discarding them for lacking API auth; activation still reaches the pre-runtime guard.
+- `src/cmd/auth/index.ts` and `src/cmd/auth/index.test.ts` — update imports and prove Claude CLI is not presented as an
+  API-key/OAuth provider or counted as runnable before backend health exists.
+- `src/ui/tui/chat-session.js` and `src/ui/tui/chat-session.test.js` — update imports and make `setActiveModel()` catch
+  only the typed unsupported-backend error, persist provider/model as a deferred default, return a deferred activation
+  result, and leave unrelated activation failures unpersisted and visible.
+- `src/ui/tui/model-welcome.js` and `src/ui/tui/model-welcome.test.js` — distinguish a selectable deferred default from
+  a runnable model so Claude aliases do not bypass onboarding; explain backend unavailability rather than missing API
+  auth while preserving Pi login/model recovery.
+- `src/shared/session/image-attachments.js`, `src/cmd/init/index.ts`, `src/tools/see-image.js`,
+  `src/tools/delegate-agent.js`, `src/ui/tui/ui-api-overrides.ts`, and other direct importers enumerated by the
+  repository search — update live imports to the real `.ts` extensions. Vision Fallback deliberately remains
+  API-auth/runnable-only.
+- `scripts/language-policy-baseline.json` — remove the retired `model-registry.js` and `model-validation.js` entries
+  without changing unrelated in-flight baseline work.
+
+`src/shared/settings.js` is intentionally not modified: preservation is value-agnostic and already owns `agents`,
+`activeModelPreset`, and `modelPresets` as whole custom settings.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/shared/models/model-registry.js` — reuse `RunWieldModelRegistry`, `find`, `getAvailable`, `hasConfiguredAuth`,
-  and provider registration conventions where they fit.
-- `src/shared/models/model-validation.js` — reuse `parseProviderModel`, `formatProviderModelReference`, and
-  `resolveTemplateModel` rather than adding a parallel parser.
-- `src/shared/settings.js` — reuse `RUNWIELD_CUSTOM_SETTING_KEYS`, `preserveRunWieldCustomSettingsForWrite`, and merged
-  custom setting behavior.
-- `src/shared/session/__tests__/agent-model-override.test.js` — preserve the existing settings precedence behavior for
-  active model presets and agent model overrides.
+- `src/shared/models/model-registry.js` — retain `RunWieldModelRegistry`, `find`, `getAll`, `getAvailable`,
+  `hasConfiguredAuth`, credential storage, model config migration, and OpenAI-compatible discovery behavior while typing
+  the module.
+- `src/shared/models/model-validation.js` — retain `parseProviderModel`, `formatProviderModelReference`, and
+  `resolveTemplateModel`; do not create a Claude-specific reference parser.
+- `src/shared/settings.js` — rely on the existing `RUNWIELD_CUSTOM_SETTING_KEYS` preservation of complete `agents`,
+  `activeModelPreset`, and `modelPresets` values; no new key is justified.
+- `src/shared/session/__tests__/agent-model-override.test.js` and `src/shared/settings.test.js` — retain the existing
+  precedence and round-trip guarantees for arbitrary model-reference strings.
+- `src/shared/session/__tests__/session-tools-policy.test.js` and existing process-global/Git/settings fixtures — reuse
+  real composition setup for the pre-Pi rejection test; do not add `__deps`/`__testDeps` to model or Session modules.
+- `plans/migrate-custom-tools-to-typescript.md` — follow the established Deno-native migration pattern: real `.ts`
+  import extensions, no compatibility shims, JavaScript callers may remain JavaScript when only wiring/imports change,
+  and the language-policy baseline only tightens.
 
 ## Implementation Steps
 
-- [ ] `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and deliberate full Claude model ids can be
-      represented by the model registry with metadata that identifies Claude CLI backend execution instead of Pi
-      provider execution.
-- [ ] `resolveTemplateModel` and model lookup accept valid `claude-cli/<model-or-alias>` references only when the Claude
-      CLI facade supports them, while invalid strings and unknown non-Claude providers still fail with existing strict
-      behavior.
-- [ ] Claude CLI availability/auth-health is modeled separately from API-key provider auth so missing API keys do not
-      incorrectly block `claude-cli/*` references and missing Claude CLI health can still be surfaced later.
-- [ ] Settings writes preserve Claude CLI model preset values and backend settings; existing RunWield-only keys such as
-      `modelPresets` continue to survive Pi SettingsManager writes.
-- [ ] Existing Pi-backed model registry behavior, provider discovery, stored credentials, and OpenAI-compatible dynamic
-      discovery remain protected by tests.
+- [ ] The execution baseline contains all previously uncommitted work overlapping this Plan, including the model
+      registry, Session composition/runtime, and language-policy baseline; implementation uses those landed files as
+      authority and does not restore, overwrite, or loosen their behavior/baselines.
+- [ ] `src/shared/models/model-registry.ts` and `model-validation.ts` are the only live implementations of those
+      modules; the `.js` files and compatibility shims do not exist, every live import uses the real `.ts` extension,
+      and the two retired paths are absent from `scripts/language-policy-baseline.json`.
+- [ ] The migrated modules preserve all current public exports and contain named concrete types rather than explicit
+      `any`, explicit `unknown`, bare `object`, `@ts-ignore`, or `@ts-nocheck`; `deno task check` and the
+      language-policy ratchet pass.
+- [ ] `getAll()`/`getSelectable()` advertise exactly the Claude CLI aliases `sonnet`, `opus`, `haiku`, and `fable` once
+      each, with stable display names and exact metadata `executionBackend: "claude-cli"`,
+      `authenticationKind: "external-cli"`, and `healthCheck: "execution-preflight"`; `getAvailable()` excludes them
+      until a later child establishes runnable health.
+- [ ] `find("claude-cli", selector)` and strict template resolution synthesize the same typed Claude CLI descriptor for
+      every non-empty selector, including pinned/full IDs and future CLI-recognized aliases; empty/malformed provider
+      references still fail, and unknown non-Claude providers/models are not synthesized.
+- [ ] `RunWieldModelRegistry.isSelectable()` returns true for Claude CLI descriptors without asserting API credentials;
+      `hasConfiguredAuth()` and `getProviderAuthStatus("claude-cli").configured` remain false even if Pi auth/config
+      files contain a `claude-cli` entry, while existing Pi behavior is unchanged.
+- [ ] Completions use `getSelectable()` and advertise the four aliases; onboarding, auth status, and runnable model
+      counts continue using `getAvailable()` and neither skip Pi setup nor describe Claude CLI as API-key/OAuth
+      configured.
+- [ ] A configured `agents.<agent>.model`, active model preset, model preset, template model, or persisted Session model
+      retains `claude-cli/<selector>` through `isSelectable()` and resolves its backend metadata, while Vision Fallback
+      remains gated by real API auth and existing settings precedence/whole-value preservation remains unchanged.
+- [ ] Explicit `/model claude-cli/<selector>` persists the provider/model as a deferred default, reports that the Claude
+      backend is not installed and the current Session is unchanged, and does not emit a false successful-switch
+      message.
+- [ ] Failed `SessionRuntime.reconfigureSessionModel()` activation restores the exact previous user override and keeps
+      the previous root agent/handler/projection; no `MODEL_CHANGED` event is emitted. Successful Pi reconfiguration
+      retains its current commit/event behavior.
+- [ ] Before child 02, any fresh/configured attempt to build a Pi `AgentSession` from a Claude CLI descriptor fails with
+      a typed stable error explaining that the Claude CLI execution backend is not installed yet; the guard runs before
+      image fallback/tool setup and before `createAgentSession()`, and no fake Pi provider or stream implementation
+      exists.
+- [ ] Existing Pi-backed model selection remains the default and retains runtime snapshots, built-in/configured models,
+      API-key/OAuth status, credential migration, custom provider registration, OpenAI-compatible `/models` discovery,
+      image fallback, and `createAgentSession()` behavior.
+- [ ] No test-only seam is added. New tests use the real registry, temporary RunWield config/settings, and existing
+      process-global locking/fixtures where Session composition is exercised.
 
 ## Verification Plan
 
-- Automated:
-  `deno run -A scripts/run-tests.js src/shared/models/model-registry.test.js src/shared/models/model-validation.test.js src/shared/settings.test.js src/shared/session/__tests__/agent-model-override.test.js`
-- Automated: `deno task test` before declaring the child complete if the model registry changes have broader impact.
-- Expected: valid `claude-cli/<alias-or-id>` references resolve through RunWield's normal model selection path with
-  Claude backend metadata.
-- Expected: existing invalid model strings and unknown provider/model references still fail under strict resolution.
-- Expected: settings writes preserve Claude CLI-related custom settings and existing model preset settings.
-- Behavior protected afterwards: Pi-backed providers remain default, OpenAI-compatible discovery still works, and
-  API-key/OAuth credential behavior is unchanged for existing providers.
-- Behavior expected to stop existing: Claude CLI model references no longer fail solely because Pi does not expose a
-  matching API provider.
+- Automated focused behavior:
+  `deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts src/shared/models/model-registry.test.js src/shared/models/model-validation.test.js`
+- Automated settings/selection regression:
+  `deno run -A scripts/run-tests.js src/shared/settings.test.js src/shared/session/__tests__/agent-model-override.test.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/ui/tui/chat-session.test.js`
+- Automated migration/policy: `deno task check && deno task language-policy:check && deno task seams:check`
+- Full regression gate: `deno task ci`
+- Manual: none for this intermediate child. Real Claude CLI health/auth and execution are intentionally deferred to
+  children 02 and 04.
+- Expected: explicit `/model claude-cli/<selector>`, completions/registry listings, and strict configured-model paths
+  recognize advertised and pass-through `claude-cli/*` references, expose Claude backend metadata, and do not ask for an
+  API key merely to retain/select the reference. The Pi-owned interactive selector remains child 05 scope.
+- Expected: attempting a turn before child 02 produces the explicit backend-not-installed error and does not instantiate
+  Pi `AgentSession` or mutate workflow state.
+- Behavior protected afterwards: all current Pi-backed selection, auth, discovery, image capability, credential
+  storage/migration, and settings precedence/preservation behavior remains covered.
+- Behavior expected to stop existing: `claude-cli/*` no longer fails as an unknown Pi provider/model or disappears from
+  RunWield registry/completion results; it also never falls through into Pi execution.
+- Glossary: no `CONTEXT.md` update is made in this child because it does not yet implement Claude execution. The child
+  02 runtime slice (or later user-facing slice) must add stable Execution Backend language when that behavior becomes
+  true.
 
 ### Objective-Failing Checks
 
 - `OC1` —
-  `deno run -A scripts/run-tests.js src/shared/models/model-registry.test.js src/shared/models/model-validation.test.js`
-  — registry and validation tests prove `claude-cli/<model>` is selectable without relaxing strict provider/model rules.
-- `OC2` — `deno run -A scripts/run-tests.js src/shared/settings.test.js` — settings preservation covers Claude CLI
-  backend/model-preset values.
+  `deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts`
+  — both focused files are absent on the baseline; passing requires Claude selector registration/metadata and the pre-Pi
+  execution rejection to exist as tested behavior.
+- `OC2` —
+  `bash -lc 'set -e; test -s src/shared/models/model-registry.ts; test -s src/shared/models/model-validation.ts; test ! -e src/shared/models/model-registry.js; test ! -e src/shared/models/model-validation.js; ! grep -qE "src/shared/models/model-(registry|validation)\.js" scripts/language-policy-baseline.json; deno task language-policy:check; deno task check'`
+  — fails on the current JavaScript-only shape and proves the touched production modules, imports, baseline, and type
+  graph were actually migrated rather than wrapped or aliased.
 
 ## Execution Policy
 
-This child is Engineer-owned and can run autonomously. It has no browser-rendered UI outcome.
+- Engineer executes autonomously; there is no browser-rendered outcome or dev server.
+- Do not start execution until every dirty file overlapping this Plan—including the current model-registry, Session
+  composition/runtime, and language-policy changes—has been committed/landed. If that work is intentionally abandoned
+  instead, return this Plan for review against the new baseline.
+- This child must leave the repository safe and testable on its own. Child 02 is not allowed to be an implicit
+  same-commit requirement for preventing Claude descriptors from reaching Pi.
 
 ## Edge Cases & Considerations
 
-- Do not implement Claude CLI as a normal Pi API provider; later children need backend metadata to branch execution
-  safely.
-- Do not require an API key for `claude-cli`; Claude Code authentication is external CLI health, not RunWield provider
-  auth.
-- Preserve strict `provider/id` semantics so supporting Claude CLI does not make malformed model references acceptable.
-- Avoid adding `__deps` or `__testDeps` seams to RunWield-owned model/settings modules.
+- **CLI-authoritative selectors:** RunWield deliberately does not maintain a full Claude model catalog. The four aliases
+  are discoverable defaults; other non-empty selectors are pass-through and may fail only when a later child invokes
+  Claude CLI. Preserve the exact selector string after outer whitespace normalization.
+- **Intermediate safety:** selecting a Claude model before child 02 is allowed; executing it is not. The error must say
+  the execution backend is unavailable/not installed, not “missing API key” and not an unknown Pi provider error.
+- **Availability versus health:** `isSelectable` means a reference can be chosen and retained; it does not prove that
+  `claude` exists, is authenticated, or can execute that selector. Child 04 owns real executable/auth/version health
+  checks.
+- **No Pi facade:** do not call `ModelRuntime.registerProvider`, invent a Pi stream API, put Claude in `models.json`, or
+  return fake API credentials for `claude-cli`.
+- **Hydration/deduplication:** a hydrated Pi runtime snapshot currently replaces the cold availability list. Merge the
+  Claude overlay explicitly and deduplicate by provider/id so aliases remain visible in both states without duplicating
+  configured/runtime Pi models.
+- **Non-Claude strictness:** pass-through synthesis applies only to provider `claude-cli`; malformed references and
+  unknown provider/model pairs retain current failures and discovery behavior.
+- **Image behavior:** Claude descriptors must not accidentally claim Pi image support or trigger Vision Fallback work
+  before the pre-runtime guard. Child 02 decides how Claude CLI receives images/files.
+- **Settings scope:** do not reserve a top-level `claudeCli` key or runtime option schema. Existing custom setting
+  containers already preserve model strings, and runtime options should be designed by the child that consumes them.
+- **Migration risk:** `model-registry.js` is roughly 729 lines and central to auth/discovery. Preserve behavior through
+  concrete types and focused tests; do not use `any`, `unknown`, bare `object`, compatibility `.js` re-exports, or broad
+  casts to make the migration compile.
+- **Seams:** do not add `__deps`/`__testDeps`. Model registration and the pre-Pi guard are RunWield-owned behavior and
+  must be tested through real fixtures.
