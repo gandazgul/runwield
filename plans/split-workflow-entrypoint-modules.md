@@ -61,11 +61,11 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:03:40-04:00"
-updatedAt: "2026-08-03T02:04:46.940Z"
+updatedAt: "2026-08-03T02:38:20.830Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T01:36:47.299Z"
-verifiedAt: "2026-08-03T02:04:46.940Z"
+verifiedAt: "2026-08-03T02:38:20.830Z"
 userVerifiedAt: null
 executionReport: "- Split `src/shared/workflow/workflow.js` into facade entry point plus cohesive modules: `execution-collaboration.ts`, `objective-checks-baseline.ts`, `planning-agent.ts`, `implementation-checkpoint.ts`, `plan-executor.ts`, `engineer-runner.ts`, and `execution-start.ts`; all split files are under 1000 lines (`workflow.js` now 143 lines, largest new module 602 lines).\n- Preserved public `workflow.js` exports and JSDoc typedef compatibility; existing callers/tests still import via `./workflow.js`.\n- Updated lifecycle architecture boundary coverage for the new execution orchestration modules and tightened the seam ratchet by removing the old `workflow.js` seam baseline entry; no new production JS files were added.\n- Test file change accounting: touched `workflow.test.js` only to add an explained `@ts-nocheck` directive for the facade-to-TS extraction; no tests were removed/replaced/added, so test-count delta is 0.\n- Objective checks passed: OC1, OC2, and OC3 all exited 0.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, targeted `deno run -A scripts/run-tests.js ...` (92 passed, 0 failed), `deno task lint`, and full `deno task ci` (235 files passed, 0 failed)."
 humanReviewMode: "ask"
@@ -75,9 +75,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "c86258678377579e19d5dc792e5e1abfe32bd53d"
+    executionCommit: "8173a9e4d02ae1c62936841b751c9881a0570f8f"
     targetBranch: "main"
-    targetHeadBeforeMerge: "60dd6f8ac908acbaa4de83c63166db00df3e6e47"
+    targetHeadBeforeMerge: "90ab48463dc833e3276c31450e2b5ca530fd5c67"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "workflow module split"
 validationCiAttempts: 0
