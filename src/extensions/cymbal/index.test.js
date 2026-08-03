@@ -105,7 +105,26 @@ Deno.test("code_search tool executes correctly", async () => {
 
     const call = calls.at(-1);
     assertEquals(call?.command, "cymbal");
-    assertEquals(call?.args, ["search", "AuthHandler"]);
+    assertEquals(call?.args, ["--no-federate", "search", "AuthHandler"]);
+});
+
+Deno.test("cymbal tools disable sibling worktree federation", async () => {
+    const { getTool } = setup((_command, args) => {
+        if (args[0] !== "--no-federate") {
+            return Promise.resolve({
+                code: 1,
+                stdout: "",
+                stderr:
+                    "cymbal: skipped 2 unindexed sibling worktree(s); run `cymbal index .` inside each to include them.",
+            });
+        }
+        return Promise.resolve({ code: 0, stdout: "indexed current worktree", stderr: "" });
+    });
+
+    assertEquals(
+        firstText(await executeTool(getTool("code_search"), { query: "AuthHandler" })),
+        "indexed current worktree",
+    );
 });
 
 Deno.test("cymbal tools map public params to cymbal commands", async () => {
@@ -119,17 +138,17 @@ Deno.test("cymbal tools map public params to cymbal commands", async () => {
         {
             name: "code_search",
             params: { query: "AuthHandler", textSearch: true },
-            args: ["search", "--text", "AuthHandler"],
+            args: ["--no-federate", "search", "--text", "AuthHandler"],
         },
-        { name: "code_structure", params: {}, args: ["structure"] },
-        { name: "code_impls", params: { symbol: "Session" }, args: ["impls", "Session"] },
-        { name: "code_importers", params: { target: "./mod.js" }, args: ["importers", "./mod.js"] },
-        { name: "code_show", params: { target: "src/mod.js:1-5" }, args: ["show", "src/mod.js:1-5"] },
-        { name: "code_outline", params: { file: "src/mod.js" }, args: ["outline", "src/mod.js"] },
-        { name: "code_refs", params: { symbol: "run" }, args: ["refs", "run"] },
-        { name: "code_impact", params: { symbol: "run" }, args: ["impact", "run"] },
-        { name: "code_trace", params: { symbol: "run" }, args: ["trace", "run"] },
-        { name: "code_investigate", params: { symbol: "run" }, args: ["investigate", "run"] },
+        { name: "code_structure", params: {}, args: ["--no-federate", "structure"] },
+        { name: "code_impls", params: { symbol: "Session" }, args: ["--no-federate", "impls", "Session"] },
+        { name: "code_importers", params: { target: "./mod.js" }, args: ["--no-federate", "importers", "./mod.js"] },
+        { name: "code_show", params: { target: "src/mod.js:1-5" }, args: ["--no-federate", "show", "src/mod.js:1-5"] },
+        { name: "code_outline", params: { file: "src/mod.js" }, args: ["--no-federate", "outline", "src/mod.js"] },
+        { name: "code_refs", params: { symbol: "run" }, args: ["--no-federate", "refs", "run"] },
+        { name: "code_impact", params: { symbol: "run" }, args: ["--no-federate", "impact", "run"] },
+        { name: "code_trace", params: { symbol: "run" }, args: ["--no-federate", "trace", "run"] },
+        { name: "code_investigate", params: { symbol: "run" }, args: ["--no-federate", "investigate", "run"] },
     ];
 
     for (const item of cases) {
@@ -165,15 +184,15 @@ Deno.test("code_batch runs show and outline operations in order", async () => {
     assertEquals(
         calls.map((call) => ({ args: call.args, cwd: call.opts.cwd })),
         [
-            { args: ["show", "buildAgentSession"], cwd: "/project" },
-            { args: ["outline", "src/extensions/cymbal/index.js"], cwd: "/project" },
+            { args: ["--no-federate", "show", "buildAgentSession"], cwd: "/project" },
+            { args: ["--no-federate", "outline", "src/extensions/cymbal/index.js"], cwd: "/project" },
         ],
     );
 });
 
 Deno.test("code_batch isolates per-operation errors and normalizes empty output", async () => {
     const { getTool } = setup((_command, args) => {
-        if (args[0] === "show") {
+        if (args[1] === "show") {
             return Promise.resolve({ code: 2, stdout: "", stderr: "bad target\nUsage: cymbal show" });
         }
         return Promise.resolve({ code: 0, stdout: "", stderr: "" });
@@ -270,7 +289,14 @@ Deno.test("cymbal nudge correctly intercepts bash and grep", async () => {
     };
 
     const result = await handler(grepEvent, {});
-    assertEquals(calls.at(-1)?.args, ["hook", "nudge", "--format=text", "--", 'grep "auth system" src']);
+    assertEquals(calls.at(-1)?.args, [
+        "--no-federate",
+        "hook",
+        "nudge",
+        "--format=text",
+        "--",
+        'grep "auth system" src',
+    ]);
 
     // Nudge should be appended
     assertEquals(result.content.length, 2);
@@ -294,7 +320,7 @@ Deno.test("cymbal nudge handles bash commands, array paths, and ignored events",
         content: [{ type: "text", text: "rg output" }],
     }, {});
 
-    assertEquals(calls.at(-1)?.args, ["hook", "nudge", "--format=text", "--", "rg Session src"]);
+    assertEquals(calls.at(-1)?.args, ["--no-federate", "hook", "nudge", "--format=text", "--", "rg Session src"]);
     assertEquals(bashResult.content.at(-1)?.text, "\n\nTry `cymbal refs`");
 
     await handler({
@@ -302,7 +328,14 @@ Deno.test("cymbal nudge handles bash commands, array paths, and ignored events",
         input: { pattern: "Session", path: ["src", "tests"] },
         content: [],
     }, {});
-    assertEquals(calls.at(-1)?.args, ["hook", "nudge", "--format=text", "--", 'grep "Session" src tests']);
+    assertEquals(calls.at(-1)?.args, [
+        "--no-federate",
+        "hook",
+        "nudge",
+        "--format=text",
+        "--",
+        'grep "Session" src tests',
+    ]);
 
     const ignored = await handler({
         toolName: "read",

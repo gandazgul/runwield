@@ -278,7 +278,7 @@ export default function cymbalExtension(pi) {
      */
     async function runCymbal(...args) {
         try {
-            const result = await pi.exec("cymbal", args, { cwd: projectCwd });
+            const result = await pi.exec("cymbal", ["--no-federate", ...args], { cwd: projectCwd });
             if (result.code !== 0) {
                 const errText = result.stderr.trim() || result.stdout.trim();
                 const cleanErr = errText.split("\nUsage:")[0].trim();
@@ -449,9 +449,13 @@ export default function cymbalExtension(pi) {
         if (commandToInspect) {
             try {
                 // Execute cymbal hook nudge --format=text -- <command>
-                const hookResult = await pi.exec("cymbal", ["hook", "nudge", "--format=text", "--", commandToInspect], {
-                    cwd: projectCwd,
-                });
+                const hookResult = await pi.exec(
+                    "cymbal",
+                    ["--no-federate", "hook", "nudge", "--format=text", "--", commandToInspect],
+                    {
+                        cwd: projectCwd,
+                    },
+                );
 
                 // cymbal nudge output goes to stderr
                 const nudgeText = hookResult.stderr.trim();
