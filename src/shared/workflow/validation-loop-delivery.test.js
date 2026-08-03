@@ -58,7 +58,6 @@ Deno.test("runValidationLoop clears validationMergeRepairWorktree for non-Git pu
             humanReviewDecision: "not_required",
             validationMergeRepairWorktree: "/tmp/missing-runwield-merge",
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");

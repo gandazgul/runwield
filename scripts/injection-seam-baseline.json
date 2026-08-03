@@ -155,31 +155,7 @@
             ],
             "machinery": []
         },
-        "src/shared/workflow/workflow.js": {
-            "seams": [
-                "captureWorktreeTree",
-                "confirmNonGitFeaturePlanExecution",
-                "ensureExecutionPlanFile",
-                "executeSingleEngineerPlan",
-                "findReusableWorktree",
-                "hasNonGitExecutionConsent",
-                "loadCanonicalExecutionPlanSource",
-                "loadPlan",
-                "markActiveWorktreeStatus",
-                "now",
-                "prepareTargetBranchRef",
-                "probeGitRepository",
-                "recordWorkflowMetric",
-                "requestPlanReview",
-                "resolveCurrentCheckoutBranch",
-                "resolveTargetBranchName",
-                "runActiveAgentTurn",
-                "runImplementationCheckpointTransition"
-            ],
-            "machinery": [
-                "runImplementationCheckpointTransition"
-            ]
-        },
+
         "src/tools/plan-written.js": {
             "seams": [
                 "cwd",
