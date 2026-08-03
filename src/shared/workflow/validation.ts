@@ -14,6 +14,7 @@ import { preparePrimaryPlanPathForMerge, restorePrimaryPlanPathAfterMergeFailure
 import { runIsolatedAgentSession } from "../session/session.js";
 import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { getCodeReviewMode, getGuidedReviewMode, shouldCleanupMergedWorktrees } from "../settings.js";
 import { createGitPort } from "../git-port.ts";
 import {
@@ -64,6 +65,7 @@ import {
     verifyPostMergeCandidatePublished,
 } from "./validation-helpers.ts";
 import { type LocalCIPort, systemLocalCIPort } from "./validation-local-ci.ts";
+import { readRepairedMergeCandidate } from "./validation-merge-verification.ts";
 import {
     clearValidationPosition,
     getValidationPosition,
@@ -103,7 +105,7 @@ type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer";
 type PlanEvent = Parameters<typeof recordPlanEvent>[0]["event"];
 type PlanEventStatus = Parameters<typeof recordPlanEvent>[0]["currentStatus"];
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
-type TriageMeta = import("../../tools/plan-written.js").TriageMeta & Partial<PlanFrontMatter>;
+type TriageMeta = import("../../tools/plan-written.ts").TriageMeta & Partial<PlanFrontMatter>;
 type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExecutionWorkflow;
 type HostedSession = import("../session/hosted-session.js").HostedSession;
 type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
@@ -1182,13 +1184,17 @@ async function runPublicationPhase(
     }
 
     async function publishOnce(): Promise<PublicationOutcome> {
-        const checkpoint = await checkpointExecutionWorktree({
+        const repairedCandidate = repairMergeWorktreePath
+            ? await readRepairedMergeCandidate(repairMergeWorktreePath)
+            : null;
+        const checkpoint = repairedCandidate || await checkpointExecutionWorktree({
             worktreePath: context.executionCwd,
             branch: executionBranch,
             planName: args.planName,
             planDescription: args.triageMeta?.summary,
         });
-        const targetHeadBeforeMerge = await gitPort.branchHead(context.projectRoot, targetBranch);
+        const targetHeadBeforeMerge = repairedCandidate?.targetHeadBeforeMerge ||
+            await gitPort.branchHead(context.projectRoot, targetBranch);
         const deliveryEvidence: WorktreeDeliveryEvidence = {
             version: 1,
             mode: "worktree_merge",
@@ -1196,19 +1202,26 @@ async function runPublicationPhase(
             targetBranch,
             targetHeadBeforeMerge,
         };
-        const staging = await stageValidationPassedInExecutionWorktree({
-            projectRoot: context.projectRoot,
-            executionCwd: context.executionCwd,
-            planName: args.planName,
-            details: {
-                triageMeta: args.triageMeta,
-                executionMode: "worktree",
-                deliveryEvidence,
-                worktreeStatus: "merged",
-                cleanupMergedWorktrees,
-                ...humanReviewMetadata,
-            },
-        });
+        const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
+            .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
+        const repairedPlanPaths = new Set([planPath]);
+        if (hierarchy.parentPlan) repairedPlanPaths.add(`plans/${hierarchy.parentPlan}.md`);
+        for (const sibling of hierarchy.siblingPlans) repairedPlanPaths.add(`plans/${sibling.name}.md`);
+        const staging = repairedCandidate
+            ? { planPaths: [...repairedPlanPaths] }
+            : await stageValidationPassedInExecutionWorktree({
+                projectRoot: context.projectRoot,
+                executionCwd: context.executionCwd,
+                planName: args.planName,
+                details: {
+                    triageMeta: args.triageMeta,
+                    executionMode: "worktree",
+                    deliveryEvidence,
+                    worktreeStatus: "merged",
+                    cleanupMergedWorktrees,
+                    ...humanReviewMetadata,
+                },
+            });
         // The merge is the only irreversible act in the system: a commit that reaches
         // the target branch cannot be taken back. It therefore runs inside the
         // publication transaction, which locks the attempt and the target ref, holds
@@ -1218,8 +1231,6 @@ async function runPublicationPhase(
         // recovery cannot tell "never merged" from "merged, bookkeeping behind", and
         // the failure path below would report a merge failure for work already on the
         // target branch.
-        const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
-            .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
         const publication = await runDirectDeliveryPublicationTransition({
             projectRoot: context.projectRoot,
             planName: args.planName,
@@ -1720,9 +1731,16 @@ async function dispatchObjectiveCheckRepair(
         sessionManager: args.sessionManager,
         cwd: context.executionCwd,
     });
-    return Boolean(
-        args.hostedSession.consumePendingTaskCompletion(args.hostedSession.getRootAgentSession()),
+    const completion = claimPendingTaskCompletion(
+        args.hostedSession,
+        args.hostedSession.getRootAgentSession(),
     );
+    if (!completion) return false;
+    // `implemented` is already the durable recovery state for this repair. Once
+    // completion wakes validation, a crash can safely rerun Mechanical Validation
+    // from that lifecycle checkpoint.
+    acknowledgeTaskCompletion(args.hostedSession, completion);
+    return true;
 }
 
 async function dispatchCiRepair(
@@ -1757,9 +1775,13 @@ async function dispatchCiRepair(
         sessionManager: args.sessionManager,
         cwd: context.executionCwd,
     });
-    return Boolean(
-        args.hostedSession.consumePendingTaskCompletion(args.hostedSession.getRootAgentSession()),
+    const completion = claimPendingTaskCompletion(
+        args.hostedSession,
+        args.hostedSession.getRootAgentSession(),
     );
+    if (!completion) return false;
+    acknowledgeTaskCompletion(args.hostedSession, completion);
+    return true;
 }
 
 /**
@@ -1851,7 +1873,7 @@ async function persistValidationMergeRepairWorktree(
         planName: args.planName,
         operation: "validation_merge_repair_worktree",
         updates: { validationMergeRepairWorktree: path },
-        recoveryAttrs: args.triageMeta,
+        recoveryAttrs: { ...args.triageMeta },
     });
     if (transition.status === "committed") return { kind: "committed" };
     const reason = transition.message || `Could not save merge repair worktree state for ${args.planName}.`;
@@ -2106,7 +2128,7 @@ async function persistHumanReviewMetadata(
         planName: args.planName,
         operation: "validation_human_review_metadata",
         updates: metadata,
-        recoveryAttrs: args.triageMeta,
+        recoveryAttrs: { ...args.triageMeta },
     });
 }
 

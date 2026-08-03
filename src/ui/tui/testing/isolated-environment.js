@@ -98,7 +98,8 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         join(projectRoot, "README.md"),
         "# Golden TUI Fixture\n\nRouting uses the Router to select Guide.\n",
     );
-    await new Deno.Command("git", { args: ["init"], cwd: projectRoot, stdout: "null", stderr: "null" }).output();
+    await new Deno.Command("git", { args: ["init", "-b", "main"], cwd: projectRoot, stdout: "null", stderr: "null" })
+        .output();
     await new Deno.Command("git", { args: ["config", "user.email", "golden@example.test"], cwd: projectRoot }).output();
     await new Deno.Command("git", { args: ["config", "user.name", "Golden TUI"], cwd: projectRoot }).output();
     await new Deno.Command("git", { args: ["add", "README.md"], cwd: projectRoot }).output();

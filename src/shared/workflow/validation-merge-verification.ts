@@ -28,6 +28,50 @@ interface MergeVerificationResult {
     message: string;
 }
 
+export interface RepairedMergeCandidate {
+    executionCommit: string;
+    metadataCommit: string;
+    targetHeadBeforeMerge: string;
+}
+
+/**
+ * Recover the frozen publication candidate embedded in a completed repair merge.
+ *
+ * A detached repair merge has the target head as its first parent and the staged
+ * execution metadata commit as its second. That metadata commit's first parent is
+ * the implementation commit Workflow Validation sealed before staging the verified
+ * Plan. While repair is unresolved Git exposes the same frozen metadata parent as
+ * MERGE_HEAD; after completion it is HEAD^2. Returning the same evidence in both
+ * states prevents a retry from advancing the execution branch before Agent repair.
+ */
+export async function readRepairedMergeCandidate(
+    repairWorktreePath: string,
+): Promise<RepairedMergeCandidate | null> {
+    let metadata = await runGitForMergeVerification(repairWorktreePath, ["rev-parse", "HEAD^2"]);
+    const completed = metadata.exitCode === 0 && Boolean(metadata.stdout.trim());
+    if (!completed) {
+        metadata = await runGitForMergeVerification(repairWorktreePath, ["rev-parse", "MERGE_HEAD"]);
+        if (metadata.exitCode !== 0 || !metadata.stdout.trim()) return null;
+    }
+    const target = await runGitForMergeVerification(
+        repairWorktreePath,
+        ["rev-parse", completed ? "HEAD^1" : "HEAD"],
+    );
+    const execution = await runGitForMergeVerification(
+        repairWorktreePath,
+        ["rev-parse", `${metadata.stdout.trim()}^1`],
+    );
+    if (target.exitCode !== 0 || execution.exitCode !== 0) {
+        const reason = target.stderr || execution.stderr || "repair merge ancestry is incomplete";
+        throw new Error(`Could not recover repaired Direct Delivery candidate: ${reason.trim()}`);
+    }
+    return {
+        executionCommit: execution.stdout.trim(),
+        metadataCommit: metadata.stdout.trim(),
+        targetHeadBeforeMerge: target.stdout.trim(),
+    };
+}
+
 interface VerifyPostMergeCandidatePublishedOptions {
     projectRoot: string;
     worktreeBranch: string;

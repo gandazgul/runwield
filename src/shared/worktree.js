@@ -1153,7 +1153,17 @@ export async function mergeExecutionWorktree(
     }
     /** @type {string | undefined} */
     let executionMetadataCommit;
-    if (resolvedWorktreePath) {
+    if (repairMergeWorktreePath) {
+        // The repair worktree is the frozen publication candidate. Reuse its
+        // execution-side parent instead of checkpointing the execution branch again:
+        // a new commit cannot be contained in a merge that was already repaired.
+        let repairedMetadata = await runGitResult(repairMergeWorktreePath, ["rev-parse", "HEAD^2"]);
+        if (repairedMetadata.code !== 0) {
+            repairedMetadata = await runGitResult(repairMergeWorktreePath, ["rev-parse", "MERGE_HEAD"]);
+        }
+        if (repairedMetadata.code === 0) executionMetadataCommit = repairedMetadata.stdout.trim() || undefined;
+    }
+    if (resolvedWorktreePath && !executionMetadataCommit) {
         await commitDirtyWorktreeState(
             resolvedWorktreePath,
             branch,

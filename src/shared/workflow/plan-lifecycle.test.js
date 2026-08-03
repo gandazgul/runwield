@@ -101,6 +101,21 @@ Deno.test("buildPlanEventUpdates clears validationMergeRepairWorktree when valid
     assertEquals(executionStarted.validationMergeRepairWorktree, null);
 });
 
+Deno.test("buildPlanEventUpdates clears validationMergeRepairWorktree on manual and epic verification", () => {
+    const userVerified = buildPlanEventUpdates("manual_user_verified", "implemented", {
+        triageMeta: { validationMergeRepairWorktree: "/tmp/runwield-merge" },
+        userVerificationNote: "Verified manually.",
+    });
+    assertEquals(userVerified.status, "user_verified");
+    assertEquals(userVerified.validationMergeRepairWorktree, null);
+
+    const epicDoneEnough = buildPlanEventUpdates("epic_done_enough", "ready_for_work", {
+        triageMeta: { classification: "PROJECT", validationMergeRepairWorktree: "/tmp/runwield-merge" },
+    });
+    assertEquals(epicDoneEnough.status, "verified");
+    assertEquals(epicDoneEnough.validationMergeRepairWorktree, null);
+});
+
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),

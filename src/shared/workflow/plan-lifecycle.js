@@ -406,7 +406,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     };
     const clearsValidationMergeRepairWorktree = event === "validation_passed" || targetStatus === "implemented" ||
         event === "execution_started" || event === "recovery_reset" || event === "recovery_continue" ||
-        event === "review_reopened" || event === "hold_reset_to_draft";
+        event === "review_reopened" || event === "hold_reset_to_draft" || event === "manual_user_verified" ||
+        event === "epic_done_enough";
     if (clearsValidationMergeRepairWorktree) updates.validationMergeRepairWorktree = null;
 
     if (
