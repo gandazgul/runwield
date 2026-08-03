@@ -40,10 +40,16 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "permission to read releases before tagging");
 });
 
-Deno.test("release workflow is tag-only and channel-safe", async () => {
+Deno.test("release workflow keeps tag publication and manual recovery channel-safe", async () => {
     const workflow = await Deno.readTextFile(".github/workflows/release.yml");
 
-    assertEquals(workflow.includes("workflow_dispatch"), false);
+    assertStringIncludes(workflow, "workflow_dispatch:");
+    assertMatch(workflow, /workflow_dispatch:[\s\S]*tag:[\s\S]*required: true/);
+    assertStringIncludes(workflow, "RELEASE_TAG: ${{ inputs.tag || github.ref_name }}");
+    assertStringIncludes(workflow, "ref: ${{ inputs.tag || github.ref }}");
+    assertMatch(workflow, /release-check:[\s\S]*ref: \$\{\{ needs\.metadata\.outputs\.tag \}\}/);
+    assertMatch(workflow, /build:[\s\S]*ref: \$\{\{ needs\.metadata\.outputs\.tag \}\}/);
+    assertMatch(workflow, /release:[\s\S]*ref: \$\{\{ needs\.metadata\.outputs\.tag \}\}/);
     assertStringIncludes(workflow, "deno task release:metadata --tag");
     assertStringIncludes(workflow, "WLD_BUILD_VERSION");
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
@@ -52,6 +58,10 @@ Deno.test("release workflow is tag-only and channel-safe", async () => {
     assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
     assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
+
+    const policy = await Deno.readTextFile("RELEASING.md");
+    assertStringIncludes(policy, "required-tag manual dispatch solely for recovery");
+    assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
 });
 
 Deno.test("release CLI publishes tags without owning qualification or host release mutation", async () => {

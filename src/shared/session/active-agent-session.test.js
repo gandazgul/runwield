@@ -47,6 +47,14 @@ Deno.test("resolveResumeAgentName returns persisted valid agent", async () => {
     assertEquals(await resolveResumeAgentName(sessionManager), AGENTS.PLANNER);
 });
 
+Deno.test("resolveResumeAgentName returns canonical filename identity instead of display casing", async () => {
+    const sessionManager = makeSessionManager([
+        { type: "custom", customType: ACTIVE_AGENT_CUSTOM_TYPE, data: { agentName: "Router" } },
+    ]);
+
+    assertEquals(await resolveResumeAgentName(sessionManager), AGENTS.ROUTER);
+});
+
 Deno.test("resolveResumeAgentName skips stale invalid markers and uses the latest valid agent", async () => {
     const sessionManager = makeSessionManager([
         { type: "custom", customType: ACTIVE_AGENT_CUSTOM_TYPE, data: { agentName: AGENTS.PLANNER } },

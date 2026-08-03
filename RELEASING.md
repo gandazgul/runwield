@@ -114,6 +114,12 @@ The tag-triggered workflow owns release qualification, builds, GitHub release cr
 commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
 qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
 
+The workflow also exposes a required-tag manual dispatch solely for recovery after an immutable tag's workflow fails
+because of a qualification test or workflow defect. In that mode, the source-quality job runs from the default-branch
+workflow revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
+explicitly check out the existing immutable tag. Never use manual recovery to bypass a genuine failure in tagged product
+source, and never move the tag to include a later fix.
+
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as
 recoverably incomplete and retry with:
@@ -127,7 +133,8 @@ gh release edit <tag> --notes-file <notes-file>
 - **Local tag created but not pushed**: delete the local tag after confirming no remote tag exists, repair the issue,
   and rerun the command.
 - **Remote tag pushed and workflow failed**: do not move or reuse the tag. Fix the workflow/source issue according to
-  the failure and rerun the workflow for the same immutable tag when safe.
+  the failure and rerun the workflow for the same immutable tag when safe. If the failed tag predates the qualification
+  fix, dispatch `release-wld` manually with that existing tag after the recovery commit reaches the default branch.
 - **Candidate published but should not be promoted**: leave it as a prerelease and publish a later Candidate tag.
 - **Assets published but notes pending**: do not recreate the release. Retry the notes edit and verify the published
   notes.

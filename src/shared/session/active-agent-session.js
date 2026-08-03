@@ -7,7 +7,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { loadAgentDef } from "./agents.js";
+import { loadAgentDef, normalizeAgentInternalName } from "./agents.js";
 
 export const ACTIVE_AGENT_CUSTOM_TYPE = "runwield.active_agent";
 
@@ -19,9 +19,10 @@ export function recordActiveAgent(sessionManager, agentName) {
     if (!sessionManager?.appendCustomEntry || !agentName) return;
 
     try {
+        const canonicalName = normalizeAgentInternalName(agentName);
         const latest = readPersistedActiveAgentName(sessionManager);
-        if (latest === agentName) return;
-        sessionManager.appendCustomEntry(ACTIVE_AGENT_CUSTOM_TYPE, { agentName });
+        if (latest && normalizeAgentInternalName(latest) === canonicalName) return;
+        sessionManager.appendCustomEntry(ACTIVE_AGENT_CUSTOM_TYPE, { agentName: canonicalName });
     } catch (_e) {
         // Active-agent persistence should never block session construction.
     }
@@ -55,8 +56,8 @@ export async function resolveResumeAgentName(sessionManager) {
         if (!agentName) continue;
 
         try {
-            await loadAgentDef(agentName, projectRoot || undefined);
-            return agentName;
+            const agentDefinition = await loadAgentDef(agentName, projectRoot || undefined);
+            return agentDefinition.name;
         } catch (_e) {
             // Keep scanning so a corrupt/stale marker does not hide the last
             // valid active agent recorded in this session.

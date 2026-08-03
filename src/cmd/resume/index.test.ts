@@ -1,6 +1,7 @@
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { AGENTS } from "../../constants.js";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { __resetSettingsForTests } from "../../shared/settings.js";
@@ -108,7 +109,7 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
             });
 
             assertEquals(runtime.getSessionSnapshot(replacementId)?.sessionManagerId, seeded.id);
-            assertEquals(runtime.getRuntimeActiveAgentName(replacementId), "Router");
+            assertEquals(runtime.getRuntimeActiveAgentName(replacementId), AGENTS.ROUTER);
             assertEquals(ui.clears, 1);
             assertEquals(ui.messages, [`Resumed session: ${seeded.id}`]);
         } finally {

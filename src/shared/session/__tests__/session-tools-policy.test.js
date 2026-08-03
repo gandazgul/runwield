@@ -111,6 +111,32 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     }
 });
 
+Deno.test("loadAgentDef keeps filename identity separate from frontmatter display name", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-agent-identity-" });
+    const agentDirectory = join(projectRoot, ".wld", "agents");
+    await Deno.mkdir(agentDirectory, { recursive: true });
+    await Deno.writeTextFile(
+        join(agentDirectory, "case-contract.md"),
+        [
+            "---",
+            "name: Arbitrary Frontmatter Display Name",
+            "tools: []",
+            "---",
+            "",
+            "Fixture prompt.",
+        ].join("\n"),
+    );
+
+    try {
+        const definition = await loadAgentDef("CASE-CONTRACT", projectRoot);
+
+        assertEquals(definition.name, "case-contract");
+        assertEquals(definition.displayName, "Arbitrary Frontmatter Display Name");
+    } finally {
+        await removeTempDir(projectRoot);
+    }
+});
+
 Deno.test("loadAgentDef loads Operator with structured interview capability", async () => {
     const def = await loadAgentDef("operator");
 

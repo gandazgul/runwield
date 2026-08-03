@@ -88,6 +88,23 @@ export async function resolveAgentDefsDir(projectRoot) {
  */
 const displayNameCache = new Map();
 
+const AGENT_INTERNAL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Normalize an Agent identity to its canonical filename-derived form. Display
+ * names come only from frontmatter and must never be used as Runtime identity.
+ *
+ * @param {string} internalName
+ * @returns {string}
+ */
+export function normalizeAgentInternalName(internalName) {
+    const canonicalName = internalName.trim().toLowerCase();
+    if (!AGENT_INTERNAL_NAME_PATTERN.test(canonicalName)) {
+        throw new Error(`Invalid agent internal name: ${JSON.stringify(internalName)}`);
+    }
+    return canonicalName;
+}
+
 /**
  * @param {string | undefined} projectRoot
  * @param {string} internalName
@@ -143,11 +160,12 @@ export function getAgentDisplayName(internalName, projectRoot) {
     if (!internalName) {
         throw new Error("getAgentDisplayName: internalName is required");
     }
-    const cacheKey = displayNameCacheKey(projectRoot, internalName);
+    const canonicalName = normalizeAgentInternalName(internalName);
+    const cacheKey = displayNameCacheKey(projectRoot, canonicalName);
     const cached = displayNameCache.get(cacheKey);
     if (cached) return cached;
 
-    const fromFile = readDisplayNameFromFrontMatterSync(internalName, projectRoot);
+    const fromFile = readDisplayNameFromFrontMatterSync(canonicalName, projectRoot);
     if (fromFile) {
         displayNameCache.set(cacheKey, fromFile);
         return fromFile;
@@ -159,16 +177,16 @@ export function getAgentDisplayName(internalName, projectRoot) {
     const workflowOnlyDisplayName = {
         [AGENTS.SLICER]: "Slicer",
         [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: "Reviewer-Feedback Engineer",
-    }[internalName];
+    }[canonicalName];
     if (workflowOnlyDisplayName) {
         displayNameCache.set(cacheKey, workflowOnlyDisplayName);
         return workflowOnlyDisplayName;
     }
 
     throw new Error(
-        `getAgentDisplayName: no agent definition with a frontmatter "name:" field was found for "${internalName}". ` +
+        `getAgentDisplayName: no agent definition with a frontmatter "name:" field was found for "${canonicalName}". ` +
             `Searched: ${
-                getAgentDefDirsByPriority(projectRoot).map((dir) => join(dir, `${internalName}.md`)).join(", ")
+                getAgentDefDirsByPriority(projectRoot).map((dir) => join(dir, `${canonicalName}.md`)).join(", ")
             }.`,
     );
 }
@@ -186,7 +204,14 @@ export async function listAgentDefNames(projectRoot) {
         if (!(await directoryExists(dir))) continue;
         for await (const entry of Deno.readDir(dir)) {
             if (!entry.isFile || !entry.name.endsWith(".md")) continue;
-            names.add(entry.name.replace(/\.md$/, ""));
+            const fileName = entry.name.replace(/\.md$/, "");
+            const canonicalName = normalizeAgentInternalName(fileName);
+            if (fileName !== canonicalName) {
+                throw new Error(
+                    `Agent definition filename must be canonical lowercase: ${entry.name} (expected ${canonicalName}.md)`,
+                );
+            }
+            names.add(canonicalName);
         }
     }
 
@@ -391,9 +416,10 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
 export function loadAgentDef(agentName, projectRoot) {
-    const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${agentName}.md`));
+    const canonicalName = normalizeAgentInternalName(agentName);
+    const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${canonicalName}.md`));
 
-    return loadAgentDefFromPaths(agentName, filePaths, projectRoot);
+    return loadAgentDefFromPaths(canonicalName, filePaths, projectRoot);
 }
 
 /**
@@ -407,6 +433,6 @@ export function loadAgentDef(agentName, projectRoot) {
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
 export function loadAgentDefFromPath(filePath, options) {
-    const agentName = options?.agentName || basename(filePath, ".md");
+    const agentName = normalizeAgentInternalName(options?.agentName || basename(filePath, ".md"));
     return loadAgentDefFromPaths(agentName, [filePath], dirname(filePath));
 }
