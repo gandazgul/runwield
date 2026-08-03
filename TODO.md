@@ -12,10 +12,32 @@
 - Bad types
   - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
 
-## followup for claude
+## Followup for Claude
 
-- plan-recovery-flow.ts split the function what is it?
+- [plan-recovery-flow.ts: splitting `handlePlanRecovery`](PLAN-RECOVERY-SPLIT.md) — what the 1,073-line function does,
+  why it needs a control-flow change rather than a move, and the order to do it in
 - move load-plan modules to a plans module and keep load-plan as a command module that calls into plans module
+
+- [ ] 5 plans to execute next, in series:
+  - [x] run-objective-checks-in-mechanical-validation
+  - [x] baseline-objective-checks-before-execution (depends on 1)
+  - [x] formalize-subagent-definitions
+  - [ ] delegate-agent-roles (depends on 3)
+  - [ ] re-anchor-agents-after-compaction (independent)
+
+- [ ] planner is just spitting its execution policy intructions into the plan instead of recommending an execution mode
+
+      Execution Policy Planned Change Plans may omit executionAgent; omission defaults to engineer. executionAgent:
+      "engineer" takes collaborationRecommendation: "autonomous" or omits it. pair is invalid for Engineer-owned
+      execution. executionAgent: "frontend-engineer" takes collaborationRecommendation: "autonomous" or "pair". Use
+      frontend-engineer for browser-rendered UI work whose primary outcome is materially visual or interactive;
+      otherwise use engineer (including TUI work and incidental frontend-file edits). Recommend pair only when live
+      visual judgment is valuable; use autonomous otherwise. Include known dev-server hints and exact headed-browser
+      checks. Real-browser verification is mandatory for Frontend Engineer unless externally blocked. PROJECT Epics are
+      non-executable containers and must not define executionAgent or collaborationRecommendation; execution policy
+      belongs only on child Plans.
+
+- [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
 
 ## Bugs
 
@@ -51,15 +73,6 @@
   slowest individual scenario instead of the sum.
 
   Risk: Must preserve subprocess isolation and cleanup semantics. Don’t revert to shared in-process TUI tests.
-
-- [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
-
-- [ ] 5 plans to execute next, in series:
-  - [x] run-objective-checks-in-mechanical-validation
-  - [x] baseline-objective-checks-before-execution (depends on 1)
-  - [x] formalize-subagent-definitions
-  - [ ] delegate-agent-roles (depends on 3)
-  - [ ] re-anchor-agents-after-compaction (independent)
 
 - [ ] P0
 
