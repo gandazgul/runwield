@@ -48,11 +48,11 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:17:36-04:00"
-updatedAt: "2026-08-03T20:43:19.074Z"
+updatedAt: "2026-08-03T21:07:07.043Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T18:54:18.626Z"
-verifiedAt: "2026-08-03T20:43:19.074Z"
+verifiedAt: "2026-08-03T21:07:07.043Z"
 userVerifiedAt: null
 executionReport: "- Migrated the eight direct Custom Tool implementations to non-empty `.ts` modules and removed their `.js` implementations: `delegate-agent`, `multi_file_edit`, `pair-checkpoint`, `review-complete`, `see-image`, `task-completed`, `triage-report`, and `user-interview`.\n- Updated live imports/type references and `scripts/language-policy-baseline.json`; remaining `.js` references are historical `src/plan-store.test.js` fixture strings only.\n- Preserved focused behavior coverage; no tests were deleted or replaced, only import specifiers were updated.\n- Verification passed: OC1 shape check; `deno task check`; `deno task language-policy:check`; OC2 direct tool suite (`84 passed`); focused suite excluding the plan-listed missing `src/shared/workflow/agent-runners.integration.test.ts` (`118 passed`).\n- Verification failed: `deno task seams:check` and therefore `deno task ci` fail on existing injection-seam regressions in `engineer-runner.ts`, `epic-continuation.ts`, `execution-start.ts`, `plan-executor.ts`, and `planning-agent.ts`; `deno task seams:update` also refused to loosen the baseline."
 humanReviewMode: "ask"
@@ -62,9 +62,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "231fe270e7d44eed339c91a9163f9d3e8de5a0cf"
+    executionCommit: "750cfb537b93e5d95434642e630f1c5ff0a8b743"
     targetBranch: "main"
-    targetHeadBeforeMerge: "bc83bdfa51d2fc0372207d5e5064f3886687d542"
+    targetHeadBeforeMerge: "2495b6ce77252834108f9f0e1cfd8faf94e5ed4f"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "custom tools TypeScript"
 validationCiAttempts: 0
