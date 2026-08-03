@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch } from "@std/assert";
 import { join } from "@std/path";
-import { createMultiFileEditTool } from "../multi_file_edit.js";
+import { createMultiFileEditTool } from "../multi_file_edit.ts";
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>} tool

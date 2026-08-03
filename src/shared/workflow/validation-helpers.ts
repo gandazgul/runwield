@@ -30,7 +30,7 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 
 import { recordWorkflowMetric } from "./metrics.js";
 
-import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 
 import { openItems } from "./review-ledger.ts";
 import {
@@ -320,12 +320,12 @@ interface ReviewDiffToolResult {
  * beside the original, so one defect becomes two and the count grows each round.
  *
  * @param {import('./review-ledger.ts').ReviewLedger} ledger
- * @param {import('../../tools/review-complete.js').ReviewFinding[] | undefined} findings
+ * @param {import('../../tools/review-complete.ts').ReviewFinding[] | undefined} findings
  * @returns {string[]}
  */
 export function unaccountedOpenItems(
     ledger: import("./review-ledger.ts").ReviewLedger,
-    findings: import("../../tools/review-complete.js").ReviewFinding[] | undefined,
+    findings: import("../../tools/review-complete.ts").ReviewFinding[] | undefined,
 ) {
     const mentioned = new Set(
         (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),

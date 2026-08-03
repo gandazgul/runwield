@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { createPairCheckpointTool } from "../pair-checkpoint.js";
+import { createPairCheckpointTool } from "../pair-checkpoint.ts";
 
 /**
  * @param {import('../../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse[]} responses

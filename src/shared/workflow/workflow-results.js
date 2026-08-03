@@ -137,8 +137,8 @@ export function readLatestReturnToRouterOutcome(messages, fromIndex) {
  * @property {ReviewOutcome} outcome
  * @property {boolean} approved
  * @property {string} feedback
- * @property {import('../../tools/review-complete.js').ReviewFinding[]} findings
- * @property {import('../../tools/review-complete.js').ReviewAdvisory[]} advisories
+ * @property {import('../../tools/review-complete.ts').ReviewFinding[]} findings
+ * @property {import('../../tools/review-complete.ts').ReviewAdvisory[]} advisories
  */
 
 /**

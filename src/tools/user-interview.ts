@@ -3,8 +3,14 @@
  * Structured user interview tool for planning agents.
  */
 
-import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { type Static, StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { HostedSession } from "../shared/session/hosted-session.js";
+import type {
+    RuntimeInteractionRequest,
+    RuntimeInteractionResponse,
+} from "../shared/session/session-runtime-interactions.js";
 import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
@@ -14,14 +20,14 @@ import {
 const OTHER_VALUE = "other";
 const RECOMMENDED_SUFFIX_PATTERN = /\s*\(recommended\)\s*$/i;
 
-const questionIdSchema = Type.String({
+const QUESTION_ID = Type.String({
     minLength: 1,
     maxLength: 64,
     description: "Optional stable question ID (letters, numbers, underscore, dash).",
 });
 
-const yesNoQuestionSchema = Type.Object({
-    id: Type.Optional(questionIdSchema),
+const YES_NO_QUESTION = Type.Object({
+    id: Type.Optional(QUESTION_ID),
     type: StringEnum(["yes_no"]),
     prompt: Type.String({ minLength: 1, maxLength: 400, description: "Question text shown to the user." }),
     default: Type.Optional(Type.Boolean({ description: "Optional recommended default answer." })),
@@ -30,8 +36,8 @@ const yesNoQuestionSchema = Type.Object({
     })),
 }, { additionalProperties: false });
 
-const textQuestionSchema = Type.Object({
-    id: Type.Optional(questionIdSchema),
+const TEXT_QUESTION = Type.Object({
+    id: Type.Optional(QUESTION_ID),
     type: StringEnum(["text"]),
     prompt: Type.String({ minLength: 1, maxLength: 400, description: "Question text shown to the user." }),
     default: Type.Optional(Type.String({ maxLength: 400, description: "Optional default text answer." })),
@@ -39,8 +45,8 @@ const textQuestionSchema = Type.Object({
     allowEmpty: Type.Optional(Type.Boolean({ description: "Whether empty text answers are allowed." })),
 }, { additionalProperties: false });
 
-const multipleChoiceQuestionSchema = Type.Object({
-    id: Type.Optional(questionIdSchema),
+const MULTIPLE_CHOICE_QUESTION = Type.Object({
+    id: Type.Optional(QUESTION_ID),
     type: StringEnum(["multiple_choice"]),
     prompt: Type.String({ minLength: 1, maxLength: 400, description: "Question text shown to the user." }),
     choices: Type.Array(
@@ -62,102 +68,181 @@ const multipleChoiceQuestionSchema = Type.Object({
     })),
 }, { additionalProperties: false });
 
-const interviewQuestionSchema = Type.Union([
-    yesNoQuestionSchema,
-    textQuestionSchema,
-    multipleChoiceQuestionSchema,
+const INTERVIEW_QUESTION = Type.Union([
+    YES_NO_QUESTION,
+    TEXT_QUESTION,
+    MULTIPLE_CHOICE_QUESTION,
 ]);
 
-const interviewParametersSchema = Type.Object({
-    question: Type.Optional(interviewQuestionSchema),
-    questions: Type.Optional(Type.Array(interviewQuestionSchema, {
+const PARAMETERS = Type.Object({
+    question: Type.Optional(INTERVIEW_QUESTION),
+    questions: Type.Optional(Type.Array(INTERVIEW_QUESTION, {
         minItems: 1,
         maxItems: 3,
         description: "Batch of 1-3 questions asked sequentially.",
     })),
 }, { additionalProperties: false });
 
-/**
- * @typedef {{code: string, message: string, questionIndex?: number, questionId?: string}} InterviewError
- */
+type InterviewParameters = Static<typeof PARAMETERS>;
 
-/**
- * @typedef {{ value: string, label?: string }} InterviewChoice
- */
+interface InterviewError {
+    code: string;
+    message: string;
+    questionIndex?: number;
+    questionId?: string;
+}
 
-/**
- * @typedef {{
- *   id?: string,
- *   type: "yes_no",
- *   prompt: string,
- *   default?: boolean,
- *   allowOther?: boolean,
- * }} YesNoInterviewQuestion
- */
+interface InterviewChoice {
+    value: string;
+    label?: string;
+}
 
-/**
- * @typedef {{
- *   id?: string,
- *   type: "text",
- *   prompt: string,
- *   default?: string,
- *   placeholder?: string,
- *   allowEmpty?: boolean,
- * }} TextInterviewQuestion
- */
+interface SelectOption {
+    value: string;
+    label: string;
+}
 
-/**
- * @typedef {{
- *   id?: string,
- *   type: "multiple_choice",
- *   prompt: string,
- *   choices: InterviewChoice[],
- *   default?: string,
- *   allowOther?: boolean,
- * }} MultipleChoiceInterviewQuestion
- */
+interface MultipleChoiceQuestionInput {
+    id?: string;
+    type: string;
+    prompt: string;
+    choices: InterviewChoice[];
+    default?: string | boolean;
+    allowOther?: boolean;
+}
 
-/**
- * @typedef {YesNoInterviewQuestion | TextInterviewQuestion | MultipleChoiceInterviewQuestion} InterviewQuestion
- */
+interface YesNoQuestionInput {
+    id?: string;
+    type: string;
+    prompt: string;
+    default?: string | boolean;
+    allowOther?: boolean;
+}
 
-/**
- * @typedef {{
- *   status: "completed" | "canceled" | "invalid_request" | "validation_error",
- *   canceled: boolean,
- *   completed: boolean,
- *   totalQuestions: number,
- *   answeredCount: number,
- *   remainingCount: number,
- *   canceledAt?: number,
- *   answers: Array<{index: number, id?: string, type: "yes_no" | "text" | "multiple_choice", prompt: string, value: boolean | string, valueLabel?: string, otherText?: string}>,
- *   errors?: InterviewError[]
- * }} InterviewResultDetails
- */
+interface TextQuestionInput {
+    id?: string;
+    type: string;
+    prompt: string;
+    default?: string | boolean;
+    placeholder?: string;
+    allowEmpty?: boolean;
+}
 
-/**
- * @typedef {{ canceled?: boolean, value?: string | boolean, valueLabel?: string, otherText?: string, error?: InterviewError }} InterviewAnswer
- */
+interface YesNoInterviewQuestion {
+    id?: string;
+    type: "yes_no";
+    prompt: string;
+    default?: boolean;
+    allowOther?: boolean;
+}
 
-/**
- * @param {{ hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} [opts]
- */
-export function createUserInterviewTool(opts = {}) {
-    const hostedSession = /** @type {import('../shared/session/hosted-session.js').HostedSession | undefined} */ (
-        opts && typeof opts === "object" && "hostedSession" in opts ? opts.hostedSession : undefined
-    );
-    return defineTool({
+interface TextInterviewQuestion {
+    id?: string;
+    type: "text";
+    prompt: string;
+    default?: string;
+    placeholder?: string;
+    allowEmpty?: boolean;
+}
+
+interface MultipleChoiceInterviewQuestion {
+    id?: string;
+    type: "multiple_choice";
+    prompt: string;
+    choices: InterviewChoice[];
+    default?: string;
+    allowOther?: boolean;
+}
+
+type InterviewQuestion = YesNoInterviewQuestion | TextInterviewQuestion | MultipleChoiceInterviewQuestion;
+type InterviewAnswerValue = boolean | string;
+type InterviewStatus = "completed" | "canceled" | "invalid_request" | "validation_error";
+
+interface InterviewResultAnswer {
+    index: number;
+    id?: string;
+    type: InterviewQuestion["type"];
+    prompt: string;
+    value: InterviewAnswerValue;
+    valueLabel?: string;
+    otherText?: string;
+}
+
+export interface InterviewResultDetails {
+    status: InterviewStatus;
+    canceled: boolean;
+    completed: boolean;
+    totalQuestions: number;
+    answeredCount: number;
+    remainingCount: number;
+    canceledAt?: number;
+    answers: InterviewResultAnswer[];
+    errors?: InterviewError[];
+}
+
+type InterviewAnswer =
+    | { canceled: true }
+    | { error: InterviewError }
+    | { value: InterviewAnswerValue; valueLabel?: string; otherText?: string };
+
+type NormalizeBatchResult =
+    | { ok: true; questions: InterviewQuestion[] }
+    | { ok: false; questions: InterviewQuestion[]; error: string };
+
+type UserInterviewResult = AgentToolResult<InterviewResultDetails>;
+
+interface UserInterviewToolOptions {
+    hostedSession?: HostedSession;
+}
+
+function toInterviewQuestion(question: Static<typeof INTERVIEW_QUESTION>): InterviewQuestion {
+    if (question.type === "multiple_choice") {
+        const multipleChoiceQuestion = question as MultipleChoiceQuestionInput;
+        return {
+            id: multipleChoiceQuestion.id,
+            type: "multiple_choice",
+            prompt: multipleChoiceQuestion.prompt,
+            choices: multipleChoiceQuestion.choices.map((choice: InterviewChoice) => ({
+                value: choice.value,
+                label: choice.label,
+            })),
+            default: typeof multipleChoiceQuestion.default === "string" ? multipleChoiceQuestion.default : undefined,
+            allowOther: multipleChoiceQuestion.allowOther,
+        };
+    }
+    if (question.type === "yes_no") {
+        const yesNoQuestion = question as YesNoQuestionInput;
+        return {
+            id: yesNoQuestion.id,
+            type: "yes_no",
+            prompt: yesNoQuestion.prompt,
+            default: typeof yesNoQuestion.default === "boolean" ? yesNoQuestion.default : undefined,
+            allowOther: yesNoQuestion.allowOther,
+        };
+    }
+    const textQuestion = question as TextQuestionInput;
+    return {
+        id: textQuestion.id,
+        type: "text",
+        prompt: textQuestion.prompt,
+        default: typeof textQuestion.default === "string" ? textQuestion.default : undefined,
+        placeholder: textQuestion.placeholder,
+        allowEmpty: textQuestion.allowEmpty,
+    };
+}
+
+export function createUserInterviewTool(opts: UserInterviewToolOptions = {}) {
+    const hostedSession = opts.hostedSession;
+    return defineTool<typeof PARAMETERS, InterviewResultDetails>({
         name: "user_interview",
         label: "User Interview",
         description:
             "Ask the user 1-3 structured clarification questions (yes_no, text, multiple_choice) and receive ordered answers. Yes/no and multiple-choice always include an 'Other' option with free-text follow-up.",
         promptSnippet:
             "user_interview(question|questions): Ask one or a small 1-3 question batch before finalizing planning decisions. Yes/no and multiple_choice always include an Other option for open-ended input.",
-        parameters: interviewParametersSchema,
-        async execute(_toolCallId, params) {
-            const normalized = normalizeBatch(
-                /** @type {{ question?: InterviewQuestion, questions?: InterviewQuestion[] }} */ (params),
-            );
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params): Promise<UserInterviewResult> {
+            const normalized = normalizeBatch(params);
             if (!normalized.ok) {
                 return buildResult({
                     status: "invalid_request",
@@ -186,15 +271,13 @@ export function createUserInterviewTool(opts = {}) {
                 });
             }
 
-            /** @type {InterviewResultDetails["answers"]} */
-            const answers = [];
+            const answers: InterviewResultDetails["answers"] = [];
 
             for (let i = 0; i < questions.length; i++) {
                 const question = questions[i];
-                const answer = /** @type {InterviewAnswer} */ (await askQuestion(question, hostedSession));
+                const answer = await askQuestion(question, hostedSession);
 
-                const answerAny = /** @type {any} */ (answer);
-                if (answerAny.canceled) {
+                if ("canceled" in answer) {
                     return buildResult({
                         status: "canceled",
                         canceled: true,
@@ -213,7 +296,7 @@ export function createUserInterviewTool(opts = {}) {
                     });
                 }
 
-                if (answerAny.error) {
+                if ("error" in answer) {
                     return buildResult({
                         status: "validation_error",
                         canceled: false,
@@ -222,25 +305,7 @@ export function createUserInterviewTool(opts = {}) {
                         answeredCount: answers.length,
                         remainingCount: questions.length - answers.length,
                         answers,
-                        errors: [answerAny.error],
-                    });
-                }
-
-                if (typeof answerAny.value === "undefined") {
-                    return buildResult({
-                        status: "validation_error",
-                        canceled: false,
-                        completed: false,
-                        totalQuestions: questions.length,
-                        answeredCount: answers.length,
-                        remainingCount: questions.length - answers.length,
-                        answers,
-                        errors: [{
-                            code: "MISSING_ANSWER",
-                            message: "Interview answer was missing value.",
-                            questionIndex: i + 1,
-                            questionId: question.id,
-                        }],
+                        errors: [answer.error],
                     });
                 }
 
@@ -249,9 +314,9 @@ export function createUserInterviewTool(opts = {}) {
                     id: question.id,
                     type: question.type,
                     prompt: question.prompt,
-                    value: answerAny.value,
-                    valueLabel: answerAny.valueLabel,
-                    otherText: answerAny.otherText,
+                    value: answer.value,
+                    valueLabel: answer.valueLabel,
+                    otherText: answer.otherText,
                 });
             }
 
@@ -268,11 +333,7 @@ export function createUserInterviewTool(opts = {}) {
     });
 }
 
-/**
- * @param {{ question?: InterviewQuestion, questions?: InterviewQuestion[] }} params
- * @returns {{ ok: true, questions: InterviewQuestion[] } | { ok: false, questions: InterviewQuestion[], error: string }}
- */
-function normalizeBatch(params) {
+function normalizeBatch(params: InterviewParameters): NormalizeBatchResult {
     const hasQuestion = !!params.question;
     const hasQuestions = Array.isArray(params.questions);
 
@@ -288,77 +349,71 @@ function normalizeBatch(params) {
         };
     }
 
-    const questions = hasQuestion ? [params.question] : params.questions;
-    if (!Array.isArray(questions) || questions.length < 1 || questions.length > 3) {
+    const questionInputs = hasQuestion && params.question ? [params.question] : params.questions;
+    if (!Array.isArray(questionInputs) || questionInputs.length < 1 || questionInputs.length > 3) {
         return { ok: false, questions: [], error: "Invalid batch size. Ask 1 to 3 questions per tool call." };
     }
 
-    return { ok: true, questions: /** @type {InterviewQuestion[]} */ (questions.filter(Boolean)) };
+    return { ok: true, questions: questionInputs.map(toInterviewQuestion) };
 }
 
-/**
- * @param {InterviewQuestion[]} questions
- * @returns {InterviewError[]}
- */
-function validateBatch(questions) {
-    /** @type {InterviewError[]} */
-    const errors = [];
-    const ids = new Set();
+function validateBatch(questions: InterviewQuestion[]): InterviewError[] {
+    const errors: InterviewError[] = [];
+    const ids = new Set<string>();
 
     for (let i = 0; i < questions.length; i++) {
         const question = questions[i];
-        const q = question;
         const idx = i + 1;
 
-        if (q.id) {
-            if (!/^[a-zA-Z0-9_-]+$/.test(q.id)) {
+        if (question.id) {
+            if (!/^[a-zA-Z0-9_-]+$/.test(question.id)) {
                 errors.push({
                     code: "INVALID_ID",
                     message: "Question ID must use letters, numbers, underscore, or dash.",
                     questionIndex: idx,
-                    questionId: q.id,
+                    questionId: question.id,
                 });
             }
-            if (ids.has(q.id)) {
+            if (ids.has(question.id)) {
                 errors.push({
                     code: "DUPLICATE_ID",
-                    message: `Duplicate question ID: ${q.id}`,
+                    message: `Duplicate question ID: ${question.id}`,
                     questionIndex: idx,
-                    questionId: q.id,
+                    questionId: question.id,
                 });
             }
-            ids.add(q.id);
+            ids.add(question.id);
         }
 
-        if (typeof q.prompt !== "string" || !q.prompt.trim()) {
+        if (typeof question.prompt !== "string" || !question.prompt.trim()) {
             errors.push({
                 code: "EMPTY_PROMPT",
                 message: "Question prompt cannot be empty.",
                 questionIndex: idx,
-                questionId: q.id,
+                questionId: question.id,
             });
         }
 
-        if (q.type === "multiple_choice") {
-            if (!Array.isArray(q.choices) || q.choices.length < 2) {
+        if (question.type === "multiple_choice") {
+            if (!Array.isArray(question.choices) || question.choices.length < 2) {
                 errors.push({
                     code: "INVALID_CHOICES",
                     message: "Multiple-choice question requires at least 2 choices.",
                     questionIndex: idx,
-                    questionId: q.id,
+                    questionId: question.id,
                 });
                 continue;
             }
 
-            const values = new Set();
-            for (const choice of q.choices) {
-                const value = String(choice?.value || "").trim();
+            const values = new Set<string>();
+            for (const choice of question.choices) {
+                const value = String(choice.value || "").trim();
                 if (!value) {
                     errors.push({
                         code: "EMPTY_CHOICE_VALUE",
                         message: "Choice value cannot be empty.",
                         questionIndex: idx,
-                        questionId: q.id,
+                        questionId: question.id,
                     });
                 }
                 if (values.has(value)) {
@@ -366,7 +421,7 @@ function validateBatch(questions) {
                         code: "DUPLICATE_CHOICE_VALUE",
                         message: `Duplicate choice value in question ${idx}: ${value}`,
                         questionIndex: idx,
-                        questionId: q.id,
+                        questionId: question.id,
                     });
                 }
                 values.add(value);
@@ -377,16 +432,16 @@ function validateBatch(questions) {
                     code: "SENTINEL_COLLISION",
                     message: `The value "${OTHER_VALUE}" is reserved and cannot be used as a choice value.`,
                     questionIndex: idx,
-                    questionId: q.id,
+                    questionId: question.id,
                 });
             }
 
-            if (q.default && !values.has(String(q.default).trim())) {
+            if (question.default && !values.has(String(question.default).trim())) {
                 errors.push({
                     code: "DEFAULT_NOT_IN_CHOICES",
-                    message: `Default value "${q.default}" is not present in choices.`,
+                    message: `Default value "${question.default}" is not present in choices.`,
                     questionIndex: idx,
-                    questionId: q.id,
+                    questionId: question.id,
                 });
             }
         }
@@ -395,11 +450,10 @@ function validateBatch(questions) {
     return errors;
 }
 
-/**
- * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
- * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request
- */
-async function askBrokered(hostedSession, request) {
+async function askBrokered(
+    hostedSession: HostedSession | undefined,
+    request: RuntimeInteractionRequest,
+): Promise<RuntimeInteractionResponse> {
     if (!hostedSession) {
         return {
             outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
@@ -409,18 +463,14 @@ async function askBrokered(hostedSession, request) {
     return await requestHostedSessionInteraction(hostedSession, request);
 }
 
-/**
- * @param {string} label
- */
-function withRecommendedSuffix(label) {
+function withRecommendedSuffix(label: string): string {
     return RECOMMENDED_SUFFIX_PATTERN.test(label) ? label.trim() : `${label} (recommended)`;
 }
 
-/**
- * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse} response
- * @param {InterviewQuestion} question
- */
-function brokerFailureToAnswer(response, question) {
+function brokerFailureToAnswer(
+    response: RuntimeInteractionResponse,
+    question: InterviewQuestion,
+): InterviewAnswer | null {
     if (response.outcome === RuntimeInteractionOutcomes.CANCELED) return { canceled: true };
     if (
         response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
@@ -439,14 +489,12 @@ function brokerFailureToAnswer(response, question) {
     return null;
 }
 
-/**
- * @param {InterviewQuestion} question
- * @param {Array<{ value: string, label: string }>} options
- * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
- * @param {{ defaultValue?: string }} [extra]
- * @returns {Promise<InterviewAnswer>}
- */
-async function askSelect(question, options, hostedSession, extra = {}) {
+async function askSelect(
+    question: InterviewQuestion,
+    options: SelectOption[],
+    hostedSession: HostedSession | undefined,
+    extra: { defaultValue?: string } = {},
+): Promise<InterviewAnswer> {
     const brokerResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
         prompt: question.prompt,
@@ -459,15 +507,13 @@ async function askSelect(question, options, hostedSession, extra = {}) {
     const selected = brokerResponse.value;
     if (selected === null || typeof selected === "undefined") return { canceled: true };
     const option = options.find((item) => item.value === selected);
-    return { value: String(selected), valueLabel: brokerResponse?.valueLabel || option?.label };
+    return { value: String(selected), valueLabel: brokerResponse.valueLabel || option?.label };
 }
 
-/**
- * @param {InterviewQuestion} question
- * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
- * @returns {Promise<InterviewAnswer>}
- */
-async function askOther(question, hostedSession) {
+async function askOther(
+    question: InterviewQuestion,
+    hostedSession: HostedSession | undefined,
+): Promise<InterviewAnswer> {
     const followUpPrompt = `Please specify your answer for: "${question.prompt}"`;
     const otherResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.TEXT,
@@ -479,7 +525,6 @@ async function askOther(question, hostedSession) {
     const otherFailure = brokerFailureToAnswer(otherResponse, question);
     if (otherFailure) return otherFailure;
     const otherText = String(otherResponse.value ?? "");
-    if (otherText === null) return { canceled: true };
     const normalized = otherText.trim();
     if (!normalized) {
         return {
@@ -493,14 +538,12 @@ async function askOther(question, hostedSession) {
     return { value: OTHER_VALUE, valueLabel: "Other", otherText: normalized };
 }
 
-/**
- * @param {InterviewQuestion} question
- * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
- * @returns {Promise<InterviewAnswer>}
- */
-async function askQuestion(question, hostedSession) {
+async function askQuestion(
+    question: InterviewQuestion,
+    hostedSession: HostedSession | undefined,
+): Promise<InterviewAnswer> {
     if (question.type === "yes_no") {
-        const options = [
+        const options: SelectOption[] = [
             { value: "yes", label: question.default === true ? "Yes (recommended)" : "Yes" },
             { value: "no", label: question.default === false ? "No (recommended)" : "No" },
             { value: OTHER_VALUE, label: "Other" },
@@ -509,58 +552,52 @@ async function askQuestion(question, hostedSession) {
             const selected = await askSelect(question, options, hostedSession, {
                 defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
             });
-            const selectedAnswer = /** @type {any} */ (selected);
-            if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-            if (selectedAnswer.value === OTHER_VALUE) {
-                const otherAnswer = /** @type {InterviewAnswer} */ (await askOther(question, hostedSession));
-                if (otherAnswer.canceled) continue;
+            if ("canceled" in selected || "error" in selected) return selected;
+            if (selected.value === OTHER_VALUE) {
+                const otherAnswer = await askOther(question, hostedSession);
+                if ("canceled" in otherAnswer) continue;
                 return otherAnswer;
             }
-            if (selectedAnswer.value !== "yes" && selectedAnswer.value !== "no") {
+            if (selected.value !== "yes" && selected.value !== "no") {
                 return {
                     error: {
                         code: "INVALID_ANSWER",
-                        message: `Unexpected yes/no response: ${selectedAnswer.value}`,
+                        message: `Unexpected yes/no response: ${selected.value}`,
                         questionId: question.id,
                     },
                 };
             }
-            return { value: selectedAnswer.value === "yes", valueLabel: String(selectedAnswer.value) };
+            return { value: selected.value === "yes", valueLabel: String(selected.value) };
         }
     }
 
     if (question.type === "multiple_choice") {
-        const options = /** @type {Array<{ value: string, label: string }>} */ (
-            question.choices.map((/** @type {{ value: string, label?: string }} */ choice) => ({
-                value: choice.value,
-                label: choice.value === question.default
-                    ? withRecommendedSuffix(choice.label || choice.value)
-                    : (choice.label || choice.value),
-            }))
-        );
+        const options: SelectOption[] = question.choices.map((choice) => ({
+            value: choice.value,
+            label: choice.value === question.default
+                ? withRecommendedSuffix(choice.label || choice.value)
+                : (choice.label || choice.value),
+        }));
         options.push({ value: OTHER_VALUE, label: "Other" });
         while (true) {
             const selected = await askSelect(question, options, hostedSession, { defaultValue: question.default });
-            const selectedAnswer = /** @type {any} */ (selected);
-            if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-            if (selectedAnswer.value === OTHER_VALUE) {
-                const otherAnswer = /** @type {InterviewAnswer} */ (await askOther(question, hostedSession));
-                if (otherAnswer.canceled) continue;
+            if ("canceled" in selected || "error" in selected) return selected;
+            if (selected.value === OTHER_VALUE) {
+                const otherAnswer = await askOther(question, hostedSession);
+                if ("canceled" in otherAnswer) continue;
                 return otherAnswer;
             }
-            const selectedOption = options.find((/** @type {{ value: string }} */ opt) =>
-                opt.value === selectedAnswer.value
-            );
+            const selectedOption = options.find((opt) => opt.value === selected.value);
             if (!selectedOption) {
                 return {
                     error: {
                         code: "INVALID_ANSWER",
-                        message: `Selected option does not exist: ${selectedAnswer.value}`,
+                        message: `Selected option does not exist: ${selected.value}`,
                         questionId: question.id,
                     },
                 };
             }
-            return { value: String(selectedAnswer.value), valueLabel: selectedOption.label };
+            return { value: String(selected.value), valueLabel: selectedOption.label };
         }
     }
 
@@ -577,8 +614,6 @@ async function askQuestion(question, hostedSession) {
     if (brokerFailure) return brokerFailure;
     const text = String(brokerResponse.value ?? "");
 
-    if (text === null) return { canceled: true };
-
     const normalized = allowEmpty ? text : text.trim();
     if (!allowEmpty && !normalized) {
         return {
@@ -593,12 +628,8 @@ async function askQuestion(question, hostedSession) {
     return { value: normalized };
 }
 
-/**
- * @param {InterviewResultDetails} details
- * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<InterviewResultDetails>}
- */
-function buildResult(details) {
-    const payload = {
+function buildResult(details: InterviewResultDetails): UserInterviewResult {
+    const payload: InterviewResultDetails = {
         status: details.status,
         canceled: details.canceled,
         completed: details.completed,
@@ -610,21 +641,16 @@ function buildResult(details) {
         errors: details.errors || [],
     };
 
-    const content = /** @type {Array<{type: "text", text: string}>} */ ([{
-        type: "text",
-        text: `${buildResultSummary(details)}\n\ninterview_result_json:\n${JSON.stringify(payload, null, 2)}`,
-    }]);
-
     return {
-        content,
+        content: [{
+            type: "text",
+            text: `${buildResultSummary(details)}\n\ninterview_result_json:\n${JSON.stringify(payload, null, 2)}`,
+        }],
         details,
     };
 }
 
-/**
- * @param {InterviewResultDetails} details
- */
-function buildResultSummary(details) {
+function buildResultSummary(details: InterviewResultDetails): string {
     if (details.status === "completed") {
         return `Interview completed: captured ${details.answeredCount}/${details.totalQuestions} answer(s).`;
     }

@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { createTaskCompletedTool } from "../task-completed.js";
+import { createTaskCompletedTool } from "../task-completed.ts";
 
 Deno.test("task_completed emits one semantic assistant message and terminates", async () => {
     const events = /** @type {any[]} */ ([]);

@@ -1,20 +1,18 @@
 /**
  * @module triage-report
  * Custom tool for emitting a structured Triage Report.
- *
- * The tool captures Routing Intent + summary + affectedPaths and surfaces them
- * via the tool result. Post-triage dispatch is handled by the active Agent
- * handler after the Agent Session ends.
  */
 
-import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { type Static, StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { HostedSession } from "../shared/session/hosted-session.js";
 import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS, WORK_KINDS } from "../constants.js";
-import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
+import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
-const TOOL_PARAMS = Type.Object({
+const PARAMETERS = Type.Object({
     routingIntent: Type.Optional(StringEnum(ROUTING_INTENTS, {
         description:
             "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. PLANNED_CHANGE: reviewed executable planned work. FEATURE is accepted only as a legacy planned-change workflow label. PROJECT: architecture/Epic plan. Router calls should provide this field; legacy direct calls may provide classification instead.",
@@ -43,77 +41,75 @@ const TOOL_PARAMS = Type.Object({
     })),
 });
 
-/**
- * @param {Record<string, unknown>} params
- * @returns {string}
- */
-function normalizeSessionName(params) {
+type TriageParameters = Static<typeof PARAMETERS>;
+
+interface TriageReportDetails {
+    routingIntent: string;
+    classification?: string;
+    complexity: string;
+    summary: string;
+    sessionName: string;
+    affectedPaths: string[];
+    workKind?: string;
+}
+
+type TriageReportResult = AgentToolResult<TriageReportDetails> & { terminate: boolean };
+
+interface TriageReportToolOptions {
+    hostedSession?: HostedSession | null;
+    recordWorkflowMetric?: typeof recordWorkflowMetric;
+}
+
+function normalizeSessionName(params: TriageParameters): string {
     return sanitizeSessionName(params.sessionName) || sanitizeSessionName(params.summary) || "RunWield session";
 }
 
-/**
- * @param {Record<string, unknown>} params
- * @returns {Record<string, unknown>}
- */
-function normalizeTriageParams(params) {
+function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
     const routingIntent = normalizeRoutingIntent(params.routingIntent) || normalizeRoutingIntent(params.classification);
     if (!routingIntent) {
         throw new TypeError("triage_report requires a valid canonical routingIntent");
     }
 
-    /** @type {Record<string, unknown>} */
-    const normalized = {
-        ...params,
+    const details: TriageReportDetails = {
         routingIntent,
+        complexity: params.complexity,
+        summary: params.summary,
         sessionName: normalizeSessionName(params),
+        affectedPaths: params.affectedPaths,
     };
 
     if (routingIntent === "PLANNED_CHANGE") {
-        normalized.classification = "PLANNED_CHANGE";
+        details.classification = "PLANNED_CHANGE";
     } else if (routingIntent === "PROJECT") {
-        normalized.classification = "PROJECT";
-    } else {
-        delete normalized.classification;
+        details.classification = "PROJECT";
     }
 
     const workKind = normalizeWorkKind(params.workKind);
     if (workKind && routingIntent === "PLANNED_CHANGE") {
-        normalized.workKind = workKind;
-    } else {
-        delete normalized.workKind;
+        details.workKind = workKind;
     }
 
-    return normalized;
+    return details;
 }
 
-/**
- * Create the triage_report tool. The tool only emits the Routing Intent —
- * dispatch to the next Agent happens in the active Agent handler.
- *
- * @param {{
- *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession | null,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- * }} [opts]
- * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
- */
 export function createTriageReportTool(
-    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
+    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: TriageReportToolOptions = {},
 ) {
-    return defineTool({
+    return defineTool<typeof PARAMETERS, TriageReportDetails>({
         name: "triage_report",
         label: "Routing Intent Report",
         description: "Submit your Routing Intent for the user's request. " +
             "You MUST call this tool exactly once after enough discovery to route the request. " +
             "Clearly operational or informational requests may need no codebase exploration before routing. " +
             "Do not output the Routing Intent as freeform text — use this tool.",
-        parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-            const details = normalizeTriageParams(/** @type {Record<string, unknown>} */ (params));
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params): Promise<TriageReportResult> {
+            const details = normalizeTriageParams(params);
             const { routingIntent, complexity, summary, workKind } = details;
 
             try {
                 hostedSession?.setWorkflowTriageContext?.({ routingIntent, complexity });
-            } catch (_e) {
+            } catch (_caught) {
                 // Footer-context persistence is fail-open and must not block triage.
             }
 

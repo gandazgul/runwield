@@ -7,6 +7,7 @@
  */
 
 import { defineTool, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { isAbsolute, join, relative } from "@std/path";
 import { getHomeDir } from "../constants.js";
@@ -25,7 +26,7 @@ const fileEditSchema = Type.Object({
     newText: Type.String({ description: "Replacement text for oldText." }),
 }, { additionalProperties: false });
 
-const toolParams = Type.Object({
+const PARAMETERS = Type.Object({
     root: Type.Optional(Type.String({
         description: "Optional base directory for relative edit paths. Defaults to the session working directory.",
     })),
@@ -35,10 +36,82 @@ const toolParams = Type.Object({
     }),
 }, { additionalProperties: false });
 
-/**
- * @typedef {{ path: string, oldText: string, newText: string }} MultiFileEdit
- * @typedef {{ root?: string, edits: MultiFileEdit[] }} MultiFileEditParams
- */
+interface MultiFileEdit {
+    path: string;
+    oldText: string;
+    newText: string;
+}
+
+interface MultiFileEditParams {
+    root?: string;
+    edits: MultiFileEdit[];
+}
+
+type LineEnding = "\n" | "\r\n";
+
+interface StripBomResult {
+    bom: string;
+    text: string;
+}
+
+interface DiffStringResult {
+    diff: string;
+    firstChangedLine: number | undefined;
+}
+
+interface AppliedEditResult {
+    baseContent: string;
+    newContent: string;
+}
+
+interface EditMatch {
+    index: number;
+    length: number;
+    newText: string;
+    editIdx: number;
+}
+
+interface WrittenSnapshot {
+    path: string;
+    content: string;
+    planName?: string;
+    writtenRevision?: string;
+}
+
+interface MultiFileEditDetails {
+    diff: string;
+    firstChangedLine?: number;
+}
+
+type MultiFileEditResult = AgentToolResult<MultiFileEditDetails | null> & { isError?: boolean };
+
+type MultiFileEditToolDefinition = ToolDefinition<typeof PARAMETERS, MultiFileEditDetails | null>;
+type PrepareArgumentsFunction = NonNullable<MultiFileEditToolDefinition["prepareArguments"]>;
+type InputCandidate = Parameters<PrepareArgumentsFunction>[0];
+
+interface InputRecord {
+    path?: string;
+    file_path?: string;
+    oldText?: string;
+    newText?: string;
+    root?: string;
+    edits?: InputEditRecord[];
+}
+
+interface InputEditRecord {
+    path?: string;
+    file_path?: string;
+    oldText?: string;
+    newText?: string;
+}
+
+function isInputRecord(input: InputCandidate): input is InputRecord {
+    return Boolean(input) && typeof input === "object";
+}
+
+function coerceErrorMessage(value: null | undefined | string | number | boolean | Error): string {
+    return value instanceof Error ? value.message : String(value);
+}
 
 /**
  * Strip UTF-8 BOM if present.
@@ -46,7 +119,7 @@ const toolParams = Type.Object({
  * @param {string} content
  * @returns {{ bom: string, text: string }}
  */
-function stripBom(content) {
+function stripBom(content: string): StripBomResult {
     if (content.startsWith("\uFEFF")) {
         return { bom: "\uFEFF", text: content.slice(1) };
     }
@@ -57,7 +130,7 @@ function stripBom(content) {
  * @param {string} text
  * @returns {string}
  */
-function normalizeToLF(text) {
+function normalizeToLF(text: string): string {
     return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
@@ -66,7 +139,7 @@ function normalizeToLF(text) {
  * @param {string} ending
  * @returns {string}
  */
-function restoreLineEndings(text, ending) {
+function restoreLineEndings(text: string, ending: LineEnding): string {
     if (ending === "\r\n") return text.replace(/\n/g, "\r\n");
     return text;
 }
@@ -75,7 +148,7 @@ function restoreLineEndings(text, ending) {
  * @param {string} content
  * @returns {string}
  */
-function detectLineEnding(content) {
+function detectLineEnding(content: string): LineEnding {
     const crlfIdx = content.indexOf("\r\n");
     const lfIdx = content.indexOf("\n");
     if (lfIdx === -1 || crlfIdx === -1) return "\n";
@@ -87,7 +160,7 @@ function detectLineEnding(content) {
  * @param {string} baseDir
  * @returns {string}
  */
-function resolveToBaseDir(targetPath, baseDir) {
+function resolveToBaseDir(targetPath: string, baseDir: string): string {
     const expanded = targetPath.startsWith("~") ? getHomeDir() + targetPath.slice(1) : targetPath;
     if (isAbsolute(expanded)) return expanded;
     return join(baseDir, expanded);
@@ -98,7 +171,7 @@ function resolveToBaseDir(targetPath, baseDir) {
  * @param {string} baseDir
  * @returns {boolean}
  */
-function isPlanMarkdownPath(path, baseDir) {
+function isPlanMarkdownPath(path: string, baseDir: string): boolean {
     const rel = relative(baseDir, path).replaceAll("\\", "/");
     return rel.startsWith("plans/") && rel.endsWith(".md") && !rel.startsWith("plans/archived/");
 }
@@ -108,7 +181,7 @@ function isPlanMarkdownPath(path, baseDir) {
  * @param {string} baseDir
  * @returns {string}
  */
-function planNameFromMarkdownPath(path, baseDir) {
+function planNameFromMarkdownPath(path: string, baseDir: string): string {
     const rel = relative(baseDir, path).replaceAll("\\", "/");
     if (!rel.startsWith("plans/") || !rel.endsWith(".md") || rel.startsWith("plans/archived/")) {
         throw new Error(`Not a canonical Plan markdown path: ${path}`);
@@ -121,7 +194,7 @@ function planNameFromMarkdownPath(path, baseDir) {
  * @param {string} cwd
  * @returns {string}
  */
-function resolveRoot(root, cwd) {
+function resolveRoot(root: string, cwd: string): string {
     const trimmed = root.trim();
     if (!trimmed) return cwd;
     return resolveToBaseDir(trimmed, cwd);
@@ -132,13 +205,13 @@ function resolveRoot(root, cwd) {
  * @param {string} newContent
  * @returns {{ diff: string, firstChangedLine: number | undefined }}
  */
-function generateDiffString(oldContent, newContent) {
+function generateDiffString(oldContent: string, newContent: string): DiffStringResult {
     const oldLines = oldContent.split("\n");
     const newLines = newContent.split("\n");
     const maxLen = Math.max(oldLines.length, newLines.length);
     const pad = String(maxLen).length;
-    const result = [];
-    let firstChangedLine;
+    const result: string[] = [];
+    let firstChangedLine: number | undefined;
 
     for (let i = 0; i < maxLen; i++) {
         const oldLine = i < oldLines.length ? oldLines[i] : undefined;
@@ -162,7 +235,7 @@ function generateDiffString(oldContent, newContent) {
  * @param {string} path
  * @returns {{ baseContent: string, newContent: string }}
  */
-function applyEdits(normalizedContent, edits, path) {
+function applyEdits(normalizedContent: string, edits: MultiFileEdit[], path: string): AppliedEditResult {
     const normalizedEdits = edits.map((edit) => ({
         oldText: normalizeToLF(edit.oldText),
         newText: normalizeToLF(edit.newText),
@@ -174,8 +247,7 @@ function applyEdits(normalizedContent, edits, path) {
         }
     }
 
-    /** @type {Array<{ index: number, length: number, newText: string, editIdx: number }>} */
-    const matches = [];
+    const matches: EditMatch[] = [];
     for (let i = 0; i < normalizedEdits.length; i++) {
         const { oldText } = normalizedEdits[i];
         const idx = normalizedContent.indexOf(oldText);
@@ -215,10 +287,10 @@ function applyEdits(normalizedContent, edits, path) {
  * @param {unknown} input
  * @returns {MultiFileEditParams}
  */
-function prepareMultiFileEditArguments(input) {
-    if (!input || typeof input !== "object") return /** @type {MultiFileEditParams} */ (input);
+const prepareMultiFileEditArguments: PrepareArgumentsFunction = (input) => {
+    if (!isInputRecord(input)) return { edits: [] };
 
-    const args = /** @type {Record<string, unknown>} */ (input);
+    const args = input;
     const topLevelPath = typeof args.path === "string"
         ? args.path
         : typeof args.file_path === "string"
@@ -226,22 +298,22 @@ function prepareMultiFileEditArguments(input) {
         : undefined;
 
     if (Array.isArray(args.edits)) {
-        const edits = args.edits.map((rawEdit) => {
-            const edit = /** @type {Record<string, unknown>} */ (rawEdit);
+        const edits = args.edits.map((rawEdit: InputEditRecord) => {
+            const edit = rawEdit;
             const editPath = typeof edit.path === "string"
                 ? edit.path
                 : typeof edit.file_path === "string"
                 ? edit.file_path
                 : topLevelPath;
             return {
-                path: editPath,
-                oldText: edit.oldText,
-                newText: edit.newText,
+                path: typeof editPath === "string" ? editPath : "",
+                oldText: typeof edit.oldText === "string" ? edit.oldText : "",
+                newText: typeof edit.newText === "string" ? edit.newText : "",
             };
         });
         return {
             ...(typeof args.root === "string" ? { root: args.root } : {}),
-            edits: /** @type {MultiFileEdit[]} */ (edits),
+            edits,
         };
     }
 
@@ -252,15 +324,15 @@ function prepareMultiFileEditArguments(input) {
         };
     }
 
-    return /** @type {MultiFileEditParams} */ (input);
-}
+    return { edits: [] };
+};
 
 /**
  * @param {MultiFileEdit[]} edits
  * @returns {Map<string, MultiFileEdit[]>}
  */
-function groupEditsByPath(edits) {
-    const grouped = new Map();
+function groupEditsByPath(edits: MultiFileEdit[]): Map<string, MultiFileEdit[]> {
+    const grouped = new Map<string, MultiFileEdit[]>();
     for (const edit of edits) {
         const existing = grouped.get(edit.path) || [];
         existing.push(edit);
@@ -273,8 +345,8 @@ function groupEditsByPath(edits) {
  * @param {string} cwd
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createMultiFileEditTool(cwd) {
-    return defineTool({
+export function createMultiFileEditTool(cwd: string) {
+    return defineTool<typeof PARAMETERS, MultiFileEditDetails | null>({
         name: "multi_file_edit",
         label: "multi_file_edit",
         description:
@@ -287,20 +359,17 @@ export function createMultiFileEditTool(cwd) {
             "Use edit instead for exactly one replacement in one file",
             "Within each file, oldText entries are matched against the original file content and must not overlap",
         ],
-        parameters: toolParams,
+        parameters: PARAMETERS,
         prepareArguments: prepareMultiFileEditArguments,
-        async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-            const typedParams = /** @type {MultiFileEditParams} */ (params);
+        async execute(_toolCallId, params, _signal, _onUpdate, _ctx): Promise<MultiFileEditResult> {
+            const typedParams: MultiFileEditParams = params;
             const baseDir = typedParams.root ? resolveRoot(typedParams.root, cwd) : cwd;
             const groupedEdits = groupEditsByPath(typedParams.edits);
-            /** @type {string[]} */
-            const diffSections = [];
-            /** @type {number | undefined} */
-            let firstChangedLine;
+            const diffSections: string[] = [];
+            let firstChangedLine: number | undefined;
             let replacementCount = 0;
 
-            /** @type {Array<{ path: string, content: string, planName?: string, writtenRevision?: string }>} */
-            const writtenSnapshots = [];
+            const writtenSnapshots: WrittenSnapshot[] = [];
             const planNames = [...groupedEdits.keys()]
                 .map((filePath) => resolveToBaseDir(filePath, baseDir))
                 .filter((absolutePath) => isPlanMarkdownPath(absolutePath, baseDir))
@@ -313,10 +382,9 @@ export function createMultiFileEditTool(cwd) {
                         try {
                             await Deno.stat(absolutePath);
                         } catch (err) {
-                            const error = /** @type {Error} */ (err);
-                            const msg = error instanceof Deno.errors.NotFound
+                            const msg = err instanceof Deno.errors.NotFound
                                 ? `Could not find file: ${filePath}`
-                                : `Could not access file: ${filePath}. ${error.message}`;
+                                : `Could not access file: ${filePath}. ${coerceErrorMessage(err instanceof Error ? err : String(err))}`;
                             throw new Error(msg);
                         }
 
@@ -329,8 +397,7 @@ export function createMultiFileEditTool(cwd) {
 
                         if (isPlanMarkdownPath(absolutePath, baseDir)) {
                             const expectedRevision = await getPlanRevisionForText(rawContent);
-                            /** @type {{ path: string, content: string, planName: string, writtenRevision?: string }} */
-                            const snapshot = {
+                            const snapshot: WrittenSnapshot = {
                                 path: absolutePath,
                                 content: rawContent,
                                 planName: planNameFromMarkdownPath(absolutePath, baseDir),
@@ -355,8 +422,7 @@ export function createMultiFileEditTool(cwd) {
             };
 
             try {
-                /** @param {number} index @returns {Promise<void>} */
-                const runWithPlanLocks = async (index) => {
+                const runWithPlanLocks = async (index: number): Promise<void> => {
                     if (index >= planNames.length) return await applyAllEdits();
                     return await withPlanLock(baseDir, planNames[index], async () => await runWithPlanLocks(index + 1));
                 };
@@ -368,7 +434,7 @@ export function createMultiFileEditTool(cwd) {
                 const fileNoun = fileCount === 1 ? "file" : "files";
                 return {
                     content: [{
-                        type: "text",
+                        type: "text" as const,
                         text:
                             `Successfully applied ${replacementCount} ${replacementNoun} across ${fileCount} ${fileNoun}.`,
                     }],
@@ -394,7 +460,7 @@ export function createMultiFileEditTool(cwd) {
                 const message = err instanceof Error ? err.message : String(err);
                 return {
                     content: [{ type: "text", text: message }],
-                    details: /** @type {any} */ (null),
+                    details: null,
                     isError: true,
                 };
             }

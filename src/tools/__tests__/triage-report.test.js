@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import { createTriageReportTool } from "../triage-report.js";
+import { createTriageReportTool } from "../triage-report.ts";
 
 Deno.test("createTriageReportTool exposes expected metadata", () => {
     const tool = createTriageReportTool();

@@ -2,7 +2,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { join } from "@std/path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { createTaskCompletedTool } from "../../tools/task-completed.js";
+import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { HostedSession } from "./hosted-session.js";
 import { exportRootSessionToJsonl } from "./root-session.js";
 import {

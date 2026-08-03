@@ -3,8 +3,10 @@
  * Non-terminal visual checkpoint tool for Frontend Engineer Pair Execution.
  */
 
-import { Type } from "@earendil-works/pi-ai";
+import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { ActiveExecutionWorkflow, HostedSession } from "../shared/session/hosted-session.js";
 import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
@@ -20,48 +22,69 @@ const CHECKPOINT_DECISIONS = Object.freeze({
     STOP: "stop",
 });
 
-/**
- * @typedef {Object} PairCheckpointDetails
- * @property {string} decision
- * @property {number} [checkpointNumber]
- * @property {string} [feedback]
- * @property {string} [reason]
- */
+const PARAMETERS = Type.Object({
+    summary: Type.String({
+        minLength: 1,
+        description: "Concise description of the visible increment now available for review.",
+    }),
+    route: Type.Optional(Type.String({ minLength: 1, description: "Route or URL currently shown." })),
+    state: Type.Optional(
+        Type.String({ minLength: 1, description: "Application state or scenario inspected." }),
+    ),
+    viewport: Type.Optional(Type.String({ minLength: 1, description: "Viewport or device inspected." })),
+    evidence: Type.Optional(
+        Type.Array(Type.String({ minLength: 1 }), {
+            description: "Content-safe notes or screenshot paths describing visible evidence.",
+        }),
+    ),
+    diagnostics: Type.Optional(
+        Type.String({
+            minLength: 1,
+            description: "Console, network, accessibility, or runtime health summary.",
+        }),
+    ),
+    nextIncrement: Type.Optional(
+        Type.String({ minLength: 1, description: "The next coherent increment proposed." }),
+    ),
+}, { additionalProperties: false });
 
-/**
- * @param {string} text
- * @param {PairCheckpointDetails} details
- * @param {boolean} [terminate]
- */
-function checkpointResult(text, details, terminate = false) {
-    return { content: [{ type: /** @type {const} */ ("text"), text }], details, terminate };
+type PairCheckpointParams = Static<typeof PARAMETERS>;
+type PairCheckpointDecision = string;
+
+interface PairCheckpointDetails {
+    decision: PairCheckpointDecision;
+    checkpointNumber?: number;
+    feedback?: string;
+    reason?: string;
 }
 
-/**
- * @param {import('../shared/session/hosted-session.js').ActiveExecutionWorkflow} workflow
- * @returns {import('../shared/session/hosted-session.js').ActiveExecutionWorkflow}
- */
-function clearPairPause(workflow) {
+type PairCheckpointResult = AgentToolResult<PairCheckpointDetails> & { terminate: boolean };
+
+interface PairCheckpointToolOptions {
+    hostedSession: HostedSession;
+    recordWorkflowMetric?: typeof recordWorkflowMetric;
+}
+
+function checkpointResult(
+    text: string,
+    details: PairCheckpointDetails,
+    terminate = false,
+): PairCheckpointResult {
+    return { content: [{ type: "text", text }], details, terminate };
+}
+
+function clearPairPause(workflow: ActiveExecutionWorkflow): ActiveExecutionWorkflow {
     const next = { ...workflow };
     delete next.pairPauseReason;
     delete next.pairStopRequested;
     return next;
 }
 
-/**
- * @param {{
- *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- * }} opts
- */
 export function createPairCheckpointTool(
-    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric },
+    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: PairCheckpointToolOptions,
 ) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
-    /**
-     * @param {PairCheckpointDetails} details
-     */
-    function recordDecision(details) {
+    function recordDecision(details: PairCheckpointDetails): void {
         void recordWorkflowMetricImpl({
             category: "execution",
             event: "pair_checkpoint_decided",
@@ -72,37 +95,13 @@ export function createPairCheckpointTool(
             },
         }, { cwd: hostedSession.cwd });
     }
-    return defineTool({
+    return defineTool<typeof PARAMETERS, PairCheckpointDetails>({
         name: "pair_checkpoint",
         label: "Pair Checkpoint",
         description:
             "Pause active Pair Execution after a coherent visible increment has been inspected in the headed browser. Returns the user's direction without completing the task or starting validation.",
-        parameters: Type.Object({
-            summary: Type.String({
-                minLength: 1,
-                description: "Concise description of the visible increment now available for review.",
-            }),
-            route: Type.Optional(Type.String({ minLength: 1, description: "Route or URL currently shown." })),
-            state: Type.Optional(
-                Type.String({ minLength: 1, description: "Application state or scenario inspected." }),
-            ),
-            viewport: Type.Optional(Type.String({ minLength: 1, description: "Viewport or device inspected." })),
-            evidence: Type.Optional(
-                Type.Array(Type.String({ minLength: 1 }), {
-                    description: "Content-safe notes or screenshot paths describing visible evidence.",
-                }),
-            ),
-            diagnostics: Type.Optional(
-                Type.String({
-                    minLength: 1,
-                    description: "Console, network, accessibility, or runtime health summary.",
-                }),
-            ),
-            nextIncrement: Type.Optional(
-                Type.String({ minLength: 1, description: "The next coherent increment proposed." }),
-            ),
-        }, { additionalProperties: false }),
-        async execute(toolCallId, params, signal) {
+        parameters: PARAMETERS,
+        async execute(toolCallId, params, signal): Promise<PairCheckpointResult> {
             const workflow = hostedSession.getActiveExecutionWorkflow?.();
             if (
                 workflow?.executionAgent !== "frontend-engineer" || workflow.executionStarted === false ||

@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
-import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.js";
+import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.ts";
 
 Deno.test("extractAssistantText joins text blocks", () => {
     assertEquals(

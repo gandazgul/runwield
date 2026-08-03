@@ -3,36 +3,27 @@
  * Custom tool for the semantic code reviewer to signal completion with a
  * structured outcome (approved + optional feedback). Analogous to
  * plan_written for planners.
- *
- * The reviewer calls this tool instead of outputting plain-text "APPROVED" or
- * issue lists. The workflow (runValidationLoop) reads the tool result via
- * readLatestReviewOutcome() and decides next steps.
- *
- * terminate: true ensures the tool result acts as a terminal signal — the
- * agent's turn ends after calling it, and no further text or tool calls are
- * expected. If the session is interrupted (Esc) before calling review_complete,
- * no tool result is produced and the workflow stays with the current agent.
  */
 
-import { Type } from "@earendil-works/pi-ai";
+import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { HostedSession } from "../shared/session/hosted-session.js";
 import { emitReviewResultMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
-/**
- * @typedef {Object} ReviewFinding
- * @property {string} [id] - Existing ledger identity, when the Reviewer is referring to a prior round's finding.
- * @property {boolean} resolved - Whether this round independently verified the issue as fixed.
- * @property {string} title
- * @property {string} requirement
- * @property {string} evidence
- */
+export interface ReviewFinding {
+    id?: string;
+    resolved: boolean;
+    title: string;
+    requirement: string;
+    evidence: string;
+}
 
-/**
- * @typedef {Object} ReviewAdvisory
- * @property {string} title
- * @property {string} detail
- */
+export interface ReviewAdvisory {
+    title: string;
+    detail: string;
+}
 
 const FINDING_PARAMS = Type.Object({
     id: Type.Optional(Type.String({
@@ -67,7 +58,7 @@ const ADVISORY_PARAMS = Type.Object({
     })),
 });
 
-const TOOL_PARAMS = Type.Object({
+const PARAMETERS = Type.Object({
     approved: Type.Boolean({
         description: "Whether the implementation satisfies the plan requirements with no open blocking issues.",
     }),
@@ -88,22 +79,33 @@ const TOOL_PARAMS = Type.Object({
     })),
 });
 
-/**
- * Create the review_complete custom tool.
- *
- * @param {{
- *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
- *   agentName?: string,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- * }} opts
- * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
- */
+type ReviewFindingParam = Static<typeof FINDING_PARAMS>;
+type ReviewAdvisoryParam = Static<typeof ADVISORY_PARAMS>;
+
+type ReviewCompleteDetails =
+    | { outcome: "rejected"; reason: "approved_with_open_findings" }
+    | {
+        outcome: "approved" | "feedback";
+        approved: boolean;
+        feedback: string;
+        findings: ReviewFinding[];
+        advisories: ReviewAdvisory[];
+    };
+
+type ReviewCompleteResult = AgentToolResult<ReviewCompleteDetails> & { terminate: boolean };
+
+interface ReviewCompletedToolOptions {
+    hostedSession: HostedSession;
+    agentName?: string;
+    recordWorkflowMetric?: typeof recordWorkflowMetric;
+}
+
 export function createReviewCompletedTool(
-    { hostedSession, agentName = "reviewer", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
-        /** @type {any} */ ({}),
+    { hostedSession, agentName = "reviewer", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }:
+        ReviewCompletedToolOptions,
 ) {
     if (!hostedSession) throw new Error("createReviewCompletedTool: hostedSession is required");
-    return defineTool({
+    return defineTool<typeof PARAMETERS, ReviewCompleteDetails>({
         name: "review_complete",
         label: "Review Complete",
         description: "Signal that the semantic code review is complete with a structured result. " +
@@ -111,8 +113,8 @@ export function createReviewCompletedTool(
             "Call with `approved: false` plus a `findings` array when it does not; each finding is one concrete defect. " +
             "Report non-blocking observations as `advisories` — they never block approval. " +
             "Call this exactly once when you have finished reviewing. Do not output text after calling this tool.",
-        parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        parameters: PARAMETERS,
+        async execute(_toolCallId, params): Promise<ReviewCompleteResult> {
             await Promise.resolve();
             const approved = params.approved === true;
             const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
@@ -120,8 +122,6 @@ export function createReviewCompletedTool(
             const advisories = normalizeAdvisories(params.advisories);
             const openFindings = findings.filter((finding) => !finding.resolved);
 
-            // Fail closed on an internally inconsistent result rather than letting an
-            // approval with open blocking issues through.
             if (approved && openFindings.length > 0) {
                 const rejection = `Cannot approve with ${openFindings.length} unresolved finding(s). ` +
                     "Either resolve them (resolved: true, after verifying the fix in the code) or call " +
@@ -141,10 +141,6 @@ export function createReviewCompletedTool(
 
             const outcome = approved ? "approved" : "feedback";
             const resolvedCount = findings.length - openFindings.length;
-            // Structured findings are the authoritative list. Reviewers routinely
-            // narrate resolved items alongside open ones in the prose, and showing
-            // that under "issues found" reports finished work as still broken —
-            // which makes a converging loop look stuck.
             const projection = findings.length > 0 ? formatFindingsProjection(openFindings) : feedback;
             const openLabel = openFindings.length === 1 ? "1 issue open" : `${openFindings.length} issues open`;
             const resolvedNote = resolvedCount > 0 ? `, ${resolvedCount} resolved this round` : "";
@@ -179,16 +175,10 @@ export function createReviewCompletedTool(
     });
 }
 
-/**
- * @param {unknown} value
- * @returns {ReviewFinding[]}
- */
-function normalizeFindings(value) {
+function normalizeFindings(value: ReviewFindingParam[] | undefined): ReviewFinding[] {
     if (!Array.isArray(value)) return [];
-    return value.flatMap((entry) => {
-        if (!entry || typeof entry !== "object") return [];
-        const finding = /** @type {Record<string, unknown>} */ (entry);
-        const title = typeof finding.title === "string" ? finding.title.trim() : "";
+    return value.flatMap((finding) => {
+        const title = finding.title.trim();
         if (!title) return [];
         return [{
             id: typeof finding.id === "string" && finding.id.trim() ? finding.id.trim() : undefined,
@@ -200,16 +190,10 @@ function normalizeFindings(value) {
     });
 }
 
-/**
- * @param {unknown} value
- * @returns {ReviewAdvisory[]}
- */
-function normalizeAdvisories(value) {
+function normalizeAdvisories(value: ReviewAdvisoryParam[] | undefined): ReviewAdvisory[] {
     if (!Array.isArray(value)) return [];
-    return value.flatMap((entry) => {
-        if (!entry || typeof entry !== "object") return [];
-        const advisory = /** @type {Record<string, unknown>} */ (entry);
-        const title = typeof advisory.title === "string" ? advisory.title.trim() : "";
+    return value.flatMap((advisory) => {
+        const title = advisory.title.trim();
         if (!title) return [];
         return [{
             title,
@@ -218,14 +202,7 @@ function normalizeAdvisories(value) {
     });
 }
 
-/**
- * Render open findings as the readable projection when the Reviewer supplied
- * structure but no prose summary.
- *
- * @param {ReviewFinding[]} openFindings
- * @returns {string}
- */
-function formatFindingsProjection(openFindings) {
+function formatFindingsProjection(openFindings: ReviewFinding[]): string {
     return openFindings
         .map((finding) => {
             const parts = [`- ${finding.id ? `[${finding.id}] ` : ""}${finding.title}`];

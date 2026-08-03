@@ -56,8 +56,8 @@ import cymbalExtension, {
 import snipExtension from "../../extensions/snip/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.js";
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
-import { createUserInterviewTool } from "../../tools/user-interview.js";
-import { createSeeImageTool } from "../../tools/see-image.js";
+import { createUserInterviewTool } from "../../tools/user-interview.ts";
+import { createSeeImageTool } from "../../tools/see-image.ts";
 import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.js";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.js";
 import { directoryExists, fileExists } from "../helpers.js";
@@ -1729,7 +1729,7 @@ export async function buildAgentSession({
     }
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
-        const { createTriageReportTool } = await import("../../tools/triage-report.js");
+        const { createTriageReportTool } = await import("../../tools/triage-report.ts");
         finalCustomTools.push(createTriageReportTool({ hostedSession: targetHostedSession || undefined }));
     }
 
@@ -1751,7 +1751,7 @@ export async function buildAgentSession({
         tools.includes("task_completed") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "task_completed")
     ) {
-        const { createTaskCompletedTool } = await import("../../tools/task-completed.js");
+        const { createTaskCompletedTool } = await import("../../tools/task-completed.ts");
         finalCustomTools.push(
             createTaskCompletedTool({ hostedSession: targetHostedSession, agentName: agentDef.displayName }),
         );
@@ -1761,7 +1761,7 @@ export async function buildAgentSession({
         tools.includes("review_complete") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "review_complete")
     ) {
-        const { createReviewCompletedTool } = await import("../../tools/review-complete.js");
+        const { createReviewCompletedTool } = await import("../../tools/review-complete.ts");
         finalCustomTools.push(
             createReviewCompletedTool({ hostedSession: targetHostedSession, agentName: agentDef.displayName }),
         );
@@ -1771,7 +1771,7 @@ export async function buildAgentSession({
         tools.includes("delegate_agent") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "delegate_agent")
     ) {
-        const { createDelegateAgentTool } = await import("../../tools/delegate-agent.js");
+        const { createDelegateAgentTool } = await import("../../tools/delegate-agent.ts");
         finalCustomTools.push(createDelegateAgentTool({
             hostedSession: targetHostedSession,
             cwd: sessionCwd,
@@ -1796,7 +1796,7 @@ export async function buildAgentSession({
     }
 
     if (tools.includes("multi_file_edit") && !finalCustomTools.find((t) => t.name === "multi_file_edit")) {
-        const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.js");
+        const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.ts");
         finalCustomTools.push(createMultiFileEditTool(sessionCwd));
     }
 

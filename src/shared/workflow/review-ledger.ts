@@ -13,7 +13,7 @@
  * scratch, so anything held in a loop local is lost on every nudge.
  */
 
-import type { ReviewFinding } from "../../tools/review-complete.js";
+import type { ReviewFinding } from "../../tools/review-complete.ts";
 
 export interface LedgerItem {
     /** Stable identity, e.g. "R1-2". Never reused or renumbered. */

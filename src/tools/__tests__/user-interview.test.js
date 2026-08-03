@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { createUserInterviewTool } from "../user-interview.js";
+import { createUserInterviewTool } from "../user-interview.ts";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 
 /** @param {{ promptSelect?: () => Promise<string | null>, promptText?: () => Promise<string | null> }} overrides */
@@ -25,7 +25,7 @@ function makeUi(overrides) {
  */
 async function executeTool(tool, params) {
     const execute =
-        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: import('../user-interview.js').InterviewResultDetails }>} */ (tool
+        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: import('../user-interview.ts').InterviewResultDetails }>} */ (tool
             .execute);
     return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }

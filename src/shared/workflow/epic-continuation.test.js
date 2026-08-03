@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { resolveEpicContinuation } from "./epic-continuation.js";
+import { resolveEpicContinuation } from "./epic-continuation.ts";
 
 /**
  * @param {string} cwd
