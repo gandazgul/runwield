@@ -66,6 +66,10 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
 
 ## Bugs
 
+- [ ] when resuming a quickfix, a followup message kicks up the CI run, it shouldn't we should record in the session
+      that CI ran
+- [ ] when resuming the session name (tab title on the terminal) should be set to the session's name which is in the
+      file not the UUID
 - [ ] Add a Golden TUI scenario for a brand-new Plan being stashed out of main during execution: when Engineer calls
       `task_completed`, verify the missing-Plan guidance and Retry/Stop menu, restore the Plan, choose Retry, and
       confirm Workflow Validation continues without rerunning Engineer.

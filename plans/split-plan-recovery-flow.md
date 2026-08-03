@@ -57,10 +57,10 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"
-updatedAt: "2026-08-03T18:45:37.940Z"
+updatedAt: "2026-08-03T19:25:47.122Z"
 status: "implemented"
 origin: "internal"
-failureReason: "Reviewer-Feedback Engineer stopped without task_completed during semantic repair."
+failureReason: "- [R1-1] Focused recovery outcome tests still do not assert inspect refresh\n  Plan: Plan step: Focused tests named `Plan Recovery menu outcomes re-prompt without fallthrough`, `Plan Recovery handled and review outcomes exit once`, and `Plan Recovery actions preserve live context` must assert the exact outcome contract, including inspect refresh.\n  Evidence: `src/cmd/load-plan/plan-recovery-flow.test.ts` lines 343-345 and 421-427 exercise `inspect` but only assert the terminal result and prompt count; no assertion proves `refreshRecoveryWorktree` updated live worktree metadata/context before reporting.\n- New action module uses inline capability object types instead of named interfaces\n  Plan: TypeScript policy: new modules use named interfaces and concrete value unions; do not introduce inline complex object types.\n  Evidence: `src/cmd/load-plan/plan-recovery-actions.ts` lines 130-137, 151-154, 171-180, 219-231, and 281-285 define handler capability parameters inline with object literals/Pick/intersections rather than named interfaces."
 implementedAt: "2026-08-03T18:42:18.664Z"
 userVerifiedAt: null
 executionReport: "- Implemented Plan Recovery split: coordinator now owns live context/menu/outcome translation; smaller actions, reset paths, and manual merge publication moved to typed action modules with transaction wrappers preserved.\n- Migrated `architecture-boundary.test.js` to TypeScript and expanded lifecycle/publication scanning across all Plan Recovery modules.\n- Added/updated tests: +3 focused Plan Recovery tests, +1 integration hold terminal test; the 4 architecture tests were rewritten from JS to TS with strengthened scan coverage (no behavior-only test coverage deleted).\n- Verified module size/objective guards: flow 393 lines, actions 397, reset 307, merge 417; no branch-level bare `continue` remains in extracted modules.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, targeted recovery/integration/architecture tests, golden load-plan workflow tests, and `deno task ci`."
@@ -76,7 +76,7 @@ worktreeStatus: "validation_failed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
 validationCiAttempts: 0
-validationSemanticRounds: 0
+validationSemanticRounds: 2
 ---
 
 # Split Plan Recovery Flow

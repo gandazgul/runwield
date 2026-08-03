@@ -22,18 +22,27 @@ affectedPaths:
     - "src/tools/"
     - "src/ui/tui/"
     - "scripts/language-policy-baseline.json"
+objectiveChecks:
+    - id: "OC1"
+      command: "deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts"
+      rationale: "Both focused files are absent on the baseline; passing requires Claude selector registration/metadata, deferred selection persistence, transactional rollback, and pre-Pi execution rejection as tested behavior."
+    - id: "OC2"
+      command: "bash -lc 'set -e; test -s src/shared/models/model-registry.ts; test -s src/shared/models/model-validation.ts; test ! -e src/shared/models/model-registry.js; test ! -e src/shared/models/model-validation.js; ! grep -qE \"src/shared/models/model-(registry|validation)\\.js\" scripts/language-policy-baseline.json; deno task language-policy:check; deno task check'"
+      rationale: "Fails on the current JavaScript-only shape and proves the production modules, live imports, language baseline, and type graph were actually migrated rather than wrapped or aliased."
+    - id: "OC3"
+      command: "bash -lc 'set -e; grep -q \"getSelectable\" src/cmd/models/getArgumentCompletions.js; grep -q \"isSelectable\" src/cmd/resume/index.ts; deno run -A scripts/run-tests.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/shared/session/session-runtime.test.js src/ui/tui/model-welcome.test.js'"
+      rationale: "Fails on the current auth-only completion/resume paths and can pass only when deferred selection integrates without breaking runnable onboarding, API-auth status, resume, or transactional model reconfiguration."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-03T14:38:55-04:00"
-status: "draft"
+updatedAt: "2026-08-03T19:01:31.565Z"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 1
-dependencies: []
+dependencies:
+    []
+userVerifiedAt: null
 ---
 
 # Register Claude CLI Backend Models
@@ -56,10 +65,10 @@ The existing settings layer is already provider-agnostic: `agents`, `activeModel
 preserved as complete RunWield custom values. No new `claudeCli` settings object or `src/shared/settings.js` behavior is
 needed in this child.
 
-The current working tree has unrelated uncommitted changes in files this Plan must touch, currently including
-`src/shared/models/model-registry.js`, `src/shared/session/session.js`, `src/shared/session/session-runtime.js`, and
-`scripts/language-policy-baseline.json`. Per the user's decision, all overlapping changes must be committed/landed
-before execution. The landed versions are authoritative; this Plan must not overwrite or reconstruct the dirty copies.
+During planning, concurrent work overlapped `src/shared/models/model-registry.js`, Session composition/runtime, its
+regression tests, and the language-policy baseline. That work has now landed. Its model-runtime config-directory refresh
+behavior, root Session rebuild preservation, runtime import migrations, and tightened language baseline are the
+execution authority; this Plan must preserve them rather than reconstructing the earlier source.
 
 ## Objective
 
@@ -151,9 +160,9 @@ provider-qualified strings already survive `SettingsManager` writes.
 - `src/ui/tui/chat-session.js` and `src/ui/tui/chat-session.test.js` — update imports and make `setActiveModel()` catch
   only the typed unsupported-backend error, persist provider/model as a deferred default, return a deferred activation
   result, and leave unrelated activation failures unpersisted and visible.
-- `src/ui/tui/model-welcome.js` and `src/ui/tui/model-welcome.test.js` — distinguish a selectable deferred default from
-  a runnable model so Claude aliases do not bypass onboarding; explain backend unavailability rather than missing API
-  auth while preserving Pi login/model recovery.
+- `src/ui/tui/model-welcome.js` and `src/ui/tui/model-welcome.test.js` — require the selected default to be runnable,
+  not merely returned by `find()`, so Claude aliases do not bypass onboarding; explain backend unavailability rather
+  than missing API auth while preserving Pi login/model recovery.
 - `src/shared/session/image-attachments.js`, `src/cmd/init/index.ts`, `src/tools/see-image.js`,
   `src/tools/delegate-agent.js`, `src/ui/tui/ui-api-overrides.ts`, and other direct importers enumerated by the
   repository search — update live imports to the real `.ts` extensions. Vision Fallback deliberately remains
@@ -185,9 +194,9 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] The execution baseline contains all previously uncommitted work overlapping this Plan, including the model
-      registry, Session composition/runtime, and language-policy baseline; implementation uses those landed files as
-      authority and does not restore, overwrite, or loosen their behavior/baselines.
+- [ ] The implementation preserves the landed model-runtime config-directory refresh, root Session rebuild state,
+      runtime import migrations, associated regressions, and tightened language-policy baseline; none of that
+      overlapping work is restored, overwritten, or loosened during this change.
 - [ ] `src/shared/models/model-registry.ts` and `model-validation.ts` are the only live implementations of those
       modules; the `.js` files and compatibility shims do not exist, every live import uses the real `.ts` extension,
       and the two retired paths are absent from `scripts/language-policy-baseline.json`.
@@ -270,9 +279,9 @@ Existing functions, modules, or patterns to reuse:
 ## Execution Policy
 
 - Engineer executes autonomously; there is no browser-rendered outcome or dev server.
-- Do not start execution until every dirty file overlapping this Plan—including the current model-registry, Session
-  composition/runtime, and language-policy changes—has been committed/landed. If that work is intentionally abandoned
-  instead, return this Plan for review against the new baseline.
+- The formerly overlapping model-registry, Session runtime, tests, and language-policy changes are now landed and form
+  the execution baseline. If those files become dirty again before execution, do not discard that work; return for
+  baseline review or land it first.
 - This child must leave the repository safe and testable on its own. Child 02 is not allowed to be an implicit
   same-commit requirement for preventing Claude descriptors from reaching Pi.
 
@@ -281,18 +290,24 @@ Existing functions, modules, or patterns to reuse:
 - **CLI-authoritative selectors:** RunWield deliberately does not maintain a full Claude model catalog. The four aliases
   are discoverable defaults; other non-empty selectors are pass-through and may fail only when a later child invokes
   Claude CLI. Preserve the exact selector string after outer whitespace normalization.
-- **Intermediate safety:** selecting a Claude model before child 02 is allowed; executing it is not. The error must say
-  the execution backend is unavailable/not installed, not “missing API key” and not an unknown Pi provider error.
-- **Availability versus health:** `isSelectable` means a reference can be chosen and retained; it does not prove that
-  `claude` exists, is authenticated, or can execute that selector. Child 04 owns real executable/auth/version health
-  checks.
+- **Intermediate safety:** selecting a Claude model before child 02 saves a deferred default but does not alter the
+  current Session. The message/error must say the execution backend is unavailable/not installed, not “missing API key,”
+  “switched,” or an unknown Pi provider error.
+- **Selectability versus availability:** `isSelectable`/`getSelectable` mean a reference can be configured and retained;
+  `getAvailable` means runnable now and must remain false for Claude in this child. Neither proves that `claude` exists,
+  is authenticated, or accepts the selector. Child 04 owns real executable/auth/version health checks.
 - **No Pi facade:** do not call `ModelRuntime.registerProvider`, invent a Pi stream API, put Claude in `models.json`, or
   return fake API credentials for `claude-cli`.
-- **Hydration/deduplication:** a hydrated Pi runtime snapshot currently replaces the cold availability list. Merge the
-  Claude overlay explicitly and deduplicate by provider/id so aliases remain visible in both states without duplicating
-  configured/runtime Pi models.
+- **Hydration/deduplication:** build `getSelectable()` from runnable Pi models plus the Claude overlay and deduplicate
+  by provider/id in cold and hydrated states. Do not inject Claude aliases into `getAvailable()`.
 - **Non-Claude strictness:** pass-through synthesis applies only to provider `claude-cli`; malformed references and
   unknown provider/model pairs retain current failures and discovery behavior.
+- **Transactional selection:** activation failure must restore whether a user override existed as well as its prior
+  provider/model values; do not restore only the display projection. Deferred persistence happens only for the typed
+  unsupported-Claude error, not arbitrary rebuild failures.
+- **Onboarding/auth:** Claude aliases must not make no-model onboarding green, appear in API login/logout choices, or
+  inflate runnable model counts. A deferred selected default may be explained in recovery copy without implementing the
+  child 05 interactive selector/caveat UI.
 - **Image behavior:** Claude descriptors must not accidentally claim Pi image support or trigger Vision Fallback work
   before the pre-runtime guard. Child 02 decides how Claude CLI receives images/files.
 - **Settings scope:** do not reserve a top-level `claudeCli` key or runtime option schema. Existing custom setting
