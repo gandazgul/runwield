@@ -6,7 +6,6 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { formatWorkRecordSearchResults, searchWorkRecords } from "../shared/work-records/index.ts";
 import {
     SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
-    workRecordCommandOutput,
     type WorkRecordMnemosynePort,
 } from "../shared/work-records/mnemosyne-port.ts";
 
@@ -35,7 +34,7 @@ type WorkRecordSearchResult = AgentToolResult<WorkRecordSearchDetails> & { isErr
 
 export function createWorkRecordSearchTool(opts: WorkRecordSearchToolOptions) {
     const accessMode = opts.accessMode || "current";
-    const commandOutput = workRecordCommandOutput(opts.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT);
+    const mnemosynePort = opts.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
     return defineTool<typeof PARAMETERS, WorkRecordSearchDetails>({
         name: WORK_RECORD_SEARCH_TOOL_NAME,
         label: "Work Record Search",
@@ -44,7 +43,7 @@ export function createWorkRecordSearchTool(opts: WorkRecordSearchToolOptions) {
         parameters: PARAMETERS,
         async execute(_toolCallId, params): Promise<WorkRecordSearchResult> {
             try {
-                const result = await searchWorkRecords(opts.cwd, params.query, { accessMode, commandOutput });
+                const result = await searchWorkRecords(opts.cwd, params.query, { accessMode, mnemosynePort });
                 return {
                     content: [{ type: "text" as const, text: formatWorkRecordSearchResults(result) }],
                     details: {

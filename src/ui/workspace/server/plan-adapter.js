@@ -26,7 +26,7 @@ import {
 import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
 import {
-    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
+    autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../../shared/work-records/auto-generation.js";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
@@ -813,17 +813,17 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 }
 
 /**
- * @typedef {Object} WorkspaceLifecycleActionDeps
- * @property {typeof autoGenerateWorkRecordForCompletedPlanFn} [autoGenerateWorkRecordForCompletedPlan]
+ * @typedef {Object} WorkspaceLifecycleActionOptions
+ * @property {import('../../../shared/work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
  */
 
 /**
  * @param {string} cwd
  * @param {string} planId
  * @param {unknown} payload
- * @param {WorkspaceLifecycleActionDeps} [deps]
+ * @param {WorkspaceLifecycleActionOptions} [options]
  */
-export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps = {}) {
+export async function applyWorkspaceLifecycleAction(cwd, planId, payload, options = {}) {
     const request = validateLifecycleActionPayload(payload, { requireRevision: true });
     const expectedRevision = String(request.expectedRevision);
     const resource = await findPlanById(cwd, planId);
@@ -898,11 +898,13 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
     const planName = resource.planName || resource.name;
     await recordPlanEvent({ cwd, planName, event, currentStatus, details, expectedRevision });
     if (event === "manual_closed_without_verification" || event === "manual_user_verified") {
-        const generateWorkRecord = deps.autoGenerateWorkRecordForCompletedPlan ||
-            autoGenerateWorkRecordForCompletedPlanFn;
         let workRecordResult;
         try {
-            workRecordResult = await generateWorkRecord({ cwd, planName });
+            workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
+                cwd,
+                planName,
+                ...(options.mnemosynePort ? { mnemosynePort: options.mnemosynePort } : {}),
+            });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             workRecordResult = {

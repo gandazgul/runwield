@@ -19,7 +19,6 @@ import {
 } from "../../shared/work-records/index.ts";
 import {
     SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
-    workRecordCommandOutput,
     type WorkRecordMnemosynePort,
 } from "../../shared/work-records/mnemosyne-port.ts";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
@@ -98,7 +97,7 @@ export async function runWorkRecordsCommand(
     argv: string[],
     options: WorkRecordCommandOptions = {},
 ): Promise<void> {
-    const commandOutput = workRecordCommandOutput(options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT);
+    const mnemosynePort = options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
     const subcommand = argv[0] && !argv[0].startsWith("-") ? argv[0] : "list";
     const rest = subcommand === "list" ? (argv[0] === "list" ? argv.slice(1) : argv) : argv.slice(1);
 
@@ -132,7 +131,7 @@ export async function runWorkRecordsCommand(
             console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
             return;
         }
-        const result = await runWorkRecordBackfill(getCwd(), { commandOutput });
+        const result = await runWorkRecordBackfill(getCwd(), { mnemosynePort });
         console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
         return;
     }
@@ -148,7 +147,7 @@ export async function runWorkRecordsCommand(
         if (!query) throw new Error("Usage: wld wr search <query> [--all]");
         console.log(
             formatWorkRecordSearchResults(
-                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all), commandOutput }),
+                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all), mnemosynePort }),
             ),
         );
         return;
@@ -179,7 +178,7 @@ export async function runWorkRecordsCommand(
         }
         rejectUnknownFlags(parsed);
         if (parsed._.length) throw new Error("Usage: wld wr index rebuild");
-        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd(), { commandOutput })));
+        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd(), { mnemosynePort })));
         return;
     }
 

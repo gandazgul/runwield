@@ -21,6 +21,9 @@ import {
 
 import { createWorkspaceApp } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { listWorkRecords } from "../../shared/work-records/store.js";
+import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 
 import { git } from "./workspace-test-helpers.js";
 
@@ -223,27 +226,22 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
 });
 
 Deno.test("Workspace persisted User Verification records attestation and triggers Work Record generation", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
+    await withRuntimeCommandFixture("workspace-user-verify-", async ({ projectRoot: cwd, setModelResponse }) => {
         await savePlan(cwd, "feature", "# Feature", {
             planId: "feature-id",
             status: "implemented",
             classification: "FEATURE",
             failureReason: "Workflow Validation failed.",
         });
-        /** @type {Array<{ cwd: string, planName: string, statusAtGeneration: string }>} */
-        const calls = [];
+        setModelResponse(JSON.stringify({
+            title: "User Verified Feature",
+            summary: "Generated after the real Workspace lifecycle transition.",
+        }));
+        const mnemosynePort = createWorkRecordMnemosyneFixture();
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            autoGenerateWorkRecordForCompletedPlan: async ({ cwd: generationCwd, planName }) => {
-                calls.push({
-                    cwd: generationCwd,
-                    planName,
-                    statusAtGeneration: String((await loadWorkspaceDetail(generationCwd, "feature-id")).status),
-                });
-                return { status: "generated", planName, message: "Work Record generated: wr.md." };
-            },
+            mnemosynePort,
         }).handler();
 
         const blank = await app(
@@ -263,42 +261,35 @@ Deno.test("Workspace persisted User Verification records attestation and trigger
         const payload = await response.json();
         assertStringIncludes(payload.message, "RunWield Workflow Validation was not claimed");
         assertStringIncludes(payload.message, "Work Record generated");
-        assertEquals(calls, [{ cwd, planName: "feature", statusAtGeneration: "user_verified" }]);
         const detail = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(detail.status, "user_verified");
         assertEquals(detail.userVerificationNote, "Checked in staging.");
         assertEquals(detail.frontMatter.verifiedAt, undefined);
         assertEquals(detail.failureReason, "Workflow Validation failed.");
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
+        const records = await listWorkRecords(cwd);
+        assertEquals(records.length, 1);
+        assertEquals(records[0].attrs.completionMode, "user_verified");
+        assertEquals(detail.frontMatter.workRecord?.recordId, records[0].attrs.recordId);
+        assertEquals(mnemosynePort.snapshot().length, 1);
+    });
 });
 
 Deno.test("Workspace persisted close without verification triggers Work Record generation after closure", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
+    await withRuntimeCommandFixture("workspace-close-", async ({ projectRoot: cwd, setModelResponse }) => {
         await savePlan(cwd, "feature", "# Feature", {
             planId: "feature-id",
             status: "implemented",
             classification: "FEATURE",
         });
-        /** @type {Array<{ cwd: string, planName: string, statusAtGeneration: string }>} */
-        const calls = [];
+        setModelResponse(JSON.stringify({
+            title: "Manually Accepted Feature",
+            summary: "Generated after close without verification.",
+        }));
+        const mnemosynePort = createWorkRecordMnemosyneFixture();
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            autoGenerateWorkRecordForCompletedPlan: async ({ cwd: generationCwd, planName }) => {
-                calls.push({
-                    cwd: generationCwd,
-                    planName,
-                    statusAtGeneration: String((await loadWorkspaceDetail(generationCwd, "feature-id")).status),
-                });
-                return {
-                    status: "generated",
-                    planName,
-                    message: "Work Record generated: docs/work-records/2026-01-01-feature.md.",
-                };
-            },
+            mnemosynePort,
         }).handler();
 
         const response = await postLifecycle(app, cwd, "feature-id", {
@@ -308,27 +299,29 @@ Deno.test("Workspace persisted close without verification triggers Work Record g
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "Work Record generated");
-        assertEquals(calls, [{ cwd, planName: "feature", statusAtGeneration: "closed_without_verification" }]);
         const detail = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(detail.status, "closed_without_verification");
         assertEquals(detail.closedWithoutVerificationReason, "Manual acceptance.");
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
+        const records = await listWorkRecords(cwd);
+        assertEquals(records.length, 1);
+        assertEquals(records[0].attrs.completionMode, "closed_without_verification");
+        assertEquals(detail.frontMatter.workRecord?.recordId, records[0].attrs.recordId);
+        assertEquals(mnemosynePort.snapshot().length, 1);
+    });
 });
 
 Deno.test("Workspace persisted close preserves closure when Work Record generation fails", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
+    await withRuntimeCommandFixture("workspace-close-failure-", async ({ projectRoot: cwd, setModelResponse }) => {
         await savePlan(cwd, "feature", "# Feature", {
             planId: "feature-id",
             status: "implemented",
             classification: "FEATURE",
         });
+        setModelResponse("recorder unavailable");
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            autoGenerateWorkRecordForCompletedPlan: () => Promise.reject(new Error("recorder unavailable")),
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
         }).handler();
 
         const response = await postLifecycle(app, cwd, "feature-id", {
@@ -338,13 +331,13 @@ Deno.test("Workspace persisted close preserves closure when Work Record generati
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "Work Record generation failed");
-        assertStringIncludes(payload.message, "recorder unavailable");
+        assertStringIncludes(payload.message, "structured JSON");
         const detail = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(detail.status, "closed_without_verification");
         assertEquals(detail.closedWithoutVerificationReason, "Manual acceptance despite CI gap.");
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
+        assertEquals(detail.frontMatter.workRecord?.status, "failed");
+        assertEquals(await listWorkRecords(cwd), []);
+    });
 });
 
 Deno.test("Workspace in-memory close preview is side-effect free", async () => {

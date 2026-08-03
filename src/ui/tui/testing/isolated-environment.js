@@ -10,6 +10,38 @@ export const GOLDEN_FAUX_MODEL = "faux";
 export const GOLDEN_FAUX_API = "golden-faux";
 
 /**
+ * Install the stable external Mnemosyne boundary used by composed scenarios.
+ * The scenarios exercise RunWield's real Work Record machinery, but must not
+ * contend for or mutate the developer's Mnemosyne database when Golden files run
+ * concurrently.
+ *
+ * @param {string} root
+ * @returns {Promise<string>}
+ */
+async function writeGoldenMnemosyneFixture(root) {
+    const binDir = join(root, "bin");
+    const executable = join(binDir, "mnemosyne");
+    await Deno.mkdir(binDir, { recursive: true });
+    await Deno.writeTextFile(
+        executable,
+        [
+            "#!/bin/sh",
+            'if [ "$1" = "update" ] && [ "$2" = "--help" ]; then',
+            "  echo 'Usage: mnemosyne update <id> --replace-tags'",
+            'elif [ "$1" = "list" ]; then',
+            "  echo 'No documents'",
+            'elif [ "$1" = "search" ]; then',
+            "  echo '{\"results\":[]}'",
+            "fi",
+            "exit 0",
+            "",
+        ].join("\n"),
+    );
+    await Deno.chmod(executable, 0o755);
+    return binDir;
+}
+
+/**
  * @param {string} value
  * @returns {Promise<string>}
  */
@@ -92,6 +124,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const home = join(root, "home");
     const projectRoot = join(root, "project");
     const runwieldDir = join(home, ".wld");
+    const fixtureBinDir = await writeGoldenMnemosyneFixture(root);
     await Deno.mkdir(projectRoot, { recursive: true });
     await Deno.mkdir(runwieldDir, { recursive: true });
     await Deno.writeTextFile(
@@ -148,6 +181,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const env = {
         HOME: home,
         RUNWIELD_HOME: runwieldDir,
+        PATH: `${fixtureBinDir}:${Deno.env.get("PATH") || ""}`,
         NO_COLOR: "1",
         WLD_GOLDEN_TUI: "1",
     };

@@ -86,20 +86,20 @@ export function parseWorkRecordSearchJson(output) {
 
 /**
  * @param {string} cwd
- * @param {{ commandOutput?: import('./index-adapter.js').WorkRecordIndexDeps['commandOutput'] }} [deps]
+ * @param {{ mnemosynePort?: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} [options]
  */
-async function ensureSearchBootstrap(cwd, deps = {}) {
+async function ensureSearchBootstrap(cwd, options = {}) {
     const canonical = await listWorkRecords(cwd, { createDir: false });
     if (!canonical.length) return { bootstrapped: false, rebuild: null, canonical };
-    if (!(await isWorkRecordIndexEmpty(cwd, deps))) return { bootstrapped: false, rebuild: null, canonical };
-    const rebuild = await rebuildWorkRecordIndex(cwd, deps);
+    if (!(await isWorkRecordIndexEmpty(cwd, options))) return { bootstrapped: false, rebuild: null, canonical };
+    const rebuild = await rebuildWorkRecordIndex(cwd, options);
     return { bootstrapped: true, rebuild, canonical };
 }
 
 /**
  * @param {string} cwd
  * @param {string} query
- * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, commandOutput?: import('./index-adapter.js').WorkRecordIndexDeps['commandOutput'] }} [options]
+ * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, mnemosynePort?: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} [options]
  */
 export async function searchWorkRecords(cwd, query, options = {}) {
     const trimmed = String(query || "").trim();

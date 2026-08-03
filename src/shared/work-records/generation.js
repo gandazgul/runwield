@@ -21,6 +21,7 @@ import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "./mnemosyne-port.ts";
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
 const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
@@ -60,8 +61,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {() => Date} [now]
  * @property {(source: WorkRecordSource) => Promise<GeneratedWorkRecordSections>|GeneratedWorkRecordSections} [generateSections]
  * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
- * @property {typeof syncWorkRecordToIndex} [syncWorkRecordToIndex]
- * @property {import('./index-adapter.js').WorkRecordIndexDeps['commandOutput']} [commandOutput]
+ * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
  */
 
 /**
@@ -540,8 +540,9 @@ async function linkSourceToRecord(cwd, source, record, now) {
  */
 async function bestEffortSyncGeneratedRecord(cwd, record, options) {
     try {
-        const sync = options.syncWorkRecordToIndex || syncWorkRecordToIndex;
-        await sync(cwd, record, { commandOutput: options.commandOutput });
+        await syncWorkRecordToIndex(cwd, record, {
+            mnemosynePort: options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+        });
         return "";
     } catch (error) {
         return `Work Record index sync failed for ${record.attrs.recordId}: ${

@@ -27,10 +27,7 @@ import {
     pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
-import {
-    autoGenerateWorkRecordForCompletedPlan,
-    formatWorkRecordAutoGenerationResult,
-} from "../work-records/auto-generation.js";
+import type { WorkRecordMnemosynePort } from "../work-records/mnemosyne-port.ts";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
@@ -175,6 +172,7 @@ type ValidationLoopArgs = {
     git?: GitPort;
     semanticReviewPort?: SemanticReviewPort;
     localCI?: LocalCIPort;
+    workRecordMnemosynePort?: WorkRecordMnemosynePort;
 };
 
 type PhaseContext = {
@@ -2161,8 +2159,7 @@ async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot
         planContent: args.planContent,
         projectRoot,
         runManualQaChecklistPrompt,
-        autoGenerateWorkRecordForCompletedPlan,
-        formatWorkRecordAutoGenerationResult,
+        mnemosynePort: args.workRecordMnemosynePort,
     });
 }
 

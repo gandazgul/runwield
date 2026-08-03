@@ -52,41 +52,10 @@
         },
         "src/cmd/load-plan/plan-recovery-flow.ts": {
             "seams": [
-                "autoGenerateWorkRecordForCompletedPlan",
-                "checkpointExecutionWorktree",
-                "createWorktreeGitArtifacts",
-                "finalizePlanImplementation",
-                "getWorkflowDiff",
-                "mergeExecutionWorktree",
-                "preparePrimaryPlanPathForMerge",
                 "probeGitRepository",
-                "recordPlanEvent",
-                "recordWorkflowMetric",
-                "removeWorktreeGitArtifacts",
-                "removeWorktreeRegistryEntry",
-                "restorePrimaryPlanPathAfterMergeFailure",
-                "settleWorktreeAttempt",
-                "stageValidationPassedInExecutionWorktree",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
+                "recordWorkflowMetric"
             ],
-            "machinery": [
-                "autoGenerateWorkRecordForCompletedPlan",
-                "checkpointExecutionWorktree",
-                "createWorktreeGitArtifacts",
-                "finalizePlanImplementation",
-                "getWorkflowDiff",
-                "mergeExecutionWorktree",
-                "preparePrimaryPlanPathForMerge",
-                "recordPlanEvent",
-                "removeWorktreeGitArtifacts",
-                "removeWorktreeRegistryEntry",
-                "restorePrimaryPlanPathAfterMergeFailure",
-                "settleWorktreeAttempt",
-                "stageValidationPassedInExecutionWorktree",
-                "updatePlanFrontMatter",
-                "updateWorktreeRegistryEntry"
-            ],
+            "machinery": [],
             "conditional": []
         },
         "src/cmd/load-plan/plan-recovery-worktree.ts": {
@@ -188,25 +157,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/work-records/generation.js": {
-            "seams": [
-                "syncWorkRecordToIndex"
-            ],
-            "machinery": [
-                "syncWorkRecordToIndex"
-            ],
-            "conditional": []
-        },
-        "src/shared/work-records/index-adapter.js": {
-            "seams": [
-                "commandOutput",
-                "listWorkRecords"
-            ],
-            "machinery": [
-                "listWorkRecords"
-            ],
-            "conditional": []
-        },
         "src/shared/workflow/metrics.js": {
             "seams": [
                 "cwd",
@@ -225,15 +175,6 @@
                 "members:now",
                 "members:settings"
             ]
-        },
-        "src/shared/workflow/validation-helpers.ts": {
-            "seams": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
-            "machinery": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
-            "conditional": []
         },
         "src/shared/workflow/validation.ts": {
             "seams": [
@@ -381,24 +322,6 @@
                 "recordWorkflowMetric"
             ],
             "machinery": [],
-            "conditional": []
-        },
-        "src/ui/workspace/server.js": {
-            "seams": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
-            "machinery": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
-            "conditional": []
-        },
-        "src/ui/workspace/server/plan-adapter.js": {
-            "seams": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
-            "machinery": [
-                "autoGenerateWorkRecordForCompletedPlan"
-            ],
             "conditional": []
         }
     }

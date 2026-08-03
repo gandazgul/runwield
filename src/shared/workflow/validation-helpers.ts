@@ -37,6 +37,7 @@ import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../work-records/auto-generation.js";
+import type { WorkRecordMnemosynePort } from "../work-records/mnemosyne-port.ts";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
@@ -151,8 +152,7 @@ interface RunFeaturePostVerificationHandoffsOptions {
     planContent: string;
     projectRoot: string;
     runManualQaChecklistPrompt: typeof runManualQaChecklistPrompt;
-    autoGenerateWorkRecordForCompletedPlan: typeof autoGenerateWorkRecordForCompletedPlan;
-    formatWorkRecordAutoGenerationResult: typeof formatWorkRecordAutoGenerationResult;
+    mnemosynePort?: WorkRecordMnemosynePort;
 }
 
 /**
@@ -162,8 +162,7 @@ interface RunFeaturePostVerificationHandoffsOptions {
  * @param {string} args.planContent
  * @param {string} args.projectRoot
  * @param {typeof runManualQaChecklistPrompt} args.runManualQaChecklistPrompt
- * @param {typeof autoGenerateWorkRecordForCompletedPlan} args.autoGenerateWorkRecordForCompletedPlan
- * @param {typeof formatWorkRecordAutoGenerationResult} args.formatWorkRecordAutoGenerationResult
+ * @param {WorkRecordMnemosynePort} [args.mnemosynePort]
  */
 export async function runFeaturePostVerificationHandoffs({
     hostedSession,
@@ -171,8 +170,7 @@ export async function runFeaturePostVerificationHandoffs({
     planContent,
     projectRoot,
     runManualQaChecklistPrompt,
-    autoGenerateWorkRecordForCompletedPlan,
-    formatWorkRecordAutoGenerationResult,
+    mnemosynePort,
 }: RunFeaturePostVerificationHandoffsOptions) {
     emitRunWieldSystemStatus(
         hostedSession,
@@ -186,7 +184,11 @@ export async function runFeaturePostVerificationHandoffs({
         cwd: projectRoot,
         runPrompt: runManualQaChecklistPrompt,
     });
-    const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({ cwd: projectRoot, planName }).catch((error) => {
+    const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
+        cwd: projectRoot,
+        planName,
+        ...(mnemosynePort ? { mnemosynePort } : {}),
+    }).catch((error) => {
         const reason = error instanceof Error ? error.message : String(error);
         return {
             status: "failed" as const,

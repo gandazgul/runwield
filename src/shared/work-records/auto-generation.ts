@@ -13,11 +13,7 @@ import {
     loadPlan,
 } from "../../plan-store.js";
 import { shouldAutoGenerateWorkRecordsOnPlanCompletion } from "../settings.js";
-import {
-    SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
-    workRecordCommandOutput,
-    type WorkRecordMnemosynePort,
-} from "./mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT, type WorkRecordMnemosynePort } from "./mnemosyne-port.ts";
 import { listWorkRecords } from "./store.js";
 import {
     attachEpicChildren,
@@ -176,7 +172,7 @@ export async function autoGenerateWorkRecordForCompletedPlan({
         }
 
         const outcome = await generateWorkRecordForSource(cwd, evaluated, {
-            commandOutput: workRecordCommandOutput(mnemosynePort),
+            mnemosynePort,
         });
         const status = outcome.status === "generated" || outcome.status === "linked" ? outcome.status : "failed";
         return withMessage({

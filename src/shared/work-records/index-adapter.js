@@ -5,22 +5,14 @@
 
 import { basename, dirname } from "@std/path";
 import { listWorkRecords } from "./store.js";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "./mnemosyne-port.ts";
 
 const LOCATOR_PREFIX = "work-record:";
 const REBUILD_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work Record index.";
 
 /**
- * @typedef {Object} MnemosyneCommandResult
- * @property {boolean} success
- * @property {number} code
- * @property {Uint8Array} stdout
- * @property {Uint8Array} stderr
- */
-
-/**
- * @typedef {Object} WorkRecordIndexDeps
- * @property {(command: string, args: string[], options?: { cwd?: string }) => Promise<MnemosyneCommandResult>} [commandOutput]
- * @property {typeof listWorkRecords} [listWorkRecords]
+ * @typedef {Object} WorkRecordIndexOptions
+ * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
  */
 
 /**
@@ -110,29 +102,15 @@ function decode(bytes) {
 }
 
 /**
- * @param {string} command
- * @param {string[]} args
- * @param {{ cwd?: string }} [options]
- */
-async function defaultCommandOutput(command, args, options = {}) {
-    return await new Deno.Command(command, {
-        args,
-        cwd: options.cwd,
-        stdout: "piped",
-        stderr: "piped",
-    }).output();
-}
-
-/**
  * @param {string} cwd
  * @param {string[]} args
- * @param {WorkRecordIndexDeps} deps
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function runMnemosyneWorkRecordCommand(cwd, args, deps = {}) {
-    const commandOutput = deps.commandOutput || defaultCommandOutput;
+export async function runMnemosyneWorkRecordCommand(cwd, args, options = {}) {
+    const mnemosynePort = options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
     let result;
     try {
-        result = await commandOutput("mnemosyne", args, { cwd });
+        result = await mnemosynePort.run(args, { cwd });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`mnemosyne ${args[0] || ""} failed: ${message}`);
@@ -147,10 +125,10 @@ export async function runMnemosyneWorkRecordCommand(cwd, args, deps = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function verifyMnemosyneUpdateAvailable(cwd, deps = {}) {
-    const help = await runMnemosyneWorkRecordCommand(cwd, ["update", "--help"], deps);
+export async function verifyMnemosyneUpdateAvailable(cwd, options = {}) {
+    const help = await runMnemosyneWorkRecordCommand(cwd, ["update", "--help"], options);
     if (!help.includes("update <id>") || !help.includes("--replace-tags")) {
         throw new Error("mnemosyne update prerequisite is unavailable or missing strict --replace-tags support.");
     }
@@ -159,10 +137,10 @@ export async function verifyMnemosyneUpdateAvailable(cwd, deps = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function initializeWorkRecordIndex(cwd, deps = {}) {
-    await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], deps);
+export async function initializeWorkRecordIndex(cwd, options = {}) {
+    await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], options);
 }
 
 /** @param {string} output */
@@ -201,9 +179,9 @@ function parsePlainListDocumentIds(output, options = {}) {
 /**
  * @param {string} cwd
  * @param {string} recordId
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function findIndexedDocumentIdsByRecordId(cwd, recordId, deps = {}) {
+export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options = {}) {
     const out = await runMnemosyneWorkRecordCommand(cwd, [
         "list",
         "--name",
@@ -214,28 +192,28 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, deps = {})
         "1000",
         "--tag",
         `${LOCATOR_PREFIX}${recordId}`,
-    ], deps);
+    ], options);
     return parsePlainListDocumentIds(out, { recordId });
 }
 
 /**
  * @param {string} cwd
  * @param {import('./schema.js').WorkRecordResource} record
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function syncWorkRecordToIndex(cwd, record, deps = {}) {
-    await verifyMnemosyneUpdateAvailable(cwd, deps);
-    await initializeWorkRecordIndex(cwd, deps);
+export async function syncWorkRecordToIndex(cwd, record, options = {}) {
+    await verifyMnemosyneUpdateAvailable(cwd, options);
+    await initializeWorkRecordIndex(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     const tags = buildWorkRecordIndexTags(record);
     const content = buildWorkRecordIndexDocument(record);
-    const ids = await findIndexedDocumentIdsByRecordId(cwd, record.attrs.recordId, deps);
+    const ids = await findIndexedDocumentIdsByRecordId(cwd, record.attrs.recordId, options);
     const tagArgs = tags.flatMap((tag) => ["--tag", tag]);
     if (ids.length > 1) {
         throw new Error(`Duplicate Work Record index entries for ${record.attrs.recordId}. ${REBUILD_GUIDANCE}`);
     }
     if (ids.length === 0) {
-        await runMnemosyneWorkRecordCommand(cwd, ["add", "--name", collection, ...tagArgs, content], deps);
+        await runMnemosyneWorkRecordCommand(cwd, ["add", "--name", collection, ...tagArgs, content], options);
         return { action: "added", recordId: record.attrs.recordId };
     }
     const id = ids[0];
@@ -248,15 +226,15 @@ export async function syncWorkRecordToIndex(cwd, record, deps = {}) {
         "--replace-tags",
         ...tagArgs,
         content,
-    ], deps);
+    ], options);
     return { action: "updated", recordId: record.attrs.recordId, documentId: id };
 }
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function isWorkRecordIndexEmpty(cwd, deps = {}) {
+export async function isWorkRecordIndexEmpty(cwd, options = {}) {
     try {
         const out = await runMnemosyneWorkRecordCommand(cwd, [
             "list",
@@ -266,7 +244,7 @@ export async function isWorkRecordIndexEmpty(cwd, deps = {}) {
             "plain",
             "--limit",
             "1",
-        ], deps);
+        ], options);
         return parsePlainListDocumentIds(out).length === 0;
     } catch {
         return true;
@@ -275,18 +253,18 @@ export async function isWorkRecordIndexEmpty(cwd, deps = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexDeps} [deps]
+ * @param {WorkRecordIndexOptions} [options]
  */
-export async function rebuildWorkRecordIndex(cwd, deps = {}) {
-    await verifyMnemosyneUpdateAvailable(cwd, deps);
+export async function rebuildWorkRecordIndex(cwd, options = {}) {
+    await verifyMnemosyneUpdateAvailable(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     try {
-        await runMnemosyneWorkRecordCommand(cwd, ["forget", "--name", collection, "--yes"], deps);
+        await runMnemosyneWorkRecordCommand(cwd, ["forget", "--name", collection, "--yes"], options);
     } catch {
         // Collection may not exist yet; init below is authoritative for rebuild bootstrap.
     }
-    await initializeWorkRecordIndex(cwd, deps);
-    const records = await (deps.listWorkRecords || listWorkRecords)(cwd, { createDir: false });
+    await initializeWorkRecordIndex(cwd, options);
+    const records = await listWorkRecords(cwd, { createDir: false });
     const failures = [];
     let added = 0;
     for (const record of records) {
@@ -298,7 +276,7 @@ export async function rebuildWorkRecordIndex(cwd, deps = {}) {
                 collection,
                 ...tags,
                 buildWorkRecordIndexDocument(record),
-            ], deps);
+            ], options);
             added += 1;
         } catch (error) {
             failures.push({

@@ -127,7 +127,7 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {string} cwd
  * @property {string} token
  * @property {boolean} [skipTokenCheck]
- * @property {import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"]} [autoGenerateWorkRecordForCompletedPlan]
+ * @property {import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort} [mnemosynePort]
  */
 
 /**
@@ -279,7 +279,7 @@ export function createOwnerWorkspaceApp(options) {
 }
 
 /** @param {LocalWorkspaceAppOptions} options */
-function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, autoGenerateWorkRecordForCompletedPlan }) {
+function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemosynePort }) {
     return {
         handler() {
             /** @param {Request} request */
@@ -289,7 +289,7 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, autoGener
                 if (!skipTokenCheck && !hasWorkspaceToken(request, token)) {
                     return new Response("Workspace token required.", { status: 401 });
                 }
-                return await handleLocalWorkspaceRequest(request, { cwd, autoGenerateWorkRecordForCompletedPlan });
+                return await handleLocalWorkspaceRequest(request, { cwd, mnemosynePort });
             };
         },
     };
@@ -395,7 +395,7 @@ function hasReviewAssetToken(request, token) {
     }
 }
 
-/** @param {Request} request @param {{ cwd: string, autoGenerateWorkRecordForCompletedPlan?: import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"] }} state */
+/** @param {Request} request @param {{ cwd: string, mnemosynePort?: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -416,7 +416,7 @@ function isAstroPageRoute(pathname) {
     return pathname === "/" || pathname === "/closed" || pathname === "/on-hold" || pathname.startsWith("/plans/");
 }
 
-/** @param {Request} request @param {{ cwd: string, autoGenerateWorkRecordForCompletedPlan?: import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"] }} state @param {string} pathname */
+/** @param {Request} request @param {{ cwd: string, mnemosynePort?: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state @param {string} pathname */
 async function handleLocalApiRequest(request, state, pathname) {
     if (request.method === "GET" && pathname === "/api/workspace") return await workspaceApi(ctx(request, state));
     if (request.method === "GET" && pathname === "/api/plans") return await plansApi(ctx(request, state));
