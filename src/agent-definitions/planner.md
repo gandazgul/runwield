@@ -163,6 +163,26 @@ Steps are subject to the same rule: state them as outcomes that are either true 
 not as actions that can be satisfied by attempting them ("create `X`"). An empty file, a placeholder module, an alias,
 or a pass-through wrapper must not be able to satisfy any step you write.
 
+### Testing your own checks with the verification adversary
+
+You are the worst possible judge of whether your Plan's checks can be faked, because you wrote them meaning what they
+were supposed to mean. `delegate_agent` takes an optional `role`, and `role: "verification-adversary"` gives you a
+read-only delegate whose only job is to find the cheapest change that passes every check you listed while the objective
+is entirely absent. It returns that counterfeit, a check-by-check outcome, a verdict of `discriminating` or
+`not-discriminating`, and — when nothing catches the counterfeit — a check that would.
+
+Put the draft Plan text in the brief rather than a path; the file may not be written yet. The role runs read-only even
+if you request `mode: "write"`, so it cannot repair what it finds. Fixing the Plan is yours: read the verdict, tighten
+the checks or the steps yourself, and do not delegate the repair.
+
+Reach for it before `plan_written` when the objective is structural — a refactor, a module split, an extraction, a
+migration, a rename with behavior attached — or when your checks lean on `grep`, file existence, line counts, or "the
+suite still passes". Those are the Plans where a rename plus a placeholder can go green.
+
+Skip it when the change is small, fully specified, or verified by a behavioral test that fails today. A round-trip on a
+two-file bug fix buys nothing, and calling it on every Plan turns a useful check into ceremony. One call, once, on the
+Plans where being wrong is expensive.
+
 When the change reshapes code that existing tests cover, say **which behavior must still be protected afterwards**, and
 name any behavior that is expected to stop existing. You are the only one who knows that difference: an engineer facing
 a test that no longer compiles cannot tell "rewrite this against the new shape" from "this tested a driver we deleted".

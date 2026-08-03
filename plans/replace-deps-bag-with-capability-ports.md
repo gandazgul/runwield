@@ -1,3 +1,16 @@
+---
+classification: "PLANNED_CHANGE"
+complexity: "MEDIUM"
+summary: ""
+affectedPaths:
+    []
+createdAt: "2026-07-30T17:54:11.445Z"
+updatedAt: "2026-08-03T17:15:51.295Z"
+status: "draft"
+origin: "external"
+planId: "d9fa56fe-1ff7-4508-a29a-231cb5a6375e"
+---
+
 # Replace the `__deps` bag with capability ports
 
 ## Context

@@ -37,7 +37,32 @@
       non-executable containers and must not define executionAgent or collaborationRecommendation; execution policy
       belongs only on child Plans.
 
+  Architect is doing something similar:
+
+      Execution Policy This PROJECT Epic is a non-executable container. It must not proceed to executable Attached children
+      until the separately planned session-independent validation-engine prerequisite is approved, implemented, and
+      mechanically and semantically verified. Later decomposition must preserve the module boundaries and observable
+      outcomes above rather than organizing work only by files or Claude extension primitives.
+
 - [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
+
+## __deps refactor
+
+One gap in the checker worth knowing about
+
+Three shapes are now detected: literal __deps, typed …Deps parameter, optional-fallback ports. A fourth isn't —
+default-parameter injection with no bag at all:
+
+async function f(a, b, probeGitRepository = probeGitRepositoryFn) { … }
+
+I found 11 of these across 6 files (plan-recovery-flow.ts 4, model-welcome.js 2, tui-crash-guards.js 2, plus
+auto-generation.ts, boot-banner.ts, runtime-adapter.js). None are machinery today, so nothing is unsound — but it's the
+obvious place for a machinery seam to reappear invisibly once the named bags are gone, since it's the natural thing to
+reach for when you delete a bag. Worth teaching the scanner before you finish, not after.
+
+One nuance if you do: finalizePlanImplementation is injectable this way in plan-recovery-flow.ts, and it calls
+runImplementationCheckpointTransition internally. It isn't machinery by name, but replacing it does bypass a transaction
+— the transitive case the denylist can't express.
 
 ## Bugs
 

@@ -31,10 +31,16 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:32:24-04:00"
-updatedAt: "2026-08-02T15:33:13.709Z"
-status: "ready_for_work"
+updatedAt: "2026-08-03T18:30:30.986Z"
+status: "user_verified"
 origin: "internal"
-userVerifiedAt: null
+userVerifiedAt: "2026-08-03T18:30:24.985Z"
+userVerificationNote: "Worked on it with claude code outside of RunWield"
+workRecord:
+    status: "generated"
+    recordId: "12b7ea26-672e-43f5-9d61-a058e25dbdce"
+    path: "docs/work-records/2026-08-03-delegated-verification-adversary-role-added.md"
+    lastAttemptAt: "2026-08-03T18:30:25.038Z"
 ---
 
 # Delegate Agent Roles

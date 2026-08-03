@@ -18,8 +18,8 @@ affectedPaths:
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/attached-mode-prd.md"
 createdAt: "2026-08-02T12:25:40-04:00"
-updatedAt: "2026-08-02T16:30:22.133Z"
-status: "ready_for_decomposition"
+updatedAt: "2026-08-03T18:20:03.279Z"
+status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 ---
