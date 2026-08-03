@@ -1,10 +1,8 @@
 /** Resume and publish the detached merge repaired by the prior Golden process. */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
 import { loadPlan } from "../../../plan-store.js";
 import { git } from "../../../shared/worktree-test-helpers.js";
-import { getTransitionJournalDir } from "../../../shared/workflow/state-transition.ts";
 
 interface CapturedPlanAttrs {
     status?: string;
@@ -35,47 +33,11 @@ function planAttrs(state: CapturedProjectState, name: string): CapturedPlanAttrs
     return state.plans?.find((plan) => plan.name === name)?.attrs || {};
 }
 
-async function capturePublicationJournalEffect(projectRoot: string): Promise<string> {
-    const directory = getTransitionJournalDir(projectRoot);
-    await Deno.mkdir(directory, { recursive: true });
-    const watcher = Deno.watchFs(directory);
-    const timeout = setTimeout(() => watcher.close(), 60_000);
-    const findEffect = async (eventPaths: string[] = []): Promise<string> => {
-        const candidates = new Set(eventPaths.filter((path) => path.endsWith(".json")));
-        for await (const entry of Deno.readDir(directory)) {
-            if (entry.isFile && entry.name.endsWith(".json")) candidates.add(join(directory, entry.name));
-        }
-        for (const path of candidates) {
-            const text = await Deno.readTextFile(path).catch(() => "");
-            if (
-                text.includes('"operation": "direct_delivery_publication"') &&
-                text.includes('"effect": "direct_delivery_target_ref_moved"')
-            ) {
-                return text;
-            }
-        }
-        return "";
-    };
-    try {
-        const existing = await findEffect();
-        if (existing) return existing;
-        for await (const event of watcher) {
-            const found = await findEffect(event.paths);
-            if (found) return found;
-        }
-    } finally {
-        clearTimeout(timeout);
-        watcher.close();
-    }
-    return "";
-}
-
 const planName = "repaired-merge";
 
 interface ResumedMergeState {
     repairWorktreePath: string;
     targetBranch: string;
-    publicationJournalEffect: Promise<string>;
 }
 
 async function loadResumedMergeState(): Promise<ResumedMergeState> {
@@ -89,10 +51,10 @@ async function loadResumedMergeState(): Promise<ResumedMergeState> {
         "Expected the prior process to persist its detached merge repair worktree.",
     );
     assert(typeof targetBranch === "string" && targetBranch, "Expected a durable Direct Delivery target branch.");
-    return { repairWorktreePath, targetBranch, publicationJournalEffect: capturePublicationJournalEffect(projectRoot) };
+    return { repairWorktreePath, targetBranch };
 }
 
-const { repairWorktreePath, targetBranch, publicationJournalEffect } = await loadResumedMergeState();
+const { repairWorktreePath, targetBranch } = await loadResumedMergeState();
 
 export const repairedMergePublicationScenario = {
     name: "planned-change-publishes-agent-repaired-merge-after-process-restart",
@@ -119,12 +81,14 @@ export const repairedMergePublicationScenario = {
     ],
     assertions: [
         async (result: GoldenScenarioResult) => {
-            const journalEffect = await publicationJournalEffect;
             const beforeAttrs = planAttrs(result.state.beforeResume as CapturedProjectState, planName);
             assertEquals(beforeAttrs.status, "validated_reviewer");
             assertEquals(beforeAttrs.validationMergeRepairWorktree, repairWorktreePath);
             assertStringIncludes(String(result.state.beforeResumePlanText || ""), "validationMergeRepairWorktree:");
 
+            // Assert the committed external effect from Git itself. Successful transition
+            // journals are intentionally removed, so watching their short-lived files makes
+            // this end-to-end scenario depend on filesystem event timing.
             assertEquals(
                 await git(Deno.cwd(), ["show", `${targetBranch}:golden-repaired-merge.txt`]),
                 "repaired version",
@@ -146,7 +110,6 @@ export const repairedMergePublicationScenario = {
 
             const interactions = result.state.scriptedInteractions as CapturedInteraction[];
             assertEquals(interactions.map((entry) => entry.interaction?.value), ["validate"]);
-            assertStringIncludes(journalEffect, '"effect": "direct_delivery_target_ref_moved"');
 
             const afterAttrs = planAttrs(result.state.afterResume as CapturedProjectState, planName);
             assertEquals(afterAttrs.status, undefined, "Expected verified Plan to leave active Plan storage.");
