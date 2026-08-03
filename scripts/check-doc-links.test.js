@@ -62,6 +62,15 @@ Deno.test("findBrokenLinks accepts a correctly resolved sibling link", async () 
     assertEquals(await findBrokenLinks(["docs/architecture.md"], repo.readTextFile, repo.pathExists), []);
 });
 
+Deno.test("findBrokenLinks ignores tracked files deleted from the working tree", async () => {
+    const repo = fakeRepo({ "docs/present.md": "# Present" });
+
+    assertEquals(
+        await findBrokenLinks(["docs/deleted.md", "docs/present.md"], repo.readTextFile, repo.pathExists),
+        [],
+    );
+});
+
 Deno.test("findBrokenLinks rejects a fragment with no matching heading", async () => {
     const repo = fakeRepo({
         "docs/a.md": "[gone](b.md#removed-section)",

@@ -145,6 +145,9 @@ export async function findBrokenLinks(
     const slugCache = new Map();
 
     for (const sourceFile of files) {
+        // `git ls-files` still reports a tracked file after it has been deleted or
+        // moved in the working tree. It has no links left to validate there.
+        if (!(await pathExists(sourceFile))) continue;
         const markdown = await readTextFile(sourceFile);
         for (const { line, target } of extractRelativeLinks(markdown)) {
             const [pathPart, fragment] = target.split("#");

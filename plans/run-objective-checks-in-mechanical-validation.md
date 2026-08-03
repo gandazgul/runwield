@@ -72,8 +72,8 @@ Mechanical Validation phase: submitted through `plan_written`, persisted in Fron
 failing the phase when unmet.
 
 This Plan makes the checks _run_. Proving they were red before the work is
-[`baseline-objective-checks-before-execution`](baseline-objective-checks-before-execution.md), which depends on this
-one.
+[`baseline-objective-checks-before-execution`](archived/baseline-objective-checks-before-execution.md), which depends on
+this one.
 
 ## Approach
 
