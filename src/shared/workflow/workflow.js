@@ -39,6 +39,19 @@ import {
 } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { ensureExecutionPlanFile, loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
+import {
+    emitCreatedExecutionWorktree,
+    emitCreatingExecutionWorktree,
+    emitLaunchingExecutionAgent,
+    emitMaterializingPlanInExecutionWorktree,
+    emitPreparingExecutionTarget,
+    emitPreparingInPlaceExecution,
+    emitReconciledPlanInExecutionWorktree,
+    emitRestoredPlanInExecutionWorktree,
+    emitReusingExecutionWorktree,
+    emitRunningObjectiveChecksBaseline,
+    emitUpdatingPlanStatusToInProgress,
+} from "./execution-preparation-progress.ts";
 import { isEpicPlan, isExecutablePlanStatus, isInValidation, recordPlanEvent } from "./plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import {
@@ -1047,6 +1060,10 @@ async function executeSingleEngineerPlan(
         });
         return { repairRequired: false, executionComplete: false, error: message };
     }
+    emitLaunchingExecutionAgent(
+        hostedSession,
+        getAgentDisplayName(executionContext.executionAgent, executionContext.projectRoot || hostedSession?.cwd),
+    );
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
@@ -1309,6 +1326,7 @@ export async function startActiveExecutionWorkflow(
         collaborationRecommendation,
         pairCheckpointCount: 0,
     };
+    emitPreparingExecutionTarget(hostedSession);
     const gitProbe = await probeGit(projectRoot);
     if (!gitProbe.ok) {
         if (!hasConsent("featurePlan", projectRoot) && !(await confirmNonGit(hostedSession, projectRoot))) {
@@ -1316,6 +1334,7 @@ export async function startActiveExecutionWorkflow(
                 "Plan execution canceled because Git is not available and in-place execution was not approved.",
             );
         }
+        emitPreparingInPlaceExecution(hostedSession);
         const attemptId = triageMeta.worktreeId || `non-git-${crypto.randomUUID().slice(0, 8)}`;
         const canonicalPlan = await loadPlan(projectRoot, planName);
         if (!canonicalPlan) throw new Error(`Plan not found: ${planName}`);
@@ -1338,15 +1357,18 @@ export async function startActiveExecutionWorkflow(
                     executionMode: /** @type {const} */ ("non_git_in_place"),
                     nonGitInPlace: true,
                 };
+                const objectiveChecks = beforePlan?.attrs.objectiveChecks || canonicalPlan.attrs.objectiveChecks || [];
+                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
                 await ensureObjectiveChecksBaseline({
                     projectRoot,
                     planName,
                     attrs: beforePlan?.attrs || canonicalPlan.attrs,
                     revision: beforePlan?.revision || canonicalPlan?.revision,
-                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlan.attrs.objectiveChecks || [],
+                    checks: objectiveChecks,
                     cwd: projectRoot,
                     head: undefined,
                 });
+                emitUpdatingPlanStatusToInProgress(hostedSession);
                 await recordPlanEvent({
                     cwd: projectRoot,
                     planName,
@@ -1480,20 +1502,32 @@ export async function startActiveExecutionWorkflow(
             let objectiveChecksBaselined = false;
             if (reusable) {
                 worktree = reusable;
+                emitReusingExecutionWorktree(hostedSession, {
+                    worktreeBranch: worktree.branch,
+                    baseBranch: worktree.baseBranch,
+                });
                 await markEffect("git_worktree_reused", {
                     worktreeId: worktree.id,
                     path: worktree.path,
                     branch: worktree.branch,
                 });
             } else {
+                const targetPreparation = targetBranch
+                    ? await prepareTarget(projectRoot, targetBranch)
+                    : { baseRef: "HEAD", baseBranch: await resolveCurrentBranch(projectRoot) || "HEAD" };
+                emitCreatingExecutionWorktree(hostedSession, targetPreparation.baseBranch || targetPreparation.baseRef);
                 const worktreeOptions = {
                     projectRoot,
                     planName,
                     planId: stablePlanId,
                     attemptId,
-                    ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
+                    ...targetPreparation,
                 };
                 const worktreeArtifacts = await createWorktreeGitArtifacts(worktreeOptions);
+                emitCreatedExecutionWorktree(hostedSession, {
+                    worktreeBranch: worktreeArtifacts.branch,
+                    baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,
+                });
                 await markEffect("git_worktree_created", {
                     worktreeId: worktreeArtifacts.id,
                     path: worktreeArtifacts.path,
@@ -1516,12 +1550,15 @@ export async function startActiveExecutionWorkflow(
                         });
                     }
                 });
+                const objectiveChecks = beforePlan?.attrs.objectiveChecks ||
+                    canonicalPlanSource.attrs.objectiveChecks || [];
+                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
                 await ensureObjectiveChecksBaseline({
                     projectRoot,
                     planName,
                     attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
                     revision: beforePlan?.revision,
-                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlanSource.attrs.objectiveChecks || [],
+                    checks: objectiveChecks,
                     cwd: worktreeArtifacts.path,
                     head: worktreeArtifacts.baseCommit,
                 });
@@ -1546,21 +1583,27 @@ export async function startActiveExecutionWorkflow(
                 const objectiveChecksHead = "baseCommit" in worktree && typeof worktree.baseCommit === "string"
                     ? worktree.baseCommit
                     : undefined;
+                const objectiveChecks = beforePlan?.attrs.objectiveChecks ||
+                    canonicalPlanSource.attrs.objectiveChecks || [];
+                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
                 await ensureObjectiveChecksBaseline({
                     projectRoot,
                     planName,
                     attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
                     revision: beforePlan?.revision,
-                    checks: beforePlan?.attrs.objectiveChecks || canonicalPlanSource.attrs.objectiveChecks || [],
+                    checks: objectiveChecks,
                     cwd: worktree.path,
                     head: objectiveChecksHead,
                 });
             }
+            emitMaterializingPlanInExecutionWorktree(hostedSession);
             const planFile = await ensurePlanFile({
                 executionCwd: worktree.path,
                 planName,
                 canonicalSource: canonicalPlanSource,
             });
+            if (planFile.kind === "restored") emitRestoredPlanInExecutionWorktree(hostedSession);
+            if (planFile.kind === "reconciled") emitReconciledPlanInExecutionWorktree(hostedSession);
             if (planFile.kind !== "present" && planFile.kind !== "restored" && planFile.kind !== "reconciled") {
                 const preparationError = new Error(
                     `Cannot prepare execution worktree Plan file ${planFile.relativePath}: ${
@@ -1612,6 +1655,7 @@ export async function startActiveExecutionWorkflow(
                     executionBaselineTree: baselineTree,
                 });
             }
+            emitUpdatingPlanStatusToInProgress(hostedSession);
             await recordPlanEvent({
                 cwd: projectRoot,
                 planName,

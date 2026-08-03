@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { runLoadPlanCommand } from "./index.js";
 
@@ -26,6 +26,7 @@ const STALE_EXECUTION_PLAN_MARKDOWN = injectFrontMatter(STALE_EXECUTION_PLAN_BOD
     status: "approved",
     executionAgent: "engineer",
     collaborationRecommendation: "autonomous",
+    objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f load-plan-execution-progress-marker" }],
 });
 
 const staleExecutionMetadataFixture = defineGitFixture(async (repoPath) => {
@@ -523,7 +524,7 @@ Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", 
     );
 });
 
-Deno.test("runLoadPlanCommand self-heals stale committed execution metadata before starting Engineer", async () => {
+Deno.test("load-plan proceed surfaces execution preparation progress while self-healing stale metadata", async () => {
     await withProcessGlobalTestLock(async () => {
         const projectRoot = await staleExecutionMetadataFixture.checkout({
             prefix: "runwield-load-plan-metadata-",
@@ -630,6 +631,14 @@ Deno.test("runLoadPlanCommand self-heals stale committed execution metadata befo
                 ...messages,
                 ...runtimeEvents.map((event) => typeof event.message === "string" ? event.message : ""),
             ].join("\n");
+            assertStringIncludes(visibleText, `=== Executing Plan: ${STALE_EXECUTION_PLAN_NAME} ===`);
+            assertStringIncludes(visibleText, "preparing execution target...");
+            assertStringIncludes(visibleText, "creating execution worktree from base branch");
+            assertStringIncludes(visibleText, `created worktree ${workflow.worktreeBranch} from base branch`);
+            assertStringIncludes(visibleText, "running Plan Objective-Failing Check baseline...");
+            assertStringIncludes(visibleText, "materializing Plan in execution worktree...");
+            assertStringIncludes(visibleText, "updating Plan status to in_progress...");
+            assertStringIncludes(visibleText, "launching Engineer to execute...");
             assertEquals(visibleText.includes("Plan metadata is incompatible"), false);
             assertEquals(visibleText.includes("Execution did not start"), false);
         } finally {

@@ -151,6 +151,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                     onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
                     signal,
                 });
+                if (result.approved && result.approvalAction === "run") uiAPI.setBusy?.(true);
                 return {
                     outcome: result.canceled
                         ? RuntimeInteractionOutcomes.CANCELED

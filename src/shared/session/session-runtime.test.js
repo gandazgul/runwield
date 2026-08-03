@@ -1252,6 +1252,33 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
     });
 });
 
+Deno.test("SessionRuntime keeps executePlan workflow operations busy while preparation runs", async () => {
+    const runtime = makeRuntime();
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-runtime-execute-busy-" });
+    try {
+        const sessionId = await runtime.createPromptReadySession({ cwd });
+        /** @type {boolean[]} */
+        const busyStates = [];
+        /** @type {string[]} */
+        const messages = [];
+        runtime.subscribeSessionEvents(sessionId, (event) => {
+            if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
+            if ("message" in event && typeof event.message === "string") messages.push(event.message);
+        });
+
+        await runtime.executePlan(sessionId, {
+            planName: "missing-execute-busy-plan",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+        });
+
+        assertEquals(busyStates, [true, false]);
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
+        assertEquals(messages.includes("ERROR: Could not load plan missing-execute-busy-plan"), true);
+    } finally {
+        await removeTempDir(cwd);
+    }
+});
+
 Deno.test("SessionRuntime keeps direct model operations busy until the outermost operation settles", async () => {
     const agentSession = makeSteeringAgentSession();
     /** @type {Array<() => void>} */
