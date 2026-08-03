@@ -9,7 +9,6 @@ import {
     makeRecordedSession,
     makeUi,
     makeValidationProjectRoot,
-    noOpWorktreePlanHandoffDeps,
 } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
@@ -46,7 +45,6 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                 return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
             },
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -82,7 +80,6 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         semanticReviewPort: {
             requestInteraction: () => Promise.resolve({ outcome: "selected", value: "skip" }),
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -121,7 +118,6 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                 return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
             },
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -163,7 +159,6 @@ Deno.test("runValidationLoop resumes at validated_reviewer and records durable h
             humanReviewMode: "none",
             humanReviewDecision: null,
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -239,7 +234,6 @@ Deno.test("a code review closed with no answer asks instead of throwing the work
                 return Promise.resolve({ outcome: "canceled" });
             },
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     assertEquals(uiAPI.promptSelections.length, 1);
@@ -274,7 +268,6 @@ Deno.test("Retry reopens the code review that was closed without an answer", asy
                 );
             },
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     assertEquals(opened, 2, "Retry must open the same review again in this run");
@@ -312,10 +305,9 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
                 );
             },
         },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
     });
 
     // Two code reviews and nothing else: the Semantic Code Reviewer never ran a
@@ -344,7 +336,7 @@ Deno.test("asking for changes makes you the reviewer, so the reviewer agent stan
         executionAgent: "engineer",
         projectRoot,
         executionCwd: projectRoot,
-        nonGitInPlace: false,
+        executionMode: "worktree",
     });
     let reviewerRuns = 0;
 
@@ -364,7 +356,6 @@ Deno.test("asking for changes makes you the reviewer, so the reviewer agent stan
                 return Promise.resolve([]);
             },
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     assertEquals(reviewerRuns, 0, "the Semantic Code Reviewer must not sweep a diff the user already owns");

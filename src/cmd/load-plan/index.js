@@ -82,7 +82,7 @@ import {
 import { probeGitRepository as probeGitRepositoryFn } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {} from "../../shared/workflow/state-transition.ts";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import {
     checkpointExecutionWorktree,
     createWorktreeGitArtifacts,

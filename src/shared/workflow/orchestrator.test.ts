@@ -1,0 +1,588 @@
+import { assertEquals } from "@std/assert";
+import { fauxAssistantMessage, fauxText, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { loadPlan, savePlan } from "../../plan-store.js";
+import { git } from "../git-test-fixture.ts";
+import { HostedSession } from "../session/hosted-session.js";
+import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
+import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
+import { dispatchPostTriage, type DispatchPostTriageArgs, readLatestTriageOutcome } from "./orchestrator.ts";
+import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
+
+interface SessionFixture {
+    events: SessionRuntimeEvent[];
+    hostedSession: HostedSession;
+    sessionManager: SessionManager;
+}
+
+interface LocalCIFixture {
+    calls: string[];
+    port: LocalCIPort;
+}
+
+type InteractionHandler = (request: RuntimeInteractionRequest) => RuntimeInteractionResponse;
+
+function createSessionFixture(projectRoot: string, interaction?: InteractionHandler): SessionFixture {
+    const sessionManager = SessionManager.inMemory(projectRoot);
+    const hostedSession = new HostedSession({
+        id: `orchestrator-${crypto.randomUUID()}`,
+        cwd: projectRoot,
+        interactionAdapter: {
+            requestInteraction: (request) =>
+                interaction?.(request) ?? { outcome: "canceled", message: "Fixture supplied no interaction answer." },
+        },
+    });
+    // HostedSession's legacy minimal-manager JSDoc is wider than Pi's concrete
+    // manager signature; this is the real runtime manager used in production.
+    // @ts-expect-error SessionManager is runtime-compatible with HostedSession.
+    hostedSession.setRootSessionManager(sessionManager);
+    const events: SessionRuntimeEvent[] = [];
+    hostedSession.setEventSink((event: SessionRuntimeEvent) => events.push(event));
+    return { events, hostedSession, sessionManager };
+}
+
+function defineLocalCIFixture(results: LocalCIResult[] = []): LocalCIFixture {
+    const remaining = [...results];
+    const calls: string[] = [];
+    return {
+        calls,
+        port: {
+            run: ({ cwd }) => {
+                calls.push(cwd);
+                const result = remaining.shift();
+                if (!result) throw new Error("Local CI fixture was called unexpectedly or exhausted");
+                return Promise.resolve(result);
+            },
+        },
+    };
+}
+
+function taskCompleted(summary: string): ReturnType<typeof fauxAssistantMessage> {
+    return fauxAssistantMessage(fauxToolCall("task_completed", { message: summary }));
+}
+
+function triageToolResult(details: DispatchPostTriageArgs["triage"]): ToolResultMessage<
+    DispatchPostTriageArgs["triage"]
+> {
+    return {
+        role: "toolResult",
+        toolCallId: crypto.randomUUID(),
+        toolName: "triage_report",
+        content: [{ type: "text", text: "Triage recorded." }],
+        details,
+        isError: false,
+        timestamp: Date.now(),
+    };
+}
+
+async function initializeGitProject(projectRoot: string): Promise<void> {
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "test@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await Deno.writeTextFile(`${projectRoot}/README.md`, "fixture\n");
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "fixture: initial project"]);
+}
+
+Deno.test("readLatestTriageOutcome normalizes the latest current-turn report", () => {
+    const messages: AgentMessage[] = [
+        triageToolResult({
+            routingIntent: "QUICK_FIX",
+            complexity: "LOW",
+            summary: "old",
+            affectedPaths: ["old.ts"],
+        }),
+        triageToolResult({
+            routingIntent: "FEATURE",
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "current",
+            sessionName: "current feature",
+            affectedPaths: ["src/current.ts"],
+        }),
+    ];
+
+    assertEquals(readLatestTriageOutcome(messages, 1), {
+        routingIntent: "PLANNED_CHANGE",
+        classification: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        summary: "current",
+        sessionName: "current feature",
+        affectedPaths: ["src/current.ts"],
+    });
+});
+
+Deno.test("readLatestTriageOutcome ignores reports before the current turn", () => {
+    const messages: AgentMessage[] = [
+        triageToolResult({
+            classification: "OPERATION",
+            complexity: "LOW",
+            summary: "old operation",
+            affectedPaths: [],
+        }),
+        fauxAssistantMessage(fauxText("No triage report this turn.")),
+    ];
+
+    assertEquals(readLatestTriageOutcome(messages, 1), null);
+});
+
+Deno.test("dispatchPostTriage routes conversational intents through real Agent sessions", async () => {
+    await withRuntimeCommandFixture("orchestrator-conversation-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([
+            fauxAssistantMessage(fauxText("Guide answer.")),
+            fauxAssistantMessage(fauxText("Ideator response.")),
+        ]);
+        const guide = createSessionFixture(projectRoot);
+        const ideator = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: guide.hostedSession,
+            triage: {
+                routingIntent: "INQUIRY",
+                complexity: "LOW",
+                summary: "answer a question",
+                affectedPaths: [],
+            },
+            userRequest: "Where is routing configured?",
+            images: [],
+            sessionManager: guide.sessionManager,
+            localCI: ci.port,
+        });
+        await dispatchPostTriage({
+            hostedSession: ideator.hostedSession,
+            triage: {
+                routingIntent: "IDEATION",
+                complexity: "LOW",
+                summary: "explore an idea",
+                affectedPaths: [],
+            },
+            userRequest: "Explore provider options.",
+            images: [],
+            sessionManager: ideator.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals([guide.hostedSession.getRootAgentName(), ideator.hostedSession.getRootAgentName()], [
+            "guide",
+            "ideator",
+        ]);
+        assertEquals(ci.calls, []);
+        guide.hostedSession.dispose();
+        ideator.hostedSession.dispose();
+    });
+});
+
+Deno.test("OPERATION completion stays with Operator without validation", async () => {
+    await withRuntimeCommandFixture("orchestrator-operation-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([taskCompleted("Repository status inspected.")]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "OPERATION",
+                complexity: "LOW",
+                summary: "show status",
+                affectedPaths: [],
+            },
+            userRequest: "Show git status.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(fixture.hostedSession.getRootAgentName(), "operator");
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("OPERATION can hand changed scope back to Router", async () => {
+    await withRuntimeCommandFixture("orchestrator-operation-handoff-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("return_to_router", {
+                reason: "This operation now needs a code repair.",
+            })),
+        ]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        const result = await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "OPERATION",
+                complexity: "LOW",
+                summary: "update dependencies",
+                affectedPaths: ["deno.json"],
+            },
+            userRequest: "Upgrade dependencies.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(result, {
+            kind: "handoff",
+            agentName: "router",
+            userRequest: "This operation now needs a code repair.",
+        });
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI port", async () => {
+    await withRuntimeCommandFixture("orchestrator-quick-fix-", async ({ projectRoot, setModelMessages }) => {
+        await initializeGitProject(projectRoot);
+        setModelMessages([
+            taskCompleted("Updated the settings save action."),
+            fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Save settings and reload.")),
+        ]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture([{ exitCode: 0, output: "ok" }]);
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "small fix",
+                sessionName: "settings-save",
+                affectedPaths: ["src/settings.ts"],
+            },
+            userRequest: "Fix settings persistence.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(ci.calls, [projectRoot]);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow(), null);
+        assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
+        assertEquals(
+            fixture.sessionManager.getBranch().some((entry) =>
+                entry.type === "custom" && entry.customType === "runwield.manual_qa_checklist"
+            ),
+            true,
+        );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("QUICK_FIX keeps its real workflow when Engineer stops before task_completed", async () => {
+    await withRuntimeCommandFixture("orchestrator-quick-fix-paused-", async ({ projectRoot, setModelMessages }) => {
+        await initializeGitProject(projectRoot);
+        setModelMessages([fauxAssistantMessage(fauxText("I need another turn."))]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "small fix",
+                affectedPaths: ["src/settings.ts"],
+            },
+            userRequest: "Fix settings persistence.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("non-Git QUICK_FIX cancellation stops before creating an Agent session", async () => {
+    await withRuntimeCommandFixture("orchestrator-quick-fix-cancel-", async ({ projectRoot }) => {
+        const interactions: RuntimeInteractionRequest[] = [];
+        const fixture = createSessionFixture(projectRoot, (request) => {
+            interactions.push(request);
+            return { outcome: "canceled" };
+        });
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "small fix",
+                affectedPaths: ["src/settings.ts"],
+            },
+            userRequest: "Fix settings persistence.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(interactions.map((request) => request.type), ["select"]);
+        assertEquals(fixture.hostedSession.getRootAgentName(), null);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow(), null);
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("planned work with no Plan declaration stays with the real Planner", async () => {
+    await withRuntimeCommandFixture("orchestrator-planning-paused-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxText("I need more requirements before writing the Plan."))]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "PLANNED_CHANGE",
+                classification: "PLANNED_CHANGE",
+                complexity: "MEDIUM",
+                summary: "plan a feature",
+                affectedPaths: ["src/feature.ts"],
+            },
+            userRequest: "Build the feature.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(fixture.hostedSession.getRootAgentName(), "planner");
+        assertEquals(await Deno.stat(`${projectRoot}/plans`).then((entry) => entry.isDirectory), true);
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("PROJECT approval runs the real readiness transition and Slicer", async () => {
+    await withRuntimeCommandFixture("orchestrator-project-", async ({ projectRoot, setModelMessages }) => {
+        await savePlan(projectRoot, "epic-a", "# Epic A", {
+            classification: "PROJECT",
+            complexity: "HIGH",
+            summary: "Epic A",
+            affectedPaths: ["src/project.ts"],
+            status: "approved",
+        });
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("plan_written", { planName: "epic-a" })),
+            fauxAssistantMessage(fauxText("I am ready to decompose this Epic.")),
+        ]);
+        const fixture = createSessionFixture(projectRoot, (request) => {
+            if (request.type !== "plan_review") return { outcome: "canceled" };
+            return {
+                outcome: "accepted",
+                _meta: { approved: true, approvalAction: "decompose" },
+            };
+        });
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "PROJECT",
+                classification: "PROJECT",
+                complexity: "HIGH",
+                summary: "Epic A",
+                affectedPaths: ["src/project.ts"],
+            },
+            userRequest: "Design the project.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals((await loadPlan(projectRoot, "epic-a"))?.attrs.status, "ready_for_decomposition");
+        assertEquals(fixture.hostedSession.getRootAgentName(), "slicer");
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("approved planned work executes through real lifecycle machinery and pauses with Engineer", async () => {
+    await withRuntimeCommandFixture("orchestrator-feature-", async ({ projectRoot, setModelMessages }) => {
+        await savePlan(projectRoot, "feature-a", "# Feature A", {
+            classification: "PLANNED_CHANGE",
+            complexity: "MEDIUM",
+            summary: "Feature A",
+            affectedPaths: ["src/feature.ts"],
+            status: "approved",
+            executionAgent: "engineer",
+        });
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("plan_written", {
+                planName: "feature-a",
+                objectiveChecks: [{ id: "OC1", command: "test -f implemented.txt" }],
+            })),
+            fauxAssistantMessage(fauxText("Execution is paused before completion.")),
+        ]);
+        const interactions: RuntimeInteractionRequest[] = [];
+        const fixture = createSessionFixture(projectRoot, (request) => {
+            interactions.push(request);
+            if (request.type === "plan_review") {
+                return { outcome: "accepted", _meta: { approved: true, approvalAction: "run" } };
+            }
+            if (request.type === "select") return { outcome: "selected", value: "proceed" };
+            return { outcome: "canceled" };
+        });
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "PLANNED_CHANGE",
+                classification: "PLANNED_CHANGE",
+                complexity: "MEDIUM",
+                summary: "Feature A",
+                affectedPaths: ["src/feature.ts"],
+            },
+            userRequest: "Build Feature A.",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        const plan = await loadPlan(projectRoot, "feature-a");
+        assertEquals(plan?.attrs.status, "in_progress");
+        assertEquals(plan?.attrs.executionMode, "non_git_in_place");
+        assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.planName, "feature-a");
+        assertEquals(interactions.map((request) => request.type), ["plan_review", "select"]);
+        assertEquals(ci.calls, []);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("completed planned work runs the real validation lifecycle around external ports", async () => {
+    await withRuntimeCommandFixture(
+        "orchestrator-feature-validated-",
+        async ({ projectRoot, setModelMessages }) => {
+            await Deno.mkdir(`${projectRoot}/.wld`, { recursive: true });
+            await Deno.writeTextFile(
+                `${projectRoot}/.wld/settings.json`,
+                JSON.stringify({ workRecords: { autoGenerateOnPlanCompletion: false } }),
+            );
+            await savePlan(projectRoot, "feature-validated", "# Validated Feature", {
+                classification: "PLANNED_CHANGE",
+                complexity: "MEDIUM",
+                summary: "Validated Feature",
+                affectedPaths: ["implemented.txt"],
+                status: "approved",
+                executionAgent: "engineer",
+            });
+            setModelMessages([
+                fauxAssistantMessage(fauxToolCall("plan_written", {
+                    planName: "feature-validated",
+                    objectiveChecks: [{
+                        id: "OC1",
+                        command: "test -f implemented.txt",
+                        rationale: "the implementation creates its fixture artifact",
+                    }],
+                })),
+                fauxAssistantMessage(fauxToolCall("write", {
+                    path: "implemented.txt",
+                    content: "implemented\n",
+                })),
+                taskCompleted("Implemented and checked the fixture feature."),
+                fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Inspect implemented.txt.")),
+            ]);
+            const fixture = createSessionFixture(projectRoot, (request) => {
+                if (request.type === "plan_review") {
+                    return { outcome: "accepted", _meta: { approved: true, approvalAction: "run" } };
+                }
+                if (request.type === "select") return { outcome: "selected", value: "proceed" };
+                return { outcome: "canceled" };
+            });
+            const ci = defineLocalCIFixture([{ exitCode: 0, output: "fixture CI passed" }]);
+
+            const result = await dispatchPostTriage({
+                hostedSession: fixture.hostedSession,
+                triage: {
+                    routingIntent: "PLANNED_CHANGE",
+                    classification: "PLANNED_CHANGE",
+                    complexity: "MEDIUM",
+                    summary: "Validated Feature",
+                    affectedPaths: ["implemented.txt"],
+                },
+                userRequest: "Build and validate the feature.",
+                images: [],
+                sessionManager: fixture.sessionManager,
+                localCI: ci.port,
+            });
+
+            assertEquals(result?.kind, "verified");
+            assertEquals((await loadPlan(projectRoot, "feature-validated"))?.attrs.status, "verified");
+            assertEquals(await Deno.readTextFile(`${projectRoot}/implemented.txt`), "implemented\n");
+            assertEquals(ci.calls, [projectRoot]);
+            assertEquals(
+                fixture.sessionManager.getBranch().some((entry) =>
+                    entry.type === "custom" && entry.customType === "runwield.manual_qa_checklist"
+                ),
+                true,
+            );
+            fixture.hostedSession.dispose();
+        },
+    );
+});
+
+Deno.test("Router session names are persisted and emitted before specialist dispatch", async () => {
+    await withRuntimeCommandFixture("orchestrator-session-name-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxText("Guide answer."))]);
+        const fixture = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: fixture.hostedSession,
+            triage: {
+                routingIntent: "INQUIRY",
+                complexity: "LOW",
+                summary: "question",
+                sessionName: "terminal titles",
+                affectedPaths: [],
+            },
+            userRequest: "How should titles work?",
+            images: [],
+            sessionManager: fixture.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(fixture.sessionManager.getSessionName(), "terminal titles");
+        const renamed = fixture.events.find((event) => event.type === "session_renamed");
+        assertEquals(renamed?.type === "session_renamed" ? renamed.name : null, "terminal titles");
+        assertEquals(fixture.hostedSession.getRootAgentName(), "guide");
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("dispatch only mutates the supplied HostedSession", async () => {
+    await withRuntimeCommandFixture("orchestrator-session-scope-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxText("Scoped guide answer."))]);
+        const target = createSessionFixture(projectRoot);
+        const other = createSessionFixture(projectRoot);
+        const ci = defineLocalCIFixture();
+
+        await dispatchPostTriage({
+            hostedSession: target.hostedSession,
+            triage: {
+                routingIntent: "INQUIRY",
+                complexity: "LOW",
+                summary: "question",
+                affectedPaths: [],
+            },
+            userRequest: "Answer only here.",
+            images: [],
+            sessionManager: target.sessionManager,
+            localCI: ci.port,
+        });
+
+        assertEquals(target.hostedSession.getRootAgentName(), "guide");
+        assertEquals(other.hostedSession.getRootAgentName(), null);
+        target.hostedSession.dispose();
+        other.hostedSession.dispose();
+    });
+});

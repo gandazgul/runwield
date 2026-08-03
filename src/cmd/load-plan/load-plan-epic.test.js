@@ -29,7 +29,6 @@ Deno.test("runLoadPlanCommand draft Epic offers Architect review without Slicer 
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -79,7 +78,6 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -148,7 +146,6 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
                         },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -217,7 +214,6 @@ Deno.test("runLoadPlanCommand View Epic details includes child Planned Change la
                         },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -293,7 +289,6 @@ Deno.test("runLoadPlanCommand child Planned Change detail inspection resolves an
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -347,7 +342,6 @@ Deno.test("runLoadPlanCommand child Planned Change submenu back returns without 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -389,7 +383,6 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
                         attrs: { classification: "PLANNED_CHANGE", status: "draft" },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -463,7 +456,6 @@ Deno.test("runLoadPlanCommand Epic done-enough auto-generates Work Record only a
                         message: "generated",
                     });
                 },
-                resetTuiState: () => {},
             }),
         });
     } catch (error) {
@@ -500,7 +492,6 @@ Deno.test("runLoadPlanCommand Epic done-enough reports Work Record failure witho
                     },
                 ]),
             autoGenerateWorkRecordForCompletedPlan: () => Promise.reject(new Error("recorder unavailable")),
-            resetTuiState: () => {},
         }),
     });
 
@@ -540,7 +531,6 @@ Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
                         attrs: { classification: "PLANNED_CHANGE", status: "verified" },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -589,7 +579,6 @@ Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", a
                         attrs: { classification: "PLANNED_CHANGE", status: "draft" },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -625,7 +614,6 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -676,7 +664,6 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -747,7 +734,6 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to Planned Change l
                 executedPlanName = options.planName;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -829,7 +815,6 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                 executedPlanName = options.planName;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 

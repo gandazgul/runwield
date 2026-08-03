@@ -25,7 +25,6 @@ Deno.test("runLoadPlanCommand draft Planned Change can be put on hold", async ()
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["hold-me"] }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -57,7 +56,6 @@ Deno.test("runLoadPlanCommand on-hold plan resumes after passing Resume Check", 
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-plan"] }),
             listCommitsTouchingPathsSince: () => Promise.resolve([]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -89,7 +87,6 @@ Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () 
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-reset"] }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -141,7 +138,6 @@ Deno.test("runLoadPlanCommand blocks child Planned Change when parent Epic is on
                             },
                         },
                 ),
-            resetTuiState: () => {},
         }),
     });
 
@@ -174,7 +170,6 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
                         attrs: { status: "draft", classification: "PLANNED_CHANGE", summary: "child" },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -214,7 +209,6 @@ Deno.test("runLoadPlanCommand child Planned Change can be put on hold with child
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["epic/child-hold"] }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -243,7 +237,6 @@ Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", asy
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-warning"] }),
             listCommitsTouchingPathsSince: () => Promise.resolve([{ hash: "abc1234", subject: "change", author: "A" }]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -277,7 +270,6 @@ Deno.test("runLoadPlanCommand on-hold resume warning can proceed", async () => {
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["held-warning-proceed"] }),
             listCommitsTouchingPathsSince: () => Promise.resolve([{ hash: "abc1234", subject: "change", author: "A" }]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -309,7 +301,6 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
             parseArgs: () => ({ help: false, _: ["held-fail"] }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -369,7 +360,6 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                     status: "in_progress",
                 }),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 

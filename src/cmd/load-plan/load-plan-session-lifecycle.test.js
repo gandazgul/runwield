@@ -34,7 +34,6 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-verified-review" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -104,7 +103,6 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -168,7 +166,6 @@ Deno.test("runLoadPlanCommand explains managed session unsupported plan actions"
                 planningCalled = true;
                 return Promise.reject(new Error("managed_unsupported"));
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -203,7 +200,6 @@ Deno.test("runLoadPlanCommand keeps planner active when lifecycle canceled", asy
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -236,7 +232,6 @@ Deno.test("runLoadPlanCommand keeps planner active when agent ends without plan_
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "no_call" }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -269,7 +264,6 @@ Deno.test("runLoadPlanCommand keeps planner active after lifecycle saves a plan 
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-g" }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -301,7 +295,6 @@ Deno.test("runLoadPlanCommand restores the initially active agent after lifecycl
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-j" }),
-            resetTuiState: () => {},
         }),
     });
 

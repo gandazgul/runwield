@@ -32,7 +32,7 @@ import {
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
 } from "../../shared/workflow/git-snapshot.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
     closeTransitionRecordByAttestation,
@@ -840,16 +840,6 @@ export async function handlePlanRecovery({
                     worktreeBranch: plan.attrs.worktreeBranch,
                     worktreeBaseBranch: plan.attrs.worktreeBaseBranch,
                     executionCwd: plan.attrs.worktreePath,
-                },
-                __deps: {
-                    loadPlan: () =>
-                        Promise.resolve({
-                            path: /** @type {any} */ (plan).path || `plans/${plan.planName}.md`,
-                            markdown: /** @type {any} */ (plan).markdown || /** @type {any} */ (plan).body || "",
-                            body: /** @type {any} */ (plan).body || "",
-                            attrs: plan.attrs,
-                        }),
-                    findWorktreeRegistryEntryById: findWorktreeById,
                 },
             });
             if (manualResolution.kind === "blocked") {

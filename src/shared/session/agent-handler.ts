@@ -13,7 +13,8 @@ import {
     runSlicerAgent,
 } from "../workflow/workflow.js";
 import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
-import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.js";
+import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.ts";
+import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "../workflow/decisions.js";
 import { recordWorkflowMetric } from "../workflow/metrics.js";
 import {
@@ -208,6 +209,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 userRequest,
                 images,
                 sessionManager,
+                localCI: systemLocalCIPort,
             });
             if (validationResult?.kind === "handoff") {
                 return validationResult;

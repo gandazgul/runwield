@@ -157,12 +157,12 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
         semanticReviewPort: reviewPort({
             getDiffText: () => Promise.resolve(""),
         }),
-        __deps: /** @type {any} */ ({
-            runLocalCI: () => {
+        localCI: {
+            run: () => {
                 ciCalls += 1;
                 return Promise.resolve({ exitCode: 1, output: "should not run", canceled: false });
             },
-        }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -599,9 +599,9 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
                 return Promise.resolve({ outcome: "selected", value: "code_review" });
             },
         },
-        __deps: /** @type {any} */ ({
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -634,9 +634,9 @@ Deno.test("Stop at the review round limit keeps the passing tests and the open f
                     request.type === "select" ? { outcome: "selected", value: "stop" } : { outcome: "canceled" },
                 ),
         },
-        __deps: /** @type {any} */ ({
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
+        },
     });
 
     assertEquals(result.kind, "paused");
@@ -705,12 +705,12 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
                 return Promise.resolve({ outcome: "selected", value: answers.shift() || "stop" });
             },
         },
-        __deps: /** @type {any} */ ({
-            runLocalCI: () => {
+        localCI: {
+            run: () => {
                 ciRuns += 1;
                 return Promise.resolve({ exitCode: 0, output: "", canceled: false });
             },
-        }),
+        },
     });
 
     // Round three, repair, tests, ask. "Look again" re-enters at the reviewer for

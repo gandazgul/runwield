@@ -13,7 +13,7 @@ import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 
 import { runIsolatedAgentSession } from "../session/session.js";
-import { runLocalCI } from "./validation-local-ci.ts";
+import { type LocalCIPort, runLocalCI, systemLocalCIPort } from "./validation-local-ci.ts";
 import { verifyPostMergeCandidatePublished } from "./validation-merge-verification.ts";
 import { loadManualQaPrompt, loadReviewerFeedbackEngineerDef, loadReviewerPrompt } from "./validation-prompts.ts";
 import {
@@ -31,7 +31,6 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { recordWorkflowMetric } from "./metrics.js";
 
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
-import {} from "../worktree.js";
 
 import { openItems } from "./review-ledger.ts";
 import {
@@ -40,6 +39,7 @@ import {
 } from "../work-records/auto-generation.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
+type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
 interface WorkflowValidationResult {
     kind: "verified" | "paused" | "failed";
     planName: string;
@@ -55,10 +55,6 @@ interface RunManualQaChecklistPromptOptions {
     classification: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE";
     context: string;
     cwd: string;
-    __deps?: {
-        loadManualQaPrompt?: typeof loadManualQaPrompt;
-        runIsolatedAgentSession?: typeof runIsolatedAgentSession;
-    };
 }
 
 /**
@@ -71,10 +67,6 @@ interface RunManualQaChecklistPromptOptions {
  * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
  * @param {string} args.context
  * @param {string} args.cwd
- * @param {{
- *   loadManualQaPrompt?: typeof loadManualQaPrompt,
- *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
- * }} [args.__deps]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runManualQaChecklistPrompt({
@@ -83,11 +75,8 @@ export async function runManualQaChecklistPrompt({
     classification,
     context,
     cwd,
-    __deps,
 }: RunManualQaChecklistPromptOptions) {
-    const loadPrompt = __deps?.loadManualQaPrompt || loadManualQaPrompt;
-    const runIsolatedAgentSessionImpl = __deps?.runIsolatedAgentSession || runIsolatedAgentSession;
-    const agentDef = await loadPrompt();
+    const agentDef = await loadManualQaPrompt();
     const normalizedClassification = classification === "FEATURE" ? "PLANNED_CHANGE" : classification;
     const userRequest = [
         "Prepare the post-verification checklist from this source material.",
@@ -98,7 +87,7 @@ export async function runManualQaChecklistPrompt({
         context,
     ].join("\n");
 
-    const messages = await runIsolatedAgentSessionImpl({
+    const messages = await runIsolatedAgentSession({
         hostedSession,
         agentName: AGENTS.OPERATOR,
         userRequest,
@@ -218,7 +207,7 @@ export async function runFeaturePostVerificationHandoffs({
 /**
  * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} agentName
- * @returns {unknown[]}
+ * @returns {AgentMessage[]}
  */
 function getRootMessages(
     hostedSession: import("../session/hosted-session.js").HostedSession | undefined,
@@ -226,17 +215,17 @@ function getRootMessages(
 ) {
     if (hostedSession?.getRootAgentName?.() !== agentName) return [];
     const rootSession = hostedSession?.getRootAgentSession?.();
-    const messages = (rootSession as { agent?: { state?: { messages?: unknown[] } } } | undefined)?.agent?.state
+    const messages = (rootSession as { agent?: { state?: { messages?: AgentMessage[] } } } | undefined)?.agent?.state
         ?.messages;
     return Array.isArray(messages) ? messages : [];
 }
 
 /**
- * @param {unknown} left
- * @param {unknown} right
+ * @param {AgentMessage} left
+ * @param {AgentMessage} right
  * @returns {boolean}
  */
-function isSameMessage(left: unknown, right: unknown) {
+function isSameMessage(left: AgentMessage, right: AgentMessage) {
     if (left === right) return true;
     try {
         return JSON.stringify(left) === JSON.stringify(right);
@@ -246,11 +235,11 @@ function isSameMessage(left: unknown, right: unknown) {
 }
 
 /**
- * @param {unknown[]} messages
- * @param {unknown[]} prefix
+ * @param {AgentMessage[]} messages
+ * @param {AgentMessage[]} prefix
  * @returns {boolean}
  */
-function startsWithMessages(messages: unknown[], prefix: unknown[]) {
+function startsWithMessages(messages: AgentMessage[], prefix: AgentMessage[]) {
     return prefix.every((message, index) => isSameMessage(messages[index], message));
 }
 
@@ -261,8 +250,6 @@ interface RunCompletionGatedRepairOptions {
     sessionManager: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
     cwd?: string;
     hostedSession: import("../session/hosted-session.js").HostedSession;
-    runActiveAgentTurn?: typeof runActiveAgentTurn;
-    readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome;
 }
 
 async function runCompletionGatedRepair({
@@ -272,8 +259,6 @@ async function runCompletionGatedRepair({
     sessionManager,
     cwd,
     hostedSession,
-    runActiveAgentTurn: runActiveAgentTurnImpl = runActiveAgentTurn,
-    readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
 }: RunCompletionGatedRepairOptions): Promise<boolean> {
     const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
     const fromIndex = previousRootMessages.length;
@@ -281,7 +266,7 @@ async function runCompletionGatedRepair({
     const customTools = workflow?.executionAgent === AGENTS.FRONTEND_ENGINEER && workflow.collaborationStyle === "pair"
         ? [createPairCheckpointTool({ hostedSession, recordWorkflowMetric })]
         : undefined;
-    const messages = await runActiveAgentTurnImpl({
+    const messages = await runActiveAgentTurn({
         hostedSession,
         agentName,
         userRequest,
@@ -293,7 +278,7 @@ async function runCompletionGatedRepair({
     });
 
     const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
-    return readTaskCompleted(messages, returnedRootTranscript ? fromIndex : undefined);
+    return readLatestTaskCompletedOutcome(messages, returnedRootTranscript ? fromIndex : undefined);
 }
 
 /**
@@ -373,7 +358,7 @@ export function shouldRunWorkflowValidation(triageMeta: import("../../tools/plan
  * @returns {boolean}
  */
 export function shouldContinueParentEpicAfterValidation(triageMeta: import("../../tools/plan-written.js").TriageMeta) {
-    const parentPlan = (triageMeta || {} as { parentPlan?: unknown }).parentPlan;
+    const parentPlan = triageMeta?.parentPlan;
     return isPlannedChangeClassification(triageMeta?.classification) &&
         typeof parentPlan === "string" &&
         parentPlan.trim().length > 0;
@@ -385,16 +370,6 @@ interface RunMechanicalValidationOptions {
     cwd?: string;
     manualQaName?: string;
     manualQaContext?: string;
-    __deps?: {
-        runLocalCI?: typeof runLocalCI;
-        runIsolatedAgentSession?: typeof runIsolatedAgentSession;
-        runActiveAgentTurn?: typeof runActiveAgentTurn;
-        runCompletionGatedRepair?: typeof runCompletionGatedRepair;
-        runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt;
-        readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome;
-        switchActiveAgent?: typeof switchActiveAgent;
-        recordWorkflowMetric?: typeof recordWorkflowMetric;
-    };
 }
 
 /**
@@ -409,16 +384,7 @@ interface RunMechanicalValidationOptions {
  * @param {string} [args.cwd]
  * @param {string} [args.manualQaName]
  * @param {string} [args.manualQaContext]
- * @param {{
- *   runLocalCI?: typeof runLocalCI,
- *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
- *   runActiveAgentTurn?: typeof runActiveAgentTurn,
- *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
- *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
- *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
- *   switchActiveAgent?: typeof switchActiveAgent,
- *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- * }} [args.__deps] Test-only injection point.
+ * @param {LocalCIPort} [localCI] External local-CI process boundary.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
 export async function runMechanicalValidation({
@@ -427,35 +393,25 @@ export async function runMechanicalValidation({
     cwd,
     manualQaName = "quick-fix",
     manualQaContext = "The QUICK_FIX implementation completed and passed automated verification.",
-    __deps,
-}: RunMechanicalValidationOptions): Promise<{ passed: boolean; attempts: number; reason?: string }> {
+}: RunMechanicalValidationOptions, localCI: LocalCIPort = systemLocalCIPort): Promise<{
+    passed: boolean;
+    attempts: number;
+    reason?: string;
+}> {
     if (!hostedSession) throw new Error("runMechanicalValidation: hostedSession is required");
     const projectRoot = hostedSession?.cwd || cwd;
     if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
     const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
-    const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
-    const runRepairAgentTurn = __deps?.runActiveAgentTurn || runActiveAgentTurn;
-    const repair = __deps?.runCompletionGatedRepair ||
-        ((repairArgs) =>
-            runCompletionGatedRepair({
-                ...repairArgs,
-                runActiveAgentTurn: runRepairAgentTurn,
-                readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
-                hostedSession,
-            }));
-    const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
-    const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
-    const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     function recordWorkflowMetricImpl(
-        metric: Parameters<typeof recordWorkflowMetricSource>[0],
-        deps: Parameters<typeof recordWorkflowMetricSource>[1] = {},
+        metric: Parameters<typeof recordWorkflowMetric>[0],
+        deps: Parameters<typeof recordWorkflowMetric>[1] = {},
     ) {
-        return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
+        return recordWorkflowMetric(metric, { cwd: projectRoot, ...deps });
     }
     /** @param {string} agentName */
     const activateAgent = async (agentName: string) => {
         if (!hostedSession) return;
-        await switchActiveAgentImpl(hostedSession, { agentName });
+        await switchActiveAgent(hostedSession, { agentName });
     };
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
@@ -488,7 +444,7 @@ export async function runMechanicalValidation({
             "info",
             progress,
         );
-        const ciResult = await runLocalCIImpl({ hostedSession, cwd: validationCwd });
+        const ciResult = await localCI.run({ hostedSession, cwd: validationCwd });
 
         await recordWorkflowMetricImpl({
             category: "validation",
@@ -550,7 +506,7 @@ export async function runMechanicalValidation({
                 classification: "QUICK_FIX",
                 context: manualQaContext,
                 cwd: validationCwd,
-                runPrompt: runManualQaChecklistPromptImpl,
+                runPrompt: runManualQaChecklistPrompt,
             });
             progress = completeValidationProgress(progress, true, "QUICK_FIX Mechanical Validation passed.");
             emitRunWieldSystemStatus(
@@ -605,7 +561,7 @@ export async function runMechanicalValidation({
             true,
             progress,
         );
-        const completed = await repair({
+        const completed = await runCompletionGatedRepair({
             agentName: AGENTS.ENGINEER,
             userRequest:
                 "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +

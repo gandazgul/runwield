@@ -146,9 +146,16 @@ function isProductionSourcePath(relativePath) {
 
 /** @param {string} name */
 function isMachinerySeam(name) {
-    return MACHINERY_SEAMS.some((pattern) =>
-        pattern.endsWith("*") ? name.startsWith(pattern.slice(0, -1)) : name === pattern
-    );
+    return MACHINERY_SEAMS.some((pattern) => {
+        // `*` stands for any run of characters, wherever it appears. The previous
+        // version only understood a trailing `*`, so `run*Transition` fell through to
+        // an equality test and matched nothing — the rule meant to forbid injecting a
+        // transaction never once fired, and `runImplementationCheckpointTransition`
+        // sat behind a seam under a green ratchet.
+        if (!pattern.includes("*")) return name === pattern;
+        const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+        return new RegExp(`^${escaped}$`).test(name);
+    });
 }
 
 /**

@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { dirname } from "@std/path";
 import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
 import { addEntry, findById, getWorktreeRegistryPath } from "../worktree-registry.js";
-import { resolveValidationExecutionContext } from "./execution-context.js";
+import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
 // One base repository for the module, copied per test. Building it per test cost
@@ -32,6 +32,31 @@ Deno.test("resolveValidationExecutionContext accepts explicit non-Git mode", asy
         const result = await resolveValidationExecutionContext({ projectRoot: cwd, planName: "p", triageMeta: {} });
         assertEquals(result.kind, "ok");
         if (result.kind === "ok") assertEquals(result.context.executionMode, "non_git_in_place");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("resolveValidationExecutionContext preserves active QUICK_FIX non-Git execution", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "p", "# Plan", { classification: "QUICK_FIX", status: "implemented" });
+        const result = await resolveValidationExecutionContext({
+            projectRoot: cwd,
+            planName: "p",
+            triageMeta: { classification: "QUICK_FIX" },
+            activeWorkflow: {
+                planName: "p",
+                projectRoot: cwd,
+                executionCwd: cwd,
+                nonGitInPlace: true,
+            },
+        });
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") {
+            assertEquals(result.context.executionMode, "non_git_in_place");
+            assertEquals(result.context.executionCwd, cwd);
+        }
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -146,58 +171,51 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
 });
 
 Deno.test("resolveValidationExecutionContext prefers registry baseline over duplicated Plan metadata", async () => {
-    const result = await resolveValidationExecutionContext({
-        projectRoot: "/project",
-        planName: "p",
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: {
-                            classification: "FEATURE",
-                            status: "implemented",
-                            executionMode: "worktree",
-                            executionBaselineTree: "plan-attempt-tree",
-                            worktreeId: "wt-1",
-                            worktreePath: "/worktree",
-                            worktreeBranch: "runwield/worktree/p-wt",
-                            worktreeBaseBranch: "main",
-                            worktreeStatus: "completed",
-                        },
-                    }),
-                ),
-            findWorktreeRegistryEntryById: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        id: "wt-1",
-                        planName: "p",
-                        baseBranch: "main",
-                        baseRef: "HEAD",
-                        baseCommit: "base-commit",
-                        baseTree: "creation-tree",
-                        executionBaselineTree: "different-attempt-tree",
-                        branch: "runwield/worktree/p-wt",
-                        path: "/worktree",
-                        status: "completed",
-                    }),
-                ),
-            realPath: (value) => Promise.resolve(String(value)),
-            runGit: (_cwd, args) => {
-                if (args[0] === "branch") return Promise.resolve("runwield/worktree/p-wt");
-                if (args[0] === "rev-parse" && args[1] === "--git-common-dir") return Promise.resolve("/git/common");
-                if (args[0] === "rev-parse" && args[1] === "refs/heads/main") return Promise.resolve("main-head");
-                if (args[0] === "rev-parse" && args[1] === "different-attempt-tree^{tree}") {
-                    return Promise.resolve("different-attempt-tree");
-                }
-                return Promise.resolve("");
-            },
-            prepareExecutionPlanFile: () => Promise.resolve(/** @type {any} */ ({ kind: "present" })),
-        },
-    });
+    const projectRoot = await baseRepo.checkout();
+    const parent = await Deno.makeTempDir();
+    try {
+        const creationTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const worktreePath = `${parent}/wt`;
+        await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
+        await Deno.writeTextFile(`${worktreePath}/dependency.txt`, "integrated dependency\n");
+        await git(worktreePath, ["add", "dependency.txt"]);
+        await git(worktreePath, ["commit", "-m", "establish execution baseline"]);
+        const registryBaselineTree = await git(worktreePath, ["rev-parse", "HEAD^{tree}"]);
+        await savePlan(projectRoot, "p", "# Plan", {
+            classification: "FEATURE",
+            status: "implemented",
+            executionMode: "worktree",
+            executionBaselineTree: creationTree,
+            worktreeId: "wt-1",
+            worktreePath,
+            worktreeBranch: "runwield/worktree/p-wt",
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        });
+        await addEntry(projectRoot, {
+            id: "wt-1",
+            planName: "p",
+            planId: "plan-p",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: creationTree,
+            executionBaselineTree: registryBaselineTree,
+            branch: "runwield/worktree/p-wt",
+            path: worktreePath,
+            status: "completed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
 
-    assertEquals(result.kind, "ok");
-    if (result.kind === "ok" && result.context.executionMode === "worktree") {
-        assertEquals(result.context.baselineTree, "different-attempt-tree");
+        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p" });
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok" && result.context.executionMode === "worktree") {
+            assertEquals(result.context.baselineTree, registryBaselineTree);
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(parent, { recursive: true }).catch(() => {});
     }
 });
 
@@ -280,18 +298,10 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
         });
 
         const canonicalMarkdownBeforeResolution = (await loadPlan(projectRoot, "p"))?.markdown;
-        /** @type {any[]} */
-        const metrics = [];
         const result = await resolveValidationExecutionContext({
             projectRoot,
             planName: "p",
             triageMeta: {},
-            __deps: {
-                recordWorkflowMetric: (metric) => {
-                    metrics.push(metric);
-                    return Promise.resolve(null);
-                },
-            },
         });
 
         assertEquals(result.kind, "ok");
@@ -305,7 +315,6 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
             assertEquals(result.restoredPlanFile, { relativePath: "plans/p.md" });
         }
         assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalMarkdownBeforeResolution);
-        assertEquals(metrics.at(-1)?.details.planFileRestored, true);
         const persistedPlan = await loadPlan(projectRoot, "p");
         assertEquals(persistedPlan?.attrs.executionMode, undefined);
         assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);

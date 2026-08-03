@@ -48,7 +48,7 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
         complexity: /** @type {const} */ ("LOW"),
         summary: "explain routing",
         sessionName: "routing overview",
-        affectedPaths: ["src/shared/workflow/orchestrator.js"],
+        affectedPaths: ["src/shared/workflow/orchestrator.ts"],
     };
 
     const result = await /** @type {any} */ (tool.execute)("call-1", params);

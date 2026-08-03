@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, type FauxResponseFactory, fauxText } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { join } from "@std/path";
 import { __resetSettingsForTests } from "../../shared/settings.js";
@@ -12,6 +12,7 @@ export interface RuntimeCommandFixture {
     settingsPath: string;
     setModelMessages(messages: RuntimeModelMessage[]): void;
     setModelResponse(text: string): void;
+    setModelResponseFactory(response: FauxResponseFactory): void;
 }
 
 export type RuntimeModelMessage = ReturnType<typeof fauxAssistantMessage>;
@@ -97,6 +98,9 @@ export async function withRuntimeCommandFixture(
                 },
                 setModelResponse: (response) => {
                     fauxProvider.setResponses([() => fauxAssistantMessage(fauxText(response))]);
+                },
+                setModelResponseFactory: (response) => {
+                    fauxProvider.setResponses([response]);
                 },
             });
         } finally {

@@ -1,10 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadManualQaPrompt, loadReviewerPrompt, runManualQaChecklistPrompt } from "./validation.ts";
-import { HostedSession } from "../session/hosted-session.js";
-import { makeRecordedSession, makeUi } from "./validation-test-helpers.js";
-
-import { __resetSettingsForTests } from "../settings.js";
+import { loadManualQaPrompt, loadReviewerPrompt } from "./validation.ts";
 
 Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
     /** @type {string[]} */
@@ -41,100 +37,6 @@ Deno.test("bundled Manual QA prompt requires the user checklist shape", async ()
     assertStringIncludes(prompt, "Manual verification steps for <plan name>");
     assertStringIncludes(prompt, "- [ ] step 1");
     assertStringIncludes(prompt, "automated verification has already passed");
-});
-
-Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools", async () => {
-    /** @type {any} */
-    let invocation;
-    const expectedMessages = /** @type {any} */ ([{ role: "assistant", content: "checklist" }]);
-    const promptDef = /** @type {any} */ ({
-        name: "operator",
-        displayName: "Manual QA",
-        model: "",
-        description: "Checklist prompt",
-        tools: [],
-        systemPrompt: "Output a checklist.",
-    });
-
-    const hostedSession = makeRecordedSession("validation-test", makeUi());
-    const result = await runManualQaChecklistPrompt({
-        hostedSession,
-        name: "settings-panel",
-        classification: "PLANNED_CHANGE",
-        context: "## Verification Plan\n- Manual: save settings and reload",
-        cwd: "/repo",
-        __deps: {
-            loadManualQaPrompt: () => Promise.resolve(promptDef),
-            runIsolatedAgentSession: (/** @type {any} */ args) => {
-                invocation = args;
-                return Promise.resolve(expectedMessages);
-            },
-        },
-    });
-
-    assertEquals(result, expectedMessages);
-    assertEquals(invocation.agentName, "operator");
-    assertEquals(invocation.cwd, "/repo");
-    assertEquals(invocation._agentDefOverride, promptDef);
-    assertEquals(invocation.includeEditFallback, false);
-    assertEquals(Object.hasOwn(invocation, "useRootSession"), false);
-    assertStringIncludes(invocation.userRequest, "Name: settings-panel");
-    assertStringIncludes(invocation.userRequest, "Classification: PLANNED_CHANGE");
-    assertStringIncludes(invocation.userRequest, "save settings and reload");
-});
-
-Deno.test("runManualQaChecklistPrompt persists visible checklist for resume replay", async () => {
-    /** @type {Array<Record<string, unknown>>} */
-    const entries = [];
-    const session = new HostedSession({
-        id: "manual-qa-persist",
-        cwd: Deno.cwd(),
-        sessionManager: /** @type {any} */ ({
-            getSessionId: () => "manual-qa-persisted",
-            getCwd: () => Deno.cwd(),
-            getBranch: () => entries,
-            appendCustomEntry: (/** @type {string} */ customType, /** @type {unknown} */ data) => {
-                entries.push({ type: "custom", customType, data });
-            },
-        }),
-    });
-    const promptDef = /** @type {any} */ ({
-        name: "operator",
-        displayName: "Manual QA",
-        model: "",
-        description: "Checklist prompt",
-        tools: [],
-        systemPrompt: "Output a checklist.",
-    });
-
-    await runManualQaChecklistPrompt({
-        hostedSession: session,
-        name: "settings-panel",
-        classification: "PLANNED_CHANGE",
-        context: "context",
-        cwd: Deno.cwd(),
-        __deps: {
-            loadManualQaPrompt: () => Promise.resolve(promptDef),
-            runIsolatedAgentSession: () =>
-                Promise.resolve(
-                    /** @type {any} */ ([{
-                        role: "assistant",
-                        content: [{ type: "text", text: "Manual verification steps for settings-panel" }],
-                    }]),
-                ),
-        },
-    });
-
-    assertEquals(entries, [{
-        type: "custom",
-        customType: "runwield.manual_qa_checklist",
-        data: {
-            agentName: "Operator",
-            text: "Manual verification steps for settings-panel",
-            name: "settings-panel",
-            classification: "PLANNED_CHANGE",
-        },
-    }]);
 });
 
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {

@@ -5,12 +5,7 @@ import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { runValidationLoop, runValidationPhase } from "./validation.ts";
-import {
-    attachRecorder,
-    makeUi,
-    makeValidationProjectRoot,
-    noOpWorktreePlanHandoffDeps,
-} from "./validation-test-helpers.js";
+import { attachRecorder, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 function makeValidationUi(cwd = Deno.cwd()) {
     const uiAPI = makeUi();
@@ -89,10 +84,9 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -117,10 +111,9 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -143,10 +136,9 @@ Deno.test("runValidationLoop stops without repair when an Objective-Failing Chec
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -166,10 +158,9 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -201,10 +192,9 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -247,9 +237,8 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => {
+        localCI: {
+            run: () => {
                 ciRuns += 1;
                 return Promise.resolve(
                     ciRuns === 1
@@ -257,7 +246,7 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
                         : { exitCode: 0, output: "ok", canceled: false },
                 );
             },
-        }),
+        },
     });
 
     assertEquals(uiAPI.promptSelections.length, 1);
@@ -283,10 +272,9 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
+        },
     });
 
     assertEquals(uiAPI.promptSelections.length, 1);
@@ -301,20 +289,19 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
 
     /** @type {number[]} */
     const ciExitCodes = [];
-    const deps = /** @type {any} */ ({
-        ...noOpWorktreePlanHandoffDeps(),
-        runLocalCI: () => {
+    const localCI = {
+        run: () => {
             ciExitCodes.push(1);
             return Promise.resolve({ exitCode: 1, output: "type error", canceled: false });
         },
-    });
+    };
 
     const first = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        __deps: deps,
+        localCI,
     });
     assertEquals(first.kind, "paused");
     assertEquals(ciExitCodes.length, 1);
@@ -338,7 +325,7 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
-        __deps: deps,
+        localCI,
     });
 
     assertEquals(second.kind, "paused");

@@ -2,12 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
 import { runValidationLoop } from "./validation.ts";
-import {
-    makeRecordedSession,
-    makeUi,
-    makeValidationProjectRoot,
-    noOpWorktreePlanHandoffDeps,
-} from "./validation-test-helpers.js";
+import { makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
@@ -16,16 +11,17 @@ function makeValidationUi() {
 
 Deno.test("runValidationLoop fails closed when worktree validation context is missing target branch metadata", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
-        classification: "QUICK_FIX",
+        classification: "FEATURE",
         status: "implemented",
     });
     const { hostedSession } = makeValidationUi();
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        triageMeta: { classification: "FEATURE", status: "implemented" },
         executionAgent: "engineer",
         projectRoot,
         executionCwd: projectRoot,
+        executionMode: "worktree",
         worktreeId: "wt-1",
         worktreeBranch: "feature/wt-1",
     });
@@ -34,16 +30,15 @@ Deno.test("runValidationLoop fails closed when worktree validation context is mi
         hostedSession,
         planName: "p",
         planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "should not run", canceled: false }),
-        }),
+        triageMeta: { classification: "FEATURE", status: "implemented" },
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "should not run", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(result.kind, "failed");
-    assertStringIncludes(result.reason || "", "requires explicit missing worktree delivery identity");
+    assertStringIncludes(result.reason || "", "recorded worktree identity is incomplete");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationCiAttempts, 0);
 });

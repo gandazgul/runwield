@@ -137,61 +137,6 @@ export function noOpRecordPlanEvent() {
     return Promise.resolve({});
 }
 
-export function noOpWorktreePlanHandoffDeps() {
-    return {
-        switchActiveAgent: (
-            /** @type {unknown} */ _hostedSession,
-            /** @type {{ agentName: string }} */ options,
-        ) => Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-        stageValidationPassedInExecutionWorktree: () =>
-            Promise.resolve({ attrs: /** @type {any} */ ({ status: "verified" }), planPaths: ["plans/p.md"] }),
-        preparePrimaryPlanPathForMerge: () =>
-            Promise.resolve({
-                projectRoot: "/primary",
-                relativePath: "plans/p.md",
-                absolutePath: "/primary/plans/p.md",
-                existed: true,
-                tracked: true,
-                headTracked: true,
-                indexMode: "100644",
-                indexObjectId: "abc123",
-                content: "implemented",
-            }),
-        restorePrimaryPlanPathAfterMergeFailure: () => Promise.resolve(),
-        runManualQaChecklistPrompt: () => Promise.resolve([]),
-        resolveValidationExecutionContext: (/** @type {any} */ opts) => {
-            const context = opts.explicitContext || opts.activeWorkflow || {};
-            const executionMode = context.nonGitInPlace || context.executionMode === "non_git_in_place"
-                ? "non_git_in_place"
-                : "worktree";
-            if (
-                executionMode === "worktree" && !context.worktreeBaseBranch &&
-                Boolean(context.worktreeId || context.worktreeBranch)
-            ) {
-                return Promise.resolve({
-                    kind: "blocked",
-                    reason: "missing_worktree_identity",
-                    message: "Workflow Validation requires explicit missing worktree delivery identity before merge.",
-                });
-            }
-            return Promise.resolve({
-                kind: "ok",
-                context: {
-                    executionMode,
-                    planName: opts.planName,
-                    projectRoot: context.projectRoot || opts.projectRoot || Deno.cwd(),
-                    executionCwd: context.executionCwd || opts.projectRoot || Deno.cwd(),
-                    baselineTree: context.baselineTree,
-                    worktreeId: context.worktreeId,
-                    worktreeBranch: context.worktreeBranch,
-                    worktreeBaseBranch: context.worktreeBaseBranch,
-                    source: context.planName ? "active_session" : "explicit",
-                },
-            });
-        },
-    };
-}
-
 /**
  * A real project root for a validation test.
  *

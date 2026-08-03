@@ -10,7 +10,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../src/constants.js";
 import { SessionRuntime } from "../src/shared/session/session-runtime.js";
-import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.js";
+import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.ts";
 import {
     parseCsv,
     ROUTER_JUDGEMENT_COLUMNS,
@@ -174,7 +174,7 @@ function shouldRunRow(row) {
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  * }} [options]
- * @returns {Promise<import('../src/shared/workflow/orchestrator.js').TriageOutcome>}
+ * @returns {Promise<import('../src/shared/workflow/orchestrator.ts').TriageOutcome>}
  */
 export async function runRouterForGoldenRequest(requestText, options = {}) {
     const readLatestTriageOutcome = options.readLatestTriageOutcome || readLatestTriageOutcomeFn;

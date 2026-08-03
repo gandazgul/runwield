@@ -13,7 +13,10 @@ function makeHostedSession(projectRoot) {
 }
 
 Deno.test("validated_ci resumes at semantic review without rerunning CI", async () => {
-    const projectRoot = await makeValidationProjectRoot("demo", { status: "validated_ci" });
+    const projectRoot = await makeValidationProjectRoot("demo", {
+        status: "validated_ci",
+        executionMode: "non_git_in_place",
+    });
     try {
         let ciCalls = 0;
         const result = await runValidationPhase({
@@ -22,23 +25,12 @@ Deno.test("validated_ci resumes at semantic review without rerunning CI", async 
             triageMeta: { classification: "FEATURE" },
             sessionManager: undefined,
             hostedSession: makeHostedSession(projectRoot),
-            __deps: /** @type {any} */ ({
-                resolveValidationExecutionContext: () =>
-                    Promise.resolve({
-                        kind: "ok",
-                        context: {
-                            executionMode: "non_git_in_place",
-                            projectRoot,
-                            executionCwd: projectRoot,
-                            source: "durable_recovery",
-                            planName: "demo",
-                        },
-                    }),
-                runLocalCI: () => {
+            localCI: {
+                run: () => {
                     ciCalls += 1;
                     return Promise.reject(new Error("CI must not run"));
                 },
-            }),
+            },
         });
 
         assertEquals(ciCalls, 0);
@@ -52,6 +44,7 @@ Deno.test("validated_reviewer with no human decision runs only the human review 
     const projectRoot = await makeValidationProjectRoot("demo", {
         status: "validated_reviewer",
         humanReviewDecision: null,
+        executionMode: "non_git_in_place",
     });
     try {
         let ciCalls = 0;
@@ -62,21 +55,8 @@ Deno.test("validated_reviewer with no human decision runs only the human review 
             triageMeta: { status: "validated_reviewer", humanReviewDecision: null, classification: "FEATURE" },
             sessionManager: undefined,
             hostedSession: makeHostedSession(projectRoot),
-            executionContext:
-                /** @type {import('../session/hosted-session.js').ActiveExecutionWorkflow} */ ({ projectRoot }),
-            __deps: {
-                resolveValidationExecutionContext: () =>
-                    Promise.resolve({
-                        kind: "ok",
-                        context: {
-                            executionMode: "non_git_in_place",
-                            projectRoot,
-                            executionCwd: projectRoot,
-                            source: "durable_recovery",
-                            planName: "demo",
-                        },
-                    }),
-                runLocalCI: () => {
+            localCI: {
+                run: () => {
                     ciCalls += 1;
                     return Promise.reject(new Error("CI must not run"));
                 },

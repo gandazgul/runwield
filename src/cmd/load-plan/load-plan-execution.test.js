@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { runLoadPlanCommand } from "./index.js";
 
 import { makePlanProject, makeRuntimeContext, makeRuntimeFixture, makeUi } from "./load-plan-test-helpers.js";
-import { injectFrontMatter, loadPlan } from "../../plan-store.js";
+import { injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
 import { createGitPort } from "../../shared/git-port.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { SessionHost } from "../../shared/session/session-host.js";
@@ -62,7 +62,6 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -112,7 +111,6 @@ Deno.test("runLoadPlanCommand child Planned Change with verified dependencies ex
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -160,7 +158,6 @@ Deno.test("runLoadPlanCommand child Planned Change warns for unverified dependen
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -207,7 +204,6 @@ Deno.test("runLoadPlanCommand child Planned Change warns for missing dependencie
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -255,7 +251,6 @@ Deno.test("runLoadPlanCommand child Planned Change dependency warning can be can
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -312,7 +307,6 @@ Deno.test("runLoadPlanCommand warns and cancels execution when affected paths ch
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -369,7 +363,6 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -411,33 +404,34 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                         status: "approved",
                     },
                 }),
-            executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
-            loadPlan: () =>
-                Promise.resolve({
-                    markdown: "fresh markdown",
-                    body: "fresh body",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "fresh summary",
-                        affectedPaths: [],
-                        status: "implemented",
+            executePlan: async () => {
+                const current = await loadPlan(projectRoot, "plan-fresh");
+                if (!current) throw new Error("fixture Plan disappeared before execution completed");
+                await savePlan(projectRoot, "plan-fresh", "fresh markdown", {
+                    ...current.attrs,
+                    summary: "fresh summary",
+                }, { expectedRevision: current.revision });
+                return {
+                    repairRequired: false,
+                    executionComplete: true,
+                    executionContext: {
+                        planName: "plan-fresh",
                         executionMode: "non_git_in_place",
-                        worktreeId: "wt1",
-                        worktreePath: "/worktree",
-                        worktreeBranch: "runwield/worktree/plan-fresh-wt1",
-                        worktreeBaseBranch: "feature-base",
+                        executionCwd: projectRoot,
+                        nonGitInPlace: true,
                     },
-                }),
+                };
+            },
             runValidationLoop: (/** @type {{ planContent: string }} */ args) => {
                 validatedPlanContent = args.planContent;
                 return Promise.resolve();
             },
-            resetTuiState: () => {},
         }),
     });
 
-    assertEquals(validatedPlanContent, "fresh markdown");
+    const canonicalPlan = await loadPlan(projectRoot, "plan-fresh");
+    assertEquals(validatedPlanContent, canonicalPlan?.markdown);
+    assertEquals(canonicalPlan?.body, "fresh markdown");
     assertEquals(runtimeFixture.state.workflow?.executionMode, "non_git_in_place");
 });
 
@@ -469,7 +463,6 @@ Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -510,7 +503,6 @@ Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -597,7 +589,6 @@ Deno.test("runLoadPlanCommand self-heals stale committed execution metadata befo
                             },
                         }),
                     setTerminalTitleForName: () => {},
-                    resetTuiState: () => {},
                 }),
             });
 

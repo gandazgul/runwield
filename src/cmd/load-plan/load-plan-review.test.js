@@ -83,7 +83,6 @@ Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-b" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -114,7 +113,6 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
                         worktreeBaseBranch: "feature-base",
                     },
                 }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -145,7 +143,6 @@ Deno.test("runLoadPlanCommand ready plan can go back to Planner for re-review", 
                 planningCalls.push(args);
                 return Promise.resolve({ outcome: "canceled" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -190,7 +187,6 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -234,7 +230,6 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
                     },
                 }),
             runValidationLoop: () => Promise.resolve({ ok: true }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -321,7 +316,6 @@ Deno.test("runLoadPlanCommand checkpoints completed execution before validation"
                 assertEquals(args.executionContext.nonGitInPlace, true);
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -383,7 +377,6 @@ Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readi
                 executedTriageMeta = options.triageMeta;
                 return Promise.resolve({ repairRequired: false, executionComplete: false });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -397,7 +390,6 @@ Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readi
 Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before execution fallback validation", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
-    let executed = false;
     /** @type {string | null} */
     let validationPlanContent = null;
     const { projectRoot } = await makePlanProject("plan-content-refresh", {
@@ -432,36 +424,33 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-content-refresh"] }),
-            loadPlan: () =>
-                Promise.resolve({
-                    planName: "plan-content-refresh",
-                    path: "plans/plan-content-refresh.md",
-                    body: "updated body",
-                    markdown: "updated markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "updated",
-                        affectedPaths: [],
-                        status: executed ? "implemented" : "approved",
-                        executionMode: executed ? "non_git_in_place" : undefined,
-                        executionAgent: "frontend-engineer",
-                        collaborationRecommendation: "pair",
+            executePlan: async () => {
+                const current = await loadPlan(projectRoot, "plan-content-refresh");
+                if (!current) throw new Error("fixture Plan disappeared before execution completed");
+                await savePlan(projectRoot, "plan-content-refresh", "updated markdown", current.attrs, {
+                    expectedRevision: current.revision,
+                });
+                return {
+                    repairRequired: false,
+                    executionComplete: true,
+                    executionContext: {
+                        planName: "plan-content-refresh",
+                        executionMode: "non_git_in_place",
+                        executionCwd: projectRoot,
+                        nonGitInPlace: true,
                     },
-                }),
-            executePlan: () => {
-                executed = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
+                };
             },
             runValidationLoop: (/** @type {any} */ options) => {
                 validationPlanContent = options.planContent;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
-    assertEquals(validationPlanContent, "updated markdown");
+    const canonicalPlan = await loadPlan(projectRoot, "plan-content-refresh");
+    assertEquals(validationPlanContent, canonicalPlan?.markdown);
+    assertEquals(canonicalPlan?.body, "updated markdown");
 });
 
 Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation", async () => {
@@ -539,7 +528,6 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                     baseBranch: "main",
                     status: "completed",
                 }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -576,7 +564,6 @@ Deno.test("runLoadPlanCommand review reopen blocks unmanaged physical worktree m
                     parseArgs: () => ({ help: false, _: ["plan-unmanaged-worktree"] }),
                     findWorktreeById: () => Promise.resolve(null),
                     findWorktreeByPlanName: () => Promise.resolve(null),
-                    resetTuiState: () => {},
                 }),
             }),
         Error,
@@ -620,7 +607,6 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -653,7 +639,6 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic rejects execution policy bef
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -687,7 +672,6 @@ Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy 
                 slicerOpened = true;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -731,7 +715,6 @@ Deno.test("runLoadPlanCommand legacy in-progress PROJECT Epic opens Slicer inste
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -776,7 +759,6 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -801,7 +783,6 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
             parseArgs: () => ({ help: false, _: ["plan-project-review"] }),
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
             runValidationLoop: () => Promise.resolve(),
-            resetTuiState: () => {},
         }),
     });
 
@@ -828,7 +809,6 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
                 slicerCalled = true;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -870,7 +850,6 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
                 plannerCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -915,7 +894,6 @@ Deno.test("runLoadPlanCommand planning approval forwards feedback images to exec
                 executeRequest = request;
                 return Promise.resolve({ repairRequired: false, executionComplete: false });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -962,7 +940,6 @@ Deno.test("runLoadPlanCommand planning PROJECT approval forwards feedback images
                 slicerRequest = request;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1005,7 +982,6 @@ Deno.test("runLoadPlanCommand ready review decline preserves pre-attempt status"
                     branch: "runwield/worktree/ready-review-cancel",
                     status: "active",
                 }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -1033,7 +1009,6 @@ Deno.test("runLoadPlanCommand Esc-canceled review completes without retry prompt
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["review-runtime-cancel"] }),
-            resetTuiState: () => {},
         }),
     });
 
@@ -1066,7 +1041,6 @@ Deno.test("runLoadPlanCommand approved review preserves remote review outcome", 
                 planningCalled = true;
                 return Promise.resolve({ outcome: "no_call" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1105,7 +1079,6 @@ Deno.test("runLoadPlanCommand approved FEATURE review run forwards approval feed
                 executeRequest = request;
                 return Promise.resolve({ repairRequired: false, executionComplete: false });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1133,7 +1106,6 @@ Deno.test("runLoadPlanCommand approved FEATURE review later action shows session
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1176,7 +1148,6 @@ Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Sl
                 slicerRequest = request;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1205,7 +1176,6 @@ Deno.test("runLoadPlanCommand approved PROJECT review later action shows session
                 slicerCalled = true;
                 return Promise.resolve({ ok: true });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1253,7 +1223,6 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial with i
                 plannerImages = request.images;
                 return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -1286,7 +1255,6 @@ Deno.test("runLoadPlanCommand approved PROJECT review feedback returns images to
                 plannerRequest = request;
                 return Promise.resolve({ outcome: "saved", planName: "project-feedback-images" });
             },
-            resetTuiState: () => {},
         }),
     });
 

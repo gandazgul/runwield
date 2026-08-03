@@ -39,7 +39,7 @@ import {
     stageValidationPassedInExecutionWorktree,
     VALIDATION_PLAN_STATUSES,
 } from "./plan-lifecycle.js";
-import { resolveValidationExecutionContext } from "./execution-context.js";
+import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { runDirectDeliveryPublicationTransition, runPlanFrontMatterTransition } from "./state-transition.ts";
 import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
 import {
@@ -63,6 +63,7 @@ import {
     usedReviewDiffTool,
     verifyPostMergeCandidatePublished,
 } from "./validation-helpers.ts";
+import { type LocalCIPort, systemLocalCIPort } from "./validation-local-ci.ts";
 import {
     clearValidationPosition,
     getValidationPosition,
@@ -121,7 +122,9 @@ type InteractionRequest = Parameters<typeof requestHostedSessionInteraction>[1];
 type InteractionResponse = Awaited<ReturnType<typeof requestHostedSessionInteraction>>;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
-type ValidationPhaseResult = WorkflowValidationResult;
+type ValidationPhaseResult = WorkflowValidationResult & {
+    awaitingTaskCompletion?: true;
+};
 
 type IsolatedAgentSessionOptions = {
     hostedSession: HostedSession;
@@ -151,28 +154,12 @@ type SemanticReviewPort = {
     requestInteraction?: (hostedSession: HostedSession, request: InteractionRequest) => Promise<InteractionResponse>;
 };
 
-type ValidationDeps = {
-    /**
-     * Local validation commands run a real subprocess, so tests supply their own.
-     * A genuine environment boundary.
-     */
-    runLocalCI?: typeof runLocalCI;
-    /**
-     * Fail-closed execution-context resolution. Injected only so tests can exercise a
-     * phase without standing up a worktree; it decides whether validation may run at
-     * all, so faking it skips the fail-closed checks rather than an external boundary.
-     * Track it as machinery and remove it with the worktree capability port.
-     */
-    resolveValidationExecutionContext?: typeof resolveValidationExecutionContext;
-};
-
 type MechanicalValidationArgs = {
     sessionManager?: SessionManager;
     hostedSession?: HostedSession;
     cwd?: string;
     manualQaName?: string;
     manualQaContext?: string;
-    __deps?: ValidationDeps;
 };
 
 type ValidationLoopArgs = {
@@ -185,7 +172,7 @@ type ValidationLoopArgs = {
     executionContext?: ActiveExecutionWorkflow;
     git?: GitPort;
     semanticReviewPort?: SemanticReviewPort;
-    __deps?: ValidationDeps;
+    localCI?: LocalCIPort;
 };
 
 type PhaseContext = {
@@ -237,6 +224,7 @@ const REVIEWER_TOOL_NAMES = ["read", "grep", "find", "ls", "review_diff", "revie
 
 export const runMechanicalValidation = runQuickFixMechanicalValidation as (
     args: MechanicalValidationArgs,
+    localCI?: LocalCIPort,
 ) => Promise<{ passed: boolean; attempts: number; reason?: string }>;
 
 /**
@@ -363,6 +351,11 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
             clearValidationPosition(args.hostedSession, args.planName);
             return result;
         }
+        // A mechanical repair turn is not a completion signal. The repair Agent
+        // must explicitly call task_completed before this invocation may run CI
+        // again; otherwise a question or ordinary text response could advance the
+        // Plan merely because failure-attempt bookkeeping changed Front Matter.
+        if (result.awaitingTaskCompletion) return result;
         const after = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
         // Front Matter revision, not status: human review reaches a decision without
         // changing status, and publication is what runs next. Comparing status alone
@@ -446,7 +439,7 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
     const phase = await resolvePhaseContext(args);
     if (phase.kind === "blocked") return phase.result;
 
-    const runLocalCIImpl = args.__deps?.runLocalCI || runLocalCI;
+    const localCI = args.localCI || systemLocalCIPort;
     // Counted here rather than re-read from `args` each pass, because a user Retry
     // buys a fresh set of rounds: the `validation_failed` recorded below resets the
     // durable counter, and this has to follow it or the very next run would report
@@ -464,7 +457,7 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
             maxRepairAttempts: attempts > 0 ? AUTOMATIC_ROUNDS : null,
             checks: { ci: "running" },
         });
-        const ciResult = await runLocalCIImpl({ hostedSession: args.hostedSession, cwd: phase.context.executionCwd });
+        const ciResult = await localCI.run({ hostedSession: args.hostedSession, cwd: phase.context.executionCwd });
         await recordMetric(args, phase.context.projectRoot, {
             category: "validation",
             event: "ci_attempt",
@@ -576,7 +569,11 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
                 };
             }
 
-            await dispatchObjectiveCheckRepair(args, phase.context, objectiveCheckOutcome.results);
+            const repairCompleted = await dispatchObjectiveCheckRepair(
+                args,
+                phase.context,
+                objectiveCheckOutcome.results,
+            );
             await recordLifecycleEvent(
                 args,
                 phase.context.projectRoot,
@@ -584,6 +581,23 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
                 "implemented",
                 objectiveCheckOutcome.reason,
             );
+            if (!repairCompleted) {
+                const reason = `${
+                    getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                } stopped without task_completed during Objective-Failing Check repair.`;
+                emitStatus(
+                    args.hostedSession,
+                    `${reason} Validation will resume after task_completed.`,
+                    "warning",
+                );
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason,
+                    awaitingTaskCompletion: true,
+                };
+            }
             return {
                 kind: "paused",
                 planName: args.planName,
@@ -624,7 +638,7 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
             };
         }
 
-        await dispatchCiRepair(args, phase.context, ciResult);
+        const repairCompleted = await dispatchCiRepair(args, phase.context, ciResult);
         await recordLifecycleEvent(
             args,
             phase.context.projectRoot,
@@ -632,6 +646,23 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
             "implemented",
             failureReason,
         );
+        if (!repairCompleted) {
+            const reason = `${
+                getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+            } stopped without task_completed during CI repair.`;
+            emitStatus(
+                args.hostedSession,
+                `${reason} Validation will resume after task_completed.`,
+                "warning",
+            );
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: phase.context.projectRoot,
+                reason,
+                awaitingTaskCompletion: true,
+            };
+        }
         return {
             kind: "paused",
             planName: args.planName,
@@ -808,9 +839,8 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
             // around, so the loop stays in this phase rather than the mechanical one
             // the dispatch above pinned it to.
             rememberValidationPosition(args.hostedSession, args.planName, { phase: "semantic" });
-            const runLocalCIImpl = args.__deps?.runLocalCI || runLocalCI;
             emitStatus(args.hostedSession, `Running CI Validation in ${context.executionCwd}.`);
-            const ciResult = await runLocalCIImpl({
+            const ciResult = await (args.localCI || systemLocalCIPort).run({
                 hostedSession: args.hostedSession,
                 cwd: context.executionCwd,
             });
@@ -1316,9 +1346,7 @@ async function resolvePhaseContext(
 ): Promise<{ kind: "ok"; context: PhaseContext } | { kind: "blocked"; result: ValidationPhaseResult }> {
     const projectRoot = getProjectRoot(args);
     const activeWorkflow = args.hostedSession.getActiveExecutionWorkflow?.() || null;
-    const resolveValidationExecutionContextImpl = args.__deps?.resolveValidationExecutionContext ||
-        resolveValidationExecutionContext;
-    const resolution = await resolveValidationExecutionContextImpl({
+    const resolution = await resolveValidationExecutionContext({
         projectRoot,
         planName: args.planName,
         triageMeta: args.triageMeta,
@@ -1670,7 +1698,7 @@ async function dispatchObjectiveCheckRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
     results: ObjectiveCheckResult[],
-): Promise<void> {
+): Promise<boolean> {
     const runActiveAgentTurnImpl = runActiveAgentTurn;
     const summary = summarizeObjectiveChecks(results);
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
@@ -1690,13 +1718,16 @@ async function dispatchObjectiveCheckRepair(
         sessionManager: args.sessionManager,
         cwd: context.executionCwd,
     });
+    return Boolean(
+        args.hostedSession.consumePendingTaskCompletion(args.hostedSession.getRootAgentSession()),
+    );
 }
 
 async function dispatchCiRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
     ciResult: LocalCIResult,
-): Promise<void> {
+): Promise<boolean> {
     const runActiveAgentTurnImpl = runActiveAgentTurn;
     args.hostedSession.setActiveExecutionWorkflow?.({ ...context.workflowBase });
     // Pin the loop here before the Agent runs. The repair reports `task_completed`
@@ -1724,6 +1755,9 @@ async function dispatchCiRepair(
         sessionManager: args.sessionManager,
         cwd: context.executionCwd,
     });
+    return Boolean(
+        args.hostedSession.consumePendingTaskCompletion(args.hostedSession.getRootAgentSession()),
+    );
 }
 
 /**

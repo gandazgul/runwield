@@ -52,7 +52,6 @@ Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without tran
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -103,7 +102,6 @@ Deno.test("runLoadPlanCommand blocks Git-dependent recovery continue in non-Git 
                 return Promise.resolve(undefined);
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -188,7 +186,6 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                 return Promise.resolve();
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -250,7 +247,6 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -308,7 +304,6 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                 }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -391,7 +386,6 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -490,7 +484,6 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -536,7 +529,6 @@ Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline d
                 }),
             getWorkflowDiff: (/** @type {string} */ _cwd, /** @type {string} */ baselineTree) =>
                 Promise.resolve(`diff for ${baselineTree}`),
-            resetTuiState: () => {},
         }),
     });
 
@@ -550,7 +542,21 @@ Deno.test("runLoadPlanCommand implemented plan blocks validation without executi
     let validated = false;
     /** @type {unknown} */
     let workflowDuringValidation = null;
-    const fixture = makeRuntimeFixture({ sessionId: "load-plan-validation" });
+    const { projectRoot } = await makePlanProject("plan-implemented", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "implemented",
+        failureReason: "CI failed",
+        executionBaselineTree: "baseline-tree",
+    });
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "test@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "fixture: implemented Plan"]);
+    const fixture = makeRuntimeFixture({ cwd: projectRoot, sessionId: "load-plan-validation" });
     const otherFixture = makeRuntimeFixture({ sessionId: "load-plan-other" });
     otherFixture.state.workflow = { planName: "other", triageMeta: {}, baselineTree: "other-tree" };
 
@@ -560,29 +566,12 @@ Deno.test("runLoadPlanCommand implemented plan blocks validation without executi
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-implemented"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-implemented",
-                    path: "plans/plan-implemented.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "implemented",
-                        failureReason: "CI failed",
-                        executionBaselineTree: "baseline-tree",
-                    },
-                }),
             runValidationLoop: () => {
                 validated = true;
                 workflowDuringValidation = fixture.state.workflow;
                 fixture.runtime.clearActiveExecutionWorkflow(fixture.context.sessionId);
                 return Promise.resolve();
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -647,7 +636,6 @@ Deno.test("runLoadPlanCommand reports invalid recovery policy without workflow m
                     executionDispatched = true;
                     return Promise.resolve({ executionComplete: false });
                 },
-                resetTuiState: () => {},
             }),
         });
 
@@ -673,7 +661,16 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
     let validated = false;
     /** @type {unknown} */
     let workflowDuringValidation = null;
-    const fixture = makeRuntimeFixture({ sessionId: "load-plan-non-git-validation" });
+    const { projectRoot } = await makePlanProject("plan-implemented-non-git", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "implemented",
+        failureReason: "CI failed",
+        executionMode: "non_git_in_place",
+    });
+    const fixture = makeRuntimeFixture({ cwd: projectRoot, sessionId: "load-plan-non-git-validation" });
 
     await runLoadPlanCommand(["plan-implemented-non-git"], {
         uiAPI,
@@ -681,57 +678,53 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-implemented-non-git"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-implemented-non-git",
-                    path: "plans/plan-implemented-non-git.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "implemented",
-                        failureReason: "CI failed",
-                        executionMode: "non_git_in_place",
-                    },
-                }),
             runValidationLoop: () => {
                 validated = true;
                 workflowDuringValidation = fixture.state.workflow;
                 fixture.runtime.clearActiveExecutionWorkflow(fixture.context.sessionId);
                 return Promise.resolve();
             },
-            resetTuiState: () => {},
         }),
     });
 
     assertEquals(validated, true);
-    assertEquals(workflowDuringValidation, {
+    const workflow = /** @type {any} */ (workflowDuringValidation);
+    assertEquals({
+        planName: workflow?.planName,
+        executionAgent: workflow?.executionAgent,
+        executionMode: workflow?.executionMode,
+        projectRoot: workflow?.projectRoot,
+        executionCwd: workflow?.executionCwd,
+        executionStarted: workflow?.executionStarted,
+        nonGitInPlace: workflow?.nonGitInPlace,
+        triageStatus: workflow?.triageMeta?.status,
+        triageExecutionMode: workflow?.triageMeta?.executionMode,
+    }, {
         planName: "plan-implemented-non-git",
-        triageMeta: {
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "s",
-            affectedPaths: [],
-            status: "implemented",
-            failureReason: "CI failed",
-            executionMode: "non_git_in_place",
-        },
         executionAgent: "engineer",
         executionMode: "non_git_in_place",
-        projectRoot: getCwd(),
-        executionCwd: getCwd(),
+        projectRoot,
+        executionCwd: projectRoot,
         executionStarted: true,
         nonGitInPlace: true,
+        triageStatus: "implemented",
+        triageExecutionMode: "non_git_in_place",
     });
 });
 
 Deno.test("runLoadPlanCommand keeps paused validation continuation with execution owner", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("validate");
-    const fixture = makeRuntimeFixture({ sessionId: "load-plan-paused-validation" });
+    const { projectRoot } = await makePlanProject("plan-paused-validation", {
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: [],
+        status: "implemented",
+        failureReason: "semantic repair paused",
+        executionMode: "non_git_in_place",
+    });
+    const fixture = makeRuntimeFixture({ cwd: projectRoot, sessionId: "load-plan-paused-validation" });
 
     await runLoadPlanCommand(["plan-paused-validation"], {
         uiAPI,
@@ -739,22 +732,6 @@ Deno.test("runLoadPlanCommand keeps paused validation continuation with executio
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-paused-validation"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-paused-validation",
-                    path: "plans/plan-paused-validation.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "FEATURE",
-                        complexity: "LOW",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "implemented",
-                        failureReason: "semantic repair paused",
-                        executionMode: "non_git_in_place",
-                    },
-                }),
             runValidationLoop: async () => {
                 fixture.runtime.setActiveExecutionWorkflow(fixture.context.sessionId, {
                     planName: "plan-paused-validation",
@@ -769,8 +746,8 @@ Deno.test("runLoadPlanCommand keeps paused validation continuation with executio
                     },
                     executionAgent: AGENTS.ENGINEER,
                     executionMode: "non_git_in_place",
-                    projectRoot: getCwd(),
-                    executionCwd: getCwd(),
+                    projectRoot,
+                    executionCwd: projectRoot,
                     nonGitInPlace: true,
                     validationContinuation: true,
                 });
@@ -778,9 +755,8 @@ Deno.test("runLoadPlanCommand keeps paused validation continuation with executio
                     agentName: AGENTS.ENGINEER,
                     allowReturnToRouter: false,
                 });
-                return { kind: "paused", planName: "plan-paused-validation", projectRoot: getCwd() };
+                return { kind: "paused", planName: "plan-paused-validation", projectRoot };
             },
-            resetTuiState: () => {},
         }),
     });
 
@@ -861,7 +837,6 @@ Deno.test("runLoadPlanCommand retry validation reports Plan restoration before v
                     validated = true;
                     return Promise.resolve();
                 },
-                resetTuiState: () => {},
             }),
         });
 
@@ -903,7 +878,6 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
                     }),
                 findWorktreeById: () => Promise.resolve(null),
                 findWorktreeByPlanName: () => Promise.resolve(null),
-                resetTuiState: () => {},
             }),
         });
 
@@ -941,7 +915,6 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
             parseArgs: () => ({ help: false, _: ["plan-completed-worktree"] }),
             findWorktreeById: () => Promise.resolve(null),
             findWorktreeByPlanName: () => Promise.resolve(null),
-            resetTuiState: () => {},
         }),
     });
 
@@ -1068,7 +1041,6 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                     metric.event === "recovery_action_result" && metric.details.result === "merged"
                         ? Promise.reject(new Error("metrics unavailable"))
                         : Promise.resolve(null),
-                resetTuiState: () => {},
             }),
         });
 
@@ -1200,7 +1172,6 @@ Deno.test("runLoadPlanCommand rolls back a conflicted manual merge, then publish
                         baselineTree: worktree.baseTree,
                     },
                 }),
-            resetTuiState: () => {},
         });
 
         const firstUi = makeUi();
@@ -1360,7 +1331,6 @@ Deno.test("runLoadPlanCommand refuses a manual merge whose target branch moved s
                             baselineTree: worktree.baseTree,
                         },
                     }),
-                resetTuiState: () => {},
             }),
         });
 
@@ -1487,7 +1457,6 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                     metrics.push(metric);
                     return Promise.resolve(null);
                 },
-                resetTuiState: () => {},
             }),
         });
 
@@ -1550,7 +1519,6 @@ Deno.test("runLoadPlanCommand reports abandon progress around worktree removal",
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["recover-progress"] }),
-            resetTuiState: () => {},
         }),
     });
 

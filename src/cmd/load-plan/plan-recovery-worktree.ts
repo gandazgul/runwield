@@ -10,7 +10,7 @@
 import { resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import { runPlanFrontMatterTransition, runReviewReopenTransition } from "../../shared/workflow/state-transition.ts";
 import { getWorkflowDiff as getWorkflowDiffFn } from "../../shared/workflow/git-snapshot.js";
 import { getWorktreeStatus as getWorktreeStatusFn } from "../../shared/worktree.js";
@@ -358,15 +358,6 @@ export async function rehydrateActiveRecoveryWorkflow(
             planName: plan.planName,
             triageMeta: plan.attrs,
             explicitContext,
-            __deps: {
-                loadPlan: () =>
-                    Promise.resolve({
-                        path: `plans/${plan.planName}.md`,
-                        markdown: "",
-                        body: "",
-                        attrs: plan.attrs,
-                    }),
-            },
         });
         if (resolution.kind === "blocked") {
             if (uiAPI) {

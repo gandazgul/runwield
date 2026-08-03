@@ -120,7 +120,6 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
                         },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -169,7 +168,6 @@ Deno.test("runLoadPlanCommand no-arg TUI menu preserves core plan order", async 
                     { name: "a-on-hold", attrs: { classification: "FEATURE", status: "on_hold" } },
                     { name: "b-on-hold", attrs: { classification: "FEATURE", status: "on_hold" } },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -211,7 +209,6 @@ Deno.test("runLoadPlanCommand no-arg TUI reports when only child plans exist", a
                         attrs: { classification: "FEATURE", status: "draft", parentPlan: "epic-a" },
                     },
                 ]),
-            resetTuiState: () => {},
         }),
     });
 
@@ -237,7 +234,6 @@ Deno.test("runLoadPlanCommand empty plan list in TUI mode", async () => {
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: [] }),
             listPlans: () => Promise.resolve([]),
-            resetTuiState: () => {},
         }),
     });
 

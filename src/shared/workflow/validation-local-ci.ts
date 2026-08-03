@@ -138,10 +138,17 @@ async function getOrAskForValidationCommand(
 }
 
 /** Spawns the local validation step. */
-interface LocalCIResult {
+export interface LocalCIResult {
     exitCode: number;
     output: string;
     canceled?: boolean;
+}
+
+export interface LocalCIPort {
+    run(args: {
+        hostedSession: import("../session/hosted-session.js").HostedSession;
+        cwd: string;
+    }): Promise<LocalCIResult>;
 }
 
 export async function runLocalCI(
@@ -247,3 +254,5 @@ export async function runLocalCI(
         hostedSession.removeActiveInteraction(interactionId);
     }
 }
+
+export const systemLocalCIPort: LocalCIPort = { run: runLocalCI };

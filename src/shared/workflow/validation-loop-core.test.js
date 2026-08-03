@@ -3,15 +3,11 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
+import { removeWorktreeGitArtifacts } from "../worktree.js";
+import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js";
 import { runValidationLoop, runValidationPhase, shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
-import {
-    attachRecorder,
-    makeRecordedSession,
-    makeUi,
-    makeValidationProjectRoot,
-    noOpWorktreePlanHandoffDeps,
-} from "./validation-test-helpers.js";
+import { attachRecorder, makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 const footerExecutionRepo = defineGitFixture(async (repoPath) => {
     await savePlan(repoPath, "footer-plan", "# footer-plan\n\nvalidation fixture\n", {
@@ -55,6 +51,47 @@ async function makeLifecycleRun(status, attrs = {}) {
         nonGitInPlace: true,
     });
     return { projectRoot, hostedSession };
+}
+
+async function makePlannedReviewWorktree() {
+    const projectRoot = await makeRepo();
+    await savePlan(projectRoot, "p", "# p\n\nvalidation fixture\n", {
+        classification: "FEATURE",
+        status: "validated_ci",
+        summary: "validation fixture",
+        affectedPaths: [],
+    });
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "add validation plan"]);
+
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-validation-worktree-" });
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "p",
+        worktreeRoot,
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE", status: "validated_ci" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: worktree.path,
+        executionMode: "worktree",
+        baselineTree: worktree.baseTree,
+        worktreeId: worktree.id,
+        worktreeBranch: worktree.branch,
+        worktreeBaseBranch: worktree.baseBranch,
+    });
+    return {
+        projectRoot,
+        hostedSession,
+        cleanup: async () => {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+            await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        },
+    };
 }
 
 Deno.test("startActiveExecutionWorkflow seeds footer workflow context from Plan front matter", async () => {
@@ -123,7 +160,6 @@ Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE pl
             humanReviewMode: "none",
             humanReviewDecision: "not_required",
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -134,35 +170,25 @@ Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE pl
 });
 
 Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empty", async () => {
-    const { projectRoot, hostedSession } = await makeLifecycleRun("validated_ci", { classification: "FEATURE" });
-    hostedSession.setActiveExecutionWorkflow({
-        planName: "p",
-        triageMeta: { classification: "FEATURE", status: "validated_ci" },
-        executionAgent: "engineer",
-        projectRoot,
-        executionCwd: projectRoot,
-        executionMode: "worktree",
-        baselineTree: "baseline-tree",
-        worktreeId: "wt1",
-        worktreeBranch: "runwield/worktree/p-wt1",
-        worktreeBaseBranch: "main",
-    });
+    const { projectRoot, hostedSession, cleanup } = await makePlannedReviewWorktree();
+    try {
+        const result = await runValidationLoop({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "FEATURE", status: "validated_ci" },
+            semanticReviewPort: {
+                getDiffText: () => Promise.resolve(""),
+            },
+        });
 
-    const result = await runValidationLoop({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "FEATURE", status: "validated_ci" },
-        semanticReviewPort: {
-            getDiffText: () => Promise.resolve(""),
-        },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
-    });
-
-    const plan = await loadPlan(projectRoot, "p");
-    assertEquals(result.kind, "failed");
-    assertStringIncludes(result.reason || "", "No implementation changes detected");
-    assertEquals(plan?.attrs.status, "implemented");
+        const plan = await loadPlan(projectRoot, "p");
+        assertEquals(result.kind, "failed");
+        assertStringIncludes(result.reason || "", "No implementation changes detected");
+        assertEquals(plan?.attrs.status, "implemented");
+    } finally {
+        await cleanup();
+    }
 });
 
 Deno.test("runValidationLoop fails PROJECT validation when workflow diff only changes a plan document", async () => {
@@ -188,7 +214,6 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
         semanticReviewPort: {
             getDiffText: () => Promise.resolve("diff --git a/plans/p.md b/plans/p.md\n+# p\n"),
         },
-        __deps: /** @type {any} */ (noOpWorktreePlanHandoffDeps()),
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -209,13 +234,12 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => {
+        localCI: {
+            run: () => {
                 ciCalls += 1;
                 return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
             },
-        }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -243,11 +267,7 @@ Deno.test("runValidationLoop advances from met Objective-Failing Checks into sem
         executionAgent: "engineer",
         projectRoot,
         executionCwd: projectRoot,
-        executionMode: "worktree",
-        baselineTree: "baseline-tree",
-        worktreeId: "wt1",
-        worktreeBranch: "runwield/worktree/p-wt1",
-        worktreeBaseBranch: "main",
+        nonGitInPlace: true,
     });
 
     const result = await runValidationLoop({
@@ -285,10 +305,9 @@ Deno.test("runValidationLoop advances from met Objective-Failing Checks into sem
                     }]),
                 ),
         },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
-        }),
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -312,13 +331,12 @@ Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Chan
             planName: "p",
             planContent: "# p",
             triageMeta: { classification, status: "implemented", objectiveChecks },
-            __deps: /** @type {any} */ ({
-                ...noOpWorktreePlanHandoffDeps(),
-                runLocalCI: () => {
+            localCI: {
+                run: () => {
                     ciCalls += 1;
                     return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
                 },
-            }),
+            },
         });
 
         const plan = await loadPlan(projectRoot, "p");
@@ -340,13 +358,12 @@ Deno.test("runValidationLoop starts at implemented and records only the mechanic
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", complexity: "MEDIUM" },
-        __deps: /** @type {any} */ ({
-            ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: () => {
+        localCI: {
+            run: () => {
                 ciCalls += 1;
                 return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
             },
-        }),
+        },
     });
 
     const plan = await loadPlan(projectRoot, "p");

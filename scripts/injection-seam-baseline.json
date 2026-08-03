@@ -142,64 +142,6 @@
             ],
             "machinery": []
         },
-        "src/shared/workflow/execution-context.js": {
-            "seams": [
-                "canonicalLoadPlan",
-                "findWorktreeRegistryEntryById",
-                "findWorktreeRegistryEntryByPlanId",
-                "findWorktreeRegistryEntryByPlanName",
-                "loadPlan",
-                "prepareExecutionPlanFile",
-                "realPath",
-                "recordWorkflowMetric",
-                "runGit"
-            ],
-            "machinery": []
-        },
-        "src/shared/workflow/orchestrator.js": {
-            "seams": [
-                "confirmNonGitQuickFixExecution",
-                "decidePostExecution",
-                "decidePostPlanning",
-                "ensurePlansDir",
-                "executePlan",
-                "hasNonGitExecutionConsent",
-                "loadPlan",
-                "probeGitRepository",
-                "readLatestReturnToRouterOutcome",
-                "readLatestTaskCompletedOutcome",
-                "recordWorkflowMetric",
-                "runMechanicalValidation",
-                "runPlanningAgent",
-                "runRootTurn",
-                "runSlicerAgent",
-                "runValidationLoop",
-                "shouldRunWorkflowValidation",
-                "switchActiveAgent"
-            ],
-            "machinery": []
-        },
-        "src/shared/workflow/validation-helpers.ts": {
-            "seams": [
-                "loadManualQaPrompt",
-                "readLatestTaskCompletedOutcome",
-                "recordWorkflowMetric",
-                "runActiveAgentTurn",
-                "runCompletionGatedRepair",
-                "runIsolatedAgentSession",
-                "runLocalCI",
-                "runManualQaChecklistPrompt",
-                "switchActiveAgent"
-            ],
-            "machinery": []
-        },
-        "src/shared/workflow/validation.ts": {
-            "seams": [
-                "resolveValidationExecutionContext",
-                "runLocalCI"
-            ],
-            "machinery": []
-        },
         "src/shared/workflow/workflow-slicer.js": {
             "seams": [
                 "findPlansByParent",
@@ -234,7 +176,9 @@
                 "runActiveAgentTurn",
                 "runImplementationCheckpointTransition"
             ],
-            "machinery": []
+            "machinery": [
+                "runImplementationCheckpointTransition"
+            ]
         },
         "src/tools/plan-written.js": {
             "seams": [

@@ -17,7 +17,11 @@ import {
 } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
 import { listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn } from "../../shared/workflow/git-snapshot.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import {
+    type ExecutionContextCandidate,
+    type ResolvedValidationContext,
+    resolveValidationExecutionContext,
+} from "../../shared/workflow/execution-context.ts";
 import { formatCommitHeadsUp } from "./plan-presentation.ts";
 import { reportInvalidRecoveryPolicy } from "./plan-recovery-worktree.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -243,7 +247,7 @@ export async function validateCompletedExecution(
         executionCwd: worktreeContext?.path || effectiveMeta.worktreePath,
         nonGitInPlace: effectiveMeta.executionMode === "non_git_in_place",
     };
-    const buildWorkflow = (context: Record<string, unknown>): ExecutionWorkflowState => {
+    const buildWorkflow = (context: ExecutionContextCandidate | ResolvedValidationContext): ExecutionWorkflowState => {
         const workflow: ExecutionWorkflowState = {
             planName,
             triageMeta: effectiveMeta,
@@ -312,17 +316,6 @@ export async function validateCompletedExecution(
         planName,
         triageMeta: effectiveMeta,
         explicitContext,
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    latestPlan || {
-                        path: `plans/${planName}.md`,
-                        markdown: planContent,
-                        body: planContent,
-                        attrs: effectiveMeta,
-                    },
-                ),
-        },
     });
     if (resolution.kind === "blocked") {
         if (uiAPI) {

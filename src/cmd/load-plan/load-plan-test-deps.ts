@@ -32,7 +32,7 @@ import type {
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
 } from "../../shared/workflow/git-snapshot.js";
-import type { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
+import type { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import type { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import type {
     getBranchHead,
@@ -46,7 +46,6 @@ import type {
 } from "../../shared/worktree-registry.js";
 import type { autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn } from "../../shared/work-records/auto-generation.js";
 import type { PlanSessionSurface } from "./plan-session-types.ts";
-import type { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 
 /** A Plan as the catalogue lists it, with Front Matter possibly partial. */
 export interface ListedPlanSummary {
@@ -71,7 +70,6 @@ export interface LoadPlanTestDeps {
     getWorkflowDiff?: typeof getWorkflowDiffFn;
     listCommitsTouchingPathsSince?: typeof listCommitsTouchingPathsSinceFn;
     restoreWorktreeTree?: typeof restoreWorktreeTreeFn;
-    resetTuiState?: typeof resetTuiStateFn;
     getRootAgentName?: () => string | null;
     listPlans?: (cwd: string) => Promise<ListedPlanSummary[]>;
     findPlansByParent?: typeof findPlansByParentFn;
