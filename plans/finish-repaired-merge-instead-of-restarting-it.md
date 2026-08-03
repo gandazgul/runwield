@@ -58,10 +58,12 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T13:58:11-04:00"
-updatedAt: "2026-08-02T23:03:25.271Z"
-status: "in_progress"
+updatedAt: "2026-08-02T23:24:05.536Z"
+status: "validated_reviewer"
 origin: "internal"
+implementedAt: "2026-08-02T23:19:44.641Z"
 userVerifiedAt: null
+executionReport: "- Implemented durable `validationMergeRepairWorktree` Front Matter support, transactional `validation_merge_repair_worktree` persistence/clearing, publication seeding from stored existing paths, and fail-closed handling for blocked persistence.\n- Updated Plan Lifecycle clearing so spent/stale merge repair paths are cleared on `validation_passed`, implemented re-entry, and execution/recovery/review/hold reset events; documented the field and its distinction from `worktree_merge_failed`.\n- Added automated coverage: +4 tests, 0 removed/replaced; new tests cover real-Git stored repaired merge publication resume, Front Matter round-trip/clearing, and lifecycle invalidation clearing.\n- Verification passed: targeted workflow tests, objective checks OC1/OC2/OC3, `deno task test src/shared/workflow`, `deno task seams:check`, and full `deno task ci`."
 humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
@@ -70,7 +72,9 @@ worktreeId: "7cc0ed40"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-finish-repaired-merge-instead-of-restarting-it-7cc0ed40"
 worktreeBranch: "runwield/worktree/finish-repaired-merge-instead-of-restarting-it-7cc0ed40"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Finish a Repaired Merge Instead of Restarting It
