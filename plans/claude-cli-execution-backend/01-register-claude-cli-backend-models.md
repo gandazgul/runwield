@@ -229,22 +229,25 @@ Existing functions, modules, or patterns to reuse:
 ## Verification Plan
 
 - Automated focused behavior:
-  `deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts src/shared/models/model-registry.test.js src/shared/models/model-validation.test.js`
-- Automated settings/selection regression:
-  `deno run -A scripts/run-tests.js src/shared/settings.test.js src/shared/session/__tests__/agent-model-override.test.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/ui/tui/chat-session.test.js`
+  `deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts src/shared/models/model-registry.test.js src/shared/models/model-validation.test.js src/shared/session/session-runtime.test.js`
+- Automated settings/selection/onboarding regression:
+  `deno run -A scripts/run-tests.js src/shared/settings.test.js src/shared/session/__tests__/agent-model-override.test.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/ui/tui/chat-session.test.js src/ui/tui/model-welcome.test.js`
 - Automated migration/policy: `deno task check && deno task language-policy:check && deno task seams:check`
 - Full regression gate: `deno task ci`
 - Manual: none for this intermediate child. Real Claude CLI health/auth and execution are intentionally deferred to
   children 02 and 04.
-- Expected: explicit `/model claude-cli/<selector>`, completions/registry listings, and strict configured-model paths
-  recognize advertised and pass-through `claude-cli/*` references, expose Claude backend metadata, and do not ask for an
-  API key merely to retain/select the reference. The Pi-owned interactive selector remains child 05 scope.
-- Expected: attempting a turn before child 02 produces the explicit backend-not-installed error and does not instantiate
-  Pi `AgentSession` or mutate workflow state.
+- Expected: completions/selectable registry listings and strict configured-model paths recognize advertised and
+  pass-through `claude-cli/*` references and expose Claude backend metadata. Explicit `/model claude-cli/<selector>`
+  saves a deferred default, states that the current Session did not switch, and does not ask for an API key. The
+  Pi-owned interactive selector remains child 05 scope.
+- Expected: onboarding still requires a runnable model, resume retains Claude references, and attempted Claude
+  activation before child 02 produces the explicit backend-not-installed error without instantiating Pi `AgentSession`,
+  changing the active Session model/agent pair, emitting a false model-change event, or mutating workflow state.
 - Behavior protected afterwards: all current Pi-backed selection, auth, discovery, image capability, credential
   storage/migration, and settings precedence/preservation behavior remains covered.
-- Behavior expected to stop existing: `claude-cli/*` no longer fails as an unknown Pi provider/model or disappears from
-  RunWield registry/completion results; it also never falls through into Pi execution.
+- Behavior expected to stop existing: `claude-cli/*` no longer fails as an unknown Pi provider/model, disappears from
+  selectable registry/completion results, or is discarded on resume; it never appears runnable, claims API auth,
+  silently keeps a stale Pi agent under Claude state, or falls through into Pi execution.
 - Glossary: no `CONTEXT.md` update is made in this child because it does not yet implement Claude execution. The child
   02 runtime slice (or later user-facing slice) must add stable Execution Backend language when that behavior becomes
   true.
@@ -253,12 +256,16 @@ Existing functions, modules, or patterns to reuse:
 
 - `OC1` —
   `deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts`
-  — both focused files are absent on the baseline; passing requires Claude selector registration/metadata and the pre-Pi
-  execution rejection to exist as tested behavior.
+  — both focused files are absent on the baseline; passing requires Claude selector registration/metadata, deferred
+  selection persistence, transactional rollback, and the pre-Pi execution rejection to exist as tested behavior.
 - `OC2` —
   `bash -lc 'set -e; test -s src/shared/models/model-registry.ts; test -s src/shared/models/model-validation.ts; test ! -e src/shared/models/model-registry.js; test ! -e src/shared/models/model-validation.js; ! grep -qE "src/shared/models/model-(registry|validation)\.js" scripts/language-policy-baseline.json; deno task language-policy:check; deno task check'`
   — fails on the current JavaScript-only shape and proves the touched production modules, imports, baseline, and type
   graph were actually migrated rather than wrapped or aliased.
+- `OC3` —
+  `bash -lc 'set -e; grep -q "getSelectable" src/cmd/models/getArgumentCompletions.js; grep -q "isSelectable" src/cmd/resume/index.ts; deno run -A scripts/run-tests.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/shared/session/session-runtime.test.js src/ui/tui/model-welcome.test.js'`
+  — fails on the current auth-only completion/resume paths and can pass only when deferred selection integrates without
+  breaking runnable onboarding, API-auth status, resume, or transactional model reconfiguration.
 
 ## Execution Policy
 
