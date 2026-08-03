@@ -30,12 +30,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:03:40-04:00"
 updatedAt: "2026-08-03T01:26:37.061Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "workflow module split"
 planId: "d619da97-01ea-4fca-8ad6-4152b2bbbb16"
+status: "validated_reviewer"
 ---
 
 # Split Workflow Entrypoint Modules

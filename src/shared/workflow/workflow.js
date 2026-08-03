@@ -36,10 +36,14 @@ export {
 export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "./execution-collaboration.ts";
 
 /**
+ * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ */
+
+/**
  * @typedef {Object} PlanOutcomeResult
- * @property {string} outcome
+ * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {Partial<import('../../plan-store.js').PlanFrontMatter>} [triageMeta]
+ * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
  */
@@ -71,7 +75,13 @@ export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "
  * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow | null | undefined} executionContext
  * @property {string} [executionReport]
  * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
- * @property {*} [__deps]
+ * @property {{
+ *   recordPlanEvent?: typeof import('./plan-lifecycle.js').recordPlanEvent,
+ *   loadPlan?: typeof import('../../plan-store.js').loadPlan,
+ *   markActiveWorktreeStatus?: typeof import('./implementation-checkpoint.ts').markActiveWorktreeStatus,
+ *   recordWorkflowMetric?: typeof import('./metrics.js').recordWorkflowMetric,
+ *   runImplementationCheckpointTransition?: typeof import('./state-transition.ts').runImplementationCheckpointTransition,
+ * }} [__deps]
  */
 
 /**
