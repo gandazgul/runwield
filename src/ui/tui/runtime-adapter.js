@@ -37,7 +37,16 @@ function collectRuntimeDisplayImages(value) {
                 : [];
         })
         : [];
-    return [...contentImages, ...detailImages];
+    /** @type {RuntimeDisplayImage[]} */
+    const images = [];
+    const seen = new Set();
+    for (const image of [...contentImages, ...detailImages]) {
+        const key = `${image.mimeType}:${image.base64}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        images.push(image);
+    }
+    return images;
 }
 
 /**

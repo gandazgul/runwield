@@ -257,7 +257,10 @@ Deno.test("TUI adapter renders display images from read tool results", () => {
         toolName: "read",
         title: "read image.png",
         kind: "read",
-        content: [{ type: "text", text: "Read image file [image/png]" }],
+        content: [
+            { type: "text", text: "Read image file [image/png]" },
+            { type: "image", data: "abc", mimeType: "image/png" },
+        ],
         output: "Read image file [image/png]",
         details: { runwieldDisplayImages: [{ base64: "abc", mimeType: "image/png" }] },
         isError: false,

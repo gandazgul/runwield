@@ -16,7 +16,7 @@ const BINARY_DISPLAY_SUPPRESSED_DETAIL = "binary_display_suppressed";
 const binaryDisplayResults = new WeakSet();
 
 /**
- * @typedef {{ type?: string, text?: string }} ToolContentPart
+ * @typedef {{ type?: string, text?: string, data?: string, mimeType?: string }} ToolContentPart
  * @typedef {{ base64: string, mimeType: string }} DisplayImage
  * @typedef {{ content?: ToolContentPart[], details?: Record<string, unknown> }} ToolResult
  * @typedef {{ path?: string, file_path?: string }} ReadToolArgs
@@ -188,13 +188,17 @@ async function readDisplayImage(cwd, args) {
  * @param {unknown} result
  * @param {DisplayImage} image
  */
-function attachDisplayImage(result, image) {
+function attachImageContent(result, image) {
     if (typeof result !== "object" || result === null) return;
     const toolResult = /** @type {ToolResult} */ (result);
     toolResult.details = {
         ...(toolResult.details || {}),
         runwieldDisplayImages: [image],
     };
+    if (!Array.isArray(toolResult.content)) toolResult.content = [];
+    if (!resultHasImageContent(toolResult)) {
+        toolResult.content.push({ type: "image", data: image.base64, mimeType: image.mimeType });
+    }
 }
 
 /**
@@ -216,7 +220,7 @@ export function createRunWieldReadToolDefinition(cwd) {
     tool.execute = async (toolCallId, args, signal, onUpdate, context) => {
         const result = await originalExecute(toolCallId, args, signal, onUpdate, context);
         const displayImage = !resultHasImageContent(result) ? await readDisplayImage(cwd, args) : null;
-        if (displayImage) attachDisplayImage(result, displayImage);
+        if (displayImage) attachImageContent(result, displayImage);
         if (
             !displayImage && !resultHasImageContent(result) &&
             (resultLooksUnsafeForDisplay(result) || await fileLooksBinaryForDisplay(cwd, args))

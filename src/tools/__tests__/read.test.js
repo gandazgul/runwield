@@ -102,6 +102,21 @@ Deno.test("read wrapper attaches display images for at-prefixed image paths", as
     }
 });
 
+Deno.test("read wrapper exposes image files to the model when upstream returns text only", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        await Deno.writeFile(join(dir, "image.png"), imageBytes);
+
+        const tool = createRunWieldReadToolDefinition(dir);
+        const result = await executeRead(tool, { path: "@image.png" });
+
+        assertEquals(result.content.some((part) => part.type === "image"), true);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("read wrapper delegates image rendering to terminal capability handling", () => {
     const tool = createRunWieldReadToolDefinition("/tmp");
     const component = /** @type {Text} */ (tool.renderResult?.(
