@@ -307,8 +307,9 @@ For worktree-backed plans:
 12. `worktree_merge_failed` remains the separate lifecycle event for a merge failure that invalidates publication and
     returns the Plan to `implemented` with `worktreeStatus: "merge_conflict"`. That event is not used for normal
     status-preserving merge-repair continuation, because returning to `implemented` means fresh CI and review are
-    required. Any transition that returns to `implemented`, starts a new execution, resets recovery, reopens review, or
-    resets a hold to draft clears `validationMergeRepairWorktree` so stale merge trees cannot be published.
+    required. Any transition that returns to `implemented`, starts a new execution, resets recovery, reopens review,
+    resets a hold to draft, or verifies the Plan outside normal validation (`manual_user_verified`, `epic_done_enough`)
+    clears `validationMergeRepairWorktree` so stale merge trees cannot be published.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
