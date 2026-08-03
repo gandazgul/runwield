@@ -12,6 +12,7 @@ import { loadAgentDefFromPath } from "./agents.js";
 import type { AgentDefinition } from "./types.js";
 
 const SUBAGENT_DEFINITIONS_DIR = "subagent-definitions";
+const DELEGATED_ROLES_DIR = "roles";
 const DELEGATED_PROMPT_FILE = "delegated-agent-prompt.md";
 const INIT_PROMPT_FILE = "init-agent-prompt.md";
 const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
@@ -19,10 +20,15 @@ const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 const REVIEWER_VERIFY_PROMPT_FILE = "reviewer-verify-prompt.md";
 const SLICER_PROMPT_FILE = "slicer-prompt.md";
+const VERIFICATION_ADVERSARY_ROLE_FILE = "verification-adversary.md";
 
 export type ReviewerSubAgentMode = "discovery" | "verify";
 export type SubAgentDefinitionLoadMode = "barePrompt" | "fullAgent";
 export type SubAgentDefinitionId = typeof SUBAGENTS[keyof typeof SUBAGENTS];
+
+/** The most authority a delegated role may ever receive, regardless of the requested mode. */
+export type DelegatedAuthority = "read" | "write";
+export type DelegatedRoleId = "general" | "verification-adversary";
 
 type PromptFrontMatterValue = string | number | boolean | string[] | null;
 type PromptFrontMatterAttrs = Partial<Record<string, PromptFrontMatterValue>>;
@@ -41,8 +47,16 @@ export interface SubAgentDefinition {
     verifyFile?: string;
 }
 
+export interface DelegatedRoleDefinition {
+    id: DelegatedRoleId;
+    /** Overlay appended to the base delegated prompt, or null for the unspecialized default. */
+    overlayFile: string | null;
+    authorityCeiling: DelegatedAuthority;
+}
+
 export interface LoadSubAgentDefinitionOptions {
     reviewerMode?: ReviewerSubAgentMode;
+    delegatedRole?: DelegatedRoleId;
     readTextFile?: (path: string) => Promise<string>;
     ensurePromptFile?: typeof ensureBundledAgentDefFile;
     loadFromPath?: typeof loadAgentDefFromPath;
@@ -93,6 +107,31 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         file: SLICER_PROMPT_FILE,
     }),
 });
+
+export const DELEGATED_ROLE_GENERAL: DelegatedRoleId = "general";
+
+export const DELEGATED_ROLES: Readonly<Record<DelegatedRoleId, DelegatedRoleDefinition>> = Object.freeze({
+    general: Object.freeze({
+        id: "general",
+        overlayFile: null,
+        authorityCeiling: "write",
+    }),
+    "verification-adversary": Object.freeze({
+        id: "verification-adversary",
+        overlayFile: VERIFICATION_ADVERSARY_ROLE_FILE,
+        authorityCeiling: "read",
+    }),
+});
+
+export const DELEGATED_ROLE_IDS: readonly DelegatedRoleId[] = Object.freeze(
+    Object.keys(DELEGATED_ROLES) as DelegatedRoleId[],
+);
+
+/** Resolves a caller-supplied role name, returning null when the role is not registered. */
+export function getDelegatedRole(role: string | undefined | null): DelegatedRoleDefinition | null {
+    if (role === undefined || role === null || role === "") return DELEGATED_ROLES[DELEGATED_ROLE_GENERAL];
+    return Object.hasOwn(DELEGATED_ROLES, role) ? DELEGATED_ROLES[role as DelegatedRoleId] : null;
+}
 
 function delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -184,6 +223,30 @@ async function loadFullAgentDefinition(
     return await loadFromPath(promptPath, { agentName: definition.agentName });
 }
 
+/**
+ * Appends a delegated role overlay to the base delegated prompt. The base prompt stays the
+ * source of universal delegated-session rules; the overlay only adds the role-specific task.
+ */
+async function applyDelegatedRoleOverlay(
+    agentDef: AgentDefinition,
+    role: DelegatedRoleDefinition,
+    options: LoadSubAgentDefinitionOptions,
+): Promise<AgentDefinition> {
+    if (!role.overlayFile) return agentDef;
+    const readTextFile = options.readTextFile || Deno.readTextFile;
+    const ensurePromptFile = options.ensurePromptFile || ensureBundledAgentDefFile;
+    const relativePath = join(SUBAGENT_DEFINITIONS_DIR, DELEGATED_ROLES_DIR, role.overlayFile);
+    const { attrs, body } = await readBundledPromptFrontMatter(relativePath, readTextFile, ensurePromptFile);
+    const overlay = body.trim();
+    if (!overlay) throw new Error(`Delegated role overlay is empty: ${relativePath}`);
+
+    return {
+        ...agentDef,
+        displayName: typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : agentDef.displayName,
+        systemPrompt: `${agentDef.systemPrompt}\n\n${overlay}`,
+    };
+}
+
 export async function loadSubAgentDefinition(
     id: SubAgentDefinitionId,
     options: LoadSubAgentDefinitionOptions = {},
@@ -193,8 +256,18 @@ export async function loadSubAgentDefinition(
     const reviewerMode = options.reviewerMode || "discovery";
     const relativePath = subagentRelativePath(definition, reviewerMode);
 
-    if (definition.loadMode === "barePrompt") {
-        return await loadBarePromptDefinition(definition, relativePath, options);
+    if (definition.loadMode !== "barePrompt") {
+        return await loadFullAgentDefinition(definition, relativePath, options);
     }
-    return await loadFullAgentDefinition(definition, relativePath, options);
+
+    const agentDef = await loadBarePromptDefinition(definition, relativePath, options);
+    if (id !== SUBAGENTS.DELEGATED) return agentDef;
+
+    const role = getDelegatedRole(options.delegatedRole);
+    if (!role) {
+        throw new Error(
+            `Unknown delegated role: ${options.delegatedRole}. Valid roles: ${DELEGATED_ROLE_IDS.join(", ")}.`,
+        );
+    }
+    return await applyDelegatedRoleOverlay(agentDef, role, options);
 }
