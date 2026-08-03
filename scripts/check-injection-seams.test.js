@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { collectConditionalSeams, collectSeamNames } from "./check-injection-seams.js";
+import { collectConditionalSeams, collectSeamNames, isMachinerySeam } from "./check-injection-seams.js";
 
 /** @param {string[]} lines */
 function conditionalLines(...lines) {
@@ -23,6 +23,12 @@ Deno.test("collectSeamNames reads member access and destructured bags", () => {
     ]);
 });
 
+Deno.test("machinery seam patterns match wildcards in the middle of transaction names", () => {
+    assertEquals(isMachinerySeam("runImplementationCheckpointTransition"), true);
+    assertEquals(isMachinerySeam("runTransition"), true);
+    assertEquals(isMachinerySeam("runImplementationCheckpoint"), false);
+});
+
 // One line of indirection used to hide an entire bag, machinery included.
 Deno.test("collectSeamNames follows a bag aliased to a local name", () => {
     const source = [
@@ -33,6 +39,32 @@ Deno.test("collectSeamNames follows a bag aliased to a local name", () => {
     ].join("\n");
 
     assertEquals(collectSeamNames(source), ["recordPlanEvent", "requestPlanReview"]);
+});
+
+Deno.test("collectSeamNames rejects optional fallback bags renamed to ports", () => {
+    const names = collectSeamNames(`
+        export function run({ ports = {} }) {
+            const transition = ports.runPlanTransition || runPlanTransition;
+            const load = ports.loadPlan || loadPlan;
+            return transition(load);
+        }
+        export function resume(ports) {
+            return (ports?.runActiveAgentTurn || runActiveAgentTurn)();
+        }
+    `);
+
+    assertEquals(names, ["loadPlan", "runActiveAgentTurn", "runPlanTransition"]);
+});
+
+Deno.test("collectSeamNames leaves required capability ports alone", () => {
+    const names = collectSeamNames(`
+        interface LocalCIPort { run(cwd: string): Promise<number>; }
+        export function validate(localCI: LocalCIPort, cwd: string) {
+            return localCI.run(cwd);
+        }
+    `);
+
+    assertEquals(names, []);
 });
 
 Deno.test("collectConditionalSeams flags a seam gated on the bag itself", () => {

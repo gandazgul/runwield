@@ -1,42 +1,6 @@
 {
     "comment": "Injection-seam ratchet. Counts and machinery lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
-        "src/cmd/load-plan/index.js": {
-            "seams": [
-                "archivePlan",
-                "autoGenerateWorkRecordForCompletedPlan",
-                "decidePostExecution",
-                "decidePostPlanning",
-                "executePlan",
-                "finalizePlanImplementation",
-                "findPlansByParent",
-                "findWorktreeById",
-                "findWorktreeByPlanName",
-                "getBranchHead",
-                "getWorkflowDiff",
-                "getWorktreeStatus",
-                "inspectExecutionWorktreeMergeRisk",
-                "isCommitAncestorOfBranch",
-                "listCommitsTouchingPathsSince",
-                "listPlans",
-                "loadPlan",
-                "parseArgs",
-                "printCommandHelp",
-                "probeGitRepository",
-                "recordWorkflowMetric",
-                "resolvePlan",
-                "resolveSiblingChildPlanDependencies",
-                "resolveValidationExecutionContext",
-                "restoreWorktreeTree",
-                "runPlanningAgent",
-                "runSlicerAgent",
-                "runValidationLoop",
-                "setTerminalTitleForName",
-                "shouldCleanupMergedWorktrees",
-                "startInteractiveSession"
-            ],
-            "machinery": []
-        },
         "src/cmd/plans/pull.js": {
             "seams": [
                 "assertCompatiblePullSecretRecord",
@@ -129,6 +93,13 @@
             ],
             "machinery": []
         },
+        "src/shared/workflow/engineer-runner.ts": {
+            "seams": [
+                "recordWorkflowMetric",
+                "runActiveAgentTurn"
+            ],
+            "machinery": []
+        },
         "src/shared/workflow/epic-continuation.js": {
             "seams": [
                 "decidePostExecution",
@@ -142,6 +113,46 @@
             ],
             "machinery": []
         },
+        "src/shared/workflow/execution-start.ts": {
+            "seams": [
+                "captureWorktreeTree",
+                "confirmNonGitFeaturePlanExecution",
+                "ensureExecutionPlanFile",
+                "findReusableWorktree",
+                "hasNonGitExecutionConsent",
+                "loadCanonicalExecutionPlanSource",
+                "now",
+                "prepareTargetBranchRef",
+                "probeGitRepository",
+                "recordWorkflowMetric",
+                "resolveCurrentCheckoutBranch",
+                "resolveTargetBranchName"
+            ],
+            "machinery": [
+                "captureWorktreeTree",
+                "ensureExecutionPlanFile",
+                "prepareTargetBranchRef"
+            ]
+        },
+        "src/shared/workflow/plan-executor.ts": {
+            "seams": [
+                "executeSingleEngineerPlan",
+                "loadPlan",
+                "markActiveWorktreeStatus",
+                "recordWorkflowMetric",
+                "requestPlanReview",
+                "runActiveAgentTurn"
+            ],
+            "machinery": [
+                "markActiveWorktreeStatus"
+            ]
+        },
+        "src/shared/workflow/planning-agent.ts": {
+            "seams": [
+                "runActiveAgentTurn"
+            ],
+            "machinery": []
+        },
         "src/shared/workflow/workflow-slicer.js": {
             "seams": [
                 "findPlansByParent",
@@ -152,16 +163,6 @@
                 "runActiveAgentTurn",
                 "runSlicerAgent",
                 "switchActiveAgent"
-            ],
-            "machinery": []
-        },
-
-        "src/tools/plan-written.js": {
-            "seams": [
-                "cwd",
-                "recordWorkflowMetric",
-                "requestPlanReview",
-                "stat"
             ],
             "machinery": []
         }

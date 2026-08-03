@@ -110,6 +110,10 @@ const MACHINERY_SEAMS = [
     "reconcileEntryIdentity",
     "pruneEntry",
     "run*Transition",
+    "markActiveWorktreeStatus",
+    "ensureExecutionPlanFile",
+    "captureWorktreeTree",
+    "prepareTargetBranchRef",
     // Worktree *policy*, not Git. These have Git-sounding names and call Git, but each
     // one encodes a RunWield decision: mergeExecutionWorktree proves a sealed candidate
     // and enforces allowed dirty paths, preparePrimaryPlanPathForMerge refuses non-Plan
@@ -145,7 +149,7 @@ function isProductionSourcePath(relativePath) {
 }
 
 /** @param {string} name */
-function isMachinerySeam(name) {
+export function isMachinerySeam(name) {
     return MACHINERY_SEAMS.some((pattern) => {
         // `*` stands for any run of characters, wherever it appears. The previous
         // version only understood a trailing `*`, so `run*Transition` fell through to
@@ -169,6 +173,7 @@ function isMachinerySeam(name) {
  * @returns {string[]}
  */
 export function collectSeamNames(text) {
+    const scannedText = blankComments(text);
     /** @type {Set<string>} */
     const names = new Set();
     /**
@@ -182,7 +187,7 @@ export function collectSeamNames(text) {
         // inside the module specifier `"./load-plan-test-deps.ts"` and invents a seam
         // named `ts` — a filename, not something anyone injects.
         for (
-            const read of text.matchAll(
+            const read of scannedText.matchAll(
                 new RegExp(`(?<![\\w$-])${source}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)`, "g"),
             )
         ) {
@@ -191,7 +196,7 @@ export function collectSeamNames(text) {
         // Destructured reads: `const { a, b: bLocal } = bag`. The declared name is the
         // left of the colon — renaming the local binding does not rename the seam.
         for (
-            const block of text.matchAll(
+            const block of scannedText.matchAll(
                 new RegExp(`(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*${source}\\b`, "g"),
             )
         ) {
@@ -207,6 +212,7 @@ export function collectSeamNames(text) {
     collectFromBag("__Deps");
     collectFromBag("options.__deps");
     collectFromBag("options.__testDeps");
+    if (declaresOptionalFallbackPorts(scannedText)) collectFromBag("ports");
 
     // Aliased bags: `const deps = __testDeps || {}` and then either `deps.name` or
     // `const { name: nameDep } = deps`.
@@ -222,7 +228,7 @@ export function collectSeamNames(text) {
     // `const agentDef = await loadSlicerAgentDef(__deps)`, where the result is an agent
     // definition and counting `agentDef.displayName` would invent a seam nothing injects.
     for (
-        const alias of text.matchAll(
+        const alias of scannedText.matchAll(
             /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?__(?:test)?[Dd]eps\s*(?:\|\||\?\?|;)/g,
         )
     ) {
@@ -241,11 +247,24 @@ export function collectSeamNames(text) {
     // merged, all-required form a `mergeDeps` helper returns. Only files that never
     // mention one need the shape test below to tell an override bag from ordinary
     // constructor injection.
-    const declaresBag = /__(?:test)?[Dd]eps/.test(text);
-    for (const param of text.matchAll(new RegExp(DEPS_PARAMETER_SOURCE, "g"))) {
-        if (declaresBag || isOverrideBagType(text, param[2])) collectFromBag(param[1]);
+    const declaresBag = /__(?:test)?[Dd]eps/.test(scannedText);
+    for (const param of scannedText.matchAll(new RegExp(DEPS_PARAMETER_SOURCE, "g"))) {
+        if (declaresBag || isOverrideBagType(scannedText, param[2])) collectFromBag(param[1]);
     }
     return [...names].sort();
+}
+
+/**
+ * A capability port is required and exposes a real external boundary. `ports = {}`
+ * and `ports?.name || realName` are the old optional override-bag pattern under a
+ * new name: callers may selectively replace RunWield machinery while production
+ * silently falls back to the imported implementation.
+ *
+ * @param {string} text Comment-free source text.
+ * @returns {boolean}
+ */
+function declaresOptionalFallbackPorts(text) {
+    return /\bports\s*=\s*\{\}/.test(text) || /\bports\s*\?\./.test(text);
 }
 
 /**
@@ -390,7 +409,10 @@ async function collectSeams(rootUrl = SOURCE_ROOT) {
             // the literal skipped whole modules: splitting load-plan moved four seams
             // into plan-session-surface.ts, which never writes `__deps`, and they
             // stopped being counted anywhere.
-            if (!/__(?:test)?[Dd]eps/.test(text) && !DEPS_PARAMETER.test(text)) continue;
+            if (
+                !/__(?:test)?[Dd]eps/.test(text) && !DEPS_PARAMETER.test(text) &&
+                !declaresOptionalFallbackPorts(blankComments(text))
+            ) continue;
             const names = collectSeamNames(text);
             const conditionalHits = collectConditionalSeams(text);
             if (conditionalHits.length > 0) conditional[`src/${relativePath}`] = conditionalHits;
