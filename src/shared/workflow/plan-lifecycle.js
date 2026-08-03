@@ -404,6 +404,10 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         status: targetStatus,
         updatedAt: now,
     };
+    const clearsValidationMergeRepairWorktree = event === "validation_passed" || targetStatus === "implemented" ||
+        event === "execution_started" || event === "recovery_reset" || event === "recovery_continue" ||
+        event === "review_reopened" || event === "hold_reset_to_draft";
+    if (clearsValidationMergeRepairWorktree) updates.validationMergeRepairWorktree = null;
 
     if (
         targetStatus === "implemented" && event !== "mechanical_validation_failed" &&

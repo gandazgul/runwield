@@ -395,6 +395,7 @@ const OPERATION_DESCRIPTIONS: Record<string, string> = {
     epic_decomposition_finalize: "writing this Epic's child Plans",
     plan_review_write: "saving the Plan review decision",
     review_reopened: "reopening this Plan for review",
+    validation_merge_repair_worktree: "saving the merge repair worktree for publication retry",
 };
 
 function describeOperation(operation: unknown): string {

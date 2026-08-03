@@ -298,11 +298,17 @@ For worktree-backed plans:
     `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
     post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
     `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
-11. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
-    `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
-    execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
-    left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
-    continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
+11. If Direct Delivery creates a detached merge worktree and the conflict can be repaired without changing the already
+    approved implementation, RunWield records `validationMergeRepairWorktree` in Front Matter while the Plan remains
+    `validated_reviewer`. A later Workflow Validation call first verifies that stored path still exists and then asks
+    publication to finish that repaired merge worktree, rather than starting the same merge from scratch. Successful
+    publication spends the path and clears the field through `validation_passed`; if the path is missing, RunWield
+    clears it and attempts a fresh merge.
+12. `worktree_merge_failed` remains the separate lifecycle event for a merge failure that invalidates publication and
+    returns the Plan to `implemented` with `worktreeStatus: "merge_conflict"`. That event is not used for normal
+    status-preserving merge-repair continuation, because returning to `implemented` means fresh CI and review are
+    required. Any transition that returns to `implemented`, starts a new execution, resets recovery, reopens review, or
+    resets a hold to draft clears `validationMergeRepairWorktree` so stale merge trees cannot be published.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not

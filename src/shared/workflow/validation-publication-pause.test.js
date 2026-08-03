@@ -8,9 +8,10 @@
  */
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadPlan, savePlan } from "../../plan-store.js";
-import { removeWorktreeGitArtifacts } from "../worktree.js";
+import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { mergeExecutionWorktree, removeWorktreeGitArtifacts } from "../worktree.js";
 import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.js";
+import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { runValidationLoop } from "./validation.ts";
 import { attachRecorder, makeUi } from "./validation-test-helpers.js";
 import { HostedSession } from "../session/hosted-session.js";
@@ -109,6 +110,111 @@ function runPublication(projectRoot, hostedSession) {
         }),
     );
 }
+
+Deno.test("resumes publication from stored repaired merge worktree", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    let worktree;
+    try {
+        await Deno.writeTextFile(`${projectRoot}/shared.txt`, "base\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "shared"]);
+        await savePlan(
+            projectRoot,
+            PLAN_NAME,
+            `# ${PLAN_NAME}\n\nrepaired merge resume fixture\n`,
+            /** @type {any} */ ({ ...TRIAGE, summary: "repaired merge resume fixture", affectedPaths: [] }),
+        );
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: PLAN_NAME, worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/shared.txt`, "from the agent\n");
+        await git(worktree.path, ["add", "shared.txt"]);
+        await git(worktree.path, ["commit", "-m", "agent changes shared"]);
+        const executionCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+
+        await Deno.writeTextFile(`${projectRoot}/shared.txt`, "from the target\n");
+        await git(projectRoot, ["add", "shared.txt"]);
+        await git(projectRoot, ["commit", "-m", "target changes shared"]);
+        const targetHeadBeforeMerge = await git(projectRoot, ["rev-parse", "main"]);
+        await git(projectRoot, ["checkout", "-b", "workspace"]);
+
+        const staging = await stageValidationPassedInExecutionWorktree({
+            projectRoot,
+            executionCwd: worktree.path,
+            planName: PLAN_NAME,
+            details: {
+                executionMode: "worktree",
+                deliveryEvidence: {
+                    version: 1,
+                    mode: "worktree_merge",
+                    executionCommit,
+                    targetBranch: "main",
+                    targetHeadBeforeMerge,
+                },
+                worktreeStatus: "merged",
+                cleanupMergedWorktrees: true,
+                humanReviewMode: "none",
+                humanReviewDecision: "not_required",
+                humanReviewedAt: null,
+            },
+        });
+
+        let repairWorktreePath = "";
+        try {
+            await mergeExecutionWorktree({
+                projectRoot,
+                branch: worktree.branch,
+                targetBranch: "main",
+                worktreePath: worktree.path,
+                expectedTargetHead: targetHeadBeforeMerge,
+                planName: PLAN_NAME,
+                planDescription: "repaired merge resume fixture",
+                sealedExecutionCommit: executionCommit,
+                allowedDirtyPaths: staging.planPaths,
+                preservePlanPaths: staging.planPaths,
+            });
+        } catch (error) {
+            if (error && typeof error === "object" && "mergeWorktreePath" in error) {
+                const path = error.mergeWorktreePath;
+                repairWorktreePath = typeof path === "string" ? path : "";
+            }
+        }
+        assert(repairWorktreePath, "fixture must create a detached merge worktree conflict");
+        await Deno.writeTextFile(`${repairWorktreePath}/shared.txt`, "repaired result\n");
+        await git(repairWorktreePath, ["add", "shared.txt"]);
+        await git(repairWorktreePath, ["-c", "core.editor=true", "merge", "--continue"]);
+        const planBeforeResume = await loadPlan(projectRoot, PLAN_NAME);
+        await updatePlanFrontMatter(
+            projectRoot,
+            PLAN_NAME,
+            {
+                executionMode: "worktree",
+                worktreeId: worktree.id,
+                worktreePath: worktree.path,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: "main",
+                worktreeStatus: "completed",
+                validationMergeRepairWorktree: repairWorktreePath,
+            },
+            planBeforeResume?.attrs,
+            { expectedRevision: planBeforeResume?.revision },
+        );
+
+        const { hostedSession } = makeSession(projectRoot, worktree, () => "stop");
+        const result = await runPublication(projectRoot, hostedSession);
+
+        assertEquals(result.kind, "verified");
+        assertEquals(await git(projectRoot, ["show", "main:shared.txt"]), "repaired result");
+        const publishedPlan = await git(projectRoot, ["show", `main:plans/${PLAN_NAME}.md`]);
+        assertStringIncludes(publishedPlan, 'status: "verified"');
+        assert(!publishedPlan.includes("validationMergeRepairWorktree"));
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
 
 Deno.test("publication pauses instead of halting when the user's own edits block the merge", async () => {
     const { projectRoot, worktree, cleanup } = await makeConflictedPublication();

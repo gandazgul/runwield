@@ -1115,12 +1115,9 @@ async function runPublicationPhase(
     const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(context.projectRoot);
     const gitPort = args.git || createGitPort();
     const planPath = `plans/${args.planName}.md`;
-    // Held for this call only, deliberately. When a merge conflict is repaired in a
-    // detached merge worktree, publishing means finishing *that* tree — starting a
-    // fresh merge walks straight back into the same conflict. Completion is the goal,
-    // not durability: the retry happens right here, a few lines down, so the path has
-    // nowhere to get lost between the repair and the publish.
-    let repairMergeWorktreePath: string | undefined;
+    const storedRepairWorktree = await resolveStoredValidationMergeRepairWorktree(args, context);
+    if (storedRepairWorktree.kind === "blocked") return storedRepairWorktree.outcome;
+    let repairMergeWorktreePath = storedRepairWorktree.path;
     let agentRepairs = 0;
     // Captured once, as plain strings: the guards above narrowed both, but TypeScript
     // drops that narrowing inside the hoisted helpers below.
@@ -1139,7 +1136,12 @@ async function runPublicationPhase(
             await runPostVerificationHandoffs(args, context.projectRoot);
             return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
         }
-        repairMergeWorktreePath = getMergeWorktreePath(error) || repairMergeWorktreePath;
+        const nextRepairMergeWorktreePath = getMergeWorktreePath(error);
+        if (nextRepairMergeWorktreePath) {
+            const persisted = await persistValidationMergeRepairWorktree(args, context, nextRepairMergeWorktreePath);
+            if (persisted.kind === "blocked") return persisted.outcome;
+            repairMergeWorktreePath = nextRepairMergeWorktreePath;
+        }
         const failureKind = getMergeFailureKind(error);
 
         // A merge conflict is normal and fixable, so try the Agent first and retry
@@ -1806,6 +1808,60 @@ function getMergeWorktreePath(error: unknown): string | undefined {
         return typeof path === "string" ? path : undefined;
     }
     return undefined;
+}
+
+type ValidationMergeRepairWorktreeResolution =
+    | { kind: "ready"; path?: string }
+    | { kind: "blocked"; outcome: PublicationOutcome };
+
+async function resolveStoredValidationMergeRepairWorktree(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+): Promise<ValidationMergeRepairWorktreeResolution> {
+    const path = readValidationMergeRepairWorktree(args.triageMeta);
+    if (!path) return { kind: "ready" };
+    if (await filesystemPathExists(path)) return { kind: "ready", path };
+    const cleared = await persistValidationMergeRepairWorktree(args, context, null);
+    if (cleared.kind === "blocked") return cleared;
+    return { kind: "ready" };
+}
+
+function readValidationMergeRepairWorktree(triageMeta: TriageMeta): string | undefined {
+    const path = triageMeta.validationMergeRepairWorktree;
+    return typeof path === "string" && path ? path : undefined;
+}
+
+async function filesystemPathExists(path: string): Promise<boolean> {
+    try {
+        await Deno.stat(path);
+        return true;
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    }
+}
+
+async function persistValidationMergeRepairWorktree(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    path: string | null,
+): Promise<{ kind: "committed" } | { kind: "blocked"; outcome: PublicationOutcome }> {
+    const transition = await runPlanFrontMatterTransition({
+        projectRoot: context.projectRoot,
+        planName: args.planName,
+        operation: "validation_merge_repair_worktree",
+        updates: { validationMergeRepairWorktree: path },
+        recoveryAttrs: args.triageMeta,
+    });
+    if (transition.status === "committed") return { kind: "committed" };
+    const reason = transition.message || `Could not save merge repair worktree state for ${args.planName}.`;
+    return {
+        kind: "blocked",
+        outcome: {
+            recorded: false,
+            result: { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason },
+        },
+    };
 }
 
 function getBlockingPaths(error: unknown): string[] {
