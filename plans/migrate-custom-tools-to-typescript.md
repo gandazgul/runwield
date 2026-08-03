@@ -48,25 +48,25 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:17:36-04:00"
-updatedAt: "2026-08-03T19:29:37.992Z"
+updatedAt: "2026-08-03T20:33:07.237Z"
 status: "validated_reviewer"
 origin: "internal"
 implementedAt: "2026-08-03T18:54:18.626Z"
 userVerifiedAt: null
 executionReport: "- Migrated the eight direct Custom Tool implementations to non-empty `.ts` modules and removed their `.js` implementations: `delegate-agent`, `multi_file_edit`, `pair-checkpoint`, `review-complete`, `see-image`, `task-completed`, `triage-report`, and `user-interview`.\n- Updated live imports/type references and `scripts/language-policy-baseline.json`; remaining `.js` references are historical `src/plan-store.test.js` fixture strings only.\n- Preserved focused behavior coverage; no tests were deleted or replaced, only import specifiers were updated.\n- Verification passed: OC1 shape check; `deno task check`; `deno task language-policy:check`; OC2 direct tool suite (`84 passed`); focused suite excluding the plan-listed missing `src/shared/workflow/agent-runners.integration.test.ts` (`118 passed`).\n- Verification failed: `deno task seams:check` and therefore `deno task ci` fail on existing injection-seam regressions in `engineer-runner.ts`, `epic-continuation.ts`, `execution-start.ts`, `plan-executor.ts`, and `planning-agent.ts`; `deno task seams:update` also refused to loosen the baseline."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "changes_requested"
 executionMode: "worktree"
 executionBaselineTree: "ce4d79b34323cb4d1980d9425fc6e1873241096a"
 worktreeId: "5e0a6298"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-migrate-custom-tools-to-typescript-5e0a6298"
 worktreeBranch: "runwield/worktree/migrate-custom-tools-to-typescript-5e0a6298"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+worktreeStatus: "validation_failed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "custom tools TypeScript"
 validationCiAttempts: 0
-validationSemanticRounds: 2
+validationSemanticRounds: 0
 ---
 
 # Migrate Direct Custom Tools to TypeScript
