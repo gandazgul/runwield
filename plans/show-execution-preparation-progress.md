@@ -56,11 +56,11 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:34:25-04:00"
-updatedAt: "2026-08-03T13:40:18.591Z"
+updatedAt: "2026-08-03T13:49:36.891Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T02:14:12.634Z"
-verifiedAt: "2026-08-03T13:40:18.591Z"
+verifiedAt: "2026-08-03T13:49:36.891Z"
 userVerifiedAt: null
 executionReport: "- Implemented execution-preparation progress: added typed `execution-preparation-progress.ts` helpers and wired `workflow.js` to emit truthful RunWield system statuses for fresh worktree creation, reused worktrees, non-Git in-place execution, Objective-Failing Check baseline runs, Plan materialization/restoration/reconciliation, Plan status update, and Engineer/Frontend Engineer launch.\n- Fixed Approve & Run busy feedback: `runtime-interaction-adapter.js` now restores the TUI busy spinner only after approved `run` Plan Reviews, avoiding stuck-busy behavior for approve-for-later flows.\n- Added/updated tests with test-count delta +5: new `execution-progress.test.ts` has 4 new behavior tests; `session-runtime.test.js` adds 1 busy workflow-operation test; existing `runtime-interaction-adapter.test.js` and `load-plan-execution.test.js` were rewritten/strengthened for the new behavior, with no tests removed.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/execution-progress.test.ts`; targeted suite for runtime interaction/session/load-plan; all three Objective-Failing Checks; `deno task test` passed on retry after an initial transient npm node_modules lock-message failure in `src/cmd/help/index.test.ts` was rerun cleanly; `deno task seams:check` passed.\n- Manual TUI checks from the Verification Plan were not performed because this API session is non-interactive/no live TUI; automated coverage exercises the corresponding status and busy-state flows."
 humanReviewMode: "ask"
@@ -69,9 +69,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "9da27ac4761510aa5325d30613711206dbe8d9de"
+    executionCommit: "3b2c7cc810e091ac85a522072613a54b92ab95fa"
     targetBranch: "main"
-    targetHeadBeforeMerge: "301270f758a411422b1d399324c2968dec8c2382"
+    targetHeadBeforeMerge: "c519861de4e38eed08562d0ea85f6d9a2dddf1cb"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "plan execution progress"
 validationCiAttempts: 0
