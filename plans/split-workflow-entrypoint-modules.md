@@ -1,4 +1,5 @@
 ---
+planId: "d619da97-01ea-4fca-8ad6-4152b2bbbb16"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "MEDIUM"
@@ -26,16 +27,61 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q 'execution-start.ts' src/shared/workflow/workflow.js && grep -q 'plan-executor.ts' src/shared/workflow/workflow.js && grep -q 'implementation-checkpoint.ts' src/shared/workflow/workflow.js"
       rationale: "This proves workflow.js remains the entry point by delegating to the new execution modules rather than being removed or left disconnected from the split."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-03T01:26:46.840Z"
+    head: "fb8a7a193c08031135de9ed39fc629284106692f"
+    results:
+        - id: "OC1"
+          command: "test \"$(wc -l < src/shared/workflow/workflow.js)\" -lt 1000"
+          rationale: "The request specifically requires workflow.js to stop being the large monolithic file; this fails on the current 1754-line entry point and passes only after it is reduced below the requested ceiling."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 11
+          output: "\n"
+        - id: "OC2"
+          command: "for f in src/shared/workflow/workflow.js src/shared/workflow/execution-collaboration.ts src/shared/workflow/objective-checks-baseline.ts src/shared/workflow/planning-agent.ts src/shared/workflow/implementation-checkpoint.ts src/shared/workflow/plan-executor.ts src/shared/workflow/engineer-runner.ts src/shared/workflow/execution-start.ts; do test -f \"$f\" && test \"$(wc -l < \"$f\")\" -lt 1000 || exit 1; done"
+          rationale: "This can only pass when the planned cohesive split files exist and every file produced by the split is under 1000 lines."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 7
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q 'execution-start.ts' src/shared/workflow/workflow.js && grep -q 'plan-executor.ts' src/shared/workflow/workflow.js && grep -q 'implementation-checkpoint.ts' src/shared/workflow/workflow.js"
+          rationale: "This proves workflow.js remains the entry point by delegating to the new execution modules rather than being removed or left disconnected from the split."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 9
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:03:40-04:00"
-updatedAt: "2026-08-03T01:26:37.061Z"
+updatedAt: "2026-08-03T02:04:46.940Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-03T01:36:47.299Z"
+verifiedAt: "2026-08-03T02:04:46.940Z"
 userVerifiedAt: null
+executionReport: "- Split `src/shared/workflow/workflow.js` into facade entry point plus cohesive modules: `execution-collaboration.ts`, `objective-checks-baseline.ts`, `planning-agent.ts`, `implementation-checkpoint.ts`, `plan-executor.ts`, `engineer-runner.ts`, and `execution-start.ts`; all split files are under 1000 lines (`workflow.js` now 143 lines, largest new module 602 lines).\n- Preserved public `workflow.js` exports and JSDoc typedef compatibility; existing callers/tests still import via `./workflow.js`.\n- Updated lifecycle architecture boundary coverage for the new execution orchestration modules and tightened the seam ratchet by removing the old `workflow.js` seam baseline entry; no new production JS files were added.\n- Test file change accounting: touched `workflow.test.js` only to add an explained `@ts-nocheck` directive for the facade-to-TS extraction; no tests were removed/replaced/added, so test-count delta is 0.\n- Objective checks passed: OC1, OC2, and OC3 all exited 0.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, targeted `deno run -A scripts/run-tests.js ...` (92 passed, 0 failed), `deno task lint`, and full `deno task ci` (235 files passed, 0 failed)."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-03T02:04:45.564Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "c86258678377579e19d5dc792e5e1abfe32bd53d"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "60dd6f8ac908acbaa4de83c63166db00df3e6e47"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "workflow module split"
-planId: "d619da97-01ea-4fca-8ad6-4152b2bbbb16"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Split Workflow Entrypoint Modules
