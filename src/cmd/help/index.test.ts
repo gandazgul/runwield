@@ -32,6 +32,11 @@ async function runHelpChild(argv: string[]): Promise<Deno.CommandOutput> {
     }
 }
 
+function decodeCommandStderr(output: Uint8Array): string {
+    const denoLockNotice = "\u001b[0m\u001b[36mBlocking\u001b[0m waiting for file lock on node_modules directory";
+    return decoder.decode(output).split("\n").filter((line) => line !== denoLockNotice).join("\n");
+}
+
 async function captureLogs(run: () => void | Promise<void>): Promise<string[]> {
     const logs: string[] = [];
     const original = console.log;
@@ -78,7 +83,7 @@ Deno.test("unknown CLI help exits the isolated process with status one", async (
     const result = await runHelpChild(["does-not-exist"]);
 
     assertEquals(result.code, 1);
-    assertStringIncludes(decoder.decode(result.stderr), "Unknown command for help: does-not-exist");
+    assertStringIncludes(decodeCommandStderr(result.stderr), "Unknown command for help: does-not-exist");
     assertEquals(decoder.decode(result.stdout), "\n");
 });
 
@@ -87,5 +92,5 @@ Deno.test("help flags use real argument parsing in an isolated project", async (
 
     assertEquals(result.code, 0);
     assertStringIncludes(decoder.decode(result.stdout), "RunWield — Plan-by-Default Coding Harness");
-    assertEquals(decoder.decode(result.stderr), "");
+    assertEquals(decodeCommandStderr(result.stderr), "");
 });

@@ -26,12 +26,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"
 updatedAt: "2026-08-03T18:19:46.593Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
 planId: "7989da8c-27e5-464a-8764-3dbdba75e7b7"
+status: "validated_reviewer"
 ---
 
 # Split Plan Recovery Flow

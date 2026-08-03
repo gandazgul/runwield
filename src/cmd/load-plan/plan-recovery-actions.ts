@@ -1,4 +1,4 @@
-import { findPlansByParent as findPlansByParentFn } from "../../plan-store.js";
+import { findPlansByParent, loadPlan } from "../../plan-store.js";
 import {
     closeTransitionRecordByAttestation,
     getTransitionJournalDir,
@@ -14,6 +14,19 @@ import {
     reopenPlanForReview,
 } from "./plan-recovery-worktree.ts";
 import { executeReadyPlanWithRepair, validateCompletedExecution } from "./plan-execution.ts";
+import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
+import { getWorkflowDiff, listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
+import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
+import { deleteMergedWorktreeBranch, getWorktreeStatus, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
+import {
+    findById as findWorktreeById,
+    findByPlanName as findWorktreeByPlanName,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../../shared/worktree-registry.js";
+import { updatePlanFrontMatter } from "../../plan-store.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import { transitionFailureError } from "./transition-failure.ts";
@@ -21,11 +34,15 @@ import { transitionFailureError } from "./transition-failure.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext } from "./plan-session-types.ts";
-import type { HandlePlanRecoveryOptions, RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recovery-flow.ts";
+import type { RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recovery-flow.ts";
 
 export type RecoveryActionOutcome = { kind: "menu" } | { kind: "handled" } | { kind: "review" };
 export type RecoveryMetricDetailValue = string | number | boolean | null | undefined;
 export type RecoveryMetricDetails = Record<string, RecoveryMetricDetailValue>;
+
+interface RecoveryPlanTransitionValue {
+    value?: PlanFrontMatter;
+}
 
 export interface RecoveryActionContext {
     projectRoot: string;
@@ -51,11 +68,6 @@ export type RecoveryActionName =
     | "review"
     | "reset"
     | "merge";
-
-interface CommonActionCapabilities {
-    recordPlanEvent: HandlePlanRecoveryOptions["recordPlanEvent"];
-    findPlansByParent: typeof findPlansByParentFn;
-}
 
 export async function settleRecoveryRecords(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
@@ -113,56 +125,39 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
     return { kind: "menu" };
 }
 
-export async function holdRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: CommonActionCapabilities,
-): Promise<RecoveryActionOutcome> {
+export async function holdRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     await putPlanOnHold({
         projectRoot: context.projectRoot,
         plan: context.plan,
         uiAPI: context.uiAPI,
-        recordPlanEvent: capabilities.recordPlanEvent,
-        findPlansByParent: capabilities.findPlansByParent,
+        recordPlanEvent,
+        findPlansByParent,
     });
     await context.recordRecoveryResult("hold", "handled");
     return { kind: "handled" };
 }
 
-export async function userVerifyRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: {
-        recordPlanEvent: HandlePlanRecoveryOptions["recordPlanEvent"];
-        autoGenerateWorkRecordForCompletedPlan: NonNullable<
-            HandlePlanRecoveryOptions["autoGenerateWorkRecordForCompletedPlan"]
-        >;
-    },
-): Promise<RecoveryActionOutcome> {
+export async function userVerifyRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     await markPlanUserVerified({
         projectRoot: context.projectRoot,
         plan: context.plan,
         uiAPI: context.uiAPI,
-        recordPlanEvent: capabilities.recordPlanEvent,
-        autoGenerateWorkRecordForCompletedPlan: capabilities.autoGenerateWorkRecordForCompletedPlan,
+        recordPlanEvent,
+        autoGenerateWorkRecordForCompletedPlan,
     });
     await context.recordRecoveryResult("user_verify", "handled");
     return { kind: "handled" };
 }
 
-export async function inspectRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: {
-        getWorkflowDiff: HandlePlanRecoveryOptions["getWorkflowDiff"];
-        getWorktreeStatus: HandlePlanRecoveryOptions["getWorktreeStatus"];
-    },
-): Promise<RecoveryActionOutcome> {
+export async function inspectRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     context.worktreeContext = await context.refreshRecoveryWorktree();
     await appendRecoveryReport(
         context.projectRoot,
         context.plan,
         context.uiAPI,
-        capabilities.getWorkflowDiff,
+        getWorkflowDiff,
         context.worktreeContext,
-        capabilities.getWorktreeStatus,
+        getWorktreeStatus,
     );
     await context.recordRecoveryResult("inspect", "reported", {
         hasWorktree: hasWorktreeContext(context.worktreeContext),
@@ -170,18 +165,7 @@ export async function inspectRecoveryPlan(
     return { kind: "menu" };
 }
 
-export async function validateRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: Pick<
-        HandlePlanRecoveryOptions,
-        | "getWorktreeStatus"
-        | "runValidationLoop"
-        | "loadPlan"
-        | "finalizePlanImplementation"
-        | "recordPlanEvent"
-        | "resolveValidationExecutionContextForRecovery"
-    >,
-): Promise<RecoveryActionOutcome> {
+export async function validateRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     context.worktreeContext = await context.refreshRecoveryWorktree();
     if (
         !(await confirmRecoveryWorktreeAvailable(
@@ -189,7 +173,7 @@ export async function validateRecoveryPlan(
             context.plan.planName,
             context.worktreeContext,
             context.uiAPI,
-            capabilities.getWorktreeStatus,
+            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };
@@ -199,14 +183,14 @@ export async function validateRecoveryPlan(
         context.plan.planName,
         context.plan.markdown || context.plan.body || "",
         context.plan.attrs,
-        capabilities.runValidationLoop,
-        capabilities.loadPlan,
+        context.session.runValidation,
+        loadPlan,
         context.worktreeContext,
         context.session,
         context.uiAPI,
-        capabilities.finalizePlanImplementation,
-        capabilities.recordPlanEvent,
-        capabilities.resolveValidationExecutionContextForRecovery,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContext,
     );
     if (!validationStarted) {
         await context.recordRecoveryResult("validate", "blocked", { reason: "invalid_execution_policy" });
@@ -216,23 +200,7 @@ export async function validateRecoveryPlan(
     return { kind: "handled" };
 }
 
-export async function continueRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: Pick<
-        HandlePlanRecoveryOptions,
-        | "getWorktreeStatus"
-        | "executePlan"
-        | "runPlanningAgent"
-        | "decidePostPlanning"
-        | "decidePostExecution"
-        | "runValidationLoop"
-        | "loadPlan"
-        | "listCommitsTouchingPathsSince"
-        | "finalizePlanImplementation"
-        | "recordPlanEvent"
-        | "resolveValidationExecutionContextForRecovery"
-    >,
-): Promise<RecoveryActionOutcome> {
+export async function continueRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     context.worktreeContext = await context.refreshRecoveryWorktree();
     if (
         context.plan.attrs.executionMode !== "non_git_in_place" &&
@@ -241,7 +209,7 @@ export async function continueRecoveryPlan(
             context.plan.planName,
             context.worktreeContext,
             context.uiAPI,
-            capabilities.getWorktreeStatus,
+            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };
@@ -259,7 +227,7 @@ export async function continueRecoveryPlan(
         await context.recordRecoveryResult("continue", "blocked", { reason: "invalid_execution_policy" });
         return { kind: "menu" };
     }
-    await capabilities.recordPlanEvent({
+    await recordPlanEvent({
         cwd: context.projectRoot,
         planName: context.plan.planName,
         event: "recovery_continue",
@@ -272,31 +240,23 @@ export async function continueRecoveryPlan(
         plan: context.plan,
         agentName: context.agentName,
         uiAPI: context.uiAPI,
-        executePlan: capabilities.executePlan,
-        runPlanningAgent: capabilities.runPlanningAgent,
-        decidePostPlanning: capabilities.decidePostPlanning,
-        decidePostExecution: capabilities.decidePostExecution,
-        runValidationLoop: capabilities.runValidationLoop,
-        loadPlan: capabilities.loadPlan,
-        listCommitsTouchingPathsSince: capabilities.listCommitsTouchingPathsSince,
+        executePlan: context.session.executePlan,
+        runPlanningAgent: context.session.runPlanningAgent,
+        decidePostPlanning,
+        decidePostExecution,
+        runValidationLoop: context.session.runValidation,
+        loadPlan,
+        listCommitsTouchingPathsSince,
         session: context.session,
-        finalizePlanImplementation: capabilities.finalizePlanImplementation,
-        recordPlanEvent: capabilities.recordPlanEvent,
-        resolveValidationExecutionContextForRecovery: capabilities.resolveValidationExecutionContextForRecovery,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery: resolveValidationExecutionContext,
     });
     await context.recordRecoveryResult("continue", "handled");
     return { kind: "handled" };
 }
 
-export async function abandonRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities:
-        & Pick<
-            HandlePlanRecoveryOptions,
-            "updateWorktreeRegistryEntry" | "updatePlanFrontMatter" | "removeWorktreeGitArtifacts"
-        >
-        & { deleteMergedWorktreeBranch: typeof import("../../shared/worktree.js").deleteMergedWorktreeBranch },
-): Promise<RecoveryActionOutcome> {
+export async function abandonRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
     if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/abandon"))) {
         return { kind: "menu" };
@@ -313,13 +273,13 @@ export async function abandonRecoveryPlan(
         recover: async ({ beforePlan }) => {
             if (context.worktreeContext?.path) {
                 try {
-                    await capabilities.removeWorktreeGitArtifacts({
+                    await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: context.worktreeContext.path,
                         force: true,
                     });
                     if (context.worktreeContext.branch) {
-                        await capabilities.deleteMergedWorktreeBranch({
+                        await deleteMergedWorktreeBranch({
                             projectRoot,
                             branch: context.worktreeContext.branch,
                         });
@@ -339,11 +299,11 @@ export async function abandonRecoveryPlan(
                 }
             }
             if (context.worktreeContext?.id) {
-                await capabilities.updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
+                await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
                     status: "abandoned",
                 });
             }
-            return await capabilities.updatePlanFrontMatter(
+            return await updatePlanFrontMatter(
                 projectRoot,
                 plan.planName,
                 { worktreeStatus: "abandoned", worktreeId: null, worktreePath: null, worktreeBranch: null },
@@ -355,7 +315,7 @@ export async function abandonRecoveryPlan(
     if (transition.status !== "committed") {
         throw transitionFailureError(transition, `Recovery abandon transaction failed for ${plan.planName}.`);
     }
-    const transitionValue = (transition.value || {}) as { value?: PlanFrontMatter };
+    const transitionValue = (transition.value || {}) as RecoveryPlanTransitionValue;
     plan.attrs = transitionValue.value as PlanFrontMatter;
     context.worktreeContext = null;
     uiAPI.appendSystemMessage(
@@ -369,27 +329,17 @@ export async function abandonRecoveryPlan(
     return { kind: "menu" };
 }
 
-export async function reviewRecoveryPlan(
-    context: RecoveryActionContext,
-    capabilities: Pick<
-        HandlePlanRecoveryOptions,
-        | "findWorktreeById"
-        | "findWorktreeByPlanName"
-        | "updateWorktreeRegistryEntry"
-        | "updatePlanFrontMatter"
-        | "recordPlanEvent"
-    >,
-): Promise<RecoveryActionOutcome> {
+export async function reviewRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     await reopenPlanForReview({
         projectRoot: context.projectRoot,
         plan: context.plan,
         currentStatus: context.plan.attrs.status,
         worktreeContext: context.worktreeContext,
-        findWorktreeById: capabilities.findWorktreeById,
-        findWorktreeByPlanName: capabilities.findWorktreeByPlanName,
-        updateWorktreeRegistryEntry: capabilities.updateWorktreeRegistryEntry,
-        updatePlanFrontMatter: capabilities.updatePlanFrontMatter,
-        recordPlanEvent: capabilities.recordPlanEvent,
+        findWorktreeById,
+        findWorktreeByPlanName,
+        updateWorktreeRegistryEntry,
+        updatePlanFrontMatter,
+        recordPlanEvent,
         session: context.session,
     });
     await context.recordRecoveryResult("review", "review");

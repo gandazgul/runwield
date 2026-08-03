@@ -3,50 +3,13 @@
  * The Plan Recovery menu coordinator for in-progress, failed, and implemented Plans.
  */
 
-import {
-    findPlansByParent as findPlansByParentFn,
-    loadPlan as loadPlanFn,
-    resolvePlanExecutionPolicy,
-    updatePlanFrontMatter as updatePlanFrontMatterFn,
-} from "../../plan-store.js";
+import { resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { probeGitRepository as probeGitRepositoryFn } from "../../shared/git.js";
-import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
-import {
-    isInValidation,
-    recordPlanEvent as recordPlanEventFn,
-    stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
-} from "../../shared/workflow/plan-lifecycle.js";
-import {
-    decidePostExecution as decidePostExecutionFn,
-    decidePostPlanning as decidePostPlanningFn,
-} from "../../shared/workflow/decisions.js";
-import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
-import {
-    getWorkflowDiff as getWorkflowDiffFn,
-    listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
-    restoreWorktreeTree as restoreWorktreeTreeFn,
-} from "../../shared/workflow/git-snapshot.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
-import { autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn } from "../../shared/work-records/auto-generation.js";
-import {
-    checkpointExecutionWorktree,
-    createWorktreeGitArtifacts,
-    deleteMergedWorktreeBranch,
-    getBranchHead,
-    getWorktreeStatus as getWorktreeStatusFn,
-    isCommitAncestorOfBranch,
-    mergeExecutionWorktree as mergeExecutionWorktreeFn,
-    preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
-    removeWorktreeGitArtifacts as removeWorktreeGitArtifactsFn,
-    restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
-    settleWorktreeAttempt,
-} from "../../shared/worktree.js";
 import {
     findById as findWorktreeByIdFn,
     findByPlanName as findWorktreeByPlanNameFn,
-    removeEntry as removeWorktreeRegistryEntryFn,
-    updateEntry as updateWorktreeRegistryEntryFn,
 } from "../../shared/worktree-registry.js";
 import {
     canManuallyMergeRecoveredWorktree,
@@ -99,40 +62,9 @@ export interface HandlePlanRecoveryOptions {
     agentName: string;
     uiAPI: UiAPI;
     unresolvedRecords?: UnresolvedTransitionRecord[];
-    executePlan: PlanSessionSurface["executePlan"];
-    runPlanningAgent: PlanSessionSurface["runPlanningAgent"];
-    decidePostPlanning: typeof decidePostPlanningFn;
-    decidePostExecution: typeof decidePostExecutionFn;
-    runValidationLoop: PlanSessionSurface["runValidation"];
-    loadPlan: typeof loadPlanFn;
-    getWorkflowDiff: typeof getWorkflowDiffFn;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
-    restoreWorktreeTree: typeof restoreWorktreeTreeFn;
-    recordPlanEvent: typeof recordPlanEventFn;
-    stageValidationPassedInExecutionWorktree: typeof stageValidationPassedInExecutionWorktreeFn;
-    updatePlanFrontMatter: typeof updatePlanFrontMatterFn;
-    findWorktreeById: typeof findWorktreeByIdFn;
-    findWorktreeByPlanName: typeof findWorktreeByPlanNameFn;
-    updateWorktreeRegistryEntry: typeof updateWorktreeRegistryEntryFn;
-    getWorktreeStatus: typeof getWorktreeStatusFn;
-    createWorktreeGitArtifacts: typeof createWorktreeGitArtifacts;
-    settleWorktreeAttempt: typeof settleWorktreeAttempt;
-    mergeExecutionWorktree: typeof mergeExecutionWorktreeFn;
-    checkpointExecutionWorktree: typeof checkpointExecutionWorktree;
-    getBranchHead: typeof getBranchHead;
-    isCommitAncestorOfBranch: typeof isCommitAncestorOfBranch;
-    preparePrimaryPlanPathForMerge: typeof preparePrimaryPlanPathForMergeFn;
-    restorePrimaryPlanPathAfterMergeFailure: typeof restorePrimaryPlanPathAfterMergeFailureFn;
-    removeWorktreeGitArtifacts: typeof removeWorktreeGitArtifactsFn;
-    removeWorktreeRegistryEntry: typeof removeWorktreeRegistryEntryFn;
-    shouldCleanupMergedWorktrees: typeof shouldCleanupMergedWorktreesFn;
-    findPlansByParent: typeof findPlansByParentFn;
     session: PlanSessionSurface;
     recordWorkflowMetric?: typeof recordWorkflowMetric;
     probeGitRepository?: typeof probeGitRepositoryFn;
-    finalizePlanImplementation?: typeof finalizePlanImplementationFn;
-    resolveValidationExecutionContextForRecovery?: typeof resolveValidationExecutionContext;
-    autoGenerateWorkRecordForCompletedPlan?: typeof autoGenerateWorkRecordForCompletedPlanFn;
 }
 
 type RecoveryMenuAnswer = RecoveryActionName | "cancel";
@@ -165,8 +97,8 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     };
     context.refreshRecoveryWorktree = async () => {
         const resolved = await resolveRecoveryWorktree(projectRoot, plan, {
-            findWorktreeById: opts.findWorktreeById,
-            findWorktreeByPlanName: opts.findWorktreeByPlanName,
+            findWorktreeById: findWorktreeByIdFn,
+            findWorktreeByPlanName: findWorktreeByPlanNameFn,
         });
         plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved);
         context.worktreeContext = resolved;
@@ -202,7 +134,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             await context.recordRecoveryResult("cancel", "handled");
             return "handled";
         }
-        const outcome = await dispatchRecoveryAction(answer, context, opts, gitRecoveryBlocked, gitProbe.state);
+        const outcome = await dispatchRecoveryAction(answer, context, gitRecoveryBlocked, gitProbe.state);
         const terminal = translateRecoveryOutcome(outcome);
         if (terminal) {
             return terminal;
@@ -265,7 +197,6 @@ async function promptRecoveryAction(
 async function dispatchRecoveryAction(
     action: RecoveryActionName,
     context: RecoveryActionContext,
-    opts: HandlePlanRecoveryOptions,
     gitRecoveryBlocked: boolean,
     gitState: string,
 ): Promise<RecoveryActionOutcome> {
@@ -282,102 +213,23 @@ async function dispatchRecoveryAction(
         case "settle_records":
             return await settleRecoveryRecords(context);
         case "hold":
-            return await holdRecoveryPlan(context, {
-                recordPlanEvent: opts.recordPlanEvent,
-                findPlansByParent: opts.findPlansByParent,
-            });
+            return await holdRecoveryPlan(context);
         case "user_verify":
-            return await userVerifyRecoveryPlan(context, {
-                recordPlanEvent: opts.recordPlanEvent,
-                autoGenerateWorkRecordForCompletedPlan: opts.autoGenerateWorkRecordForCompletedPlan ??
-                    autoGenerateWorkRecordForCompletedPlanFn,
-            });
+            return await userVerifyRecoveryPlan(context);
         case "inspect":
-            return await inspectRecoveryPlan(context, {
-                getWorkflowDiff: opts.getWorkflowDiff,
-                getWorktreeStatus: opts.getWorktreeStatus,
-            });
+            return await inspectRecoveryPlan(context);
         case "validate":
-            return await validateRecoveryPlan(context, {
-                getWorktreeStatus: opts.getWorktreeStatus,
-                runValidationLoop: opts.runValidationLoop,
-                loadPlan: opts.loadPlan,
-                finalizePlanImplementation: opts.finalizePlanImplementation ?? finalizePlanImplementationFn,
-                recordPlanEvent: opts.recordPlanEvent,
-                resolveValidationExecutionContextForRecovery: opts.resolveValidationExecutionContextForRecovery ??
-                    resolveValidationExecutionContext,
-            });
+            return await validateRecoveryPlan(context);
         case "continue":
-            return await continueRecoveryPlan(context, {
-                getWorktreeStatus: opts.getWorktreeStatus,
-                executePlan: opts.executePlan,
-                runPlanningAgent: opts.runPlanningAgent,
-                decidePostPlanning: opts.decidePostPlanning,
-                decidePostExecution: opts.decidePostExecution,
-                runValidationLoop: opts.runValidationLoop,
-                loadPlan: opts.loadPlan,
-                listCommitsTouchingPathsSince: opts.listCommitsTouchingPathsSince,
-                finalizePlanImplementation: opts.finalizePlanImplementation ?? finalizePlanImplementationFn,
-                recordPlanEvent: opts.recordPlanEvent,
-                resolveValidationExecutionContextForRecovery: opts.resolveValidationExecutionContextForRecovery ??
-                    resolveValidationExecutionContext,
-            });
+            return await continueRecoveryPlan(context);
         case "abandon":
-            return await abandonRecoveryPlan(context, {
-                updateWorktreeRegistryEntry: opts.updateWorktreeRegistryEntry,
-                updatePlanFrontMatter: opts.updatePlanFrontMatter,
-                removeWorktreeGitArtifacts: opts.removeWorktreeGitArtifacts,
-                deleteMergedWorktreeBranch,
-            });
+            return await abandonRecoveryPlan(context);
         case "review":
-            return await reviewRecoveryPlan(context, {
-                findWorktreeById: opts.findWorktreeById,
-                findWorktreeByPlanName: opts.findWorktreeByPlanName,
-                updateWorktreeRegistryEntry: opts.updateWorktreeRegistryEntry,
-                updatePlanFrontMatter: opts.updatePlanFrontMatter,
-                recordPlanEvent: opts.recordPlanEvent,
-            });
+            return await reviewRecoveryPlan(context);
         case "reset":
-            return await resetRecoveryPlan(context, {
-                gitRecoveryBlocked,
-                gitState,
-                loadPlan: opts.loadPlan,
-                updatePlanFrontMatter: opts.updatePlanFrontMatter,
-                updateWorktreeRegistryEntry: opts.updateWorktreeRegistryEntry,
-                restoreWorktreeTree: opts.restoreWorktreeTree,
-                removeWorktreeGitArtifacts: opts.removeWorktreeGitArtifacts,
-                createWorktreeGitArtifacts: opts.createWorktreeGitArtifacts,
-                settleWorktreeAttempt: opts.settleWorktreeAttempt,
-                recordPlanEvent: opts.recordPlanEvent,
-                executePlan: opts.executePlan,
-                runPlanningAgent: opts.runPlanningAgent,
-                decidePostPlanning: opts.decidePostPlanning,
-                decidePostExecution: opts.decidePostExecution,
-                runValidationLoop: opts.runValidationLoop,
-                listCommitsTouchingPathsSince: opts.listCommitsTouchingPathsSince,
-                finalizePlanImplementation: opts.finalizePlanImplementation ?? finalizePlanImplementationFn,
-                resolveValidationExecutionContextForRecovery: opts.resolveValidationExecutionContextForRecovery ??
-                    resolveValidationExecutionContext,
-            });
+            return await resetRecoveryPlan(context, gitRecoveryBlocked, gitState);
         case "merge":
-            return await mergeRecoveredWorktree(context, {
-                getWorktreeStatus: opts.getWorktreeStatus,
-                resolveValidationExecutionContextForRecovery: opts.resolveValidationExecutionContextForRecovery ??
-                    resolveValidationExecutionContext,
-                shouldCleanupMergedWorktrees: opts.shouldCleanupMergedWorktrees,
-                findPlansByParent: opts.findPlansByParent,
-                loadPlan: opts.loadPlan,
-                checkpointExecutionWorktree: opts.checkpointExecutionWorktree,
-                getBranchHead: opts.getBranchHead,
-                preparePrimaryPlanPathForMerge: opts.preparePrimaryPlanPathForMerge,
-                mergeExecutionWorktree: opts.mergeExecutionWorktree,
-                isCommitAncestorOfBranch: opts.isCommitAncestorOfBranch,
-                updateWorktreeRegistryEntry: opts.updateWorktreeRegistryEntry,
-                restorePrimaryPlanPathAfterMergeFailure: opts.restorePrimaryPlanPathAfterMergeFailure,
-                removeWorktreeGitArtifacts: opts.removeWorktreeGitArtifacts,
-                removeWorktreeRegistryEntry: opts.removeWorktreeRegistryEntry,
-                recordPlanEvent: opts.recordPlanEvent,
-            });
+            return await mergeRecoveredWorktree(context);
     }
 }
 

@@ -1,6 +1,13 @@
-import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
+import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
-import { deleteMergedWorktreeBranch } from "../../shared/worktree.js";
+import {
+    createWorktreeGitArtifacts,
+    deleteMergedWorktreeBranch,
+    removeWorktreeGitArtifacts,
+    settleWorktreeAttempt,
+} from "../../shared/worktree.js";
+import { restoreWorktreeTree } from "../../shared/workflow/git-snapshot.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import {
     confirmBaselineReset,
@@ -12,38 +19,34 @@ import {
     pathExists,
 } from "./plan-recovery-worktree.ts";
 import { executeReadyPlanWithRepair } from "./plan-execution.ts";
+import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
+import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
 import { transitionFailureError } from "./transition-failure.ts";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { RecoveryWorktreeContext } from "./plan-session-types.ts";
 import type { RecoveryActionContext, RecoveryActionOutcome } from "./plan-recovery-actions.ts";
-import type { HandlePlanRecoveryOptions } from "./plan-recovery-flow.ts";
 
-export interface ResetRecoveryCapabilities {
-    gitRecoveryBlocked: boolean;
-    gitState: string;
-    loadPlan: HandlePlanRecoveryOptions["loadPlan"];
-    updatePlanFrontMatter: HandlePlanRecoveryOptions["updatePlanFrontMatter"];
-    updateWorktreeRegistryEntry: HandlePlanRecoveryOptions["updateWorktreeRegistryEntry"];
-    restoreWorktreeTree: HandlePlanRecoveryOptions["restoreWorktreeTree"];
-    removeWorktreeGitArtifacts: HandlePlanRecoveryOptions["removeWorktreeGitArtifacts"];
-    createWorktreeGitArtifacts: HandlePlanRecoveryOptions["createWorktreeGitArtifacts"];
-    settleWorktreeAttempt: HandlePlanRecoveryOptions["settleWorktreeAttempt"];
-    recordPlanEvent: HandlePlanRecoveryOptions["recordPlanEvent"];
-    executePlan: HandlePlanRecoveryOptions["executePlan"];
-    runPlanningAgent: HandlePlanRecoveryOptions["runPlanningAgent"];
-    decidePostPlanning: HandlePlanRecoveryOptions["decidePostPlanning"];
-    decidePostExecution: HandlePlanRecoveryOptions["decidePostExecution"];
-    runValidationLoop: HandlePlanRecoveryOptions["runValidationLoop"];
-    listCommitsTouchingPathsSince: HandlePlanRecoveryOptions["listCommitsTouchingPathsSince"];
-    finalizePlanImplementation: HandlePlanRecoveryOptions["finalizePlanImplementation"];
-    resolveValidationExecutionContextForRecovery:
-        HandlePlanRecoveryOptions["resolveValidationExecutionContextForRecovery"];
+interface RecoveryPlanTransitionValue {
+    value?: PlanFrontMatter;
+}
+
+interface RecoveryRecreateTransitionResult {
+    attrs: PlanFrontMatter;
+    worktree: RecoveryWorktreeContext;
+}
+
+interface RecoveryRecreateTransitionValue {
+    value?: RecoveryRecreateTransitionResult;
 }
 
 export async function resetRecoveryPlan(
     context: RecoveryActionContext,
-    capabilities: ResetRecoveryCapabilities,
+    gitRecoveryBlocked: boolean,
+    gitState: string,
 ): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
     const hasWorktree = hasWorktreeContext(context.worktreeContext);
@@ -55,7 +58,7 @@ export async function resetRecoveryPlan(
         );
         return { kind: "menu" };
     }
-    if (capabilities.gitRecoveryBlocked) {
+    if (gitRecoveryBlocked) {
         if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) {
             return { kind: "menu" };
         }
@@ -68,14 +71,14 @@ export async function resetRecoveryPlan(
             action: "reset",
             recover: async ({ beforePlan }) => {
                 if (context.worktreeContext?.id) {
-                    await capabilities.updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
+                    await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
                         status: "abandoned",
                     });
                 }
                 const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
                     triageMeta: plan.attrs,
                 });
-                return await capabilities.updatePlanFrontMatter(
+                return await updatePlanFrontMatter(
                     projectRoot,
                     plan.planName,
                     {
@@ -96,7 +99,7 @@ export async function resetRecoveryPlan(
         if (transition.status !== "committed") {
             throw transitionFailureError(transition, `Recovery reset transaction failed for ${plan.planName}.`);
         }
-        const transitionValue = (transition.value || {}) as { value?: PlanFrontMatter };
+        const transitionValue = (transition.value || {}) as RecoveryPlanTransitionValue;
         plan.attrs = transitionValue.value as PlanFrontMatter;
         context.worktreeContext = null;
         uiAPI.appendSystemMessage(
@@ -104,11 +107,11 @@ export async function resetRecoveryPlan(
             false,
             "RunWield",
         );
-        await context.recordRecoveryResult("reset", "metadata_only", { gitState: capabilities.gitState });
+        await context.recordRecoveryResult("reset", "metadata_only", { gitState: gitState });
         return { kind: "handled" };
     }
     if (hasWorktree) {
-        const recreated = await recreateRecoveryWorktree(context, capabilities);
+        const recreated = await recreateRecoveryWorktree(context);
         if (!recreated) {
             return { kind: "menu" };
         }
@@ -118,7 +121,7 @@ export async function resetRecoveryPlan(
             return { kind: "menu" };
         }
         try {
-            await capabilities.restoreWorktreeTree(projectRoot, plan.attrs.executionBaselineTree as string);
+            await restoreWorktreeTree(projectRoot, plan.attrs.executionBaselineTree as string);
         } catch (error) {
             const message = isGitRepositoryRequiredError(error)
                 ? formatGitRequiredMessage(error)
@@ -137,7 +140,7 @@ export async function resetRecoveryPlan(
         expectedRevision: plan.revision,
         action: "reset",
         recover: async () =>
-            await capabilities.recordPlanEvent({
+            await recordPlanEvent({
                 cwd: projectRoot,
                 planName: plan.planName,
                 event: "recovery_reset",
@@ -148,33 +151,30 @@ export async function resetRecoveryPlan(
     if (resetTransition.status !== "committed") {
         throw transitionFailureError(resetTransition, `Recovery reset transaction failed for ${plan.planName}.`);
     }
-    const resetTransitionValue = (resetTransition.value || {}) as { value?: PlanFrontMatter };
+    const resetTransitionValue = (resetTransition.value || {}) as RecoveryPlanTransitionValue;
     plan.attrs = { ...plan.attrs, ...resetTransitionValue.value, status: "ready_for_work" };
     await executeReadyPlanWithRepair({
         projectRoot,
         plan,
         agentName: context.agentName,
         uiAPI,
-        executePlan: capabilities.executePlan,
-        runPlanningAgent: capabilities.runPlanningAgent,
-        decidePostPlanning: capabilities.decidePostPlanning,
-        decidePostExecution: capabilities.decidePostExecution,
-        runValidationLoop: capabilities.runValidationLoop,
-        loadPlan: capabilities.loadPlan,
-        listCommitsTouchingPathsSince: capabilities.listCommitsTouchingPathsSince,
+        executePlan: context.session.executePlan,
+        runPlanningAgent: context.session.runPlanningAgent,
+        decidePostPlanning,
+        decidePostExecution,
+        runValidationLoop: context.session.runValidation,
+        loadPlan,
+        listCommitsTouchingPathsSince,
         session: context.session,
-        finalizePlanImplementation: capabilities.finalizePlanImplementation,
-        recordPlanEvent: capabilities.recordPlanEvent,
-        resolveValidationExecutionContextForRecovery: capabilities.resolveValidationExecutionContextForRecovery,
+        finalizePlanImplementation,
+        recordPlanEvent,
+        resolveValidationExecutionContextForRecovery: resolveValidationExecutionContext,
     });
     await context.recordRecoveryResult("reset", "handled");
     return { kind: "handled" };
 }
 
-async function recreateRecoveryWorktree(
-    context: RecoveryActionContext,
-    capabilities: ResetRecoveryCapabilities,
-): Promise<RecoveryWorktreeContext | null> {
+async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise<RecoveryWorktreeContext | null> {
     const { projectRoot, plan, uiAPI } = context;
     const worktreeContext = context.worktreeContext;
     const recreateBaseRef = getRecordedWorktreeRecreateBase(worktreeContext);
@@ -204,7 +204,7 @@ async function recreateRecoveryWorktree(
             action: "recreate",
             recover: async ({ beforePlan, markEffect, registerRollback }) => {
                 if (worktreeContext?.path) {
-                    await capabilities.removeWorktreeGitArtifacts({
+                    await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: worktreeContext.path,
                         force: true,
@@ -214,11 +214,11 @@ async function recreateRecoveryWorktree(
                     }
                 }
                 if (worktreeContext?.id) {
-                    await capabilities.updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
+                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
                         status: "abandoned",
                     });
                 }
-                const nextWorktree = await capabilities.createWorktreeGitArtifacts({
+                const nextWorktree = await createWorktreeGitArtifacts({
                     projectRoot,
                     planName: plan.planName,
                     planId: plan.attrs.planId as string,
@@ -232,7 +232,7 @@ async function recreateRecoveryWorktree(
                     baseCommit: nextWorktree.baseCommit,
                 });
                 registerRollback("remove recreated recovery worktree", async () => {
-                    await capabilities.removeWorktreeGitArtifacts({
+                    await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: nextWorktree.path,
                         force: true,
@@ -241,9 +241,9 @@ async function recreateRecoveryWorktree(
                         await deleteMergedWorktreeBranch({ projectRoot, branch: nextWorktree.branch });
                     }
                 });
-                await capabilities.settleWorktreeAttempt(projectRoot, nextWorktree);
+                await settleWorktreeAttempt(projectRoot, nextWorktree);
                 registerRollback("abandon recreated recovery registry entry", async () => {
-                    await capabilities.updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
+                    await updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
                         status: "abandoned",
                     });
                 });
@@ -252,7 +252,7 @@ async function recreateRecoveryWorktree(
                     path: nextWorktree.path,
                     branch: nextWorktree.branch,
                 });
-                const attrs = await capabilities.updatePlanFrontMatter(
+                const attrs = await updatePlanFrontMatter(
                     projectRoot,
                     plan.planName,
                     {
@@ -272,15 +272,13 @@ async function recreateRecoveryWorktree(
         if (transition.status !== "committed") {
             throw new Error(transition.message || `Recovery recreate transaction failed for ${plan.planName}.`);
         }
-        const transitionValue = (transition.value || {}) as {
-            value?: { attrs: PlanFrontMatter; worktree: RecoveryWorktreeContext };
-        };
+        const transitionValue = (transition.value || {}) as RecoveryRecreateTransitionValue;
         plan.attrs = transitionValue.value?.attrs as PlanFrontMatter;
         const recreated = transitionValue.value?.worktree;
         if (!recreated) {
             throw new Error(`Recovery recreate transaction returned no worktree for ${plan.planName}.`);
         }
-        const refreshedPlan = await capabilities.loadPlan(projectRoot, plan.planName);
+        const refreshedPlan = await loadPlan(projectRoot, plan.planName);
         if (refreshedPlan?.revision) {
             plan.attrs = refreshedPlan.attrs;
             plan.revision = refreshedPlan.revision;

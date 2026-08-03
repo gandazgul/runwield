@@ -1,6 +1,23 @@
-import { stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
+import { findPlansByParent, loadPlan } from "../../plan-store.js";
+import { shouldCleanupMergedWorktrees } from "../../shared/settings.js";
+import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
 import { runDirectDeliveryPublicationTransition } from "../../shared/workflow/state-transition.ts";
-import { deleteMergedWorktreeBranch } from "../../shared/worktree.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import {
+    checkpointExecutionWorktree,
+    deleteMergedWorktreeBranch,
+    getBranchHead,
+    getWorktreeStatus,
+    isCommitAncestorOfBranch,
+    mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    removeWorktreeGitArtifacts,
+    restorePrimaryPlanPathAfterMergeFailure,
+} from "../../shared/worktree.js";
+import {
+    removeEntry as removeWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../../shared/worktree-registry.js";
 import { canManuallyMergeRecoveredWorktree, confirmRecoveryWorktreeAvailable } from "./plan-recovery-worktree.ts";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 
@@ -10,32 +27,8 @@ import type {
     RecoveryActionOutcome,
     RecoveryMetricDetailValue,
 } from "./plan-recovery-actions.ts";
-import type { HandlePlanRecoveryOptions } from "./plan-recovery-flow.ts";
 
-export interface MergeRecoveryCapabilities {
-    getWorktreeStatus: HandlePlanRecoveryOptions["getWorktreeStatus"];
-    resolveValidationExecutionContextForRecovery: NonNullable<
-        HandlePlanRecoveryOptions["resolveValidationExecutionContextForRecovery"]
-    >;
-    shouldCleanupMergedWorktrees: HandlePlanRecoveryOptions["shouldCleanupMergedWorktrees"];
-    findPlansByParent: HandlePlanRecoveryOptions["findPlansByParent"];
-    loadPlan: HandlePlanRecoveryOptions["loadPlan"];
-    checkpointExecutionWorktree: HandlePlanRecoveryOptions["checkpointExecutionWorktree"];
-    getBranchHead: HandlePlanRecoveryOptions["getBranchHead"];
-    preparePrimaryPlanPathForMerge: HandlePlanRecoveryOptions["preparePrimaryPlanPathForMerge"];
-    mergeExecutionWorktree: HandlePlanRecoveryOptions["mergeExecutionWorktree"];
-    isCommitAncestorOfBranch: HandlePlanRecoveryOptions["isCommitAncestorOfBranch"];
-    updateWorktreeRegistryEntry: HandlePlanRecoveryOptions["updateWorktreeRegistryEntry"];
-    restorePrimaryPlanPathAfterMergeFailure: HandlePlanRecoveryOptions["restorePrimaryPlanPathAfterMergeFailure"];
-    removeWorktreeGitArtifacts: HandlePlanRecoveryOptions["removeWorktreeGitArtifacts"];
-    removeWorktreeRegistryEntry: HandlePlanRecoveryOptions["removeWorktreeRegistryEntry"];
-    recordPlanEvent: HandlePlanRecoveryOptions["recordPlanEvent"];
-}
-
-export async function mergeRecoveredWorktree(
-    context: RecoveryActionContext,
-    capabilities: MergeRecoveryCapabilities,
-): Promise<RecoveryActionOutcome> {
+export async function mergeRecoveredWorktree(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
     context.worktreeContext = await context.refreshRecoveryWorktree();
     if (!canManuallyMergeRecoveredWorktree(context.worktreeContext)) {
@@ -52,7 +45,7 @@ export async function mergeRecoveredWorktree(
             plan.planName,
             context.worktreeContext,
             uiAPI,
-            capabilities.getWorktreeStatus,
+            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };
@@ -79,7 +72,7 @@ export async function mergeRecoveredWorktree(
         await context.recordRecoveryResult("merge", "blocked", { reason: "missing_target_branch" });
         return { kind: "menu" };
     }
-    const manualResolution = await capabilities.resolveValidationExecutionContextForRecovery({
+    const manualResolution = await resolveValidationExecutionContext({
         projectRoot,
         planName: plan.planName,
         triageMeta: plan.attrs,
@@ -137,7 +130,6 @@ export async function mergeRecoveredWorktree(
     }
     return await attemptManualPublication(
         context,
-        capabilities,
         manualWorktreePath,
         manualWorktreeBranch,
         manualTargetBranch,
@@ -146,20 +138,19 @@ export async function mergeRecoveredWorktree(
 
 async function attemptManualPublication(
     context: RecoveryActionContext,
-    capabilities: MergeRecoveryCapabilities,
     manualWorktreePath: string,
     manualWorktreeBranch: string,
     manualTargetBranch: string,
 ): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
-    const primaryPlanSnapshots: Awaited<ReturnType<MergeRecoveryCapabilities["preparePrimaryPlanPathForMerge"]>>[] = [];
+    const primaryPlanSnapshots: Awaited<ReturnType<typeof preparePrimaryPlanPathForMerge>>[] = [];
     let manualDeliveryEvidence: WorktreeDeliveryEvidence | undefined;
     let mergeCompleted = false;
-    const cleanupMergedWorktrees = capabilities.shouldCleanupMergedWorktrees(projectRoot);
+    const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(projectRoot);
     const mergeWorktreeId = context.worktreeContext?.id;
     try {
         const siblingPlanNames = typeof plan.attrs.parentPlan === "string" && plan.attrs.parentPlan
-            ? (await capabilities.findPlansByParent(projectRoot, plan.attrs.parentPlan)).map((child) => child.name)
+            ? (await findPlansByParent(projectRoot, plan.attrs.parentPlan)).map((child) => child.name)
                 .sort()
             : [];
         const publication = await runDirectDeliveryPublicationTransition({
@@ -180,17 +171,17 @@ async function attemptManualPublication(
                 if (plan.attrs.deliveryEvidence?.mode === "worktree_merge") {
                     deliveryEvidence = plan.attrs.deliveryEvidence;
                 } else {
-                    const executionPlan = await capabilities.loadPlan(manualWorktreePath, plan.planName);
+                    const executionPlan = await loadPlan(manualWorktreePath, plan.planName);
                     if (executionPlan?.attrs.deliveryEvidence?.mode === "worktree_merge") {
                         deliveryEvidence = executionPlan.attrs.deliveryEvidence;
                     } else {
-                        const sealedCandidate = await capabilities.checkpointExecutionWorktree({
+                        const sealedCandidate = await checkpointExecutionWorktree({
                             worktreePath: manualWorktreePath,
                             branch: manualWorktreeBranch,
                             planName: plan.planName,
                             planDescription: plan.attrs.summary,
                         });
-                        const targetHeadBeforeMerge = await capabilities.getBranchHead(projectRoot, manualTargetBranch);
+                        const targetHeadBeforeMerge = await getBranchHead(projectRoot, manualTargetBranch);
                         deliveryEvidence = {
                             version: 1,
                             mode: "worktree_merge",
@@ -215,7 +206,7 @@ async function attemptManualPublication(
                 });
                 for (const relativePath of stagingResult.planPaths) {
                     primaryPlanSnapshots.push(
-                        await capabilities.preparePrimaryPlanPathForMerge({ projectRoot, relativePath }),
+                        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath }),
                     );
                 }
                 if (primaryPlanSnapshots.length > 0) {
@@ -224,7 +215,7 @@ async function attemptManualPublication(
                             return;
                         }
                         for (const snapshot of primaryPlanSnapshots.toReversed()) {
-                            await capabilities.restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
                         }
                         primaryPlanSnapshots.splice(0, primaryPlanSnapshots.length);
                     });
@@ -232,7 +223,7 @@ async function attemptManualPublication(
                 uiAPI.appendSystemMessage(
                     `Merging worktree branch ${manualWorktreeBranch} into target branch ${manualTargetBranch}.`,
                 );
-                const mergeResult = await capabilities.mergeExecutionWorktree({
+                const mergeResult = await mergeExecutionWorktree({
                     projectRoot,
                     branch: manualWorktreeBranch,
                     targetBranch: manualTargetBranch,
@@ -257,7 +248,7 @@ async function attemptManualPublication(
                 if (mergeResult?.updatedPrimaryCheckout === false) {
                     for (const snapshot of primaryPlanSnapshots.toReversed()) {
                         try {
-                            await capabilities.restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
                         } catch (restoreError) {
                             const restoreReason = restoreError instanceof Error
                                 ? restoreError.message
@@ -270,7 +261,7 @@ async function attemptManualPublication(
                         }
                     }
                 }
-                const candidateMerged = await capabilities.isCommitAncestorOfBranch(
+                const candidateMerged = await isCommitAncestorOfBranch(
                     projectRoot,
                     deliveryEvidence.executionCommit,
                     deliveryEvidence.targetBranch,
@@ -281,7 +272,7 @@ async function attemptManualPublication(
                     );
                 }
                 if (mergeResult?.executionMetadataCommit) {
-                    const metadataMerged = await capabilities.isCommitAncestorOfBranch(
+                    const metadataMerged = await isCommitAncestorOfBranch(
                         projectRoot,
                         mergeResult.executionMetadataCommit,
                         deliveryEvidence.targetBranch,
@@ -294,7 +285,7 @@ async function attemptManualPublication(
                 }
                 if (mergeWorktreeId) {
                     try {
-                        await capabilities.updateWorktreeRegistryEntry(projectRoot, mergeWorktreeId, {
+                        await updateWorktreeRegistryEntry(projectRoot, mergeWorktreeId, {
                             status: "merged",
                         });
                         await markEffect("worktree_registry_updated", {
@@ -323,7 +314,7 @@ async function attemptManualPublication(
         }
         if (cleanupMergedWorktrees && context.worktreeContext?.path) {
             try {
-                await capabilities.removeWorktreeGitArtifacts({
+                await removeWorktreeGitArtifacts({
                     projectRoot,
                     path: context.worktreeContext.path,
                     force: false,
@@ -332,7 +323,7 @@ async function attemptManualPublication(
                     await deleteMergedWorktreeBranch({ projectRoot, branch: context.worktreeContext.branch });
                 }
                 if (context.worktreeContext.id) {
-                    await capabilities.removeWorktreeRegistryEntry(projectRoot, context.worktreeContext.id);
+                    await removeWorktreeRegistryEntry(projectRoot, context.worktreeContext.id);
                 }
             } catch (cleanupError) {
                 const cleanupReason = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
@@ -364,7 +355,7 @@ async function attemptManualPublication(
         if (primaryPlanSnapshots.length > 0 && !mergeCompleted) {
             for (const snapshot of primaryPlanSnapshots.toReversed()) {
                 try {
-                    await capabilities.restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                    await restorePrimaryPlanPathAfterMergeFailure(snapshot);
                 } catch (restoreError) {
                     const restoreReason = restoreError instanceof Error ? restoreError.message : String(restoreError);
                     reason += ` Primary Plan rollback also failed: ${restoreReason}`;
@@ -374,7 +365,7 @@ async function attemptManualPublication(
         uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
         if (context.worktreeContext?.id) {
             try {
-                await capabilities.updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
+                await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
                     status: "merge_conflict",
                 });
             } catch (metadataError) {
@@ -387,7 +378,7 @@ async function attemptManualPublication(
             }
         }
         try {
-            await capabilities.recordPlanEvent({
+            await recordPlanEvent({
                 cwd: projectRoot,
                 planName: plan.planName,
                 event: "worktree_merge_failed",
