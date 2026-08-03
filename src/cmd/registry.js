@@ -13,7 +13,7 @@ import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
 import { getModelCompletions, runModelsCommand } from "./models/index.ts";
 import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.ts";
 import { runQuitCommand } from "./quit/index.ts";
-import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.js";
+import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.ts";
 import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";

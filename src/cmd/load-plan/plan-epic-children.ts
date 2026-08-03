@@ -2,7 +2,7 @@
  * @module cmd/load-plan/plan-epic-children
  * Reading an Epic's child Plans: counting, labelling, and gating on them.
  *
- * The Epic flow itself lives in load-plan/index.js; everything here answers
+ * The Epic flow itself lives in load-plan/index.ts; everything here answers
  * questions about the children rather than driving the Epic.
  */
 

@@ -1,27 +1,25 @@
 /**
  * @module cmd/load-plan
- * Load-plan command implementation. Loads a saved plan from disk and continues
+ * Load-plan command implementation. Loads a saved Plan from disk and continues
  * work on it (review/edit/execute), distinct from /resume which restores a
  * previous chat session.
  */
 
-import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
-    archivePlan as archivePlanFn,
-    findPlansByParent as findPlansByParentFn,
-    loadPlan as loadPlanFn,
+    archivePlan,
+    findPlansByParent,
+    listPlans,
+    loadPlan,
     onboardExternalPlan,
-    resolvePlan as resolvePlanFn,
+    resolvePlan,
     resolvePlanExecutionPolicy,
-    resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
-    updatePlanFrontMatter as updatePlanFrontMatterFn,
+    resolveSiblingChildPlanDependencies,
+    updatePlanFrontMatter,
 } from "../../plan-store.js";
-import {
-    decidePostExecution as decidePostExecutionFn,
-    decidePostPlanning as decidePostPlanningFn,
-} from "../../shared/workflow/decisions.js";
-import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
+import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
+import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
 import {
     buildPlannerReReviewRequest,
     buildPlanSummary,
@@ -65,8 +63,8 @@ import {
     isExecutablePlanStatus,
     isInValidation,
     isPlanReviewableWithoutReopen,
-    recordPlanEvent as recordPlanEventFn,
-    stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
+    recordPlanEvent,
+    stageValidationPassedInExecutionWorktree,
 } from "../../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
@@ -75,126 +73,54 @@ import {
     SESSION_COMPLETE_GUIDANCE,
 } from "../../shared/workflow/plan-review-recovery.js";
 import {
-    getWorkflowDiff as getWorkflowDiffFn,
-    listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
-    restoreWorktreeTree as restoreWorktreeTreeFn,
+    getWorkflowDiff,
+    listCommitsTouchingPathsSince,
+    restoreWorktreeTree,
 } from "../../shared/workflow/git-snapshot.js";
-import { probeGitRepository as probeGitRepositoryFn } from "../../shared/git.js";
+import { probeGitRepository } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
-import {} from "../../shared/workflow/state-transition.ts";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import {
     checkpointExecutionWorktree,
     createWorktreeGitArtifacts,
     getBranchHead,
-    getWorktreeStatus as getWorktreeStatusFn,
-    inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
+    getWorktreeStatus,
+    inspectExecutionWorktreeMergeRisk,
     isCommitAncestorOfBranch,
-    mergeExecutionWorktree as mergeExecutionWorktreeFn,
-    preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
-    removeWorktreeGitArtifacts as removeWorktreeGitArtifactsFn,
-    restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
+    mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    removeWorktreeGitArtifacts,
+    restorePrimaryPlanPathAfterMergeFailure,
     settleWorktreeAttempt,
 } from "../../shared/worktree.js";
 import {
-    findById as findWorktreeByIdFn,
-    findByPlanName as findWorktreeByPlanNameFn,
-    removeEntry as removeWorktreeRegistryEntryFn,
-    updateEntry as updateWorktreeRegistryEntryFn,
+    findById as findWorktreeById,
+    findByPlanName as findWorktreeByPlanName,
+    removeEntry as removeWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
-import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
-import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
-import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
-import {
-    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
-} from "../../shared/work-records/auto-generation.js";
-import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../ui/tui/terminal-title.js";
+import { printCommandHelp } from "../help/index.js";
+import { startInteractiveSession } from "../../ui/tui/chat-session.js";
+import { shouldCleanupMergedWorktrees } from "../../shared/settings.js";
+import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
+import type { CommandContext } from "../registry.js";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
-/** @typedef {import('./load-plan-test-deps.ts').LoadPlanTestDeps} LoadPlanTestDeps */
-
-/** @typedef {import('./plan-session-types.ts').PlanSessionSurface} PlanSessionSurface */
-
-/** @typedef {import('./plan-session-types.ts').RecoveryWorktreeContext} RecoveryWorktreeContext */
+type TransitionRecoveryRecord = Awaited<ReturnType<typeof healSettledTransitionRecords>>["remaining"][number];
 
 /**
  * Handle `load-plan` command.
  *
  * @param {string[]} argv
- * @param {import('../registry.js').CommandContext & { __testDeps?: LoadPlanTestDeps }} [options]
+ * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runLoadPlanCommand(argv, options = {}) {
-    const deps = /** @type {LoadPlanTestDeps} */ ((/** @type {any} */ (options)).__testDeps || {});
-    const {
-        parseArgs: parseArgsDep,
-        printCommandHelp: printCommandHelpDep,
-        startInteractiveSession: startInteractiveSessionDep,
-        resolvePlan: resolvePlanDep,
-        decidePostPlanning: decidePostPlanningDep,
-        decidePostExecution: decidePostExecutionDep,
-        loadPlan: loadPlanDep,
-        archivePlan: archivePlanDep,
-        getWorkflowDiff: getWorkflowDiffDep,
-        listCommitsTouchingPathsSince: listCommitsTouchingPathsSinceDep,
-        restoreWorktreeTree: restoreWorktreeTreeDep,
-        listPlans: listPlansDep,
-        findPlansByParent: findPlansByParentDep,
-        resolveSiblingChildPlanDependencies: resolveSiblingChildPlanDependenciesDep,
-        findWorktreeById: findWorktreeByIdDep,
-        findWorktreeByPlanName: findWorktreeByPlanNameDep,
-        getWorktreeStatus: getWorktreeStatusDep,
-        inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
-        getBranchHead: getBranchHeadDep,
-        isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
-        shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
-        recordWorkflowMetric: recordWorkflowMetricDep,
-        probeGitRepository: probeGitRepositoryDep,
-        finalizePlanImplementation: finalizePlanImplementationDep,
-        resolveValidationExecutionContext: resolveValidationExecutionContextDep,
-        autoGenerateWorkRecordForCompletedPlan: autoGenerateWorkRecordForCompletedPlanDep,
-    } = deps;
-
-    const parseArgs = parseArgsDep || parseArgsFn;
-    const printCommandHelp = printCommandHelpDep || printCommandHelpFn;
-    const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
-    const resolvePlan = resolvePlanDep || resolvePlanFn;
-    const decidePostPlanning = decidePostPlanningDep || decidePostPlanningFn;
-    const decidePostExecution = decidePostExecutionDep || decidePostExecutionFn;
-    const loadPlan = loadPlanDep || loadPlanFn;
-    const archivePlan = archivePlanDep || archivePlanFn;
-    const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
-    const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
-    const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
+export async function runLoadPlanCommand(argv: string[], options: CommandContext = {}): Promise<void> {
     let sessionRuntime = options.sessionRuntime;
     let runtimeSessionId = options.sessionId;
-    const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
-    const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
-        resolveSiblingChildPlanDependenciesFn;
-    const recordPlanEvent = recordPlanEventFn;
-    const stageValidationPassedInExecutionWorktree = stageValidationPassedInExecutionWorktreeFn;
-    const updatePlanFrontMatter = updatePlanFrontMatterFn;
-    const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
-    const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
-    const updateWorktreeRegistryEntry = updateWorktreeRegistryEntryFn;
-    const getWorktreeStatus = getWorktreeStatusDep || getWorktreeStatusFn;
-    const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
-        inspectExecutionWorktreeMergeRiskFn;
-    const mergeExecutionWorktree = mergeExecutionWorktreeFn;
-    const checkpointExecutionWorktreeImpl = checkpointExecutionWorktree;
-    const getBranchHeadImpl = getBranchHeadDep || getBranchHead;
-    const isCommitAncestorOfBranchImpl = isCommitAncestorOfBranchDep || isCommitAncestorOfBranch;
-    const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeFn;
-    const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureFn;
-    const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
-    const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
-    const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
-    const finalizePlanImplementation = finalizePlanImplementationDep || finalizePlanImplementationFn;
-    const resolveValidationExecutionContextForRecovery = resolveValidationExecutionContextDep ||
-        resolveValidationExecutionContext;
-    const autoGenerateWorkRecordForCompletedPlan = autoGenerateWorkRecordForCompletedPlanDep ||
-        autoGenerateWorkRecordForCompletedPlanFn;
+    const resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -215,7 +141,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
             }
             const activeSnapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
             if (!activeSnapshot) throw new Error("runLoadPlanCommand runtime session is missing");
-            const listPlans = listPlansDep || (await import("../../plan-store.js")).listPlans;
             const plans = await listPlans(activeSnapshot.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
@@ -270,19 +195,13 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
     if (!uiAPI) return;
     if (!sessionRuntime || !runtimeSessionId) throw new Error("runLoadPlanCommand requires a runtime session");
-    // Agent runs are resolved here, where the test bag lives, so the surface itself
-    // is handed finished functions and never chooses between a stand-in and the runtime.
     const runtime = sessionRuntime;
     const activeSessionId = runtimeSessionId;
     const session = createPlanSessionSurface(runtime, activeSessionId, {
-        executePlan: (options) =>
-            deps.executePlan ? deps.executePlan(options) : runtime.executePlan(activeSessionId, options),
-        runPlanningAgent: (options) =>
-            deps.runPlanningAgent ? deps.runPlanningAgent(options) : runtime.runPlanningAgent(activeSessionId, options),
-        runValidation: (options) =>
-            deps.runValidationLoop ? deps.runValidationLoop(options) : runtime.runValidation(activeSessionId, options),
-        runSlicerAgent: (options) =>
-            deps.runSlicerAgent ? deps.runSlicerAgent(options) : runtime.runSlicerAgent(activeSessionId, options),
+        executePlan: (options) => runtime.executePlan(activeSessionId, options),
+        runPlanningAgent: (options) => runtime.runPlanningAgent(activeSessionId, options),
+        runValidation: (options) => runtime.runValidation(activeSessionId, options),
+        runSlicerAgent: (options) => runtime.runSlicerAgent(activeSessionId, options),
     });
     const projectRoot = session.cwd;
     const executePlan = session.executePlan;
@@ -295,10 +214,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const initialAgentName = session.getActiveAgentName() || AGENTS.ROUTER;
     let restoreAgentName = initialAgentName;
 
-    /** @type {string | null} */
     let loadedPlanName = null;
-    /** @type {Array<{ transitionId?: string, operation?: string, reason?: string }>} */
-    let unresolvedLifecycleRecords = [];
+    let unresolvedLifecycleRecords: TransitionRecoveryRecord[] = [];
 
     try {
         const plan = await resolvePlan(projectRoot, planArg);
@@ -369,25 +286,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
         );
 
         // Set terminal title and session name to the plan's name
-        const setTitle = deps.setTerminalTitleForName || setTerminalTitleForNameFn;
-        setTitle(plan.planName);
+        setTerminalTitleForName(plan.planName);
         session.rename(plan.planName);
 
         const triageMeta = plan.attrs;
         const agentName = triageMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
         const planFlowRestoreAgent = selectPlanFlowRestoreAgent(initialAgentName, agentName);
         /** @param {string} targetPlanName */
-        const loadAnotherPlan = async (targetPlanName) => {
+        const loadAnotherPlan = async (targetPlanName: string) => {
             skipRouterRestore = true;
             await runLoadPlanCommand([targetPlanName], {
                 ...options,
-                __testDeps: {
-                    ...deps,
-                    parseArgs: /** @type {any} */ ((/** @type {readonly string[]} */ childArgv) => ({
-                        help: false,
-                        _: [...childArgv],
-                    })),
-                },
             });
         };
 
@@ -436,7 +345,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 updateWorktreeRegistryEntry,
                 getWorktreeStatus,
                 inspectExecutionWorktreeMergeRisk,
-                removeWorktreeGitArtifacts: removeWorktreeGitArtifactsFn,
+                removeWorktreeGitArtifacts,
             });
             if (result === "handled") return;
         }
@@ -492,15 +401,15 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 createWorktreeGitArtifacts,
                 settleWorktreeAttempt,
                 mergeExecutionWorktree,
-                checkpointExecutionWorktree: checkpointExecutionWorktreeImpl,
-                getBranchHead: getBranchHeadImpl,
-                isCommitAncestorOfBranch: isCommitAncestorOfBranchImpl,
+                checkpointExecutionWorktree,
+                getBranchHead,
+                isCommitAncestorOfBranch,
                 preparePrimaryPlanPathForMerge,
                 restorePrimaryPlanPathAfterMergeFailure,
-                removeWorktreeGitArtifacts: removeWorktreeGitArtifactsFn,
-                removeWorktreeRegistryEntry: removeWorktreeRegistryEntryFn,
+                removeWorktreeGitArtifacts,
+                removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
-                recordWorkflowMetric: recordWorkflowMetricForLoadPlan,
+                recordWorkflowMetric,
                 findPlansByParent,
                 session,
                 probeGitRepository,

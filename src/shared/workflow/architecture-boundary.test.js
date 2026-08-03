@@ -14,7 +14,7 @@ const HIGH_LEVEL_FILES = [
     "src/shared/workflow/implementation-checkpoint.ts",
     "src/shared/workflow/plan-executor.ts",
     "src/shared/workflow/validation.ts",
-    "src/cmd/load-plan/index.js",
+    "src/cmd/load-plan/index.ts",
     "src/ui/workspace/server/plan-adapter.js",
 ];
 
@@ -59,7 +59,7 @@ Deno.test("Git publication only happens inside a lifecycle transaction", async (
     // bare choreography — which /load-plan's manual merge did — means a crash mid-merge
     // leaves no journal, no lock is held, and an Epic-completing child can publish
     // against sibling evidence nobody rechecked.
-    const publishingFiles = ["src/cmd/load-plan/index.js"];
+    const publishingFiles = ["src/cmd/load-plan/index.ts"];
     const offenders = [];
     for (const file of publishingFiles) {
         const text = await Deno.readTextFile(repoPath(file));

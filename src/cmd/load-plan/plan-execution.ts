@@ -189,7 +189,7 @@ export async function confirmAffectedPathChangesBeforeExecution({
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @param {typeof finalizePlanImplementationFn} [finalizePlanImplementation]
- * @param {typeof recordPlanEventFn} [recordPlanEvent]
+ * @param {typeof recordPlanEventFn} [_recordPlanEvent]
  * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
@@ -204,7 +204,7 @@ export async function validateCompletedExecution(
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
     finalizePlanImplementation: typeof finalizePlanImplementationFn = finalizePlanImplementationFn,
-    recordPlanEvent: typeof recordPlanEventFn = recordPlanEventFn,
+    _recordPlanEvent: typeof recordPlanEventFn = recordPlanEventFn,
     resolveValidationExecutionContextForRecovery: typeof resolveValidationExecutionContext =
         resolveValidationExecutionContext,
 ): Promise<boolean> {
@@ -289,7 +289,6 @@ export async function validateCompletedExecution(
                 triageMeta: effectiveMeta,
                 executionContext: initialWorkflow,
                 executionReport: typeof completionReport === "string" ? completionReport : undefined,
-                __deps: { recordPlanEvent },
             });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
@@ -613,7 +612,7 @@ export async function executeReadyPlanWithRepair({
     const executionOwner = policy.ok ? policy.policy.executionAgent : agentName;
     const executionDecision = decidePostExecution(execRes, {
         planName: plan.planName,
-        triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (plan.attrs),
+        triageMeta: /** @type {import('../../tools/plan-written.ts').TriageMeta} */ (plan.attrs),
         executionAgentName: executionOwner,
     });
     await validatePostExecutionDecision({

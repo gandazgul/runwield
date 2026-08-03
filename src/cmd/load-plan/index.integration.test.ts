@@ -1,0 +1,484 @@
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { loadArchivedPlan, loadPlan, resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
+import { runLoadPlanCommand } from "./index.ts";
+import type { PlanFrontMatterInput } from "../../plan-store.js";
+import type { EditorAPI, SelectOption, UiAPI } from "../../ui/tui/types.js";
+
+interface LoadPlanUiFixture {
+    editor: EditorAPI;
+    messages: string[];
+    prompts: string[];
+    uiAPI: UiAPI;
+}
+
+function makeUi(selections: Array<string | null>, textInputs: Array<string | null> = []): LoadPlanUiFixture {
+    const pendingSelections = [...selections];
+    const pendingTextInputs = [...textInputs];
+    const messages: string[] = [];
+    const prompts: string[] = [];
+    const editor: EditorAPI = {
+        disableSubmit: true,
+        setText: () => {},
+        setAutocompleteProvider: () => {},
+        handleInput: () => {},
+    };
+    const uiAPI: UiAPI = {
+        appendSystemMessage: (message) => messages.push(message),
+        appendAgentMessageStart: () => ({ appendText: () => {} }),
+        requestRender: () => {},
+        promptSelect: (title: string, options: SelectOption[]) => {
+            prompts.push(title);
+            const selection = pendingSelections.shift() ?? null;
+            if (selection && !options.some((option) => option.value === selection)) {
+                throw new Error(`Fixture selection was not offered for "${title}": ${selection}`);
+            }
+            return Promise.resolve(selection);
+        },
+        promptText: () => Promise.resolve(pendingTextInputs.shift() ?? null),
+        showModelSelector: () => {},
+    };
+    return { editor, messages, prompts, uiAPI };
+}
+
+async function createRuntime(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
+    const runtime = new SessionRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+    return { runtime, sessionId };
+}
+
+async function writePlan(
+    projectRoot: string,
+    planName: string,
+    attrs: PlanFrontMatterInput,
+    body = `# ${planName}`,
+): Promise<void> {
+    await savePlan(projectRoot, planName, body, {
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: `Fixture ${planName}`,
+        affectedPaths: [],
+        objectiveChecks: [{ id: "OC1", command: "true" }],
+        ...attrs,
+    });
+}
+
+async function git(projectRoot: string, args: string[]): Promise<string> {
+    const result = await new Deno.Command("git", {
+        cwd: projectRoot,
+        args,
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    if (!result.success) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+}
+
+async function captureLogs(run: () => Promise<void>): Promise<string[]> {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (message = "") => logs.push(String(message));
+    try {
+        await run();
+    } finally {
+        console.log = originalLog;
+    }
+    return logs;
+}
+
+Deno.test("load-plan prints its real command help", async () => {
+    const logs = await captureLogs(() => runLoadPlanCommand(["--help"]));
+
+    assertStringIncludes(logs.join("\n"), "load-plan");
+});
+
+Deno.test("sibling dependency resolution reads canonical child Plans from the fixture catalogue", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "ready_for_work" });
+        await writePlan(projectRoot, "epic/01-first", { status: "verified", parentPlan: "epic" });
+        await writePlan(projectRoot, "epic/02-second", { status: "implemented", parentPlan: "epic" });
+
+        const dependencies = await resolveSiblingChildPlanDependencies(projectRoot, "epic", [
+            "01-first",
+            "epic/02-second",
+            "03-missing",
+        ]);
+
+        assertEquals(
+            dependencies.map(({ dependency, planName, status, state }) => ({ dependency, planName, status, state })),
+            [
+                { dependency: "01-first", planName: "epic/01-first", status: "verified", state: "verified" },
+                {
+                    dependency: "epic/02-second",
+                    planName: "epic/02-second",
+                    status: "implemented",
+                    state: "unverified",
+                },
+                { dependency: "03-missing", planName: undefined, status: undefined, state: "missing" },
+            ],
+        );
+    });
+});
+
+Deno.test("load-plan discovers real top-level Plans and leaves child Plans out of the picker", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "draft" });
+        await writePlan(projectRoot, "epic/child", { parentPlan: "epic", status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["epic", "cancel"]);
+        try {
+            await runLoadPlanCommand([], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.prompts[0], "Load plan:");
+            assertStringIncludes(ui.messages.join("\n"), "Plan loaded: epic");
+            assertEquals(ui.messages.join("\n").includes("Plan loaded: epic/child"), false);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan reports an empty real Plan catalogue without touching the checkout", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi([]);
+        try {
+            await runLoadPlanCommand([], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.messages, ["No plans available, start one by entering a new request"]);
+            assertEquals(ui.editor.disableSubmit, false);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan archives a verified Plan through the real Plan store", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "finished", { status: "verified" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive"]);
+        try {
+            await runLoadPlanCommand(["finished"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(await loadPlan(projectRoot, "finished"), null);
+            assertEquals((await loadArchivedPlan(projectRoot, "finished"))?.attrs.archivedFromStatus, "verified");
+            assertStringIncludes(ui.messages.join("\n"), "Archived finished");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan puts a draft Plan on hold through the lifecycle transaction", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "paused", { status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["hold"], ["Waiting for fixture input"]);
+        try {
+            await runLoadPlanCommand(["paused"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            const plan = await loadPlan(projectRoot, "paused");
+            assertEquals(plan?.attrs.status, "on_hold");
+            assertEquals(plan?.attrs.holdReason, "Waiting for fixture input");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan resumes an on-hold Plan after the real non-Git Resume Check", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "paused", {
+            status: "on_hold",
+            heldFromStatus: "draft",
+            holdReason: "Waiting for fixture input",
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["resume", "cancel"]);
+        try {
+            await runLoadPlanCommand(["paused"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "paused"))?.attrs.status, "draft");
+            assertStringIncludes(ui.messages.join("\n"), "Resumed from hold");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan marks an Epic done enough only after the real lifecycle write", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "ready_for_work" });
+        await writePlan(projectRoot, "epic/child", {
+            status: "ready_for_work",
+            parentPlan: "epic",
+            order: 1,
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["done_enough", "confirm", "cancel"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            const epic = await loadPlan(projectRoot, "epic");
+            assertEquals(epic?.attrs.status, "verified");
+            assertEquals(typeof epic?.attrs.epicDoneEnoughAt, "string");
+            assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.status, "ready_for_work");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan applies a browserless review decision through the Runtime interaction port", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "reviewed", { status: "approved" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async (request) => {
+                const plan = await loadPlan(projectRoot, "reviewed");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "later",
+                        revision: plan?.revision,
+                        planAttrs: plan?.attrs,
+                        interactionType: request.type,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review"]);
+        try {
+            await runLoadPlanCommand(["reviewed"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "reviewed"))?.attrs.status, "ready_for_work");
+            assertStringIncludes(ui.messages.join("\n"), "Plan saved. Resume later");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan runs the real Planner and plan_written machinery against the faux model boundary", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-load-plan-command-",
+        async ({ projectRoot, setModelMessages }) => {
+            await writePlan(projectRoot, "planned", { status: "draft" });
+            setModelMessages([
+                fauxAssistantMessage(fauxToolCall("plan_written", {
+                    planName: "planned",
+                    objectiveChecks: [{ id: "OC1", command: "true" }],
+                })),
+            ]);
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            runtime.setInteractionAdapter(sessionId, {
+                requestInteraction: async () => {
+                    const beforeReview = await loadPlan(projectRoot, "planned");
+                    if (!beforeReview) throw new Error("Fixture Plan disappeared before review");
+                    await recordPlanEvent({
+                        cwd: projectRoot,
+                        planName: "planned",
+                        event: "review_approved",
+                        currentStatus: beforeReview.attrs.status,
+                        expectedRevision: beforeReview.revision,
+                        details: { triageMeta: beforeReview.attrs },
+                    });
+                    const approved = await loadPlan(projectRoot, "planned");
+                    return {
+                        outcome: "accepted",
+                        _meta: {
+                            approved: true,
+                            approvalAction: "later",
+                            revision: approved?.revision,
+                            planAttrs: approved?.attrs,
+                        },
+                    };
+                },
+            });
+            const ui = makeUi(["resume"]);
+            try {
+                await runLoadPlanCommand(["planned"], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+
+                assertEquals((await loadPlan(projectRoot, "planned"))?.attrs.status, "ready_for_work");
+                assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "planner");
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+    );
+});
+
+Deno.test("load-plan uses real Git history and cancels stale affected-path execution", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/app.ts`, "export const value = 1;\n");
+        await writePlan(projectRoot, "stale", {
+            status: "ready_for_work",
+            affectedPaths: ["app.ts"],
+            updatedAt: "2020-01-01T00:00:00.000Z",
+        });
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "fixture baseline"]);
+        await Deno.writeTextFile(`${projectRoot}/app.ts`, "export const value = 2;\n");
+        await git(projectRoot, ["add", "app.ts"]);
+        await git(projectRoot, ["commit", "-m", "change affected path"]);
+
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["proceed", "cancel"]);
+        try {
+            await runLoadPlanCommand(["stale"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "stale"))?.attrs.status, "ready_for_work");
+            assertStringIncludes(ui.messages.join("\n"), "touched affected paths");
+            assertStringIncludes(ui.messages.join("\n"), "Execution canceled");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan blocks a child Plan while its real parent Epic is on hold", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "on_hold", heldFromStatus: "draft" });
+        await writePlan(projectRoot, "epic/child", { status: "draft", parentPlan: "epic" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["epic/child"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.status, "draft");
+            assertStringIncludes(ui.messages.join("\n"), 'Parent Epic "epic" is on hold');
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan recursively loads a real child selected from an Epic", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "ready_for_work" });
+        await writePlan(projectRoot, "epic/child", { status: "draft", parentPlan: "epic", order: 1 });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["pick_child", "epic/child", "load", "cancel"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertStringIncludes(ui.messages.join("\n"), "Plan loaded: epic/child");
+            assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.status, "draft");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan adopts a plain Markdown file into the real Plan catalogue", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/plans/external.md`, "# External Plan\n\nKeep this body.\n");
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["external"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            const plan = await loadPlan(projectRoot, "external");
+            assertEquals(plan?.attrs.status, "draft");
+            assertEquals(typeof plan?.attrs.planId, "string");
+            assertStringIncludes(plan?.body || "", "Keep this body.");
+            assertStringIncludes(ui.messages.join("\n"), "Adopted external as a RunWield Plan");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan enters real recovery for a failed Plan and cancellation preserves it", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "failed", {
+            status: "failed",
+            failureReason: "Fixture execution stopped",
+            executionMode: "non_git_in_place",
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["failed"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "failed"))?.attrs.status, "failed");
+            assertEquals(ui.prompts.includes("Plan recovery (failed):"), true);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});

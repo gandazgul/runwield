@@ -1292,7 +1292,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 sequence: 2,
                 title: "Load child FEATURES",
                 summary: "Let load-plan execute child features",
-                affectedPaths: ["src/cmd/load-plan/index.js"],
+                affectedPaths: ["src/cmd/load-plan/index.ts"],
                 dependencies: ["project-breakdown-epic/01-preserve-epic-and-child-metadata"],
                 workKind: "DOCUMENTATION",
                 content: "# Load child FEATURES\n\n## Context\nDraft slice",
