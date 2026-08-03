@@ -3,6 +3,7 @@
  * Browse and resume a persisted conversation through SessionRuntime.
  */
 
+import type { SelectListLayoutOptions } from "@earendil-works/pi-tui";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
@@ -10,6 +11,10 @@ import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
 const DEFAULT_COMPACT_ON_RESUME_PCT = 50;
 const DEFAULT_CONTEXT_WINDOW = 128000;
+const FALLBACK_TERMINAL_COLUMNS = 80;
+const MIN_PRIMARY_COLUMN_WIDTH = 32;
+// Padded block (2 cells each side) + selection prefix (2) + column gap (2) + render safety margin (2).
+const SELECT_CHROME_WIDTH = 8;
 
 interface PersistedModelSelection {
     provider: string;
@@ -29,7 +34,11 @@ interface ResumeSelectItem {
 
 interface ResumeCommandUi {
     appendSystemMessage(message: string): void;
-    promptSelect(title: string, options: ResumeSelectItem[]): Promise<string | null>;
+    promptSelect(
+        title: string,
+        options: ResumeSelectItem[],
+        hooks?: { layout?: SelectListLayoutOptions },
+    ): Promise<string | null>;
     clearMessages?(): void;
 }
 
@@ -91,6 +100,16 @@ export function getCompactThresholdPercent(): number {
     return DEFAULT_COMPACT_ON_RESUME_PCT;
 }
 
+function getTerminalColumns(): number {
+    try {
+        const { columns } = Deno.consoleSize();
+        if (columns > 0) return columns;
+    } catch {
+        // Non-TTY output (tests, pipes) uses the fallback width.
+    }
+    return FALLBACK_TERMINAL_COLUMNS;
+}
+
 export async function runResumeCommand(_argv: string[], options: ResumeCommandOptions = {}): Promise<void> {
     const { uiAPI, editor, sessionRuntime, sessionId, replaceRuntimeSession } = options;
     if (!uiAPI || !editor) {
@@ -109,20 +128,29 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
         return;
     }
 
-    const selectedPath = await uiAPI.promptSelect(
-        "Select a session to resume:",
-        sessions.map((session) => {
-            let display = (session.firstMessage || session.id).trim().replace(/\n/g, " ");
-            if (display.length > 60) display = `${display.slice(0, 57)}...`;
-            return {
-                value: session.path,
-                label: session.name ? `${session.name} (${display})` : display,
-                description: `Modified: ${
-                    new Date(session.modified || 0).toLocaleString()
-                } | Messages: ${session.messageCount}`,
-            };
-        }),
+    const items = sessions.map((session) => {
+        const display = (session.firstMessage || session.id).trim().replace(/\n/g, " ");
+        return {
+            value: session.path,
+            label: session.name ? `${session.name} (${display})` : display,
+            description: `${new Date(session.modified || 0).toLocaleString()} | Messages: ${session.messageCount}`,
+        };
+    });
+    // Give the name column every column the widest description does not need, so
+    // names stretch across the terminal while the full date stays visible.
+    const widestDescription = Math.max(...items.map((item) => item.description.length));
+    const maxPrimaryColumnWidth = Math.max(
+        MIN_PRIMARY_COLUMN_WIDTH,
+        getTerminalColumns() - SELECT_CHROME_WIDTH - widestDescription,
     );
+
+    const selectedPath = await uiAPI.promptSelect("Select a session to resume:", items, {
+        layout: {
+            maxPrimaryColumnWidth,
+            truncatePrimary: ({ text, maxWidth }) =>
+                text.length > maxWidth ? `${text.slice(0, Math.max(0, maxWidth - 1))}…` : text,
+        },
+    });
     if (!selectedPath) {
         editor.setText("");
         editor.disableSubmit = false;

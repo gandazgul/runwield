@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
@@ -17,9 +17,22 @@ interface ResumeSelectItem {
     description?: string;
 }
 
+interface ResumeSelectHooks {
+    layout?: {
+        maxPrimaryColumnWidth?: number;
+        truncatePrimary?(context: { text: string; maxWidth: number }): string;
+    };
+}
+
 interface SeededSession {
     id: string;
     path: string;
+}
+
+interface ResumeSelectOffer {
+    title: string;
+    options: ResumeSelectItem[];
+    hooks?: ResumeSelectHooks;
 }
 
 interface ResumeUiFixture {
@@ -30,10 +43,15 @@ interface ResumeUiFixture {
     };
     messages: string[];
     prompts: string[];
+    selectOffers: ResumeSelectOffer[];
     uiAPI: {
         appendSystemMessage(message: string): void;
         clearMessages(): void;
-        promptSelect(title: string, options: ResumeSelectItem[]): Promise<string | null>;
+        promptSelect(
+            title: string,
+            options: ResumeSelectItem[],
+            hooks?: ResumeSelectHooks,
+        ): Promise<string | null>;
     };
 }
 
@@ -42,6 +60,7 @@ function makeUi(selections: string[]): ResumeUiFixture {
         clears: 0,
         messages: [],
         prompts: [],
+        selectOffers: [],
         editor: {
             disableSubmit: true,
             setText: () => {},
@@ -49,8 +68,9 @@ function makeUi(selections: string[]): ResumeUiFixture {
         uiAPI: {
             appendSystemMessage: (message) => fixture.messages.push(message),
             clearMessages: () => fixture.clears += 1,
-            promptSelect: (title, options) => {
+            promptSelect: (title, options, hooks) => {
                 fixture.prompts.push(title);
+                fixture.selectOffers.push({ title, options, hooks });
                 const selection = selections.shift() ?? null;
                 if (selection && !options.some((option) => option.value === selection)) {
                     throw new Error(`Fixture selection was not offered: ${selection}`);
@@ -112,6 +132,38 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
             assertEquals(runtime.getRuntimeActiveAgentName(replacementId), AGENTS.ROUTER);
             assertEquals(ui.clears, 1);
             assertEquals(ui.messages, [`Resumed session: ${seeded.id}`]);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runResumeCommand offers full session names with date-only descriptions", async () => {
+    await withRuntimeCommandFixture("runwield-resume-command-", async ({ projectRoot }) => {
+        const longMessage = "inspect the workspace sidebar rendering path ".repeat(4).trim();
+        const seeded = seedPersistedSession(projectRoot, longMessage);
+        const runtime = new SessionRuntime();
+        const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+        const ui = makeUi([]);
+        try {
+            await runResumeCommand([], {
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+                sessionId: current.sessionId,
+                sessionRuntime: runtime,
+                replaceRuntimeSession: () => {},
+            });
+
+            const offer = ui.selectOffers[0];
+            const item = offer?.options.find((option) => option.value === seeded.path);
+            assertEquals(item?.label, longMessage);
+            assert(!item?.description?.includes("Modified:"));
+            assertStringIncludes(item?.description ?? "", "| Messages: 2");
+
+            const layout = offer?.hooks?.layout;
+            assertEquals(typeof layout?.maxPrimaryColumnWidth, "number");
+            assert(layout?.truncatePrimary);
+            assertEquals(layout.truncatePrimary({ text: "abcdefghij", maxWidth: 5 }), "abcd…");
         } finally {
             runtime.closeAllSessions();
         }
