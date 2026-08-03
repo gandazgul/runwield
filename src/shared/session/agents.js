@@ -17,6 +17,15 @@ function homeAgentDefsDir() {
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
+/**
+ * Subdirectory holding shared practice fragments composed into agent prompts by
+ * name. It is a subdirectory rather than a top-level file so `listAgentDefNames`
+ * — which reads only top-level `.md` files — never mistakes a fragment for an agent.
+ */
+const SHARED_PRACTICE_DIR = "shared-practice";
+
+const SHARED_PRACTICE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 export const ATTENTION_NUDGE_TURN_INTERVAL = 6;
 
 export const _AGENT_ATTENTION_NUDGES = {
@@ -308,11 +317,67 @@ export async function listAvailableAgents(projectRoot) {
 }
 
 /**
+ * Normalize the `sharedPractice:` front matter field into fragment names.
+ *
+ * @param {unknown} value
+ * @param {string} agentName
+ * @returns {string[]}
+ */
+function normalizeSharedPracticeNames(value, agentName) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) {
+        throw new Error(`Agent def "${agentName}" has a non-list sharedPractice field`);
+    }
+
+    /** @type {string[]} */
+    const names = [];
+    for (const entry of value) {
+        const name = typeof entry === "string" ? entry.trim() : "";
+        if (!name) continue;
+        if (!SHARED_PRACTICE_NAME_PATTERN.test(name)) {
+            throw new Error(
+                `Agent def "${agentName}" requests an invalid shared practice name: ${JSON.stringify(entry)}`,
+            );
+        }
+        if (!names.includes(name)) names.push(name);
+    }
+    return names;
+}
+
+/**
+ * Read a shared practice fragment body, resolved through the same layer priority
+ * as agent definitions so a project or home layer can override bundled practice.
+ *
+ * @param {string} name
+ * @param {string | undefined} projectRoot
+ * @returns {Promise<string>}
+ */
+async function readSharedPracticeBody(name, projectRoot) {
+    const candidatePaths = getAgentDefDirsByPriority(projectRoot)
+        .map((dir) => join(dir, SHARED_PRACTICE_DIR, `${name}.md`));
+
+    for (const filePath of candidatePaths) {
+        if (!(await fileExists(filePath))) continue;
+        const raw = await Deno.readTextFile(filePath);
+        if (!hasFrontMatter(raw)) {
+            throw new Error(`Shared practice fragment ${filePath} has no frontmatter`);
+        }
+        const body = extractYaml(raw).body.trim();
+        if (!body) throw new Error(`Shared practice fragment is empty: ${filePath}`);
+        return body;
+    }
+
+    throw new Error(`Could not find shared practice fragment "${name}". Checked: ${candidatePaths.join(", ")}`);
+}
+
+/**
  * Load and merge an agent definition from one or more layered files in priority
  * order (lowest → highest). Missing paths are skipped; if none exist, throws.
  *
  * Higher layers override scalar attrs. Prompt body appends by default; if a
  * layer sets `promptOverride: true`, lower-layer prompt content is discarded.
+ * Fragments named by the merged `sharedPractice:` list are appended last, so an
+ * agent prompt reads persona → process → universal practice.
  * Tool lists are replaced when a higher layer defines `tools`. Tools declared
  * in the lowest existing layer are treated as "bundled" for protected-tool
  * enforcement (always re-added even if a higher layer narrows the list).
@@ -380,6 +445,10 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         ? mergedAttrs.thinkingLevel
         : undefined;
     const temperature = normalizeTemperature(mergedAttrs.temperature);
+
+    for (const name of normalizeSharedPracticeNames(mergedAttrs.sharedPractice, agentName)) {
+        promptSegments.push(await readSharedPracticeBody(name, projectRoot));
+    }
 
     const mergedPromptBody = promptSegments.join("\n\n").trim();
     const CORE_SYSTEM_PROMPT = await Deno.readTextFile(SYSTEM_PROMPT_TEMPLATE_PATH);

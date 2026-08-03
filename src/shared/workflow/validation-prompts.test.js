@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
+import { SUBAGENTS } from "../../constants.js";
+import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
 import { loadManualQaPrompt, loadReviewerPrompt } from "./validation.ts";
 
 Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
@@ -242,11 +244,21 @@ Deno.test("bundled reviewer-feedback engineer prompt demands per-item dispositio
     assertStringIncludes(prompt, "fix the review findings you were given, and report what you did for each one");
     assertStringIncludes(prompt, "You are running in fresh context");
     assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");
-    // The guidelines duplicated from the Engineer must actually be present: this
-    // agent cannot rely on a skill being loaded at the model's discretion.
-    assertStringIncludes(prompt, "The Zero-Trust Implementation Protocol");
-    assertStringIncludes(prompt, "No Rogue Commits");
-    assertStringIncludes(prompt, 'Do **NOT** dismiss errors as "pre-existing"');
+});
+
+Deno.test("reviewer-feedback engineer composes the shared engineering practice", async () => {
+    // These rules used to be copy-pasted into the prompt file and were asserted
+    // there. They now arrive through `sharedPractice`, so the assertion follows
+    // them to the composed prompt — this agent cannot rely on a skill being
+    // loaded at the model's discretion, and a fragment that stops composing
+    // would otherwise be invisible.
+    const { systemPrompt } = await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
+
+    assertStringIncludes(systemPrompt, "The Zero-Trust Implementation Protocol");
+    assertStringIncludes(systemPrompt, "No Rogue Commits");
+    assertStringIncludes(systemPrompt, 'Do **NOT** dismiss errors as "pre-existing"');
+    // Reached the repair agent for the first time via the shared layer.
+    assertStringIncludes(systemPrompt, "report the test-count delta");
 });
 
 Deno.test("bundled workflow-only agents cannot leave their validation-owned session", async () => {
@@ -263,6 +275,15 @@ Deno.test("bundled workflow-only agents cannot leave their validation-owned sess
             `${name} must not reference return_to_router`,
         );
     }
+
+    // A shared practice fragment can smuggle the escape hatch back in, so check
+    // what the repair agent is actually handed, not just its own prompt file.
+    const { systemPrompt } = await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
+    assertEquals(
+        systemPrompt.includes("return_to_router"),
+        false,
+        "composed reviewer-feedback engineer prompt must not reference return_to_router",
+    );
 });
 
 Deno.test("bundled reviewer-feedback engineer reports unreachable findings as blocked", async () => {
