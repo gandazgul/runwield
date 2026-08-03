@@ -1,8 +1,9 @@
 /**
  * @module scripts/release
  *
- * WLD release orchestration helpers. The script owns Git tag creation and
- * preflight only; the GitHub Actions tag workflow owns host release creation.
+ * WLD release orchestration helpers. The script owns source/tag preflight and
+ * Git tag publication; the GitHub Actions tag workflow owns qualification and
+ * host release creation.
  */
 
 const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/;
@@ -330,45 +331,6 @@ async function assertHostReleaseAbsent(deps, tag) {
 }
 
 /**
- * @param {ReleaseDeps} deps
- */
-export async function assertCleanMainCheckout(deps = {}) {
-    const branch = await mustRun(deps, "Read branch", "git", ["branch", "--show-current"]);
-    if (branch.stdout.trim() !== "main") {
-        throw new Error(`Release commands must run from main, not ${branch.stdout.trim() || "detached HEAD"}.`);
-    }
-    const status = await mustRun(deps, "Read working tree status", "git", ["status", "--porcelain"]);
-    if (status.stdout.trim()) throw new Error(`Release checkout must be clean:\n${status.stdout}`);
-    await mustRun(deps, "Fetch remote main", "git", ["fetch", "origin", "main"]);
-    const head = await mustRun(deps, "Read HEAD", "git", ["rev-parse", "HEAD"]);
-    const upstream = await mustRun(deps, "Read upstream", "git", ["rev-parse", "@{u}"]);
-    const remoteMain = await mustRun(deps, "Read remote main", "git", ["rev-parse", "origin/main"]);
-    if (head.stdout.trim() !== upstream.stdout.trim() || head.stdout.trim() !== remoteMain.stdout.trim()) {
-        throw new Error("Release checkout must match its upstream and origin/main before tagging.");
-    }
-}
-
-/**
- * @param {ReleaseDeps} deps
- * @param {string | undefined} cwd
- */
-async function runReadOnlyPreflight(deps, cwd) {
-    await mustRun(deps, "Remote submodule fetchability check", "deno", ["task", "submodules:check:remote"], { cwd });
-}
-
-/**
- * @param {ReleaseDeps} deps
- * @param {string} buildVersion
- * @param {string | undefined} cwd
- */
-async function runQualification(deps, buildVersion, cwd) {
-    await runReadOnlyPreflight(deps, cwd);
-    await mustRun(deps, "Release qualification", "deno", ["task", "release:check", "--build-version", buildVersion], {
-        cwd,
-    });
-}
-
-/**
  * @param {string} stdout
  */
 function parseJson(stdout) {
@@ -456,7 +418,7 @@ async function headCommit(deps) {
 export async function createCandidate(deps, tag, dryRun = false) {
     const parsed = parseReleaseTag(tag);
     if (parsed.kind !== "candidate") throw new Error(`Candidate release requires an rc tag: ${tag}`);
-    await assertCleanMainCheckout(deps);
+    const commit = await headCommit(deps);
     const existingTags = await listAllReleaseTags(deps);
     const previous = previousStableTag(existingTags);
     if (!previous) throw new Error("Cannot create a Candidate because no previous Stable release tag exists.");
@@ -479,9 +441,6 @@ export async function createCandidate(deps, tag, dryRun = false) {
     await assertTagAvailable(deps, tag);
     await assertTagAvailable(deps, parsed.stableTag);
     await assertHostReleaseAbsent(deps, tag);
-    if (dryRun) await runReadOnlyPreflight(deps, undefined);
-    else await runQualification(deps, tag, undefined);
-    const commit = await headCommit(deps);
     await createAndPushTag(deps, tag, commit, `Release Candidate ${tag}`, dryRun);
 }
 
@@ -493,7 +452,7 @@ export async function createCandidate(deps, tag, dryRun = false) {
 export async function createStable(deps, tag, dryRun = false) {
     const parsed = parseReleaseTag(tag);
     if (parsed.kind !== "stable") throw new Error(`Stable release requires a stable tag: ${tag}`);
-    await assertCleanMainCheckout(deps);
+    const commit = await headCommit(deps);
     const existingTags = await listAllReleaseTags(deps);
     const previous = previousStableTag(existingTags);
     if (previous && compareReleaseTags(parsed, parseReleaseTag(previous)) <= 0) {
@@ -514,9 +473,6 @@ export async function createStable(deps, tag, dryRun = false) {
     }
     await assertTagAvailable(deps, tag);
     await assertHostReleaseAbsent(deps, tag);
-    if (dryRun) await runReadOnlyPreflight(deps, undefined);
-    else await runQualification(deps, tag, undefined);
-    const commit = await headCommit(deps);
     await createAndPushTag(deps, tag, commit, `Stable release ${tag}`, dryRun);
 }
 
@@ -529,7 +485,6 @@ export async function promoteCandidate(deps, candidateTag, dryRun = false) {
     const parsed = parseReleaseTag(candidateTag);
     if (parsed.kind !== "candidate") throw new Error(`Promotion requires a Candidate tag: ${candidateTag}`);
     const stableTag = parsed.stableTag;
-    await mustRun(deps, "Fetch release tags", "git", ["fetch", "origin", "--tags"]);
     const existingTags = await listAllReleaseTags(deps);
     const previous = previousStableTag(existingTags);
     if (previous && compareReleaseTags(parseReleaseTag(stableTag), parseReleaseTag(previous)) <= 0) {
@@ -546,23 +501,6 @@ export async function promoteCandidate(deps, candidateTag, dryRun = false) {
         );
     }
     await assertCandidatePublished(deps, candidateTag);
-
-    if (!dryRun) {
-        const tempDir = await normalizeDeps(deps).makeTempDir({ prefix: "wld-release-promote-" });
-        try {
-            await mustRun(deps, "Create detached promotion worktree", "git", [
-                "worktree",
-                "add",
-                "--detach",
-                tempDir,
-                candidateCommit,
-            ]);
-            await runQualification(deps, stableTag, tempDir);
-        } finally {
-            await normalizeDeps(deps).run("git", ["worktree", "remove", "--force", tempDir]);
-            await normalizeDeps(deps).remove(tempDir, { recursive: true }).catch(() => {});
-        }
-    }
 
     await createAndPushTag(
         deps,

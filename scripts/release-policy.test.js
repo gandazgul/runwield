@@ -54,7 +54,7 @@ Deno.test("release workflow is tag-only and channel-safe", async () => {
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
 });
 
-Deno.test("release CLI does not own host release creation or notes editing", async () => {
+Deno.test("release CLI publishes tags without owning qualification or host release mutation", async () => {
     const script = await Deno.readTextFile(new URL("./release.js", import.meta.url));
 
     assertEquals(script.includes("release create"), false);
@@ -62,6 +62,10 @@ Deno.test("release CLI does not own host release creation or notes editing", asy
     assertStringIncludes(script, '"gh", [');
     assertStringIncludes(script, '"release",');
     assertStringIncludes(script, '"view",');
+    assertEquals(script.includes('"release:check"'), false);
+    assertEquals(script.includes('"submodules:check:remote"'), false);
+    assertEquals(script.includes('"branch", "--show-current"'), false);
+    assertEquals(script.includes('"status", "--porcelain"'), false);
 });
 
 Deno.test("README links to wld release policy", async () => {

@@ -232,7 +232,7 @@ Deno.test("resolveRemoteTagCommit peels annotated remote tags to the source comm
     }
 });
 
-Deno.test("createCandidate dry-run preflights and avoids tag, push, and host release commands", async () => {
+Deno.test("createCandidate dry-run validates source and tags without local qualification or side effects", async () => {
     const { deps, calls } = depsForCommands({
         "git branch --show-current": { stdout: "main\n" },
         "git status --porcelain": { stdout: "" },
@@ -249,10 +249,8 @@ Deno.test("createCandidate dry-run preflights and avoids tag, push, and host rel
 
     await createCandidate(deps, "v1.2.3-rc.1", true);
 
-    assertEquals(
-        calls.some((call) => call.command === "deno" && call.args.join(" ") === "task submodules:check:remote"),
-        true,
-    );
+    assertEquals(calls[0], { command: "git", args: ["rev-parse", "HEAD"] });
+    assertEquals(calls.some((call) => call.command === "deno"), false);
     assertEquals(
         calls.some((call) => call.command === "git" && call.args[0] === "tag" && call.args.includes("-a")),
         false,
@@ -263,14 +261,24 @@ Deno.test("createCandidate dry-run preflights and avoids tag, push, and host rel
     assertEquals(calls.some((call) => call.command === "glab"), false);
 });
 
-Deno.test("createCandidate stops before side effects when preflight fails", async () => {
+Deno.test("createCandidate publishes the resolved HEAD without branch, cleanliness, or local qualification checks", async () => {
     const { deps, calls } = depsForCommands({
-        "git branch --show-current": { stdout: "feature\n" },
+        "git rev-parse HEAD": { stdout: "abc123\n" },
+        "git tag --list v*": { stdout: "v1.2.2\n" },
+        "git ls-remote --tags origin refs/tags/v*": { stdout: "" },
+        "git rev-parse v1.2.3-rc.1^{commit}": { success: false, code: 1 },
+        "git ls-remote --tags origin refs/tags/v1.2.3-rc.1": { stdout: "" },
+        "git rev-parse v1.2.3^{commit}": { success: false, code: 1 },
+        "git ls-remote --tags origin refs/tags/v1.2.3": { stdout: "" },
     });
 
-    await assertRejects(() => createCandidate(deps, "v1.2.3-rc.1", true), Error, "main");
+    await createCandidate(deps, "v1.2.3-rc.1", false);
 
-    assertEquals(calls.some((call) => call.args.includes("tag") || call.args.includes("push")), false);
+    const tagCall = calls.find((call) => call.command === "git" && call.args[0] === "tag" && call.args.includes("-a"));
+    assertEquals(tagCall?.args.includes("abc123"), true);
+    assertEquals(calls.some((call) => call.command === "git" && call.args[0] === "push"), true);
+    assertEquals(calls.some((call) => call.command === "deno"), false);
+    assertEquals(calls.some((call) => call.args[0] === "branch" || call.args[0] === "status"), false);
 });
 
 Deno.test("createCandidate rejects duplicate GitHub release before creating a tag", async () => {
@@ -330,7 +338,7 @@ Deno.test("createCandidate enforces next RC ordinal from real local and remote t
     }
 });
 
-Deno.test("createStable rejects regressive tags and dirty or diverged real checkouts", async () => {
+Deno.test("createStable rejects regressive tags but permits dirty and ahead real checkouts", async () => {
     const fixture = await createReleaseRepo();
     try {
         await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
@@ -338,11 +346,11 @@ Deno.test("createStable rejects regressive tags and dirty or diverged real check
         const { deps } = repoDeps(fixture.repo);
         await assertRejects(() => createStable(deps, "v1.2.1", true), Error, "newer than previous Stable");
         await Deno.writeTextFile(`${fixture.repo}/dirty.txt`, "dirty\n");
-        await assertRejects(() => createStable(deps, "v1.2.3", true), Error, "clean");
+        await createStable(deps, "v1.2.3", true);
         await Deno.remove(`${fixture.repo}/dirty.txt`);
         await Deno.writeTextFile(`${fixture.repo}/file.txt`, "ahead\n");
         await runCommand("git", ["commit", "-am", "ahead"], { cwd: fixture.repo });
-        await assertRejects(() => createStable(deps, "v1.2.3", true), Error, "upstream");
+        await createStable(deps, "v1.2.3", true);
     } finally {
         await Deno.remove(fixture.root, { recursive: true });
     }
@@ -485,8 +493,6 @@ Deno.test("non-dry-run promotion annotation contains Candidate tag without a sou
             stdout: JSON.stringify({ isPrerelease: true, isDraft: false, assets }),
         },
     });
-    deps.makeTempDir = () => Promise.resolve("/tmp/wld-promote-test");
-    deps.remove = () => Promise.resolve();
 
     await promoteCandidate(deps, "v1.2.3-rc.1", false);
 
@@ -498,4 +504,6 @@ Deno.test("non-dry-run promotion annotation contains Candidate tag without a sou
         false,
         "annotation must not persist source SHA",
     );
+    assertEquals(calls.some((call) => call.command === "deno"), false);
+    assertEquals(calls.some((call) => call.args[0] === "worktree"), false);
 });

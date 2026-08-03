@@ -5,6 +5,7 @@ import {
     getServerEntryImportPaths,
     normalizeCompiledNodeChildProcessImports,
     normalizeDenoAdapterShimImport,
+    unrefBundledMessageChannels,
     waitForStableWorkspaceClientAssets,
 } from "./build-workspace-runtime.js";
 
@@ -45,7 +46,7 @@ Deno.test("waitForStableWorkspaceClientAssets waits for delayed generated files"
     try {
         await Deno.writeTextFile(join(root, "first.css"), "a{}");
         const delayedWrite = new Promise((resolve, reject) => {
-            setTimeout(() => Deno.writeTextFile(join(root, "second.css"), "b{}").then(resolve, reject), 20);
+            setTimeout(() => Deno.writeTextFile(join(root, "second.css"), "b{}").then(resolve, reject), 120);
         });
         await waitForStableWorkspaceClientAssets(root, { intervalMs: 50, timeoutMs: 1000 });
         await delayedWrite;
@@ -88,4 +89,18 @@ Deno.test("normalizeCompiledNodeChildProcessImports replaces dynamic child_proce
         normalizeCompiledNodeChildProcessImports(source),
         'var a=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});import{exec as __rwNodeChildProcessExec,spawn as sp,spawnSync as ss}from"node:child_process";var b=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});',
     );
+});
+
+Deno.test("unrefBundledMessageChannels prevents renderer ports from keeping the executable alive", () => {
+    assertEquals(
+        unrefBundledMessageChannels("const scheduler = new MessageChannel;"),
+        "class __RunWieldUnrefedMessageChannel extends MessageChannel{constructor(){super();this.port1.unref();this.port2.unref();queueMicrotask(()=>{this.port1.unref();this.port2.unref()})}}\n" +
+            "const scheduler = new __RunWieldUnrefedMessageChannel;",
+    );
+    assertEquals(
+        unrefBundledMessageChannels("const scheduler=new MessageChannel;scheduler.port1.onmessage=run;"),
+        "class __RunWieldUnrefedMessageChannel extends MessageChannel{constructor(){super();this.port1.unref();this.port2.unref();queueMicrotask(()=>{this.port1.unref();this.port2.unref()})}}\n" +
+            "const scheduler=new __RunWieldUnrefedMessageChannel;scheduler.port1.onmessage=run;",
+    );
+    assertEquals(unrefBundledMessageChannels("const scheduler = null;"), "const scheduler = null;");
 });

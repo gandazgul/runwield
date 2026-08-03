@@ -398,12 +398,26 @@ export async function smokeTestBinaryReviewSurface(binaryPath, root) {
 
         const token = new URL(url).searchParams.get("token") || "";
         const origin = new URL(url).origin;
-        await fetch(`${origin}/api/review/exit?token=${encodeURIComponent(token)}`, {
+        const exitResponse = await fetch(`${origin}/api/review/exit?token=${encodeURIComponent(token)}`, {
             method: "POST",
             headers: { "content-type": "application/json", "x-runwield-review-token": token },
             body: JSON.stringify({ reviewType: "plan" }),
         });
-        const status = await child.status;
+        const exitBody = await exitResponse.text();
+        if (!exitResponse.ok) {
+            throw new Error(`Standalone review exit returned ${exitResponse.status}: ${exitBody}`);
+        }
+        /** @type {ReturnType<typeof setTimeout> | undefined} */
+        let timeoutId;
+        const status = await Promise.race([
+            child.status,
+            new Promise((_, reject) => {
+                timeoutId = setTimeout(
+                    () => reject(new Error("Standalone review command did not exit within 10 seconds.")),
+                    10_000,
+                );
+            }),
+        ]).finally(() => clearTimeout(timeoutId));
         if (!status.success) throw new Error(`Standalone review command exited ${status.code}. Output:\n${output}`);
     } finally {
         try {

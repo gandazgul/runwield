@@ -13,6 +13,7 @@ const DEFAULT_CLIENT_DIR = "dist/workspace/client";
 const DEFAULT_RUNTIME_DIR = "dist/workspace-runtime";
 const DEFAULT_CLIENT_ASSET_STABILITY_INTERVAL_MS = 100;
 const DEFAULT_CLIENT_ASSET_STABILITY_TIMEOUT_MS = 5000;
+const REQUIRED_CLIENT_ASSET_STABILITY_PASSES = 5;
 
 /**
  * @typedef {Object} WorkspaceRuntimeBuildOptions
@@ -125,6 +126,7 @@ export async function waitForStableWorkspaceClientAssets(clientDir, options = {}
     const timeoutMs = options.timeoutMs ?? DEFAULT_CLIENT_ASSET_STABILITY_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMs;
     let previous = null;
+    let stablePasses = 0;
 
     while (true) {
         const current = await snapshotWorkspaceAssetDirectory(clientDir).then((snapshot) => snapshot.join("\n")).catch(
@@ -133,7 +135,12 @@ export async function waitForStableWorkspaceClientAssets(clientDir, options = {}
                 throw error;
             },
         );
-        if (current !== null && previous !== null && current === previous) return;
+        if (current !== null && previous !== null && current === previous) {
+            stablePasses += 1;
+            if (stablePasses >= REQUIRED_CLIENT_ASSET_STABILITY_PASSES) return;
+        } else {
+            stablePasses = 0;
+        }
         if (Date.now() >= deadline) throw new Error(`Workspace client assets did not settle: ${clientDir}`);
         previous = current;
         await delay(intervalMs);
@@ -231,6 +238,27 @@ export function normalizeCompiledNodeChildProcessImports(source) {
 }
 
 /**
+ * React's browser server renderer creates a MessageChannel at module scope.
+ * Deno's MessagePorts are referenced by default, so an executable that renders
+ * one Workspace page stays alive after its HTTP server closes. Replace bundled
+ * channels with a subclass whose ports do not keep the process alive.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function unrefBundledMessageChannels(source) {
+    const channelNames = [
+        ...source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new MessageChannel/g),
+    ].map(
+        (match) => match[1],
+    );
+    if (!channelNames.length) return source;
+    const prelude =
+        "class __RunWieldUnrefedMessageChannel extends MessageChannel{constructor(){super();this.port1.unref();this.port2.unref();queueMicrotask(()=>{this.port1.unref();this.port2.unref()})}}\n";
+    return prelude + source.replaceAll("new MessageChannel", "new __RunWieldUnrefedMessageChannel");
+}
+
+/**
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
@@ -321,7 +349,9 @@ export async function buildWorkspaceRuntime(options = {}) {
     await waitForFile(serverOutput);
     await Deno.writeTextFile(
         serverOutput,
-        normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
+        unrefBundledMessageChannels(
+            normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
+        ),
     );
     await waitForStableWorkspaceClientAssets(clientDir);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));
