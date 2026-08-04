@@ -104,6 +104,36 @@ Deno.test("update downloads the pinned installer, writes a real temp script, exe
     await assertRemoved(dirname(invocation.scriptPath));
 });
 
+Deno.test("update falls back to the GitHub web raw installer URL after raw.githubusercontent.com returns 403", async () => {
+    const urls: string[] = [];
+    const network: { port: UpdateNetworkPort } = {
+        port: {
+            fetch: (input) => {
+                const url = String(input);
+                urls.push(url);
+                if (url.includes("api.github.com")) return Promise.resolve(makeJsonResponse({ tag_name: "v999.0.0" }));
+                if (url.includes("raw.githubusercontent.com")) {
+                    return Promise.resolve(new Response("forbidden", { status: 403 }));
+                }
+                return Promise.resolve(new Response("#!/usr/bin/env bash\n# fallback\n"));
+            },
+        },
+    };
+    const installer = createInstallerFixture();
+
+    await runUpdateCommand([], {
+        networkPort: network.port,
+        installerPort: installer.port,
+    });
+
+    assertEquals(urls, [
+        "https://api.github.com/repos/gandazgul/runwield/releases/latest",
+        "https://raw.githubusercontent.com/gandazgul/runwield/v999.0.0/install.sh",
+        "https://github.com/gandazgul/runwield/raw/refs/tags/v999.0.0/install.sh",
+    ]);
+    assertEquals(installer.invocations[0].script, "#!/usr/bin/env bash\n# fallback\n");
+});
+
 Deno.test("update passes the real WLD_INSTALL_DIR environment override to the installer", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousInstallDir = Deno.env.get("WLD_INSTALL_DIR");

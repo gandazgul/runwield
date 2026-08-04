@@ -8,10 +8,13 @@ import { getSettingsDir } from "./settings.js";
 
 export const RUNWIELD_REPO = "gandazgul/runwield";
 export const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${RUNWIELD_REPO}/releases/latest`;
+export const LATEST_RELEASE_WEB_URL = `https://github.com/${RUNWIELD_REPO}/releases/latest`;
 export const UPDATE_CHECK_CACHE_FILENAME = "update-check.json";
 export const UPDATE_CHECK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const TAG_PINNED_INSTALLER_URL_TEMPLATE =
     "https://raw.githubusercontent.com/gandazgul/runwield/{tag}/install.sh";
+export const TAG_PINNED_INSTALLER_WEB_URL_TEMPLATE =
+    "https://github.com/gandazgul/runwield/raw/refs/tags/{tag}/install.sh";
 
 /**
  * @typedef {Object} UpdateCheckCache
@@ -190,6 +193,50 @@ export async function getCachedUpdateAvailability(options) {
     return updateAvailabilityFromCache(options, await readUpdateCheckCache(options));
 }
 
+/** @param {string} url */
+function releaseTagFromGitHubReleaseUrl(url) {
+    const match = /\/releases\/tag\/([^/?#]+)/.exec(String(url || ""));
+    if (!match) return null;
+    try {
+        return decodeURIComponent(match[1]);
+    } catch (_error) {
+        return match[1];
+    }
+}
+
+/** @param {string} html */
+function releaseTagFromGitHubReleaseHtml(html) {
+    const match = /\/releases\/tag\/([^"'<>?#]+)/.exec(html);
+    if (!match) return null;
+    try {
+        return decodeURIComponent(match[1]);
+    } catch (_error) {
+        return match[1];
+    }
+}
+
+/** @param {string} tag */
+function releaseMetadataFromTag(tag) {
+    const tagName = normalizeRunWieldVersion(tag);
+    if (!parseRunWieldReleaseVersion(tagName)) throw new Error(`Invalid RunWield latest release tag: ${tag}`);
+    return { tagName, version: tagName };
+}
+
+/**
+ * @param {Response} response
+ * @returns {Promise<RunWieldReleaseMetadata>}
+ */
+async function releaseMetadataFromLatestWebResponse(response) {
+    const redirectedTag = releaseTagFromGitHubReleaseUrl(response.url) ||
+        releaseTagFromGitHubReleaseUrl(response.headers.get("location") || "");
+    if (redirectedTag) return releaseMetadataFromTag(redirectedTag);
+
+    const htmlTag = releaseTagFromGitHubReleaseHtml(await response.text());
+    if (htmlTag) return releaseMetadataFromTag(htmlTag);
+
+    throw new Error("GitHub latest release web response is missing a release tag redirect.");
+}
+
 /**
  * @param {{ fetch?: typeof globalThis.fetch }} [options]
  * @returns {Promise<RunWieldReleaseMetadata>}
@@ -197,14 +244,26 @@ export async function getCachedUpdateAvailability(options) {
 export async function fetchLatestRunWieldRelease(options = {}) {
     const fetchImpl = options.fetch || globalThis.fetch;
     const response = await fetchImpl(LATEST_RELEASE_API_URL);
-    if (!response.ok) throw new Error(`GitHub latest release request failed: ${response.status}`);
-    const data = await response.json();
-    if (!data || typeof data.tag_name !== "string") {
-        throw new Error("GitHub latest release response is missing tag_name.");
+    if (response.ok) {
+        const data = await response.json();
+        if (!data || typeof data.tag_name !== "string") {
+            throw new Error("GitHub latest release response is missing tag_name.");
+        }
+        return releaseMetadataFromTag(data.tag_name);
     }
-    const tagName = normalizeRunWieldVersion(data.tag_name);
-    if (!parseRunWieldReleaseVersion(tagName)) throw new Error(`Invalid RunWield latest release tag: ${data.tag_name}`);
-    return { tagName, version: tagName };
+
+    if (response.status !== 403) throw new Error(`GitHub latest release request failed: ${response.status}`);
+
+    const webResponse = await fetchImpl(LATEST_RELEASE_WEB_URL, {
+        headers: { accept: "text/html" },
+        redirect: "follow",
+    });
+    if (!webResponse.ok) {
+        throw new Error(
+            `GitHub latest release request failed: ${response.status}; web fallback failed: ${webResponse.status}`,
+        );
+    }
+    return await releaseMetadataFromLatestWebResponse(webResponse);
 }
 
 /**
@@ -226,10 +285,13 @@ export async function refreshUpdateCheckCache(options) {
 }
 
 /** @param {string} tag */
-export function getTagPinnedInstallerUrl(tag) {
+export function getTagPinnedInstallerUrls(tag) {
     const normalized = normalizeRunWieldVersion(tag);
     if (!parseRunWieldReleaseVersion(normalized)) throw new Error(`Invalid RunWield release tag: ${tag}`);
-    return TAG_PINNED_INSTALLER_URL_TEMPLATE.replace("{tag}", normalized);
+    return [
+        TAG_PINNED_INSTALLER_URL_TEMPLATE.replace("{tag}", normalized),
+        TAG_PINNED_INSTALLER_WEB_URL_TEMPLATE.replace("{tag}", normalized),
+    ];
 }
 
 /** @param {string} execPath */

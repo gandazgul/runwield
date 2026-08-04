@@ -8,7 +8,7 @@ import { VERSION } from "../../shared/version.js";
 import {
     fetchLatestRunWieldRelease,
     getInstalledWldDirectoryFromExecPath,
-    getTagPinnedInstallerUrl,
+    getTagPinnedInstallerUrls,
     isNewerRunWieldVersion,
 } from "../../shared/update-check.js";
 
@@ -50,10 +50,15 @@ function usage(): string {
 }
 
 /** */
-async function downloadInstaller(url: string, fetchImpl: typeof globalThis.fetch): Promise<string> {
-    const response = await fetchImpl(url);
-    if (!response.ok) throw new Error(`Installer download failed: ${response.status}`);
-    return await response.text();
+async function downloadInstaller(urls: string[], fetchImpl: typeof globalThis.fetch): Promise<string> {
+    let firstFailure = "";
+    for (const url of urls) {
+        const response = await fetchImpl(url);
+        if (response.ok) return await response.text();
+        firstFailure ||= `Installer download failed: ${response.status}`;
+        if (response.status !== 403) break;
+    }
+    throw new Error(firstFailure || "Installer download failed.");
 }
 
 /** */
@@ -83,8 +88,8 @@ export async function runUpdateCommand(argv: string[] = [], options: UpdateComma
             return;
         }
 
-        const installerUrl = getTagPinnedInstallerUrl(release.tagName);
-        const installer = await downloadInstaller(installerUrl, network.fetch);
+        const installerUrls = getTagPinnedInstallerUrls(release.tagName);
+        const installer = await downloadInstaller(installerUrls, network.fetch);
         tempDir = await Deno.makeTempDir({ prefix: "runwield-update-" });
         const scriptPath = join(tempDir, "install.sh");
         await Deno.writeTextFile(scriptPath, installer);

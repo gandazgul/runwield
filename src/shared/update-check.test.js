@@ -1,9 +1,11 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
+    fetchLatestRunWieldRelease,
     getCachedUpdateAvailability,
-    getTagPinnedInstallerUrl,
+    getTagPinnedInstallerUrls,
     isNewerRunWieldVersion,
     LATEST_RELEASE_API_URL,
+    LATEST_RELEASE_WEB_URL,
     normalizeRunWieldVersion,
     parseRunWieldReleaseVersion,
     readUpdateCheckCache,
@@ -107,9 +109,31 @@ Deno.test("latest API rejects malformed release data", async () => {
     );
 });
 
+Deno.test("latest release lookup falls back to GitHub web redirect after API 403", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    const webResponse = new Response("", { status: 200 });
+    Object.defineProperty(webResponse, "url", {
+        value: "https://github.com/gandazgul/runwield/releases/tag/v4.5.6",
+    });
+    /** @param {string | URL | Request} url */
+    const fetchImpl = (url) => {
+        calls.push(String(url));
+        return Promise.resolve(
+            String(url) === LATEST_RELEASE_API_URL ? new Response("forbidden", { status: 403 }) : webResponse,
+        );
+    };
+
+    assertEquals(await fetchLatestRunWieldRelease({ fetch: fetchImpl }), {
+        tagName: "v4.5.6",
+        version: "v4.5.6",
+    });
+    assertEquals(calls, [LATEST_RELEASE_API_URL, LATEST_RELEASE_WEB_URL]);
+});
+
 Deno.test("constructs tag-pinned installer URLs", () => {
-    assertEquals(
-        getTagPinnedInstallerUrl("1.2.3"),
+    assertEquals(getTagPinnedInstallerUrls("1.2.3"), [
         "https://raw.githubusercontent.com/gandazgul/runwield/v1.2.3/install.sh",
-    );
+        "https://github.com/gandazgul/runwield/raw/refs/tags/v1.2.3/install.sh",
+    ]);
 });
