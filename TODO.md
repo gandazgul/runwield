@@ -25,7 +25,7 @@
   - [x] baseline-objective-checks-before-execution (depends on 1)
   - [x] formalize-subagent-definitions
   - [x] delegate-agent-roles (depends on 3)
-  - [ ] re-anchor-agents-after-compaction (independent)
+  - [x] re-anchor-agents-after-compaction (independent)
 
 - [x] planner is just spitting its execution policy intructions into the plan instead of recommending an execution mode
       — `executionAgent`/`collaborationRecommendation` are now `plan_written` arguments, and the rules moved out of the
@@ -50,23 +50,19 @@
 
 - [x] Improve engineer with [./agent-prompt-architecture-notes.md]
 
-## __deps refactor
+## __deps and smaller files Refactor
 
-One gap in the checker worth knowing about
+- [ ] validation.ts
 
-Three shapes are now detected: literal __deps, typed …Deps parameter, optional-fallback ports. A fourth isn't —
-default-parameter injection with no bag at all:
+  What's left. validation.ts is still 2,480 lines across 61 top-level functions. It's no longer a grab-bag though — it's
+  the phase orchestrator, and the weight is concentrated:
 
-async function f(a, b, probeGitRepository = probeGitRepositoryFn) { … }
+  269 runPublicationPhase 253 runMechanicalValidationPhase 235 runSemanticReviewPhase 166 runHumanReviewPhase 113
+  runReviewerRound
 
-I found 11 of these across 6 files (plan-recovery-flow.ts 4, model-welcome.js 2, tui-crash-guards.js 2, plus
-auto-generation.ts, boot-banner.ts, runtime-adapter.js). None are machinery today, so nothing is unsound — but it's the
-obvious place for a machinery seam to reappear invisibly once the named bags are gone, since it's the natural thing to
-reach for when you delete a bag. Worth teaching the scanner before you finish, not after.
-
-One nuance if you do: finalizePlanImplementation is injectable this way in plan-recovery-flow.ts, and it calls
-runImplementationCheckpointTransition internally. It isn't machinery by name, but replacing it does bypass a transaction
-— the transitive case the denylist can't express.
+  Top three are 757 lines, ~31% of the file. That's the real remaining target — four phase functions that could each
+  become a module, which would take validation.ts to roughly 1,400 lines as a dispatcher. Unlike the abandoned plan's
+  targets, these are genuinely coupled to loop state, so it's a real refactor rather than a mechanical cut.
 
 ## Bugs
 
@@ -74,9 +70,7 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
 
 - [ ] for epic child continuation, after the new session starts please add a system message with the plan details, and
       Launching Planner to review plan <plan name>...
-- [x] wld upgrade doesnt work
-- [ ] Esc while engineer is fixing code review feedback just offers to open the review again rather than just stopping
-      and allowing questions. task_completed should be the only signal for completion not llm stop or esc cancelling.
+- [ ] RunWield Objective-Failing Checks: 4 met, 0 unmet, 1 broken (5 total). - no engineer dispatch for this
 
 ### Others
 
@@ -91,7 +85,7 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
 - [ ] providing feedback and approving a plan now reopens it as if I did send feedback this is wrong, approve feedback
       should be sent to engineer and start the plan normally.
 - [ ] Implement plannotator's plan diff view after feedback re-writes the plan.
-- [ ] The persistent review loop card above the footer is still gone after the refactors
+- [x] The persistent review loop card above the footer is still gone after the refactors
 - [ ] we need to examine ALL of the lifecycle error messages and revise them:
 
   the message needs to speak the product language not the tech jargon, lifecycle operation what?
@@ -206,8 +200,6 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
   check the box as it goes I'm worried less about that and more about how planner is asking to do things and how its
   being verified because I think this is where the problem lies.
 
-- [ ] Planner should surface seams and callstacks ![alt text](image-1.png)
-
 - [ ] golden TUI claude's suggestions:
 
   planned-change-review-repair-validation-delivery no longer reaches composition idle. It passes at the prior commit and
@@ -311,7 +303,7 @@ the single assigner so there's still exactly one place that mints ids.
 additions although I would remove the one from listPlanResources, a read function has no business having write side
 effects, make sure this doesnt now break something downstream that required plan id
 
-- [ ] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
+- [x] When reviewer is active the footer looses the plan name, classification and complexity. engineer too, so this is a
       general problem with the verification loop.
 - [ ] During init guess the probable ci command, maybe more than 1 choice, when asking the user that the ci command is
       offer the ones found by init plus None which will not do mechanical validation (with a warning) and Other to let

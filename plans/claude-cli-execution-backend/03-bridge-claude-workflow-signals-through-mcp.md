@@ -1,4 +1,5 @@
 ---
+planId: "791f0bf9-03b4-4e3d-9aa9-d05eacfde411"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -26,18 +27,61 @@ objectiveChecks:
     - id: "OC3"
       command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Claude MCP review completion waives only review_diff inspection$\" src/shared/workflow/validation-loop-review.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
       rationale: "The named validation test must contrast bridge-stamped and untrusted/Pi review results, proving only the accepted Claude MCP result skips the inspection nudge while structured review rules remain."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-04T15:39:53.296Z"
+    head: "1136239352b0aa154f4afd230516aa7033235395"
+    results:
+        - id: "OC1"
+          command: "bash -lc 'set -euo pipefail; ! grep -q \"Custom Tools are not exposed to Claude CLI\" src/shared/session/backends/claude-cli/execution-session.ts; out=$(deno run -A scripts/run-tests.js --filter \"^Claude CLI MCP lifecycle bridge black-box contract$\" src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
+          rationale: "The named vertical test must run a fake Claude process through the generated MCP config and real MCP client, exercise rejection then accepted delegation, and expose the canonical result to current workflow readers; the old no-tools prompt must also be removed."
+          status: "unmet"
+          stdout: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 5 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n"
+          stderr: ""
+          exitCode: 1
+          durationMs: 21835
+          output: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 5 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n\n"
+        - id: "OC2"
+          command: "bash -lc 'set -euo pipefail; grep -q -- \"--mcp-config\" src/shared/session/backends/claude-cli/command.ts; ! grep -q -- \"--strict-mcp-config\" src/shared/session/backends/claude-cli/command.ts; out=$(deno run -A scripts/run-tests.js --filter \"^Claude CLI MCP config is additive authenticated and ephemeral$\" src/shared/session/backends/claude-cli/claude-cli-backend.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
+          rationale: "Requires additive command wiring plus a named backend contract proving authenticated loopback access, unauthorized rejection, owner-only config, and listener/config cleanup."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+        - id: "OC3"
+          command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Claude MCP review completion waives only review_diff inspection$\" src/shared/workflow/validation-loop-review.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
+          rationale: "The named validation test must contrast bridge-stamped and untrusted/Pi review results, proving only the accepted Claude MCP result skips the inspection nudge while structured review rules remain."
+          status: "unmet"
+          stdout: "\u001b[0m\u001b[32mDownload\u001b[0m https://registry.npmjs.org/vite\n\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 14 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n"
+          stderr: ""
+          exitCode: 1
+          durationMs: 4246
+          output: "\u001b[0m\u001b[32mDownload\u001b[0m https://registry.npmjs.org/vite\n\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 14 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T11:29:21-0400"
-updatedAt: "2026-08-04T15:38:17.711Z"
-status: "ready_for_work"
+updatedAt: "2026-08-04T17:29:32.968Z"
+status: "validated_reviewer"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 3
 dependencies:
     - "02-add-claude-cli-backend-transcript-tracer-bullet"
+implementedAt: "2026-08-04T17:16:33.616Z"
 userVerifiedAt: null
-planId: "791f0bf9-03b4-4e3d-9aa9-d05eacfde411"
+executionReport: "Planned Change complete: Claude CLI lifecycle completion signals are now bridged through an authenticated loopback MCP adapter.\n\n- **Bridge adapter** (`workflow-mcp-bridge.ts`, new): typed per-turn `startWorkflowMcpBridge`/`close()` over the official `@modelcontextprotocol/sdk` `Server` + `WebStandardStreamableHTTPServerTransport`; binds only `127.0.0.1` ephemeral port, requires a random 32-byte Bearer token rejected (401) before protocol dispatch, advertises only the eligible `runwield_*` aliases with the existing TypeBox schemas, serializes calls, atomically closes the lifecycle gate after the first `terminate: true` result, records canonical assistant `toolCall` + `toolResult` messages under internal names in the SessionManager and execution-session message list, and stamps non-user-settable `claude-cli-mcp` provenance. No lifecycle mutation logic, no prose/sentinel parser (`RUNWIELD_SIGNAL` absent).\n- **Command layer** (`command.ts`): owner-only (0o600) MCP config temp file passed via additive `--mcp-config`; `--strict-mcp-config` deliberately never passed; prompt and config removal helpers kept explicit.\n- **Execution session** (`execution-session.ts`): starts one bridge per turn for eligible tools, appends a prompt appendix naming only the Agent-eligible aliases (plain-text non-terminal; Reviewer told to inspect via native read/Bash tools since `review_diff` is not bridged), and closes bridge/config in all normal and error exits; the old \"Custom Tools are not exposed\" line is gone.\n- **Composition** (`session.js`): `buildExecutionSession` composes the eligible Plan Written / Task Completion / Review Complete definitions (intersection of Agent Definition declared tools with the three names) with the same factories Pi uses, returns them in `finalCustomTools`, and passes them to the session; Pi wiring untouched.\n- **Task Completion outbox fix** (`task-completion-session.ts`): `recordAcceptedTaskCompletion` now treats the root's claude-cli inner execution session as root-owned (wrapper vs inner identity mismatch), so the durable accepted/consumed outbox — still the Task Completion authority — is written for Claude CLI root turns.\n- **Semantic Review waiver** (`validation-helpers.ts` + `validation.ts`): `hasTrustedClaudeMcpReview` recognizes only accepted `review_complete` results carrying bridge provenance; the pre-verdict `review_diff` requirement is waived only for those (Claude opaque-inspection policy). Pi/untrusted results still require successful diff inspection; `review_complete`, ledger identity accounting, and open-findings rejection remain authoritative for all backends.\n- **Tests**: new `workflow-mcp-bridge.test.ts` (6 tests: alias listing/schema preservation, 401 auth, rejection-without-advancement + provenance + transcript messages, accepted-terminal gate, concurrent-call serialization, unknown-tool + deterministic close); new shared fixture `testing/fake-claude-mcp-client.ts` (real MCP SDK client over loopback, backward-compatible with existing fixture behavior); OC1/OC2/OC3 vertical/backend/validation tests added to `claude-cli-execution.test.ts`, `claude-cli-backend.test.ts`, `validation-loop-review.test.js`. Test-count delta: +9 tests, 0 removed, 0 replaced (no existing test was deleted or rewritten).\n\n- **Verification results**: Suite 1 (bridge + backend + vertical) 21 passed; Suite 2 (plan-written/task-completed/review-complete/task-completion-session/agent-handler) 52 passed; Suite 3 (validation-loop-review + core) 25 passed; `deno task check` + `deno task seams:check` passed (31 seams baseline held); full `deno task ci` passed — 245 files, 0 failed; OC1, OC2, OC3 pass verbatim (the three OC test names embed the literal `^…$` anchors because Deno 2.9 `--filter` is literal-substring only).\n- **Out-of-scope fixes made to unblock gates**: `session-runtime.test.js` had a pre-existing broken `STABLE_TEST_CWD` identifier (fails `deno task check` on the base commit); replaced with the file's own `runtimeProjectRoot()` used by every sibling test. `deno.lock` transitively re-resolved pi-* peers to include the now-direct MCP SDK and a wasm-binding transitive version; `deno task ci` validates the resulting lock.\n- **Not executed (manual-only, need live authenticated Claude Code + interactive browser review)**: the three Manual verification items (Planner `runwield_plan_written` browser review round-trip, Engineer invalid-then-valid `runwield_task_completed`, Reviewer native-inspection verdict, and argv/config inspection with a benign user MCP server) — the fake-executable + real-MCP-client tests cover the same behavior in-process, but a live Claude Code session was not available here.\n- **Plan file note**: `plans/claude-cli-execution-backend/03-bridge-claude-workflow-signals-through-mcp.md` shows a pre-existing uncommitted status change (`draft` → `ready_for_work`) made by the approval step before this run; I did not edit it."
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "9283051c0c5e5d63da639098c6ddad6f17c6e554"
+worktreeId: "de48a940"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-03-bridge-claude-wo-de48a940"
+worktreeBranch: "runwield/worktree/claude-cli-execution-backend-03-bridge-claude-wo-de48a940"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Bridge Claude Workflow Signals Through MCP
