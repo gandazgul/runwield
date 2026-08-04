@@ -7,7 +7,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
-import { getModelRegistry } from "../shared/models/model-registry.js";
+import { getModelRegistry } from "../shared/models/model-registry.ts";
 import { resolveImageRef } from "../shared/session/image-attachments.js";
 
 export const DEFAULT_SEE_IMAGE_PROMPT =

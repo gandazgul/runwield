@@ -88,7 +88,7 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/models/model-registry.js": {
+        "src/shared/models/model-registry.ts": {
             "seams": [
                 "fetchFn"
             ],

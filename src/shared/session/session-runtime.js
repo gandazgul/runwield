@@ -54,7 +54,7 @@ import {
     preflightImageAttachments,
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
-import { getModelRegistry } from "../models/model-registry.js";
+import { getModelRegistry } from "../models/model-registry.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -896,14 +896,25 @@ export class SessionRuntime {
         }
         const managedRejection = this.#rejectManagedPublicMutation(session, "reconfigureSessionModel");
         if (managedRejection) return managedRejection;
+        const previousUserOverride = session.isUserModelOverride?.() === true;
+        const previousModelState = session.getActiveModelState();
         session.setActiveModelState(model, provider, true);
         const agentName = session.getRootAgentName();
-        if (agentName) {
-            await this.#activateSessionAgent(session, {
-                agentName,
-                model: provider ? `${provider}/${model}` : model,
-                forceRebuild: true,
-            });
+        try {
+            if (agentName) {
+                await this.#activateSessionAgent(session, {
+                    agentName,
+                    model: provider ? `${provider}/${model}` : model,
+                    forceRebuild: true,
+                });
+            }
+        } catch (error) {
+            if (previousUserOverride) {
+                session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
+            } else {
+                session.clearUserModelOverride?.();
+            }
+            throw error;
         }
         this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
         return { ok: true, model, provider };

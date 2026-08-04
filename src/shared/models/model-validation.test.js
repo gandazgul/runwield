@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { RunWieldModelRegistry } from "./model-registry.js";
-import { formatProviderModelReference, parseProviderModel, resolveTemplateModel } from "./model-validation.js";
+import { RunWieldModelRegistry } from "./model-registry.ts";
+import { formatProviderModelReference, parseProviderModel, resolveTemplateModel } from "./model-validation.ts";
 
 Deno.test("parseProviderModel accepts strict provider/id", () => {
     const parsed = parseProviderModel("openai/gpt-4.1");

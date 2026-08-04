@@ -4,8 +4,8 @@
  */
 
 import { basename, extname, isAbsolute, join, normalize, relative, resolve } from "@std/path";
-import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
-import { parseProviderModel } from "../models/model-validation.js";
+import { discoverProviderModel, getModelRegistry } from "../models/model-registry.ts";
+import { parseProviderModel } from "../models/model-validation.ts";
 import { getResolvedVisionFallbackModelSetting } from "../settings.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 

@@ -5,7 +5,7 @@
 
 import type { SelectListLayoutOptions } from "@earendil-works/pi-tui";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
@@ -75,7 +75,7 @@ export function getResumeModelSelection(sessionModel: PersistedModelSelection | 
         try {
             const registry = getModelRegistry();
             const model = registry.find(sessionModel.provider, sessionModel.modelId);
-            if (model && registry.hasConfiguredAuth(model)) {
+            if (model && registry.isSelectable(model)) {
                 return {
                     modelOverride: `${model.provider}/${model.id}`,
                     contextWindow: typeof model.contextWindow === "number"

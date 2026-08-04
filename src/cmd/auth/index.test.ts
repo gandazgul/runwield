@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getLoginProviderOptions, runLoginCommand, runLogoutCommand, runStatusCommand } from "./index.ts";
 

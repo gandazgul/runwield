@@ -3,13 +3,18 @@
 import { Image, Spacer } from "@earendil-works/pi-tui";
 import type { Container, Editor, TUI } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
-import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.js";
+import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { imageTheme } from "../theme/theme.js";
 
 interface ActiveModelState {
     model: string;
     provider?: string;
+}
+
+interface ModelActivationResult {
+    status?: "active" | "deferred";
+    message?: string;
 }
 
 interface InstallUiApiOverridesOptions {
@@ -19,7 +24,10 @@ interface InstallUiApiOverridesOptions {
     container: Container;
     messageList: Container;
     getProjectRoot(): string;
-    setActiveModel(model: string, provider?: string): Promise<void> | void;
+    setActiveModel(
+        model: string,
+        provider?: string,
+    ): Promise<ModelActivationResult | void> | ModelActivationResult | void;
     getActiveModelState?: () => ActiveModelState;
 }
 

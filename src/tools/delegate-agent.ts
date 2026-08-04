@@ -9,7 +9,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AGENTS, SUBAGENTS } from "../constants.js";
-import { formatProviderModelReference } from "../shared/models/model-validation.js";
+import { formatProviderModelReference } from "../shared/models/model-validation.ts";
 import {
     DELEGATED_ROLE_GENERAL,
     DELEGATED_ROLE_IDS,

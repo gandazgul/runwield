@@ -16,7 +16,7 @@ import { EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY, isEmptyProjectDirectory } from 
 import { extractBundledAgentDefs, extractBundledSkills } from "../../shared/session/agent-assets.js";
 import { loadSubAgentDefinition } from "../../shared/session/subagent-definitions.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { printCommandHelp } from "../help/index.ts";
