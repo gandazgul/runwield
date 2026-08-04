@@ -64,7 +64,6 @@ type TriageReportResult = AgentToolResult<TriageReportDetails> & { terminate: bo
 
 interface TriageReportToolOptions {
     hostedSession?: HostedSession | null;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
 }
 
 function normalizeSessionName(params: TriageParameters): string {
@@ -105,8 +104,7 @@ function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
 }
 
 export function createTriageReportTool(
-    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: TriageReportToolOptions =
-        {},
+    { hostedSession }: TriageReportToolOptions = {},
 ) {
     return defineTool<typeof PARAMETERS, TriageReportDetails>({
         name: "triage_report",
@@ -134,19 +132,21 @@ export function createTriageReportTool(
                 { header: "Triage" },
             );
 
-            await recordWorkflowMetricImpl({
-                category: "routing",
-                event: "triage_reported",
-                details: {
-                    routingIntent,
-                    complexity,
-                    classification: details.classification,
-                    workKind: details.workKind,
-                    affectedPaths: details.affectedPaths,
-                    affectedPathCount: Array.isArray(details.affectedPaths) ? details.affectedPaths.length : 0,
-                    hasSessionName: Boolean(details.sessionName),
-                },
-            });
+            if (hostedSession) {
+                await recordWorkflowMetric({
+                    category: "routing",
+                    event: "triage_reported",
+                    details: {
+                        routingIntent,
+                        complexity,
+                        classification: details.classification,
+                        workKind: details.workKind,
+                        affectedPaths: details.affectedPaths,
+                        affectedPathCount: Array.isArray(details.affectedPaths) ? details.affectedPaths.length : 0,
+                        hasSessionName: Boolean(details.sessionName),
+                    },
+                }, hostedSession.cwd);
+            }
 
             return {
                 content: [

@@ -87,11 +87,11 @@ export function isWorkflowMetricsEnabled(setting) {
 
 /**
  * @param {string} cwd
- * @param {string} [homeDir]
  * @returns {string}
  */
-export function getWorkflowMetricsFilePath(cwd, homeDir = getHomeDir() || "~") {
+export function getWorkflowMetricsFilePath(cwd) {
     if (!cwd) throw new Error("getWorkflowMetricsFilePath: cwd is required");
+    const homeDir = getHomeDir() || "~";
     return join(homeDir, RUNWIELD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(cwd), "metrics.jsonl");
 }
 
@@ -269,27 +269,16 @@ function sanitizeDedicatedFrontendMetricDetails(event, details) {
  * @param {string} [metric.planName]
  * @param {string} [metric.agentName]
  * @param {unknown} [metric.details]
- * @param {{
- *   cwd?: string,
- *   homeDir?: string,
- *   settings?: unknown,
- *   now?: () => Date,
- *   mkdir?: typeof Deno.mkdir,
- *   writeTextFile?: typeof Deno.writeTextFile,
- *   getSetting?: () => unknown,
- * }} [deps]
+ * @param {string} cwd
  * @returns {Promise<WorkflowMetricRecord | null>}
  */
-export async function recordWorkflowMetric(metric, deps = {}) {
+export async function recordWorkflowMetric(metric, cwd) {
     try {
-        const setting = deps.settings !== undefined ? deps.settings : deps.getSetting ? deps.getSetting() : undefined;
-        const cwd = deps.cwd;
         if (!cwd) throw new Error("recordWorkflowMetric: cwd is required");
-        const resolvedSetting = setting !== undefined ? setting : getMergedCustomSetting("workflowMetrics", cwd);
+        const resolvedSetting = getMergedCustomSetting("workflowMetrics", cwd);
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 
-        const filePath = getWorkflowMetricsFilePath(cwd, deps.homeDir);
-        const now = deps.now || (() => new Date());
+        const filePath = getWorkflowMetricsFilePath(cwd);
         const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
         const dedicatedDetails = dedicatedFrontendEvent
             ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
@@ -297,7 +286,7 @@ export async function recordWorkflowMetric(metric, deps = {}) {
         /** @type {WorkflowMetricRecord} */
         const record = {
             v: 1,
-            ts: now().toISOString(),
+            ts: new Date().toISOString(),
             category: metric.category,
             event: metric.event,
             cwdHash: await hashMetricCwd(cwd),
@@ -312,8 +301,8 @@ export async function recordWorkflowMetric(metric, deps = {}) {
         };
 
         try {
-            await (deps.mkdir || Deno.mkdir)(dirname(filePath), { recursive: true });
-            await (deps.writeTextFile || Deno.writeTextFile)(filePath, `${JSON.stringify(record)}\n`, { append: true });
+            await Deno.mkdir(dirname(filePath), { recursive: true });
+            await Deno.writeTextFile(filePath, `${JSON.stringify(record)}\n`, { append: true });
         } catch {
             return record;
         }
@@ -383,32 +372,34 @@ export function classifyToolSubUsage(toolName, args = undefined) {
  * @param {string} toolCallId
  * @param {string} toolName
  * @param {unknown} args
+ * @param {string} cwd
  * @param {string} [agentName]
- * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number, cwd?: string }} [deps]
+ * @returns {Promise<WorkflowMetricRecord | null>}
  */
-export function recordToolCallStarted(toolCallId, toolName, args, agentName, deps = {}) {
+export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName) {
     const subUsage = classifyToolSubUsage(toolName, args);
-    activeToolCalls.set(toolCallId, { subUsage, startedAt: deps.now ? deps.now() : Date.now() });
-    void (deps.recordWorkflowMetric || recordWorkflowMetric)({
+    activeToolCalls.set(toolCallId, { subUsage, startedAt: Date.now() });
+    return recordWorkflowMetric({
         category: "tool_usage",
         event: "tool_call_started",
         agentName,
         details: { toolName, subUsage },
-    }, { cwd: deps.cwd });
+    }, cwd);
 }
 
 /**
  * @param {string} toolCallId
  * @param {string} toolName
  * @param {boolean} isError
+ * @param {string} cwd
  * @param {string} [agentName]
- * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number, cwd?: string }} [deps]
+ * @returns {Promise<WorkflowMetricRecord | null>}
  */
-export function recordToolCallFinished(toolCallId, toolName, isError, agentName, deps = {}) {
+export function recordToolCallFinished(toolCallId, toolName, isError, cwd, agentName) {
     const started = activeToolCalls.get(toolCallId);
     activeToolCalls.delete(toolCallId);
-    const now = deps.now ? deps.now() : Date.now();
-    void (deps.recordWorkflowMetric || recordWorkflowMetric)({
+    const now = Date.now();
+    return recordWorkflowMetric({
         category: "tool_usage",
         event: "tool_call_finished",
         agentName,
@@ -418,5 +409,5 @@ export function recordToolCallFinished(toolCallId, toolName, isError, agentName,
             isError,
             durationMs: started ? now - started.startedAt : undefined,
         },
-    }, { cwd: deps.cwd });
+    }, cwd);
 }

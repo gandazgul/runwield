@@ -1,5 +1,9 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 import { createTriageReportTool } from "../triage-report.ts";
+import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
+
+const TRIAGE_PROJECT_ROOT = makeToolProjectFixture("runwield-triage-report-");
 
 Deno.test("createTriageReportTool exposes expected metadata", () => {
     const tool = createTriageReportTool();
@@ -29,52 +33,40 @@ Deno.test("createTriageReportTool instances are independent", () => {
 });
 
 Deno.test("triage_report execute returns canonical routingIntent details for INQUIRY", async () => {
-    /** @type {any[]} */
-    const events = [];
-    /** @type {any[]} */
-    const metrics = [];
-    const tool = createTriageReportTool({
-        hostedSession: /** @type {any} */ ({
-            getEventSink: () => ({ emit: (/** @type {any} */ event) => events.push(event) }),
-        }),
-        recordWorkflowMetric: (metric) => {
-            metrics.push(metric);
-            return Promise.resolve(null);
-        },
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        /** @type {any[]} */
+        const events = [];
+        const hostedSession = new HostedSession({ id: "triage-inquiry", cwd: projectRoot });
+        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+        const tool = createTriageReportTool({ hostedSession });
+
+        const params = {
+            routingIntent: /** @type {const} */ ("INQUIRY"),
+            complexity: /** @type {const} */ ("LOW"),
+            summary: "explain routing",
+            sessionName: "routing overview",
+            affectedPaths: ["src/shared/workflow/orchestrator.ts"],
+        };
+
+        const result = await /** @type {any} */ (tool.execute)("call-1", params);
+
+        assertEquals(result.terminate, true);
+        assertEquals(result.details, params);
+        assert(!("classification" in result.details));
+        assertMatch(result.content[0].text, /Triage complete/);
+        assertEquals(events.length, 2);
+        assertMatch(events[1].message, /Routing Intent: INQUIRY/);
+        const metrics = await readMetrics();
+        assertEquals(metrics.length, 1);
+        assertEquals(metrics[0].category, "routing");
+        assertEquals(metrics[0].event, "triage_reported");
+        assertEquals(metrics[0].details?.routingIntent, "INQUIRY");
     });
-
-    const params = {
-        routingIntent: /** @type {const} */ ("INQUIRY"),
-        complexity: /** @type {const} */ ("LOW"),
-        summary: "explain routing",
-        sessionName: "routing overview",
-        affectedPaths: ["src/shared/workflow/orchestrator.ts"],
-    };
-
-    const result = await /** @type {any} */ (tool.execute)("call-1", params);
-
-    assertEquals(result.terminate, true);
-    assertEquals(result.details, params);
-    assert(!("classification" in result.details));
-    assertMatch(result.content[0].text, /Triage complete/);
-    assertEquals(events.length, 1);
-    assertMatch(events[0].message, /Routing Intent: INQUIRY/);
-    assertEquals(metrics.length, 1);
-    assertEquals(metrics[0].category, "routing");
-    assertEquals(metrics[0].event, "triage_reported");
-    assertEquals(metrics[0].details.routingIntent, "INQUIRY");
 });
 
 Deno.test("triage_report execute records workflow context when a HostedSession is available", async () => {
-    /** @type {Array<{ routingIntent: unknown, complexity: unknown }>} */
-    const recorded = [];
-    const tool = createTriageReportTool({
-        hostedSession: /** @type {any} */ ({
-            setWorkflowTriageContext: (/** @type {{ routingIntent: unknown, complexity: unknown }} */ details) => {
-                recorded.push(details);
-            },
-        }),
-    });
+    const hostedSession = new HostedSession({ id: "triage-context", cwd: TRIAGE_PROJECT_ROOT });
+    const tool = createTriageReportTool({ hostedSession });
 
     await /** @type {any} */ (tool.execute)("call-1", {
         routingIntent: "QUICK_FIX",
@@ -84,68 +76,42 @@ Deno.test("triage_report execute records workflow context when a HostedSession i
         affectedPaths: ["src/foo.js"],
     });
 
-    assertEquals(recorded, [{ routingIntent: "QUICK_FIX", complexity: "LOW" }]);
-});
-
-Deno.test("triage_report remains fail-open when workflow context recording throws", async () => {
-    const tool = createTriageReportTool({
-        hostedSession: /** @type {any} */ ({
-            setWorkflowTriageContext: () => {
-                throw new Error("persistence failed");
-            },
-        }),
-    });
-
-    const result = await /** @type {any} */ (tool.execute)("call-1", {
-        routingIntent: "FEATURE",
-        complexity: "MEDIUM",
-        summary: "plan feature",
-        sessionName: "plan feature",
-        affectedPaths: [],
-    });
-
-    assertEquals(result.terminate, true);
-    assertEquals(result.details.routingIntent, "PLANNED_CHANGE");
+    assertEquals(hostedSession.getWorkflowContext(), { routingIntent: "QUICK_FIX", complexity: "LOW" });
 });
 
 Deno.test("triage_report accepts documentation Work Kind only for planned changes", async () => {
-    /** @type {any[]} */
-    const events = [];
-    /** @type {any[]} */
-    const metrics = [];
-    const tool = createTriageReportTool({
-        hostedSession: /** @type {any} */ ({
-            getEventSink: () => ({ emit: (/** @type {any} */ event) => events.push(event) }),
-        }),
-        recordWorkflowMetric: (metric) => {
-            metrics.push(metric);
-            return Promise.resolve(null);
-        },
-    });
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        /** @type {any[]} */
+        const events = [];
+        const hostedSession = new HostedSession({ id: "triage-documentation", cwd: projectRoot });
+        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+        const tool = createTriageReportTool({ hostedSession });
 
-    const planned = await /** @type {any} */ (tool.execute)("call-1", {
-        routingIntent: "PLANNED_CHANGE",
-        workKind: "DOCUMENTATION",
-        complexity: "MEDIUM",
-        summary: "refresh public docs",
-        sessionName: "refresh docs",
-        affectedPaths: ["docs/guide.md"],
-    });
-    const operation = await /** @type {any} */ (tool.execute)("call-2", {
-        routingIntent: "OPERATION",
-        workKind: "DOCUMENTATION",
-        complexity: "LOW",
-        summary: "read docs",
-        sessionName: "read docs",
-        affectedPaths: ["docs/guide.md"],
-    });
+        const planned = await /** @type {any} */ (tool.execute)("call-1", {
+            routingIntent: "PLANNED_CHANGE",
+            workKind: "DOCUMENTATION",
+            complexity: "MEDIUM",
+            summary: "refresh public docs",
+            sessionName: "refresh docs",
+            affectedPaths: ["docs/guide.md"],
+        });
+        const operation = await /** @type {any} */ (tool.execute)("call-2", {
+            routingIntent: "OPERATION",
+            workKind: "DOCUMENTATION",
+            complexity: "LOW",
+            summary: "read docs",
+            sessionName: "read docs",
+            affectedPaths: ["docs/guide.md"],
+        });
 
-    assertEquals(planned.details.workKind, "DOCUMENTATION");
-    assertMatch(events[0].message, /Work Kind: DOCUMENTATION/);
-    assertEquals(metrics[0].details.workKind, "DOCUMENTATION");
-    assertEquals(operation.details.routingIntent, "OPERATION");
-    assertEquals(operation.details.workKind, undefined);
-    assertEquals(metrics[1].details.workKind, undefined);
+        assertEquals(planned.details.workKind, "DOCUMENTATION");
+        assertMatch(events[1].message, /Work Kind: DOCUMENTATION/);
+        assertEquals(operation.details.routingIntent, "OPERATION");
+        assertEquals(operation.details.workKind, undefined);
+        const metrics = await readMetrics();
+        assertEquals(metrics[0].details?.workKind, "DOCUMENTATION");
+        assertEquals(metrics[1].details?.workKind, undefined);
+    });
 });
 
 Deno.test("triage_report execute preserves plan classification only for PLANNED_CHANGE and PROJECT", async () => {

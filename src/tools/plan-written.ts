@@ -513,7 +513,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             updateToolBlock("Opening browser review UI.");
 
             function recordWorkflowMetricFn(metric: Parameters<typeof recordWorkflowMetric>[0]) {
-                return recordWorkflowMetric(metric, { cwd });
+                return recordWorkflowMetric(metric, cwd);
             }
 
             const recoverableReview = await requestRecoverablePlanReview({

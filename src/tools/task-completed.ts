@@ -33,7 +33,6 @@ type TaskCompletedResult = AgentToolResult<TaskCompletedDetails> & { terminate: 
 interface TaskCompletedToolOptions {
     hostedSession: HostedSession;
     agentName?: string;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
     now?: () => number;
 }
 
@@ -93,7 +92,6 @@ export function createTaskCompletedTool(
     {
         hostedSession,
         agentName = "agent",
-        recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
         now = () => Date.now(),
     }: TaskCompletedToolOptions,
 ) {
@@ -155,18 +153,18 @@ export function createTaskCompletedTool(
                 timestampMs,
             });
             emitTaskCompletedMessage(targetHostedSession, agentName, report);
-            await recordWorkflowMetricImpl({
+            await recordWorkflowMetric({
                 category: "execution",
                 event: "task_completed",
                 agentName,
                 details: { hasMessage: Boolean(params.message) },
-            }, { cwd: targetHostedSession.cwd });
+            }, targetHostedSession.cwd);
             if (normalizedAgentName === "frontend-engineer" && activeWorkflow?.executionAgent === "frontend-engineer") {
                 const startMs = activeWorkflow.executionAttemptStartedAtMs;
                 const elapsedMs = typeof startMs === "number" && Number.isFinite(startMs) && startMs >= 0
                     ? Math.max(0, Math.trunc(now() - startMs))
                     : undefined;
-                await recordWorkflowMetricImpl({
+                await recordWorkflowMetric({
                     category: "execution",
                     event: "frontend_execution_completed",
                     details: {
@@ -178,7 +176,7 @@ export function createTaskCompletedTool(
                         browserPreflightOutcome: params.browserPreflightOutcome,
                         elapsedMs,
                     },
-                }, { cwd: targetHostedSession.cwd });
+                }, targetHostedSession.cwd);
             }
 
             return {

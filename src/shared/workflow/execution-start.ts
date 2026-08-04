@@ -238,7 +238,7 @@ export async function startActiveExecutionWorkflow(
                     event: "non_git_in_place_execution_started",
                     planName,
                     details: { gitState: gitProbe.state },
-                }, { cwd: projectRoot });
+                }, projectRoot);
                 return activeWorkflow;
             },
             verifyPreparation: (workflow) => {
@@ -540,7 +540,7 @@ export async function startActiveExecutionWorkflow(
                     planFileMaterialized: planFile.kind === "restored",
                     planFileReconciled: planFile.kind === "reconciled",
                 },
-            }, { cwd: projectRoot });
+            }, projectRoot);
             return activeWorkflow;
         },
         verifyPreparation: async (workflow) => {

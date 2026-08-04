@@ -40,7 +40,6 @@ Deno.test("implementation checkpoint acknowledges its accepted task_completed JS
     const tool = createTaskCompletedTool({
         hostedSession,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     try {
         await tool.execute(

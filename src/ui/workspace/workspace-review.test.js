@@ -15,11 +15,13 @@ import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agen
 
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 
 // Anchored to the shared runtime root, not Deno.cwd(): test realms share one
 // process, so a concurrent file's chdir would otherwise pin this to its temp
 // directory.
 const TEST_PROJECT_ROOT = RUNWIELD_ROOT;
+const REVIEW_AGENT_PROJECT_ROOT = makeToolProjectFixture("runwield-workspace-review-agent-");
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
@@ -310,7 +312,7 @@ Deno.test("review guide jobs prefer WLD over external agent host CLIs", async ()
             Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
 
             const state = createReviewAgentState({
-                cwd: Deno.cwd(),
+                cwd: REVIEW_AGENT_PROJECT_ROOT,
                 token: "wld-token",
                 reviewPayload: {
                     rawPatch:
@@ -326,7 +328,6 @@ Deno.test("review guide jobs prefer WLD over external agent host CLIs", async ()
                         everythingElse: [],
                     },
                 },
-                recordWorkflowMetric: () => Promise.resolve(null),
             });
 
             const launch = await reviewAgentApi(
@@ -365,7 +366,7 @@ Deno.test("review guide jobs ground provider prompt in Plan payload", async () =
     try {
         let capturedPrompt = "";
         const state = createReviewAgentState({
-            cwd: Deno.cwd(),
+            cwd: REVIEW_AGENT_PROJECT_ROOT,
             token: "prompt-token",
             reviewPayload: {
                 rawPatch:
@@ -391,7 +392,6 @@ Deno.test("review guide jobs ground provider prompt in Plan payload", async () =
                     model: "test-model",
                 });
             },
-            recordWorkflowMetric: () => Promise.resolve(null),
         });
 
         const launch = await reviewAgentApi(
@@ -419,100 +419,94 @@ Deno.test("review guide jobs ground provider prompt in Plan payload", async () =
 });
 
 Deno.test("review guide jobs record generation result metrics", async () => {
-    /** @type {unknown[]} */
-    const metrics = [];
-    const state = createReviewAgentState({
-        cwd: Deno.cwd(),
-        token: "metric-token",
-        reviewPayload: {
-            rawPatch:
-                "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
-            guidedReviewFixture: {
-                schemaVersion: "1.0",
-                title: "Metric guide",
-                sections: [{
-                    title: "Core",
-                    role: "core",
-                    blocks: [{ type: "diff", file: "src/a.js" }],
-                }],
-                everythingElse: [],
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const state = createReviewAgentState({
+            cwd: projectRoot,
+            token: "metric-token",
+            reviewPayload: {
+                rawPatch:
+                    "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+                guidedReviewFixture: {
+                    schemaVersion: "1.0",
+                    title: "Metric guide",
+                    sections: [{
+                        title: "Core",
+                        role: "core",
+                        blocks: [{ type: "diff", file: "src/a.js" }],
+                    }],
+                    everythingElse: [],
+                },
             },
-        },
-        recordWorkflowMetric: (/** @type {any} */ metric) => {
-            metrics.push(metric);
-            return Promise.resolve(null);
-        },
+        });
+
+        const launch = await reviewAgentApi(
+            new Request("http://localhost/api/agents/jobs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ provider: "guide" }),
+            }),
+            new URL("http://localhost/api/agents/jobs"),
+            state,
+        );
+        assertEquals(launch?.status, 202);
+        if (!launch) throw new Error("expected job launch response");
+        const { job } = await launch.json();
+        await state.jobs.get(job.id)?.done;
+
+        const metrics = await readMetrics();
+        assertEquals(metrics.length, 1);
+        assertEquals(metrics[0].category, "validation");
+        assertEquals(metrics[0].event, "guided_review_generation_result");
+        assertEquals(metrics[0].details?.status, "done");
+        assertEquals(metrics[0].details?.sectionCount, 1);
+        await state.widgets.cleanup();
     });
-
-    const launch = await reviewAgentApi(
-        new Request("http://localhost/api/agents/jobs", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ provider: "guide" }),
-        }),
-        new URL("http://localhost/api/agents/jobs"),
-        state,
-    );
-    assertEquals(launch?.status, 202);
-    if (!launch) throw new Error("expected job launch response");
-    const { job } = await launch.json();
-    await state.jobs.get(job.id)?.done;
-
-    assertEquals(/** @type {any[]} */ (metrics).length, 1);
-    assertEquals(/** @type {any} */ (metrics[0]).category, "validation");
-    assertEquals(/** @type {any} */ (metrics[0]).event, "guided_review_generation_result");
-    assertEquals(/** @type {any} */ (metrics[0]).details.status, "done");
-    assertEquals(/** @type {any} */ (metrics[0]).details.sectionCount, 1);
-    await state.widgets.cleanup();
 });
 
 Deno.test("review guide failure metrics redact provider error details", async () => {
-    /** @type {unknown[]} */
-    const metrics = [];
-    const state = createReviewAgentState({
-        cwd: Deno.cwd(),
-        token: "metric-token",
-        reviewPayload: {
-            rawPatch:
-                "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
-            guidedReviewFixture: {
-                schemaVersion: "1.0",
-                title: "Bad guide",
-                sections: [{
-                    title: "Core",
-                    role: "core",
-                    blocks: [{ type: "diff", file: "/Users/example/secret.js" }],
-                }],
-                everythingElse: [],
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const state = createReviewAgentState({
+            cwd: projectRoot,
+            token: "metric-token",
+            reviewPayload: {
+                rawPatch:
+                    "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+                guidedReviewFixture: {
+                    schemaVersion: "1.0",
+                    title: "Bad guide",
+                    sections: [{
+                        title: "Core",
+                        role: "core",
+                        blocks: [{ type: "diff", file: "/Users/example/secret.js" }],
+                    }],
+                    everythingElse: [],
+                },
             },
-        },
-        recordWorkflowMetric: (/** @type {any} */ metric) => {
-            metrics.push(metric);
-            return Promise.resolve(null);
-        },
+        });
+
+        const launch = await reviewAgentApi(
+            new Request("http://localhost/api/agents/jobs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ provider: "guide" }),
+            }),
+            new URL("http://localhost/api/agents/jobs"),
+            state,
+        );
+        assertEquals(launch?.status, 202);
+        if (!launch) throw new Error("expected job launch response");
+        const { job } = await launch.json();
+        await state.jobs.get(job.id)?.done;
+
+        const [metric] = await readMetrics();
+        const details = metric.details || {};
+        assertEquals(details.status, "failed");
+        assertEquals(details.hasError, true);
+        assertEquals(details.errorKind, "schema_invalid");
+        assertEquals("error" in details, false);
+        assertEquals(JSON.stringify(details).includes("/Users/example/secret.js"), false);
+        await state.widgets.cleanup();
     });
-
-    const launch = await reviewAgentApi(
-        new Request("http://localhost/api/agents/jobs", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ provider: "guide" }),
-        }),
-        new URL("http://localhost/api/agents/jobs"),
-        state,
-    );
-    assertEquals(launch?.status, 202);
-    if (!launch) throw new Error("expected job launch response");
-    const { job } = await launch.json();
-    await state.jobs.get(job.id)?.done;
-
-    const details = /** @type {any} */ (metrics[0]).details;
-    assertEquals(details.status, "failed");
-    assertEquals(details.hasError, true);
-    assertEquals(details.errorKind, "schema_invalid");
-    assertEquals("error" in details, false);
-    assertEquals(JSON.stringify(details).includes("/Users/example/secret.js"), false);
-    await state.widgets.cleanup();
 });
 
 Deno.test("review API accepts review token header before workspace app token gate", async () => {
@@ -778,7 +772,7 @@ Deno.test("invalid Plan approval execution policy leaves review open for retry",
                 body: JSON.stringify({
                     approvalAction: "run",
                     executionAgent: "engineer",
-                    collaborationRecommendation: "pair",
+                    collaborationRecommendation: "pair-programming",
                 }),
             }),
         );

@@ -292,6 +292,8 @@ export async function dispatchPostTriage({
         throw new Error("dispatchPostTriage: hostedSession is required");
     }
     const projectRoot = hostedSession.cwd;
+    const recordMetric = (metric: Parameters<typeof recordWorkflowMetric>[0]) =>
+        recordWorkflowMetric(metric, projectRoot);
 
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
@@ -319,7 +321,7 @@ export async function dispatchPostTriage({
         : isPlannedChangeClassification(normalizedTriage.routingIntent)
         ? AGENTS.PLANNER
         : AGENTS.ARCHITECT;
-    await recordWorkflowMetric({
+    await recordMetric({
         category: "routing",
         event: "dispatch_selected",
         agentName: dispatchTarget,
@@ -361,7 +363,7 @@ export async function dispatchPostTriage({
         const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
         if (routerHandoff) return toRouterHandoff(routerHandoff);
         const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
-        await recordWorkflowMetric({
+        await recordMetric({
             category: "execution",
             event: "operation_completed_observed",
             agentName: AGENTS.OPERATOR,
@@ -391,7 +393,7 @@ export async function dispatchPostTriage({
                 "QUICK_FIX canceled because Git is not available and in-place edits were not approved.",
                 { header: "RunWield" },
             );
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "quick_fix_non_git_canceled",
                 agentName: AGENTS.ENGINEER,
@@ -419,7 +421,7 @@ export async function dispatchPostTriage({
         }
         const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (!completed) {
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "quick_fix_completed_observed",
                 agentName: AGENTS.ENGINEER,
@@ -441,7 +443,7 @@ export async function dispatchPostTriage({
             manualQaName,
             manualQaContext,
         }, localCI);
-        await recordWorkflowMetric({
+        await recordMetric({
             category: "execution",
             event: "quick_fix_completed_observed",
             agentName: AGENTS.ENGINEER,
@@ -472,7 +474,7 @@ export async function dispatchPostTriage({
             planningAgentName: agentName,
             fallbackTriageMeta: normalizedTriage,
         });
-        await recordWorkflowMetric({
+        await recordMetric({
             category: "planning",
             event: "decision",
             agentName,
@@ -490,7 +492,7 @@ export async function dispatchPostTriage({
                 hostedSession,
                 sessionManager,
             });
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "planning",
                 event: "active_agent_transition",
                 agentName: slicerResult.ok ? AGENTS.SLICER : agentName,
@@ -507,7 +509,7 @@ export async function dispatchPostTriage({
         }
 
         if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName,
@@ -523,7 +525,7 @@ export async function dispatchPostTriage({
         }
 
         if (decision.kind !== "execute_plan") {
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName,
@@ -554,7 +556,7 @@ export async function dispatchPostTriage({
             const reason = error instanceof Error ? error.message : String(error);
             const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
                 resolveExecutionOwner(decisionTriageMeta);
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName: executionOwner,
@@ -583,7 +585,7 @@ export async function dispatchPostTriage({
             triageMeta: decisionTriageMeta,
             executionAgentName: executionOwner,
         });
-        await recordWorkflowMetric({
+        await recordMetric({
             category: "execution",
             event: "decision",
             agentName: executionOwner,
@@ -594,7 +596,7 @@ export async function dispatchPostTriage({
             if (typeof executionDecision.payload.message === "string" && executionDecision.payload.message) {
                 emitSystemStatus(hostedSession, executionDecision.payload.message, { header: "RunWield" });
             }
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName,
@@ -621,7 +623,7 @@ export async function dispatchPostTriage({
                     executionContext: executionResult.executionContext,
                     localCI,
                 });
-                await recordWorkflowMetric({
+                await recordMetric({
                     category: "execution",
                     event: "feature_project_outcome",
                     agentName: executionOwner,
@@ -634,7 +636,7 @@ export async function dispatchPostTriage({
                 });
                 return validationResult;
             } else {
-                await recordWorkflowMetric({
+                await recordMetric({
                     category: "execution",
                     event: "feature_project_outcome",
                     agentName: executionOwner,
@@ -650,7 +652,7 @@ export async function dispatchPostTriage({
             const nextAgentName = typeof executionDecision.payload.agentName === "string"
                 ? executionDecision.payload.agentName
                 : AGENTS.ENGINEER;
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName: nextAgentName,
@@ -665,7 +667,7 @@ export async function dispatchPostTriage({
         } else {
             // halt — stay with the execution owner for manual recovery
             const reason = executionDecision.payload?.reason || "unknown";
-            await recordWorkflowMetric({
+            await recordMetric({
                 category: "execution",
                 event: "feature_project_outcome",
                 agentName: executionOwner,

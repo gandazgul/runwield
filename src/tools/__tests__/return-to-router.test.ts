@@ -82,7 +82,7 @@ Deno.test("executeReturnToRouter records the routing metric under the fixture ho
 
         await executeReturnToRouter({ reason: "Retriage with enough context." }, hostedSession);
 
-        const metricPath = getWorkflowMetricsFilePath(projectRoot, homeDir);
+        const metricPath = getWorkflowMetricsFilePath(projectRoot);
         const metric = JSON.parse((await Deno.readTextFile(metricPath)).trim()) as RoutingMetricRecord;
         assertEquals(metric.category, "routing");
         assertEquals(metric.event, "return_to_router");

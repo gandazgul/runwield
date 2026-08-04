@@ -1,7 +1,9 @@
-import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertExists } from "@std/assert";
+import { join } from "@std/path";
+import { setCustomSetting } from "../settings.js";
+import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 import {
     classifyToolSubUsage,
-    getWorkflowMetricsFilePath,
     isWorkflowMetricsEnabled,
     recordToolCallFinished,
     recordToolCallStarted,
@@ -18,21 +20,18 @@ Deno.test("isWorkflowMetricsEnabled honors boolean and object opt-in settings", 
 });
 
 Deno.test("recordWorkflowMetric skips writes when disabled", async () => {
-    const tempHome = await Deno.makeTempDir();
-    try {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        await setCustomSetting("workflowMetrics", false, "project", projectRoot);
         await recordWorkflowMetric(
             { category: "routing", event: "triage_reported", details: { routingIntent: "INQUIRY" } },
-            { cwd: "/tmp/project-a", homeDir: tempHome, settings: false },
+            projectRoot,
         );
-        await assertRejects(() => Deno.stat(getWorkflowMetricsFilePath("/tmp/project-a", tempHome)));
-    } finally {
-        await Deno.remove(tempHome, { recursive: true });
-    }
+        assertEquals(await readMetrics(), []);
+    });
 });
 
 Deno.test("recordWorkflowMetric writes sanitized JSONL when enabled", async () => {
-    const tempHome = await Deno.makeTempDir();
-    try {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         const record = await recordWorkflowMetric(
             {
                 category: "validation",
@@ -46,44 +45,37 @@ Deno.test("recordWorkflowMetric writes sanitized JSONL when enabled", async () =
                     safeString: "ok",
                 },
             },
-            {
-                cwd: "/tmp/project-b",
-                homeDir: tempHome,
-                settings: true,
-                now: () => new Date("2026-01-01T00:00:00.000Z"),
-            },
+            projectRoot,
         );
         assertExists(record);
-        const filePath = getWorkflowMetricsFilePath("/tmp/project-b", tempHome);
-        const lines = (await Deno.readTextFile(filePath)).trim().split("\n");
-        assertEquals(lines.length, 1);
-        const parsed = JSON.parse(lines[0]);
+        const [parsed] = await readMetrics();
         assertEquals(parsed.v, 1);
-        assertEquals(parsed.ts, "2026-01-01T00:00:00.000Z");
+        assertEquals(Number.isNaN(Date.parse(parsed.ts)), false);
         assertEquals(parsed.category, "validation");
         assertEquals(parsed.event, "ci_attempt");
         assertEquals(parsed.planName, "safe-plan");
         assert(typeof parsed.cwdHash === "string" && parsed.cwdHash.length === 64);
+        assertExists(parsed.details);
         assertEquals(parsed.details.output, "[redacted]");
         assertEquals(parsed.details.worktreePath, "[path-redacted]");
         assertEquals(parsed.details.safeString, "ok");
-    } finally {
-        await Deno.remove(tempHome, { recursive: true });
-    }
+    });
 });
 
 Deno.test("recordWorkflowMetric swallows write failures", async () => {
-    const record = await recordWorkflowMetric(
-        { category: "routing", event: "dispatch_selected", details: { routingIntent: "FEATURE" } },
-        {
-            cwd: "/tmp/project-c",
-            homeDir: "/tmp/home-c",
-            settings: true,
-            mkdir: async () => {},
-            writeTextFile: () => Promise.reject(new Error("disk full")),
-        },
-    );
-    assertExists(record);
+    await withWorkflowMetricsFixture(async ({ homeDir, projectRoot, readMetrics }) => {
+        const runwieldPath = join(homeDir, ".wld");
+        await Deno.remove(runwieldPath, { recursive: true }).catch(() => {});
+        await Deno.writeTextFile(runwieldPath, "blocks the metrics directory");
+
+        const record = await recordWorkflowMetric(
+            { category: "routing", event: "dispatch_selected", details: { routingIntent: "FEATURE" } },
+            projectRoot,
+        );
+
+        assertExists(record);
+        assertEquals(await readMetrics(), []);
+    });
 });
 
 Deno.test("sanitizeMetricDetails redacts sensitive keys, paths, and long strings", () => {
@@ -126,8 +118,7 @@ Deno.test("sanitizeMetricDetails omits non-plain objects instead of stringifying
 });
 
 Deno.test("recordWorkflowMetric accepts each workflow metric category", async () => {
-    const tempHome = await Deno.makeTempDir();
-    try {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         const categories = [
             "routing",
             "planning",
@@ -140,17 +131,13 @@ Deno.test("recordWorkflowMetric accepts each workflow metric category", async ()
         for (const category of categories) {
             await recordWorkflowMetric(
                 { category: /** @type {any} */ (category), event: `${category}_event`, details: { ok: true } },
-                { cwd: "/tmp/project-d", homeDir: tempHome, settings: { enabled: true } },
+                projectRoot,
             );
         }
-        const lines = (await Deno.readTextFile(getWorkflowMetricsFilePath("/tmp/project-d", tempHome))).trim().split(
-            "\n",
-        );
-        assertEquals(lines.length, categories.length);
-        assertEquals(lines.map((line) => JSON.parse(line).category), categories);
-    } finally {
-        await Deno.remove(tempHome, { recursive: true });
-    }
+        const metrics = await readMetrics();
+        assertEquals(metrics.length, categories.length);
+        assertEquals(metrics.map((metric) => metric.category), categories);
+    });
 });
 
 Deno.test("classifyToolSubUsage returns coarse categories only", () => {
@@ -163,41 +150,39 @@ Deno.test("classifyToolSubUsage returns coarse categories only", () => {
     assertEquals(classifyToolSubUsage("edit_docs", { oldText: "before", newText: "after" }), "edit");
 });
 
-Deno.test("tool usage metrics omit raw commands, queries, file contents, messages, and results", () => {
-    /** @type {any[]} */
-    const metrics = [];
-    const recordMetric = (/** @type {any} */ metric) => {
-        metrics.push(metric);
-        return Promise.resolve(null);
-    };
+Deno.test("tool usage metrics omit raw commands, queries, file contents, messages, and results", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        await recordToolCallStarted(
+            "tool-1",
+            "bash",
+            { command: "grep -R private-query src && cat secret.txt" },
+            projectRoot,
+            "Engineer",
+        );
+        await recordToolCallFinished("tool-1", "bash", true, projectRoot, "Engineer");
 
-    recordToolCallStarted(
-        "tool-1",
-        "bash",
-        { command: "grep -R private-query src && cat secret.txt" },
-        "Engineer",
-        { recordWorkflowMetric: recordMetric, now: () => 100 },
-    );
-    recordToolCallFinished("tool-1", "bash", true, "Engineer", { recordWorkflowMetric: recordMetric, now: () => 125 });
-
-    assertEquals(metrics.length, 2);
-    assertEquals(metrics[0].category, "tool_usage");
-    assertEquals(metrics[0].details, { toolName: "bash", subUsage: "filesystem" });
-    assertEquals(metrics[1].details, {
-        toolName: "bash",
-        subUsage: "filesystem",
-        isError: true,
-        durationMs: 25,
+        const metrics = await readMetrics();
+        assertEquals(metrics.length, 2);
+        assertEquals(metrics[0].category, "tool_usage");
+        assertEquals(metrics[0].details, { toolName: "bash", subUsage: "filesystem" });
+        const finishedDetails = metrics[1].details;
+        assertExists(finishedDetails);
+        assertEquals(finishedDetails.toolName, "bash");
+        assertEquals(finishedDetails.subUsage, "filesystem");
+        assertEquals(finishedDetails.isError, true);
+        const durationMs = finishedDetails.durationMs;
+        assert(typeof durationMs === "number");
+        assertEquals(Number.isSafeInteger(durationMs), true);
+        assert(durationMs >= 0);
+        const serialized = JSON.stringify(metrics);
+        assertEquals(serialized.includes("private-query"), false);
+        assertEquals(serialized.includes("secret.txt"), false);
+        assertEquals(serialized.includes("grep -R"), false);
     });
-    const serialized = JSON.stringify(metrics);
-    assertEquals(serialized.includes("private-query"), false);
-    assertEquals(serialized.includes("secret.txt"), false);
-    assertEquals(serialized.includes("grep -R"), false);
 });
 
 Deno.test("dedicated Frontend Engineer metrics strip identity and content", async () => {
-    const tempHome = await Deno.makeTempDir();
-    try {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         await recordWorkflowMetric({
             category: "execution",
             event: "frontend_runtime_style_resolved",
@@ -217,7 +202,7 @@ Deno.test("dedicated Frontend Engineer metrics strip identity and content", asyn
                 source: "function secret() {}",
                 report: "- final report",
             },
-        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+        }, projectRoot);
         await recordWorkflowMetric({
             category: "execution",
             event: "pair_checkpoint_decided",
@@ -232,7 +217,7 @@ Deno.test("dedicated Frontend Engineer metrics strip identity and content", asyn
                 screenshotPath: "/Users/me/project/shot.png",
                 browserPayload: { url: "http://localhost:3000?token=abc" },
             },
-        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+        }, projectRoot);
         await recordWorkflowMetric({
             category: "execution",
             event: "frontend_execution_completed",
@@ -250,10 +235,9 @@ Deno.test("dedicated Frontend Engineer metrics strip identity and content", asyn
                 message: "- report with URL http://localhost:5173/secret",
                 file: "src/private/file.js",
             },
-        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+        }, projectRoot);
 
-        const lines = (await Deno.readTextFile(getWorkflowMetricsFilePath("/tmp/frontend-metrics", tempHome))).trim()
-            .split("\n").map((line) => JSON.parse(line));
+        const lines = await readMetrics();
         assertEquals(lines.map((line) => line.event), [
             "frontend_runtime_style_resolved",
             "pair_checkpoint_decided",
@@ -298,29 +282,28 @@ Deno.test("dedicated Frontend Engineer metrics strip identity and content", asyn
         ) {
             assertEquals(serialized.includes(forbidden), false, forbidden);
         }
-    } finally {
-        await Deno.remove(tempHome, { recursive: true });
-    }
+    });
 });
 
 Deno.test("dedicated Frontend Engineer metrics omit invalid values", async () => {
-    const record = await recordWorkflowMetric({
-        category: "execution",
-        event: "frontend_execution_completed",
-        details: {
-            phase: "free text",
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        const record = await recordWorkflowMetric({
+            category: "execution",
+            event: "frontend_execution_completed",
+            details: {
+                phase: "free text",
+                runtimeStyle: "pair",
+                checkpointCount: -1,
+                switchedToAutonomous: "yes",
+                capabilityLost: true,
+                browserPreflightOutcome: "succeeded",
+                elapsedMs: Infinity,
+            },
+        }, projectRoot);
+        assertEquals(record?.details, {
             runtimeStyle: "pair",
-            checkpointCount: -1,
-            switchedToAutonomous: "yes",
             capabilityLost: true,
             browserPreflightOutcome: "succeeded",
-            elapsedMs: Infinity,
-        },
-    }, {
-        cwd: "/tmp/frontend-invalid",
-        settings: true,
-        mkdir: async () => {},
-        writeTextFile: async () => {},
+        });
     });
-    assertEquals(record?.details, { runtimeStyle: "pair", capabilityLost: true, browserPreflightOutcome: "succeeded" });
 });

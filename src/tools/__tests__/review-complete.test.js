@@ -2,48 +2,44 @@ import { assertEquals } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { createReviewCompletedTool } from "../review-complete.ts";
+import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
+
+const REVIEW_PROJECT_ROOT = makeToolProjectFixture("runwield-review-complete-");
 
 for (const approved of [true, false]) {
     Deno.test(`review_complete emits one semantic result when approved=${approved}`, async () => {
-        const events = /** @type {any[]} */ ([]);
-        const metrics = /** @type {any[]} */ ([]);
-        const hostedSession = new HostedSession({ id: `review-${approved}`, cwd: Deno.cwd() });
-        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
-        const tool = createReviewCompletedTool({
-            hostedSession,
-            agentName: "reviewer",
-            recordWorkflowMetric: (metric) => {
-                metrics.push(metric);
-                return Promise.resolve(/** @type {any} */ (null));
-            },
-        });
+        await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+            const events = /** @type {any[]} */ ([]);
+            const hostedSession = new HostedSession({ id: `review-${approved}`, cwd: projectRoot });
+            hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+            const tool = createReviewCompletedTool({ hostedSession, agentName: "reviewer" });
 
-        const result = await /** @type {any} */ (tool.execute)("call", {
-            approved,
-            feedback: approved ? "ship it" : "fix the boundary",
-        });
+            const result = await /** @type {any} */ (tool.execute)("call", {
+                approved,
+                feedback: approved ? "ship it" : "fix the boundary",
+            });
 
-        assertEquals(result.terminate, true);
-        assertEquals(result.details.approved, approved);
-        assertEquals(events.length, 1);
-        assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
-        assertEquals(events[0].agentName, "reviewer");
-        assertEquals(events[0].messageKind, "review_result");
-        assertEquals(events[0].approved, approved);
-        assertEquals(metrics[0].event, "review_complete");
+            assertEquals(result.terminate, true);
+            assertEquals(result.details.approved, approved);
+            assertEquals(events.length, 1);
+            assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
+            assertEquals(events[0].agentName, "reviewer");
+            assertEquals(events[0].messageKind, "review_result");
+            assertEquals(events[0].approved, approved);
+            const metrics = await readMetrics();
+            assertEquals(metrics.length, 1);
+            assertEquals(metrics[0].event, "review_complete");
+            assertEquals(metrics[0].details?.outcome, approved ? "approved" : "feedback");
+        });
     });
 }
 
 /** @param {string} id */
 function makeReviewTool(id) {
     const events = /** @type {any[]} */ ([]);
-    const hostedSession = new HostedSession({ id, cwd: Deno.cwd() });
+    const hostedSession = new HostedSession({ id, cwd: REVIEW_PROJECT_ROOT });
     hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
-    const tool = createReviewCompletedTool({
-        hostedSession,
-        agentName: "reviewer",
-        recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
-    });
+    const tool = createReviewCompletedTool({ hostedSession, agentName: "reviewer" });
     return { tool, events };
 }
 

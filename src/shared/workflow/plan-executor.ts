@@ -113,7 +113,7 @@ export async function executePlan({
             event: "plan_execution_rejected",
             planName,
             details: { reason: initialLoad.error ? "plan_load_failed" : "plan_not_found" },
-        }, { cwd: projectRoot });
+        }, projectRoot);
 
         const planPath = join(projectRoot, PLANS_DIR_NAME, `${planName}.md`);
         let recoveryAttempt = 0;
@@ -313,7 +313,7 @@ export async function executePlan({
             event: "plan_execution_rejected",
             planName,
             details: { reason: policy.reason },
-        }, { cwd: projectRoot });
+        }, projectRoot);
         return { repairRequired: false, executionComplete: false, error: policy.error };
     }
     if (policy.ok) {
@@ -329,7 +329,7 @@ export async function executePlan({
             event: "plan_execution_rejected",
             planName,
             details: { reason: "epic_container", classification: effectiveMeta.classification },
-        }, { cwd: projectRoot });
+        }, projectRoot);
         return { repairRequired: false, executionComplete: false, error };
     }
 
@@ -341,7 +341,7 @@ export async function executePlan({
             event: "plan_execution_rejected",
             planName,
             details: { reason: "not_ready_for_work", status: plan.attrs.status },
-        }, { cwd: projectRoot });
+        }, projectRoot);
         return { repairRequired: false, executionComplete: false, error };
     }
 
@@ -362,7 +362,7 @@ export async function executePlan({
                 pairCapable: collaboration.pairCapable,
                 resolutionReason: collaboration.resolutionReason,
             },
-        }, { cwd: projectRoot });
+        }, projectRoot);
     }
 
     await recordWorkflowMetric({
@@ -370,7 +370,7 @@ export async function executePlan({
         event: "plan_execution_started",
         planName,
         details: { classification: effectiveMeta.classification, status: effectiveMeta.status },
-    }, { cwd: projectRoot });
+    }, projectRoot);
 
     emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
 
@@ -411,7 +411,7 @@ export async function executePlan({
                     kind: result.baselineRejectionKind,
                     checkIds: result.baselineRejectedCheckIds,
                 },
-            }, { cwd: projectRoot });
+            }, projectRoot);
             const planningAgentName = effectiveMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
             const revisionOutcome = await runPlanningAgent({
                 agentName: planningAgentName,
@@ -457,7 +457,7 @@ export async function executePlan({
                 repairRequired: result.repairRequired,
                 hasError: Boolean(result.error),
             },
-        }, { cwd: projectRoot });
+        }, projectRoot);
         return result;
     }
 
@@ -482,7 +482,7 @@ export async function executePlan({
                     executionMode: executionContext?.executionMode,
                     hasExecutionContext: Boolean(executionContext),
                 },
-            }, { cwd: projectRoot });
+            }, projectRoot);
         } catch {
             // The checkpoint failure remains the authoritative error.
         }
@@ -504,7 +504,7 @@ export async function executePlan({
         event: "plan_execution_result",
         planName,
         details: { executionComplete: true, repairRequired: false },
-    }, { cwd: projectRoot });
+    }, projectRoot);
 
     emitSystemStatus(
         hostedSession,

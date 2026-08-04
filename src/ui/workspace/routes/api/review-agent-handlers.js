@@ -23,11 +23,10 @@ import { createReviewWidgetStore } from "./review-widget-handlers.js";
  * @property {Set<ReadableStreamDefaultController<Uint8Array>>} streams
  * @property {ReturnType<typeof createReviewWidgetStore>} widgets
  * @property {(prompt: string, signal: AbortSignal, cwd: string) => Promise<{ stdout: string, stderr?: string, provider: string, model?: string, usage?: Record<string, unknown>, cost?: Record<string, unknown> }>} runGuideCommand
- * @property {typeof recordWorkflowMetric} recordWorkflowMetric
  */
 
 /**
- * @param {{ token: string, cwd: string, reviewPayload: Record<string, unknown>, runGuideCommand?: ReviewAgentState["runGuideCommand"], recordWorkflowMetric?: typeof recordWorkflowMetric }} options
+ * @param {{ token: string, cwd: string, reviewPayload: Record<string, unknown>, runGuideCommand?: ReviewAgentState["runGuideCommand"] }} options
  * @returns {ReviewAgentState}
  */
 export function createReviewAgentState(options) {
@@ -37,7 +36,6 @@ export function createReviewAgentState(options) {
         streams: new Set(),
         widgets: createReviewWidgetStore(),
         runGuideCommand: options.runGuideCommand || runConfiguredGuideCommand,
-        recordWorkflowMetric: options.recordWorkflowMetric || recordWorkflowMetric,
     };
 }
 
@@ -222,7 +220,7 @@ async function runGuideJob(state, entry, changedFiles) {
 /** @param {ReviewAgentState} state @param {ReviewGuideJobEntry} entry */
 async function recordGuideJobMetric(state, entry) {
     const info = /** @type {Record<string, unknown>} */ (withElapsed(entry.info));
-    await state.recordWorkflowMetric({
+    await recordWorkflowMetric({
         category: "validation",
         event: "guided_review_generation_result",
         details: {
@@ -237,7 +235,7 @@ async function recordGuideJobMetric(state, entry) {
             hasError: typeof info.error === "string" && info.error.length > 0,
             errorKind: classifyGuideJobError(info.error),
         },
-    }, { cwd: state.cwd });
+    }, state.cwd);
 }
 
 /** @param {unknown} error */

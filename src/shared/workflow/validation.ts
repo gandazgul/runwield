@@ -2319,7 +2319,7 @@ async function recordMetric(
     cwd: string,
     metric: Parameters<typeof recordWorkflowMetric>[0],
 ): Promise<void> {
-    await recordWorkflowMetric(metric, { cwd });
+    await recordWorkflowMetric(metric, cwd);
 }
 
 function readCiAttempts(meta: Partial<PlanFrontMatter>): number {

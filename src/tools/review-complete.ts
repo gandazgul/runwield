@@ -97,12 +97,10 @@ type ReviewCompleteResult = AgentToolResult<ReviewCompleteDetails> & { terminate
 interface ReviewCompletedToolOptions {
     hostedSession: HostedSession;
     agentName?: string;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
 }
 
 export function createReviewCompletedTool(
-    { hostedSession, agentName = "reviewer", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }:
-        ReviewCompletedToolOptions,
+    { hostedSession, agentName = "reviewer" }: ReviewCompletedToolOptions,
 ) {
     if (!hostedSession) throw new Error("createReviewCompletedTool: hostedSession is required");
     return defineTool<typeof PARAMETERS, ReviewCompleteDetails>({
@@ -126,12 +124,12 @@ export function createReviewCompletedTool(
                 const rejection = `Cannot approve with ${openFindings.length} unresolved finding(s). ` +
                     "Either resolve them (resolved: true, after verifying the fix in the code) or call " +
                     "review_complete with approved: false.";
-                await recordWorkflowMetricImpl({
+                await recordWorkflowMetric({
                     category: "validation",
                     event: "review_complete",
                     agentName,
                     details: { outcome: "rejected", reason: "approved_with_open_findings" },
-                });
+                }, hostedSession.cwd);
                 return {
                     content: [{ type: "text", text: `review_complete rejected: ${rejection}` }],
                     details: { outcome: "rejected", reason: "approved_with_open_findings" },
@@ -151,7 +149,7 @@ export function createReviewCompletedTool(
                 }:\n${projection || "(no feedback provided)"}`;
 
             emitReviewResultMessage(hostedSession, agentName, message, approved);
-            await recordWorkflowMetricImpl({
+            await recordWorkflowMetric({
                 category: "validation",
                 event: "review_complete",
                 agentName,
@@ -164,7 +162,7 @@ export function createReviewCompletedTool(
                     resolvedFindingCount: findings.length - openFindings.length,
                     advisoryCount: advisories.length,
                 },
-            });
+            }, hostedSession.cwd);
 
             return {
                 content: [{ type: "text", text: message }],

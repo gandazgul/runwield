@@ -3,6 +3,7 @@ import { join } from "@std/path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createTaskCompletedTool } from "../../tools/task-completed.ts";
+import { makeToolProjectFixture } from "../../testing/workflow-metrics-fixture.ts";
 import { HostedSession } from "./hosted-session.js";
 import { exportRootSessionToJsonl } from "./root-session.js";
 import {
@@ -13,6 +14,7 @@ import {
 } from "./task-completion-session.ts";
 
 const EXTENSION_CONTEXT = {} as ExtensionContext;
+const TASK_COMPLETION_PROJECT_ROOT = makeToolProjectFixture("runwield-task-completion-session-");
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
 
 function hostedSessionManager(sessionManager: SessionManager): HostedSessionManager {
@@ -32,17 +34,16 @@ function executionWorkflow(planName: string) {
 }
 
 Deno.test("accepted task completion survives HostedSession replacement and acknowledges exactly once", async () => {
-    const sessionManager = SessionManager.inMemory(Deno.cwd());
+    const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "durable-completion-original",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     original.setActiveExecutionWorkflow(executionWorkflow("durable-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
         now: () => 1234,
     });
 
@@ -60,7 +61,7 @@ Deno.test("accepted task completion survives HostedSession replacement and ackno
     // the root SessionManager's append-only JSONL entries.
     const resumed = new HostedSession({
         id: "durable-completion-resumed",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     const resumedRoot = { dispose: () => {} };
@@ -103,7 +104,6 @@ Deno.test("accepted task completion is recovered from a reopened session JSONL",
         const tool = createTaskCompletedTool({
             hostedSession: original,
             agentName: "engineer",
-            recordWorkflowMetric: () => Promise.resolve(null),
         });
         await tool.execute(
             "jsonl-completion",
@@ -145,10 +145,10 @@ Deno.test("accepted task completion is recovered from a reopened session JSONL",
 });
 
 Deno.test("isolated task completion remains outside the root JSONL outbox", async () => {
-    const sessionManager = SessionManager.inMemory(Deno.cwd());
+    const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const hostedSession = new HostedSession({
         id: "isolated-completion",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     const root = { dispose: () => {} };
@@ -159,7 +159,6 @@ Deno.test("isolated task completion remains outside the root JSONL outbox", asyn
     const tool = createTaskCompletedTool({
         hostedSession,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     try {
         await tool.execute(
@@ -179,17 +178,16 @@ Deno.test("isolated task completion remains outside the root JSONL outbox", asyn
 });
 
 Deno.test("durable completion does not cross into a different active workflow", async () => {
-    const sessionManager = SessionManager.inMemory(Deno.cwd());
+    const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "completion-scope-original",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     original.setActiveExecutionWorkflow(executionWorkflow("first-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     await tool.execute(
         "first-plan-completion",
@@ -201,7 +199,7 @@ Deno.test("durable completion does not cross into a different active workflow", 
 
     const resumed = new HostedSession({
         id: "completion-scope-resumed",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     const root = { dispose: () => {} };
@@ -213,17 +211,16 @@ Deno.test("durable completion does not cross into a different active workflow", 
 });
 
 Deno.test("acknowledging the latest completion retires duplicates for the same workflow attempt", async () => {
-    const sessionManager = SessionManager.inMemory(Deno.cwd());
+    const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "duplicate-completion-original",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     original.setActiveExecutionWorkflow(executionWorkflow("duplicate-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     await tool.execute(
         "duplicate-first",
@@ -243,7 +240,7 @@ Deno.test("acknowledging the latest completion retires duplicates for the same w
 
     const resumed = new HostedSession({
         id: "duplicate-completion-resumed",
-        cwd: Deno.cwd(),
+        cwd: TASK_COMPLETION_PROJECT_ROOT,
         sessionManager: hostedSessionManager(sessionManager),
     });
     const root = { dispose: () => {} };

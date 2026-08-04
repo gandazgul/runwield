@@ -161,7 +161,7 @@ async function recordResolutionMetric({
         event: "execution_context_resolution",
         planName,
         details: { reason, recovered, planFileRestored },
-    }, { cwd }).catch(() => {});
+    }, cwd).catch(() => {});
 }
 
 export async function resolveValidationExecutionContext({

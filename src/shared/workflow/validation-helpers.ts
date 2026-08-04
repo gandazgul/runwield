@@ -266,7 +266,7 @@ async function runCompletionGatedRepair({
     const fromIndex = previousRootMessages.length;
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
     const customTools = workflow?.executionAgent === AGENTS.FRONTEND_ENGINEER && workflow.collaborationStyle === "pair"
-        ? [createPairCheckpointTool({ hostedSession, recordWorkflowMetric })]
+        ? [createPairCheckpointTool({ hostedSession })]
         : undefined;
     const messages = await runActiveAgentTurn({
         hostedSession,
@@ -403,12 +403,10 @@ export async function runMechanicalValidation({
     if (!hostedSession) throw new Error("runMechanicalValidation: hostedSession is required");
     const projectRoot = hostedSession?.cwd || cwd;
     if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
+    const metricProjectRoot = projectRoot;
     const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
-    function recordWorkflowMetricImpl(
-        metric: Parameters<typeof recordWorkflowMetric>[0],
-        deps: Parameters<typeof recordWorkflowMetric>[1] = {},
-    ) {
-        return recordWorkflowMetric(metric, { cwd: projectRoot, ...deps });
+    function recordWorkflowMetricImpl(metric: Parameters<typeof recordWorkflowMetric>[0]) {
+        return recordWorkflowMetric(metric, metricProjectRoot);
     }
     /** @param {string} agentName */
     const activateAgent = async (agentName: string) => {

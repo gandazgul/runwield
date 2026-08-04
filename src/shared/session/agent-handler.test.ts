@@ -165,7 +165,6 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
         const tool = createTaskCompletedTool({
             hostedSession: original,
             agentName: "engineer",
-            recordWorkflowMetric: () => Promise.resolve(null),
         });
         await tool.execute(
             "durable-handler-call",

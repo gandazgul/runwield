@@ -45,7 +45,6 @@ type AgentTurnHandoffResult = import("./types.js").AgentTurnHandoffResult;
 type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 type PlanExecutionResult = import("../workflow/workflow.js").PlanExecutionResult;
 type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
-type WorkflowMetricOptions = NonNullable<Parameters<typeof recordWorkflowMetric>[1]>;
 
 interface RootAgentSessionState {
     dispose?: () => void | Promise<void>;
@@ -161,8 +160,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             delete resumed.pairStopRequested;
             hostedSession.setActiveExecutionWorkflow(resumed);
         }
-        function recordWorkflowMetricImpl(metric: WorkflowMetric, metricOptions: WorkflowMetricOptions = {}) {
-            return recordWorkflowMetric(metric, { cwd: projectRoot, ...metricOptions });
+        function recordWorkflowMetricImpl(metric: WorkflowMetric) {
+            return recordWorkflowMetric(metric, projectRoot);
         }
 
         // Interactive handlers must match the live root. A mismatched handler

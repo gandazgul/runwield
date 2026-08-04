@@ -58,7 +58,6 @@ async function runCiRepair({ reportCompletion }: RepairRunOptions) {
     const completionTool = createTaskCompletedTool({
         hostedSession,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     await primeRepairRoot(
         hostedSession,
@@ -130,7 +129,6 @@ async function runObjectiveRepair({ reportCompletion }: RepairRunOptions) {
     const completionTool = createTaskCompletedTool({
         hostedSession,
         agentName: "engineer",
-        recordWorkflowMetric: () => Promise.resolve(null),
     });
     await primeRepairRoot(
         hostedSession,

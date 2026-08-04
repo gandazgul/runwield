@@ -720,7 +720,7 @@ async function runSemanticTransition<T>(
                         event: "semantic_transition_committed",
                         planName,
                         details: { operation, resources: resources.map(transitionResourceKey) },
-                    }, { cwd: projectRoot }).catch(() => {});
+                    }, projectRoot).catch(() => {});
                     return { status: "committed", transitionId, operation, value };
                 } catch (error) {
                     if (error instanceof SharedPlanLockError) throw error;
@@ -968,7 +968,7 @@ async function runPlanTransition<T>(
                 event: "plan_transition_committed",
                 planName,
                 details: { operation },
-            }, { cwd: projectRoot }).catch(() => {});
+            }, projectRoot).catch(() => {});
             return { status: "committed", transitionId, operation, value };
         } catch (error) {
             if (error instanceof SharedPlanLockError) throw error;

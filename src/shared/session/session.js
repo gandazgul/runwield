@@ -972,9 +972,10 @@ async function resolveModel(
 ) {
     let resolvedModel = null;
     if (!projectRoot) throw new Error("resolveModel: projectRoot is required");
+    const metricProjectRoot = projectRoot;
     /** @param {Parameters<typeof recordWorkflowMetric>[0]} metric */
     function recordModelMetric(metric) {
-        return recordWorkflowMetric(metric, { cwd: projectRoot });
+        return recordWorkflowMetric(metric, metricProjectRoot);
     }
 
     /** @type {Array<{ model: string, source: string, strict: boolean }>} */
@@ -1948,7 +1949,7 @@ export async function buildAgentSession({
             temperatureConfigured: resolvedTemperature !== undefined,
             temperatureSource,
         },
-    }, { cwd: sessionCwd });
+    }, sessionCwd);
     return {
         session,
         agentDef,
@@ -2304,13 +2305,15 @@ export function attachSessionEventSubscribers(
                 toolStartedAt.set(event.toolCallId, Date.now());
                 const runtimeTool = describeRuntimeTool(event.toolName, event.args);
                 runtimeTools.set(event.toolCallId, runtimeTool);
-                recordToolCallStarted(
-                    event.toolCallId,
-                    event.toolName,
-                    event.args,
-                    agentDef.displayName || agentDef.name,
-                    { cwd: hostedSession?.cwd },
-                );
+                if (hostedSession?.cwd) {
+                    void recordToolCallStarted(
+                        event.toolCallId,
+                        event.toolName,
+                        event.args,
+                        hostedSession.cwd,
+                        agentDef.displayName || agentDef.name,
+                    );
+                }
 
                 if (event.toolName === "plan_written") {
                     endThinking();
@@ -2372,13 +2375,15 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "tool_execution_end": {
-                recordToolCallFinished(
-                    event.toolCallId,
-                    event.toolName,
-                    Boolean(event.isError),
-                    agentDef.displayName || agentDef.name,
-                    { cwd: hostedSession?.cwd },
-                );
+                if (hostedSession?.cwd) {
+                    void recordToolCallFinished(
+                        event.toolCallId,
+                        event.toolName,
+                        Boolean(event.isError),
+                        hostedSession.cwd,
+                        agentDef.displayName || agentDef.name,
+                    );
+                }
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                     appendDebugLog(
                         debugLogPath,

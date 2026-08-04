@@ -146,7 +146,7 @@ export async function finalizePlanImplementation({
             executionMode: executionContext.executionMode,
             checkpointCommitted: Boolean(implementationCommit),
         },
-    }, { cwd: projectRoot });
+    }, projectRoot);
     return implementationCommit ? { implementationCommit } : {};
 }
 

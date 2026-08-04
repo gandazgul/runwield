@@ -157,25 +157,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/workflow/metrics.js": {
-            "seams": [
-                "cwd",
-                "getSetting",
-                "homeDir",
-                "mkdir",
-                "now",
-                "recordWorkflowMetric",
-                "settings",
-                "writeTextFile"
-            ],
-            "machinery": [],
-            "conditional": [
-                "members:getSetting",
-                "members:now",
-                "members:now",
-                "members:settings"
-            ]
-        },
         "src/shared/workflow/validation.ts": {
             "seams": [
                 "getDiffText",
@@ -188,34 +169,6 @@
                 "loadReviewerFeedbackEngineerDef",
                 "loadReviewerPrompt"
             ],
-            "conditional": []
-        },
-        "src/tools/pair-checkpoint.ts": {
-            "seams": [
-                "recordWorkflowMetric"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/tools/review-complete.ts": {
-            "seams": [
-                "recordWorkflowMetric"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/tools/task-completed.ts": {
-            "seams": [
-                "recordWorkflowMetric"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/tools/triage-report.ts": {
-            "seams": [
-                "recordWorkflowMetric"
-            ],
-            "machinery": [],
             "conditional": []
         },
         "src/ui/review/code-review.ts": {
@@ -313,13 +266,6 @@
                 "createRemoteWorkspaceAdapter",
                 "setInterval",
                 "startWorkspaceServer"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/workspace/routes/api/review-agent-handlers.js": {
-            "seams": [
-                "recordWorkflowMetric"
             ],
             "machinery": [],
             "conditional": []

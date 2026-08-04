@@ -6,9 +6,11 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
+import { setCustomSetting } from "../settings.js";
 import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { dispatchPostTriage, type DispatchPostTriageArgs, readLatestTriageOutcome } from "./orchestrator.ts";
+import { getWorkflowMetricsFilePath } from "./metrics.js";
 import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
 
 interface SessionFixture {
@@ -130,6 +132,7 @@ Deno.test("readLatestTriageOutcome ignores reports before the current turn", () 
 
 Deno.test("dispatchPostTriage routes conversational intents through real Agent sessions", async () => {
     await withRuntimeCommandFixture("orchestrator-conversation-", async ({ projectRoot, setModelMessages }) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
         setModelMessages([
             fauxAssistantMessage(fauxText("Guide answer.")),
             fauxAssistantMessage(fauxText("Ideator response.")),
@@ -170,6 +173,13 @@ Deno.test("dispatchPostTriage routes conversational intents through real Agent s
             "ideator",
         ]);
         assertEquals(ci.calls, []);
+        const metrics = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n").map(
+            (line) => JSON.parse(line),
+        );
+        assertEquals(
+            metrics.filter((metric) => metric.event === "dispatch_selected").map((metric) => metric.agentName),
+            ["guide", "ideator"],
+        );
         guide.hostedSession.dispose();
         ideator.hostedSession.dispose();
     });

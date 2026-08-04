@@ -112,7 +112,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             event: "recovery_action_result",
             planName: plan.planName,
             details: { action, result, currentStatus: plan.attrs.status, hasWorktree, canMergeWorktree, ...details },
-        });
+        }, projectRoot);
     };
     context.worktreeContext = await context.refreshRecoveryWorktree();
 
@@ -129,7 +129,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             event: "recovery_action_selected",
             planName: plan.planName,
             details: { action: answer || "cancel", currentStatus: plan.attrs.status, hasWorktree, canMergeWorktree },
-        });
+        }, projectRoot);
         if (!answer || answer === "cancel") {
             await context.recordRecoveryResult("cancel", "handled");
             return "handled";

@@ -85,7 +85,6 @@ type PairCheckpointResult = AgentToolResult<PairCheckpointDetails> & { terminate
 
 interface PairCheckpointToolOptions {
     hostedSession: HostedSession;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
 }
 
 function checkpointResult(
@@ -104,13 +103,13 @@ function clearPairPause(workflow: ActiveExecutionWorkflow): ActiveExecutionWorkf
 }
 
 export function createPairCheckpointTool(
-    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric }: PairCheckpointToolOptions,
+    { hostedSession }: PairCheckpointToolOptions,
 ) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
-    function recordDecision(details: PairCheckpointDetails): void {
+    async function recordDecision(details: PairCheckpointDetails): Promise<void> {
         const reason = "reason" in details ? details.reason : undefined;
         const checkpointNumber = "checkpointNumber" in details ? details.checkpointNumber : undefined;
-        void recordWorkflowMetricImpl({
+        await recordWorkflowMetric({
             category: "execution",
             event: "pair_checkpoint_decided",
             details: {
@@ -118,7 +117,7 @@ export function createPairCheckpointTool(
                 decision: details.decision,
                 reason,
             },
-        }, { cwd: hostedSession.cwd });
+        }, hostedSession.cwd);
     }
     return defineTool<typeof PARAMETERS, PairCheckpointDetails>({
         name: "pair_checkpoint",
@@ -155,7 +154,7 @@ export function createPairCheckpointTool(
                     collaborationStyle: "autonomous",
                     pairCapabilityLost: true,
                 });
-                recordDecision({
+                await recordDecision({
                     decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
                     checkpointNumber,
                     reason: "pair_capability_lost",
@@ -179,7 +178,7 @@ export function createPairCheckpointTool(
 
             if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
                 hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
-                recordDecision({
+                await recordDecision({
                     decision: CHECKPOINT_DECISIONS.CANCELED,
                     checkpointNumber,
                     reason: "checkpoint_interaction_canceled",
@@ -204,7 +203,7 @@ export function createPairCheckpointTool(
                     collaborationStyle: "autonomous",
                     pairCapabilityLost: true,
                 });
-                recordDecision({
+                await recordDecision({
                     decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
                     checkpointNumber,
                     reason: "pair_capability_lost",
@@ -226,7 +225,7 @@ export function createPairCheckpointTool(
 
             if (decision === CHECKPOINT_DECISIONS.CONTINUE) {
                 hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
-                recordDecision({ decision, checkpointNumber });
+                await recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "The increment is accepted; continue Pair Execution.",
                     { decision, checkpointNumber },
@@ -237,7 +236,7 @@ export function createPairCheckpointTool(
                 const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback.trim() : "";
                 if (!feedback) {
                     hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
-                    recordDecision({
+                    await recordDecision({
                         decision: CHECKPOINT_DECISIONS.CANCELED,
                         checkpointNumber,
                         reason: "revision_feedback_required",
@@ -253,7 +252,7 @@ export function createPairCheckpointTool(
                     );
                 }
                 hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
-                recordDecision({ decision, checkpointNumber, feedback });
+                await recordDecision({ decision, checkpointNumber, feedback });
                 return checkpointResult(
                     `Revise this increment using the user's feedback: ${feedback}`,
                     { decision, feedback, checkpointNumber },
@@ -266,7 +265,7 @@ export function createPairCheckpointTool(
                     collaborationStyle: "autonomous",
                     pairSwitchedToAutonomous: true,
                 });
-                recordDecision({ decision, checkpointNumber });
+                await recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "Continue the remaining work autonomously.",
                     { decision, checkpointNumber },
@@ -279,7 +278,7 @@ export function createPairCheckpointTool(
                     pairPauseReason: "stop",
                     pairStopRequested: true,
                 });
-                recordDecision({ decision, checkpointNumber });
+                await recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "Stop Pair Execution now without task_completed; leave the Plan In Progress.",
                     { decision, checkpointNumber },
@@ -292,7 +291,7 @@ export function createPairCheckpointTool(
                 collaborationStyle: "autonomous",
                 pairCapabilityLost: true,
             });
-            recordDecision({
+            await recordDecision({
                 decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
                 checkpointNumber,
                 reason: "invalid_checkpoint_response",

@@ -147,7 +147,7 @@ Deno.test("plan_written rejects invalid loaded Plan policy before review or read
             `---
 classification: FEATURE
 executionAgent: engineer
-collaborationRecommendation: pair
+collaborationRecommendation: sometimes
 ---
 # Invalid
 `,
@@ -169,7 +169,7 @@ collaborationRecommendation: pair
         const result = await execute(tool);
 
         assertEquals(result.details.outcome, "repair_required");
-        assertEquals(result.details.reason, "engineer_pair_recommendation");
+        assertEquals(result.details.reason, "invalid_collaboration_recommendation");
         assertEquals(reviewRequested, false);
         // Rejected before review, so nothing may have advanced the Plan.
         assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.status, "draft");
@@ -201,21 +201,20 @@ Deno.test("plan_written omitted execution policy leaves front matter untouched",
     assertEquals(attrs?.collaborationRecommendation, undefined);
 });
 
-Deno.test("plan_written rejects a pair recommendation declared for Engineer-owned execution", async () => {
+Deno.test("plan_written persists a pair recommendation declared for Engineer-owned execution", async () => {
+    // Pair used to be rejected for Engineer on the theory that only visual work is
+    // worth watching. Steering value is not a browser property: a risky refactor is
+    // exactly where the user wants to read the diff between increments.
     const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
     const result = await execute(tool, "runtime-boundary", () => {}, {
         executionAgent: "engineer",
         collaborationRecommendation: "pair",
     });
 
-    assertEquals(result.details.outcome, "repair_required");
-    assertEquals(result.details.reason, "engineer_pair_recommendation");
-    assertStringIncludes(result.content[0].text, "executionAgent/collaborationRecommendation arguments");
-    // Rejected before persistence, so the Plan still carries the policy it arrived with.
+    assertEquals(result.details.outcome, "approved_execute");
     const attrs = (await readPlan())?.attrs;
-    assertEquals(attrs?.collaborationRecommendation, undefined);
-    assertEquals(attrs?.objectiveChecks, undefined);
-    assertEquals(attrs?.status, "approved");
+    assertEquals(attrs?.executionAgent, "engineer");
+    assertEquals(attrs?.collaborationRecommendation, "pair");
 });
 
 Deno.test("plan_written rejects execution policy arguments on PROJECT Epics", async () => {

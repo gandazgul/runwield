@@ -62,7 +62,7 @@ export async function executeReturnToRouter(
             agentName: AGENTS.ROUTER,
             details: { targetAgent: AGENTS.ROUTER, hasReason: Boolean(reason) },
         },
-        { cwd: hostedSession.cwd },
+        hostedSession.cwd,
     );
 
     return {
