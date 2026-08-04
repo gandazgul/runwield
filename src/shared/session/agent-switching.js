@@ -15,7 +15,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, allowReturnToRouter?: boolean, cwd?: string }>} */
 const switchMetadata = new WeakMap();
 
-/** @type {WeakMap<Function, { agentName: string, allowReturnToRouter?: boolean, usesDefaultFactory: boolean }>} */
+/** @type {WeakMap<Function, { agentName: string, allowReturnToRouter?: boolean }>} */
 const handlerMetadata = new WeakMap();
 
 /**
@@ -36,23 +36,15 @@ const handlerMetadata = new WeakMap();
  */
 
 /**
- * @typedef {Object} SwitchActiveAgentDependencies
- * @property {typeof ensureRootAgentSession} [ensureRootAgentSession]
- * @property {typeof createAgentHandler} [createAgentHandler]
- * @property {typeof getRootSessionSwitchState} [getRootSessionSwitchState]
- */
-
-/**
  * Switch a HostedSession's root Agent as one completed transaction.
  * The target root Agent Session is built before the active handler is replaced,
  * so construction failures leave the previous root/handler pair intact.
  *
  * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {AgentSwitchOptions} options
- * @param {SwitchActiveAgentDependencies} [dependencies]
  * @returns {Promise<{ ok: true, agentName: string, model?: string, changed: boolean }>}
  */
-export async function switchActiveAgent(hostedSession, options, dependencies = {}) {
+export async function switchActiveAgent(hostedSession, options) {
     if (!hostedSession) throw new Error("switchActiveAgent requires a HostedSession");
     hostedSession.assertActive();
     const agentName = String(options?.agentName || "").trim();
@@ -61,11 +53,8 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
     const previousAgentName = hostedSession.getRootAgentName();
     const previousHandler = hostedSession.getActiveOnMessage();
     const previousRootSession = hostedSession.getRootAgentSession();
-    const ensureRootAgentSessionImpl = dependencies.ensureRootAgentSession || ensureRootAgentSession;
-    const createAgentHandlerImpl = dependencies.createAgentHandler || createAgentHandler;
-    const getRootSessionSwitchStateImpl = dependencies.getRootSessionSwitchState || getRootSessionSwitchState;
     const activeModelState = hostedSession.getActiveModelState?.() || { model: "" };
-    const rootSwitchState = getRootSessionSwitchStateImpl(hostedSession);
+    const rootSwitchState = getRootSessionSwitchState(hostedSession);
     const previousSwitch = switchMetadata.get(hostedSession);
     const effectiveModel = rootSwitchState?.model ?? previousSwitch?.model ?? activeModelState.model;
     const modelOverride = options.model;
@@ -100,7 +89,6 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         !allowReturnToRouterChanged && !cwdChanged && !customRootConfigurationProvided &&
         shouldReuseExistingRootSession({ agentName }, previousAgentName);
     const shouldRebuildRoot = !canReuseRoot;
-    const createAgentHandlerProvided = Object.hasOwn(dependencies, "createAgentHandler");
     const nextMetadata = {
         agentName,
         model: options.model ?? effectiveModel,
@@ -112,7 +100,6 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         previousHandler && previousHandlerMetadata &&
             previousHandlerMetadata.agentName === agentName &&
             previousHandlerMetadata.allowReturnToRouter === nextMetadata.allowReturnToRouter &&
-            previousHandlerMetadata.usesDefaultFactory === !createAgentHandlerProvided &&
             !customRootConfigurationProvided,
     );
 
@@ -123,18 +110,17 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
     // Stage the matching handler before the root builder can commit a
     // replacement. A handler-factory failure therefore leaves the previous
     // root/handler pair untouched.
-    const handler = createAgentHandlerImpl(agentName, {
+    const handler = createAgentHandler(agentName, {
         hostedSession,
         customTools: options.customTools,
     });
     handlerMetadata.set(handler, {
         agentName,
         allowReturnToRouter: nextMetadata.allowReturnToRouter,
-        usesDefaultFactory: !createAgentHandlerProvided,
     });
 
     if (shouldRebuildRoot) {
-        await ensureRootAgentSessionImpl({
+        await ensureRootAgentSession({
             hostedSession,
             ...rootOptions,
             activeHandler: handler,
@@ -183,15 +169,9 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
  * root session and interactive handler belong to different Agents.
  *
  * @param {ActiveAgentTurnOptions} options
- * @param {{
- *   switchActiveAgent?: typeof switchActiveAgent,
- *   runRootTurn?: typeof runRootTurn,
- * }} [dependencies]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
-export async function runActiveAgentTurn(options, dependencies = {}) {
-    const switchActiveAgentImpl = dependencies.switchActiveAgent || switchActiveAgent;
-    const runRootTurnImpl = dependencies.runRootTurn || runRootTurn;
+export async function runActiveAgentTurn(options) {
     const {
         hostedSession,
         agentName,
@@ -226,8 +206,8 @@ export async function runActiveAgentTurn(options, dependencies = {}) {
         ...(includeEditFallback !== undefined ? { includeEditFallback } : {}),
         ...(debugLogPath ? { debugLogPath } : {}),
     };
-    await switchActiveAgentImpl(hostedSession, switchOptions);
-    return await runRootTurnImpl({
+    await switchActiveAgent(hostedSession, switchOptions);
+    return await runRootTurn({
         hostedSession,
         agentName,
         userRequest,

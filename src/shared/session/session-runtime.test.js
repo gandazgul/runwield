@@ -2,14 +2,13 @@ import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionHost } from "./session-host.js";
-import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import {
     HANDOFF_LIMIT_MESSAGE,
     SessionRuntime,
     SessionTurnInProgressError,
     shouldEmitProjectedAttention,
 } from "./session-runtime.js";
-import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { ensureRootAgentSession } from "./session.js";
 import { createSessionContextProjection } from "./session-context-report.js";
 import { getRunWieldSessionDir } from "./root-session.js";
@@ -100,18 +99,16 @@ function makeRuntime(options = {}) {
     const handler = options.handler || (() => Promise.resolve({ kind: "complete" }));
     const createAgentHandler = options.createAgentHandler || (() => handler);
     const switchActiveAgent = options.switchActiveAgent ||
-        ((session, activationOptions) =>
-            switchActiveAgentFn(session, activationOptions, {
-                createAgentHandler: /** @type {any} */ (createAgentHandler),
-                ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ rootOptions) => {
-                    rootOptions.hostedSession.setRootAgentName(rootOptions.agentName);
-                    rootOptions.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });
-                    if (rootOptions.activeHandler) {
-                        rootOptions.hostedSession.setActiveOnMessage(rootOptions.activeHandler);
-                    }
-                    return Promise.resolve(rootOptions.hostedSession.getRootAgentSession());
-                }),
-            }));
+        ((session, activationOptions) => {
+            session.setRootAgentName(activationOptions.agentName);
+            session.setRootAgentSession(options.agentSession || { dispose() {} });
+            session.setActiveOnMessage(createAgentHandler(activationOptions.agentName, {}));
+            emitHostedSessionRuntimeEvent(session, {
+                type: RuntimeEventTypes.AGENT_CHANGED,
+                agentName: activationOptions.agentName,
+            });
+            return Promise.resolve({ ok: true, agentName: activationOptions.agentName, changed: true });
+        });
     return new SessionRuntime({
         ...(options.sessionHost ? { sessionHost: options.sessionHost } : {}),
         createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),

@@ -1,389 +1,160 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import { HostedSession } from "./hosted-session.js";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
 
-function makeSession() {
-    const hostedSession = new HostedSession({ id: "root-switch", cwd: Deno.cwd() });
-    hostedSession.setRootSessionManager(
-        /** @type {any} */ ({ getSessionId: () => "root-switch", getCwd: () => Deno.cwd() }),
-    );
-    return hostedSession;
+/**
+ * @param {string} projectRoot
+ */
+function makeSession(projectRoot) {
+    const sessionManager = SessionManager.inMemory(projectRoot);
+    const hostedSession = new HostedSession({
+        id: `root-switch-${crypto.randomUUID()}`,
+        cwd: projectRoot,
+        sessionManager: /** @type {any} */ (sessionManager),
+    });
+    return { hostedSession, sessionManager };
 }
 
-Deno.test("switchActiveAgent installs matching root and handler after root build succeeds", async () => {
-    const hostedSession = makeSession();
-    /** @type {Array<{ type?: string }>} */
-    const events = [];
-    hostedSession.setEventSink((/** @type {{ type?: string }} */ event) => events.push(event));
+Deno.test("switchActiveAgent installs a real matching Agent root and handler", async () => {
+    await withRuntimeCommandFixture("agent-switch-install-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        /** @type {Array<{ type?: string, agentName?: string }>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {{ type?: string, agentName?: string }} */ event) => events.push(event));
 
-    const result = await switchActiveAgent(hostedSession, { agentName: "operator" }, {
-        ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-            opts.hostedSession.setActiveOnMessage(opts.activeHandler);
-            return Promise.resolve();
-        }),
-        createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
+        const result = await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            sessionManager,
+        });
+
+        assertEquals(result, { ok: true, agentName: "guide", changed: true, model: undefined });
+        assertEquals(hostedSession.getRootAgentName(), "guide");
+        assertEquals(
+            typeof /** @type {{ prompt?: Function } | null} */ (hostedSession.getRootAgentSession())?.prompt,
+            "function",
+        );
+        assertEquals(typeof hostedSession.getActiveOnMessage(), "function");
+        assertEquals(
+            events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "guide")
+                .length,
+            1,
+        );
+        hostedSession.dispose();
     });
-
-    assertEquals(result, { ok: true, agentName: "operator", changed: true, model: undefined });
-    assertEquals(hostedSession.getRootAgentName(), "operator");
-    assertEquals(typeof hostedSession.getActiveOnMessage(), "function");
-    assertEquals(events.filter((event) => event.type === "agent_changed").length, 1);
 });
 
-Deno.test("switchActiveAgent preserves previous root and handler when target build fails", async () => {
-    const hostedSession = makeSession();
-    const previousHandler = () => Promise.resolve({ kind: "complete" });
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    hostedSession.setRootAgentName("router");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(previousHandler);
+Deno.test("switchActiveAgent leaves the previous real root transaction intact when replacement construction fails", async () => {
+    await withRuntimeCommandFixture("agent-switch-rollback-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            allowReturnToRouter: true,
+            sessionManager,
+        });
+        const previousRoot = hostedSession.getRootAgentSession();
+        const previousHandler = hostedSession.getActiveOnMessage();
 
-    await assertRejects(
-        () =>
-            switchActiveAgent(hostedSession, { agentName: "operator" }, {
-                ensureRootAgentSession: /** @type {any} */ (() => Promise.reject(new Error("build failed"))),
-            }),
-        Error,
-        "build failed",
-    );
+        await assertRejects(
+            () =>
+                switchActiveAgent(hostedSession, {
+                    agentName: "guide",
+                    model: "missing-provider/missing-model",
+                    forceRebuild: true,
+                    sessionManager,
+                }),
+            Error,
+            "Unknown invocation model override",
+        );
 
-    assertEquals(hostedSession.getRootAgentName(), "router");
-    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
-    assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
+        assertEquals(hostedSession.getRootAgentName(), "guide");
+        assertStrictEquals(hostedSession.getRootAgentSession(), previousRoot);
+        assertStrictEquals(hostedSession.getActiveOnMessage(), previousHandler);
+        hostedSession.dispose();
+    });
 });
 
-Deno.test("runActiveAgentTurn leaves Engineer callable when its turn is interrupted", async () => {
-    const hostedSession = makeSession();
-    const plannerHandler = () => Promise.resolve({ kind: "complete" });
-    const engineerHandler = () => Promise.resolve({ kind: "complete" });
-    const order = /** @type {string[]} */ ([]);
-    hostedSession.setRootAgentName("planner");
-    hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-    hostedSession.setActiveOnMessage(plannerHandler);
+Deno.test("runActiveAgentTurn switches and completes a real root turn through the faux model boundary", async () => {
+    await withRuntimeCommandFixture(
+        "active-agent-turn-",
+        async ({ projectRoot, setModelResponse }) => {
+            setModelResponse("The isolated Guide turn completed.");
+            const { hostedSession, sessionManager } = makeSession(projectRoot);
 
-    await assertRejects(
-        () =>
-            runActiveAgentTurn({
+            const messages = await runActiveAgentTurn({
                 hostedSession,
-                agentName: "engineer",
-                userRequest: "Implement the approved plan",
-                cwd: "/tmp/plan-worktree",
-                allowReturnToRouter: false,
-            }, {
-                switchActiveAgent: /** @type {any} */ ((
-                    /** @type {HostedSession} */ session,
-                    /** @type {any} */ options,
-                ) => {
-                    order.push("switch");
-                    assertEquals(options, {
-                        agentName: "engineer",
-                        allowReturnToRouter: false,
-                        cwd: "/tmp/plan-worktree",
-                    });
-                    session.setRootAgentName("engineer");
-                    session.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-                    session.setActiveOnMessage(engineerHandler);
-                    return Promise.resolve({ ok: true, agentName: "engineer", changed: true });
-                }),
-                runRootTurn: /** @type {any} */ ((/** @type {any} */ options) => {
-                    order.push("turn");
-                    assertEquals(options.agentName, "engineer");
-                    assertEquals(hostedSession.getRootAgentName(), "engineer");
-                    assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
-                    return Promise.reject(new Error("interrupted"));
-                }),
-            }),
-        Error,
-        "interrupted",
-    );
+                agentName: "guide",
+                userRequest: "Explain the fixture.",
+                sessionManager,
+            });
 
-    assertEquals(order, ["switch", "turn"]);
-    assertEquals(hostedSession.getRootAgentName(), "engineer");
-    assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
+            assertEquals(hostedSession.getRootAgentName(), "guide");
+            assertEquals(JSON.stringify(messages).includes("The isolated Guide turn completed."), true);
+            hostedSession.dispose();
+        },
+    );
 });
 
-Deno.test("runActiveAgentTurn supplies workflow custom tools to the active root turn", async () => {
-    const hostedSession = makeSession();
-    const pairTool = /** @type {any} */ ({ name: "pair_checkpoint" });
-    /** @type {any} */
-    let switchOptions = null;
-    let rootDuringTurn = "";
+Deno.test("switchActiveAgent reuses an unchanged real root and handler", async () => {
+    await withRuntimeCommandFixture("agent-switch-reuse-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            allowReturnToRouter: true,
+            sessionManager,
+        });
+        const previousRoot = hostedSession.getRootAgentSession();
+        const previousHandler = hostedSession.getActiveOnMessage();
 
-    await runActiveAgentTurn({
-        hostedSession,
-        agentName: "frontend-engineer",
-        userRequest: "Implement in Pair Execution",
-        customTools: [pairTool],
-    }, {
-        switchActiveAgent: /** @type {any} */ ((
-            /** @type {HostedSession} */ session,
-            /** @type {any} */ options,
-        ) => {
-            switchOptions = options;
-            session.setRootAgentName(options.agentName);
-            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-        }),
-        runRootTurn: /** @type {any} */ ((/** @type {any} */ options) => {
-            rootDuringTurn = options.hostedSession.getRootAgentName();
-            return Promise.resolve([]);
-        }),
+        const result = await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            allowReturnToRouter: true,
+        });
+
+        assertEquals(result, { ok: true, agentName: "guide", changed: false, model: undefined });
+        assertStrictEquals(hostedSession.getRootAgentSession(), previousRoot);
+        assertStrictEquals(hostedSession.getActiveOnMessage(), previousHandler);
+        hostedSession.dispose();
     });
-
-    assertEquals(switchOptions.customTools, [pairTool]);
-    assertEquals(rootDuringTurn, "frontend-engineer");
 });
 
-Deno.test("switchActiveAgent rebuilds the active Agent root in the requested execution cwd", async () => {
-    const hostedSession = makeSession();
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    let builtCwd = "";
-    hostedSession.setRootAgentName("engineer");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
+Deno.test("switchActiveAgent replaces a stale handler without rebuilding the matching real root", async () => {
+    await withRuntimeCommandFixture("agent-switch-stale-handler-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, { agentName: "guide", sessionManager });
+        const previousRoot = hostedSession.getRootAgentSession();
+        const staleHandler = () => Promise.resolve({ kind: "complete" });
+        hostedSession.setActiveOnMessage(staleHandler);
 
-    const result = await switchActiveAgent(hostedSession, {
-        agentName: "engineer",
-        allowReturnToRouter: false,
-        cwd: "/tmp/plan-worktree",
-    }, {
-        getRootSessionSwitchState: () => ({
-            agentName: "engineer",
-            allowReturnToRouter: false,
-            cwd: Deno.cwd(),
-        }),
-        ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ options) => {
-            builtCwd = options.cwd;
-            options.hostedSession.setRootAgentName(options.agentName);
-            options.hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-            options.hostedSession.setActiveOnMessage(options.activeHandler);
-            return Promise.resolve();
-        }),
-        createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
+        const result = await switchActiveAgent(hostedSession, { agentName: "guide" });
+
+        assertEquals(result.changed, true);
+        assertStrictEquals(hostedSession.getRootAgentSession(), previousRoot);
+        assertEquals(hostedSession.getActiveOnMessage() === staleHandler, false);
+        hostedSession.dispose();
     });
-
-    assertEquals(result.changed, true);
-    assertEquals(builtCwd, "/tmp/plan-worktree");
-    assertEquals(hostedSession.getRootAgentSession() === previousRoot, false);
 });
 
-Deno.test("switchActiveAgent stages the handler before root installation", async () => {
-    const hostedSession = makeSession();
-    const previousHandler = () => Promise.resolve({ kind: "complete" });
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    let rootBuildStarted = false;
-    hostedSession.setRootAgentName("router");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(previousHandler);
+Deno.test("switchActiveAgent rebuilds a real same-Agent root when root policy changes", async () => {
+    await withRuntimeCommandFixture("agent-switch-policy-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            allowReturnToRouter: true,
+            sessionManager,
+        });
+        const previousRoot = hostedSession.getRootAgentSession();
 
-    await assertRejects(
-        () =>
-            switchActiveAgent(hostedSession, { agentName: "operator" }, {
-                createAgentHandler: () => {
-                    throw new Error("handler build failed");
-                },
-                ensureRootAgentSession: /** @type {any} */ (() => {
-                    rootBuildStarted = true;
-                    throw new Error("root build must not start");
-                }),
-            }),
-        Error,
-        "handler build failed",
-    );
+        const result = await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            allowReturnToRouter: false,
+            sessionManager,
+        });
 
-    assertEquals(rootBuildStarted, false);
-    assertEquals(hostedSession.getRootAgentName(), "router");
-    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
-    assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
-});
-
-Deno.test("switchActiveAgent treats unchanged same-agent switches as no-ops", async () => {
-    const hostedSession = makeSession();
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    /** @type {Array<{ type?: string }>} */
-    const events = [];
-    hostedSession.setEventSink((/** @type {{ type?: string }} */ event) => events.push(event));
-
-    await switchActiveAgent(hostedSession, { agentName: "router" }, {
-        ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession(previousRoot);
-            opts.hostedSession.setActiveOnMessage(opts.activeHandler);
-            return Promise.resolve();
-        }),
-        createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
+        assertEquals(result.changed, true);
+        assertEquals(hostedSession.getRootAgentSession() === previousRoot, false);
+        hostedSession.dispose();
     });
-    const previousHandler = hostedSession.getActiveOnMessage();
-    events.length = 0;
-
-    const result = await switchActiveAgent(hostedSession, { agentName: "router" }, {
-        ensureRootAgentSession: /** @type {any} */ (() => {
-            throw new Error("should not rebuild unchanged root");
-        }),
-        createAgentHandler: () => {
-            throw new Error("should not rebuild unchanged handler");
-        },
-    });
-
-    assertEquals(result, { ok: true, agentName: "router", changed: false, model: undefined });
-    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
-    assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
-    assertEquals(events.filter((event) => event.type === "agent_changed").length, 0);
-});
-
-Deno.test("switchActiveAgent treats unchanged same-agent return-to-router policy as a no-op", async () => {
-    const hostedSession = makeSession();
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    /** @type {Array<{ type?: string }>} */
-    const events = [];
-    hostedSession.setEventSink((/** @type {{ type?: string }} */ event) => events.push(event));
-
-    await switchActiveAgent(
-        hostedSession,
-        {
-            agentName: "slicer",
-            allowReturnToRouter: false,
-        },
-        {
-            ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ opts) => {
-                opts.hostedSession.setRootAgentName(opts.agentName);
-                opts.hostedSession.setRootAgentSession(previousRoot);
-                opts.hostedSession.setActiveOnMessage(opts.activeHandler);
-                return Promise.resolve();
-            }),
-            createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
-        },
-    );
-    const previousHandler = hostedSession.getActiveOnMessage();
-    events.length = 0;
-
-    const result = await switchActiveAgent(
-        hostedSession,
-        {
-            agentName: "slicer",
-            allowReturnToRouter: false,
-        },
-        {
-            getRootSessionSwitchState: () => ({
-                agentName: "slicer",
-                allowReturnToRouter: false,
-            }),
-            ensureRootAgentSession: /** @type {any} */ (() => {
-                throw new Error("should not rebuild unchanged root policy");
-            }),
-            createAgentHandler: () => {
-                throw new Error("should not rebuild unchanged handler policy");
-            },
-        },
-    );
-
-    assertEquals(result, { ok: true, agentName: "slicer", changed: false, model: undefined });
-    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
-    assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
-    assertEquals(events.filter((event) => event.type === "agent_changed").length, 0);
-});
-
-Deno.test("switchActiveAgent replaces a stale handler when the reusable root already matches target agent", async () => {
-    const hostedSession = makeSession();
-    const staleRouterHandler = () => Promise.resolve({ kind: "complete", agentName: "router" });
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    /** @type {Array<{ type?: string }>} */
-    const events = [];
-    let createdHandlerFor = "";
-    hostedSession.setRootAgentName("slicer");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(staleRouterHandler);
-    hostedSession.setEventSink((/** @type {{ type?: string }} */ event) => events.push(event));
-
-    const result = await switchActiveAgent(
-        hostedSession,
-        {
-            agentName: "slicer",
-            allowReturnToRouter: false,
-        },
-        {
-            getRootSessionSwitchState: () => ({
-                agentName: "slicer",
-                allowReturnToRouter: false,
-            }),
-            ensureRootAgentSession: /** @type {any} */ (() => {
-                throw new Error("should reuse the existing slicer root");
-            }),
-            createAgentHandler: (agentName) => {
-                createdHandlerFor = agentName;
-                return () => Promise.resolve({ kind: "complete", agentName });
-            },
-        },
-    );
-
-    assertEquals(result, { ok: true, agentName: "slicer", changed: true, model: undefined });
-    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
-    assertEquals(hostedSession.getActiveOnMessage() === staleRouterHandler, false);
-    assertEquals(createdHandlerFor, "slicer");
-    assertEquals(events.filter((event) => event.type === "agent_changed").length, 1);
-});
-
-Deno.test("switchActiveAgent rebuilds a same-agent root when effective return-to-router policy changes", async () => {
-    const hostedSession = makeSession();
-    const previousHandler = () => Promise.resolve({ kind: "complete" });
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    /** @type {Array<{ type?: string }>} */
-    const events = [];
-    hostedSession.setRootAgentName("slicer");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(previousHandler);
-    hostedSession.setEventSink((/** @type {{ type?: string }} */ event) => events.push(event));
-
-    const result = await switchActiveAgent(
-        hostedSession,
-        {
-            agentName: "slicer",
-            allowReturnToRouter: false,
-        },
-        {
-            getRootSessionSwitchState: () => ({
-                agentName: "slicer",
-                allowReturnToRouter: true,
-            }),
-            ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ opts) => {
-                opts.hostedSession.setRootAgentName(opts.agentName);
-                opts.hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-                opts.hostedSession.setActiveOnMessage(opts.activeHandler);
-                return Promise.resolve();
-            }),
-            createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
-        },
-    );
-
-    assertEquals(result, { ok: true, agentName: "slicer", changed: true, model: undefined });
-    assertEquals(hostedSession.getRootAgentSession() === previousRoot, false);
-    assertEquals(events.filter((event) => event.type === "agent_changed").length, 1);
-});
-
-Deno.test("switchActiveAgent rebuilds a same-agent root when effective model changes", async () => {
-    const hostedSession = makeSession();
-    const previousHandler = () => Promise.resolve({ kind: "complete" });
-    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
-    /** @type {Array<{ type?: string, model?: string }>} */
-    const events = [];
-    hostedSession.setRootAgentName("router");
-    hostedSession.setRootAgentSession(previousRoot);
-    hostedSession.setActiveOnMessage(previousHandler);
-    hostedSession.resetAgentInfoStack("Router", "old-model", "provider", "router");
-    hostedSession.setEventSink((/** @type {{ type?: string, model?: string }} */ event) => events.push(event));
-
-    const result = await switchActiveAgent(hostedSession, { agentName: "router", model: "new-model" }, {
-        ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
-            opts.hostedSession.setActiveOnMessage(opts.activeHandler);
-            return Promise.resolve();
-        }),
-        createAgentHandler: (agentName) => () => Promise.resolve({ kind: "complete", agentName }),
-    });
-
-    assertEquals(result, { ok: true, agentName: "router", changed: true, model: "new-model" });
-    assertEquals(hostedSession.getRootAgentSession() === previousRoot, false);
-    assertEquals(events.filter((event) => event.type === "agent_changed" && event.model === "new-model").length, 1);
 });

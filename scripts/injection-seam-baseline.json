@@ -102,23 +102,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/session/agent-switching.js": {
-            "seams": [
-                "createAgentHandler",
-                "ensureRootAgentSession",
-                "getRootSessionSwitchState",
-                "runRootTurn",
-                "switchActiveAgent"
-            ],
-            "machinery": [
-                "createAgentHandler",
-                "ensureRootAgentSession",
-                "getRootSessionSwitchState",
-                "runRootTurn",
-                "switchActiveAgent"
-            ],
-            "conditional": []
-        },
         "src/shared/session/session-runtime.js": {
             "seams": [
                 "abortActiveSession",
