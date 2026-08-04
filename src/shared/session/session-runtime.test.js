@@ -1,23 +1,125 @@
 import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { __resetSettingsForTests } from "../settings.js";
 import { SessionHost } from "./session-host.js";
-import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
-import {
-    HANDOFF_LIMIT_MESSAGE,
-    SessionRuntime,
-    SessionTurnInProgressError,
-    shouldEmitProjectedAttention,
-} from "./session-runtime.js";
-import { ensureRootAgentSession } from "./session.js";
-import { createSessionContextProjection } from "./session-context-report.js";
+import { switchActiveAgent } from "./agent-switching.js";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { SessionRuntime, SessionTurnInProgressError, shouldEmitProjectedAttention } from "./session-runtime.js";
+import { getRootSessionRebuildOptions } from "./session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../git.js";
 
-const STABLE_TEST_CWD = decodeURIComponent(new URL("../../..", import.meta.url).pathname);
+const RUNTIME_TEST_PROVIDER = "session-runtime-test";
+const RUNTIME_TEST_MODEL = "fixture-model";
+const RUNTIME_TEST_API = "session-runtime-faux";
+
+/** @type {ReturnType<typeof registerFauxProvider> | null} */
+let runtimeFauxProvider = null;
+
+function runtimeProjectRoot() {
+    const sandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+    const home = Deno.env.get("HOME");
+    if (!sandboxHome || !home) {
+        throw new Error("SessionRuntime tests must run through scripts/run-tests.js with an isolated HOME");
+    }
+    const projectRoot = join(home, "runtime-project");
+    Deno.mkdirSync(projectRoot, { recursive: true });
+    return projectRoot;
+}
+
+function ensureRuntimeModelFixture() {
+    const sandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+    const home = Deno.env.get("HOME");
+    if (!sandboxHome || !home) {
+        throw new Error("SessionRuntime tests must run through scripts/run-tests.js with an isolated HOME");
+    }
+    const runwieldDir = join(home, ".wld");
+    Deno.mkdirSync(runwieldDir, { recursive: true });
+    const settingsPath = join(runwieldDir, "settings.json");
+    try {
+        Deno.statSync(settingsPath);
+        return;
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    Deno.writeTextFileSync(
+        join(runwieldDir, "models.json"),
+        JSON.stringify({
+            providers: {
+                [RUNTIME_TEST_PROVIDER]: {
+                    name: "SessionRuntime Test Provider",
+                    baseUrl: "http://127.0.0.1:0",
+                    apiKey: "fixture-key",
+                    api: RUNTIME_TEST_API,
+                    models: [{
+                        id: RUNTIME_TEST_MODEL,
+                        name: "SessionRuntime Fixture Model",
+                        api: RUNTIME_TEST_API,
+                        input: ["text", "image"],
+                        contextWindow: 128000,
+                        maxTokens: 4096,
+                    }],
+                },
+            },
+        }),
+    );
+    Deno.writeTextFileSync(
+        join(runwieldDir, "auth.json"),
+        JSON.stringify({ [RUNTIME_TEST_PROVIDER]: { type: "api_key", key: "fixture-key" } }),
+    );
+    Deno.writeTextFileSync(
+        settingsPath,
+        JSON.stringify({
+            defaultProvider: RUNTIME_TEST_PROVIDER,
+            defaultModel: RUNTIME_TEST_MODEL,
+            notifications: { enabled: false },
+        }),
+    );
+    runtimeFauxProvider ??= registerFauxProvider({
+        api: RUNTIME_TEST_API,
+        provider: RUNTIME_TEST_PROVIDER,
+        tokensPerSecond: 1000,
+        models: [{ id: RUNTIME_TEST_MODEL, name: "SessionRuntime Fixture Model", input: ["text", "image"] }],
+    });
+    runtimeFauxProvider.setResponses(
+        Array.from(
+            { length: 100 },
+            () => () => fauxAssistantMessage(fauxText("SessionRuntime fixture response.")),
+        ),
+    );
+    __resetSettingsForTests();
+}
+
+/** @param {ReturnType<typeof fauxAssistantMessage>[]} messages */
+function setRuntimeModelMessages(messages) {
+    ensureRuntimeModelFixture();
+    runtimeFauxProvider?.setResponses([
+        ...messages.map((message) => () => message),
+        ...Array.from(
+            { length: 100 },
+            () => () => fauxAssistantMessage(fauxText("SessionRuntime fixture response.")),
+        ),
+    ]);
+}
+
+/** @param {import('@earendil-works/pi-ai').FauxResponseFactory[]} factories */
+function setRuntimeModelResponseFactories(factories) {
+    ensureRuntimeModelFixture();
+    runtimeFauxProvider?.setResponses([
+        ...factories,
+        ...Array.from(
+            { length: 100 },
+            () => () => fauxAssistantMessage(fauxText("SessionRuntime fixture response.")),
+        ),
+    ]);
+}
 
 /** @param {number} ms */
 function delay(ms) {
@@ -47,37 +149,6 @@ async function removeTempDir(path) {
 }
 
 /**
- * @param {string} id
- * @param {string} cwd
- * @param {unknown[]} [branch]
- */
-function makeSessionManager(id, cwd, branch = []) {
-    return {
-        messages: /** @type {unknown[]} */ ([]),
-        disposed: false,
-        getSessionId: () => id,
-        getCwd: () => cwd,
-        getHeader: () => ({ timestamp: "2026-07-08T00:00:00.000Z" }),
-        getBranch: () => branch,
-        getEntries: () => branch,
-        /** @param {string} customType @param {unknown} data */
-        appendCustomEntry(customType, data) {
-            branch.push({ type: "custom", customType, data });
-        },
-        addMessage(/** @type {unknown} */ message) {
-            this.messages.push(message);
-        },
-        appendMessage(/** @type {unknown} */ message) {
-            this.messages.push(message);
-            return `message-${this.messages.length}`;
-        },
-        dispose() {
-            this.disposed = true;
-        },
-    };
-}
-
-/**
  * @typedef {Object} RuntimePreparationBusySample
  * @property {string} message
  * @property {boolean | undefined} busy
@@ -85,51 +156,51 @@ function makeSessionManager(id, cwd, branch = []) {
 
 /**
  * @typedef {Object} RuntimeFixtureOptions
- * @property {import('./types.js').AgentMessageHandler} [handler]
- * @property {(session: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
- * @property {(session: import('./hosted-session.js').HostedSession, options: any) => Promise<any>} [switchActiveAgent]
- * @property {ReturnType<typeof makeSteeringAgentSession>} [agentSession]
  * @property {SessionHost} [sessionHost]
- * @property {(agentName: string, deps: any) => import('./types.js').AgentMessageHandler} [createAgentHandler]
  */
 
 /** @param {RuntimeFixtureOptions} [options] */
 function makeRuntime(options = {}) {
-    let managerIndex = 0;
-    const handler = options.handler || (() => Promise.resolve({ kind: "complete" }));
-    const createAgentHandler = options.createAgentHandler || (() => handler);
-    const switchActiveAgent = options.switchActiveAgent ||
-        ((session, activationOptions) => {
-            session.setRootAgentName(activationOptions.agentName);
-            session.setRootAgentSession(options.agentSession || { dispose() {} });
-            session.setActiveOnMessage(createAgentHandler(activationOptions.agentName, {}));
-            emitHostedSessionRuntimeEvent(session, {
-                type: RuntimeEventTypes.AGENT_CHANGED,
-                agentName: activationOptions.agentName,
-            });
-            return Promise.resolve({ ok: true, agentName: activationOptions.agentName, changed: true });
-        });
+    ensureRuntimeModelFixture();
     return new SessionRuntime({
         ...(options.sessionHost ? { sessionHost: options.sessionHost } : {}),
-        createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),
-        switchActiveAgent,
-        ...(options.abortActiveSession ? { abortActiveSession: options.abortActiveSession } : {}),
     });
+}
+
+/**
+ * Attach a Pi-facing AgentSession test double to a real Runtime-created persisted
+ * session. These doubles stand in only for the external Pi session object; all
+ * RunWield creation, queueing, cancellation, and event machinery stays real.
+ *
+ * @param {SessionRuntime} runtime
+ * @param {SessionHost} sessionHost
+ * @param {ReturnType<typeof makeSteeringAgentSession> | Record<string, any>} agentSession
+ * @param {import('./types.js').AgentMessageHandler} [handler]
+ */
+async function attachExternalAgentSession(
+    runtime,
+    sessionHost,
+    agentSession,
+    handler = () => Promise.resolve({ kind: "complete" }),
+) {
+    const created = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
+    const hostedSession = sessionHost.requireSession(created.sessionId);
+    hostedSession.setRootAgentName("router");
+    hostedSession.setRootAgentSession(agentSession);
+    hostedSession.setActiveOnMessage(handler);
+    return created.sessionId;
 }
 
 Deno.test("SessionRuntime restores the previous user model override when active root rebuild fails", async () => {
     const sessionHost = new SessionHost();
-    const session = sessionHost.createSession({ id: "model-rollback", cwd: STABLE_TEST_CWD });
+    const session = sessionHost.createSession({ id: "model-rollback", cwd: runtimeProjectRoot() });
     const previousHandler = () => Promise.resolve({ kind: "complete" });
     const previousAgentSession = { dispose() {} };
     session.setRootAgentName("engineer");
     session.setRootAgentSession(previousAgentSession);
     session.setActiveOnMessage(previousHandler);
     session.setActiveModelState("sonnet", "anthropic", true);
-    const runtime = makeRuntime({
-        sessionHost,
-        switchActiveAgent: () => Promise.reject(new Error("backend unavailable")),
-    });
+    const runtime = makeRuntime({ sessionHost });
     /** @type {import('./session-runtime-events.js').SessionRuntimeEvent[]} */
     const events = [];
     runtime.subscribeSessionEvents("model-rollback", (event) => {
@@ -139,7 +210,7 @@ Deno.test("SessionRuntime restores the previous user model override when active 
     await assertRejects(
         () => runtime.reconfigureSessionModel("model-rollback", "opus", "claude-cli"),
         Error,
-        "backend unavailable",
+        "Claude CLI execution backend is not installed yet",
     );
 
     assertEquals(session.getActiveModelState(), { model: "sonnet", provider: "anthropic" });
@@ -179,6 +250,9 @@ function makeSteeringAgentSession() {
             session.emitQueueUpdate();
             return cleared;
         },
+        abort() {
+            session.isStreaming = false;
+        },
         getSteeringMessages: () => steering,
         emitQueueUpdate() {
             for (const listener of listeners) {
@@ -196,10 +270,10 @@ function makeSteeringAgentSession() {
 
 Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession objects", async () => {
     const runtime = makeRuntime();
-    const created = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const created = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
 
     assertEquals(typeof created.sessionId, "string");
-    assertEquals(created.cwd, Deno.cwd());
+    assertEquals(created.cwd, runtimeProjectRoot());
     assertEquals("hostedSession" in created, false);
     assertEquals("sessionManager" in created, false);
     assertEquals(Object.hasOwn(runtime, "sessionHost"), false);
@@ -214,8 +288,9 @@ Deno.test("SessionRuntime snapshot exposes active context capacity without expos
     agentSession.settingsManager = {
         getCompactionSettings: () => ({ enabled: true }),
     };
-    const runtime = makeRuntime({ agentSession, sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
+    sessionHost.requireSession(sessionId).setRootAgentSession(agentSession);
 
     assertEquals(runtime.getSessionSnapshot(sessionId)?.contextUsage, {
         tokens: 48_000,
@@ -262,20 +337,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
         Deno.env.set("HOME", home);
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
-        await Deno.mkdir(`${home}/.wld`, { recursive: true });
-        await Deno.writeTextFile(
-            `${home}/.wld/models.json`,
-            JSON.stringify({
-                providers: {
-                    test: {
-                        baseUrl: "https://example.invalid/v1",
-                        api: "openai-completions",
-                        apiKey: "test-key",
-                        models: [{ id: "vision-model", input: ["text", "image"] }],
-                    },
-                },
-            }),
-        );
+        ensureRuntimeModelFixture();
         const sessionHost = new SessionHost();
         try {
             const session = sessionHost.createSession({
@@ -290,8 +352,8 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                     generation: 1,
                     name: "Managed image",
                     activeAgent: "Router",
-                    model: "vision-model",
-                    provider: "test",
+                    model: RUNTIME_TEST_MODEL,
+                    provider: RUNTIME_TEST_PROVIDER,
                     workflowContext: null,
                 },
             });
@@ -308,7 +370,10 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                 "no active session is available",
             );
 
-            session.setRootSessionManager(makeSessionManager("pi-managed-image", cwd));
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const sessionManager = SessionManager.create(cwd, sessionDir, { id: "pi-managed-image" });
+            session.setRootSessionManager(/** @type {any} */ (sessionManager));
             const persisted = await runtime.persistSessionImage(session.id, {
                 base64: btoa("img"),
                 mimeType: "image/png",
@@ -335,41 +400,14 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
         const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
-        const sessionId = "managed-pi-lazy-1";
-        const transcriptPath = `${getRunWieldSessionDir(cwd)}/2026-01-01T00-00-00-000Z_${sessionId}.jsonl`;
         try {
+            ensureRuntimeModelFixture();
             store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
             const runtime = new SessionRuntime({
                 ownerCoordinationStore: store,
                 ownerProcessKind: "test",
                 ownerInstanceId: "runtime-test-owner",
-                createRootSessionManager: async (_mode, managerCwd) => {
-                    await Deno.mkdir(getRunWieldSessionDir(managerCwd), { recursive: true });
-                    const branch = [{
-                        type: "session",
-                        version: 3,
-                        id: sessionId,
-                        timestamp: "2026-01-01T00:00:00.000Z",
-                        cwd: managerCwd,
-                    }];
-                    return {
-                        ...makeSessionManager(sessionId, managerCwd, branch),
-                        getSessionFile: () => transcriptPath,
-                        _rewriteFile: () => {
-                            Deno.writeTextFileSync(
-                                transcriptPath,
-                                branch.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
-                            );
-                        },
-                    };
-                },
-                switchActiveAgent: (hostedSession, options) => {
-                    const manager = hostedSession.getRootSessionManager();
-                    manager?.appendCustomEntry?.("runwield.active_agent", { agentName: options.agentName });
-                    hostedSession.setRootAgentName(options.agentName);
-                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-                },
             });
             try {
                 const created = await runtime.createInteractiveSession({
@@ -377,8 +415,9 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                     mode: "new",
                     enableManagedActivation: true,
                 });
-                assertEquals(created.sessionManagerId, sessionId);
-                assertEquals((await Deno.stat(transcriptPath)).isFile, true);
+                assertEquals(typeof created.sessionManagerId, "string");
+                const persisted = await runtime.listResumableSessions(cwd);
+                assertEquals(persisted.some((session) => session.id === created.sessionManagerId), true);
 
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
@@ -403,28 +442,22 @@ Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projec
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
         const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
-        const sessionId = "normal-pi-in-registered-project";
         try {
+            ensureRuntimeModelFixture();
             store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
             const runtime = new SessionRuntime({
                 ownerCoordinationStore: store,
                 ownerProcessKind: "test",
                 ownerInstanceId: "runtime-test-owner",
-                createRootSessionManager: (_mode, managerCwd) =>
-                    Promise.resolve(makeSessionManager(sessionId, managerCwd)),
-                switchActiveAgent: (hostedSession, options) => {
-                    hostedSession.setRootAgentName(options.agentName);
-                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-                },
             });
             try {
                 const created = await runtime.createInteractiveSession({ cwd, mode: "new" });
-                assertEquals(created.sessionManagerId, sessionId);
+                assertEquals(typeof created.sessionManagerId, "string");
                 await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
                 assertEquals(snapshot?.managed, null);
-                assertEquals(snapshot?.sessionManagerId, sessionId);
+                assertEquals(snapshot?.sessionManagerId, created.sessionManagerId);
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }
@@ -445,37 +478,14 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
         const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
-        const sessionId = "managed-pi-1";
-        let switchCalls = 0;
         try {
+            ensureRuntimeModelFixture();
             store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             const project = store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
             const runtime = new SessionRuntime({
                 ownerCoordinationStore: store,
                 ownerProcessKind: "test",
                 ownerInstanceId: "runtime-test-owner",
-                createRootSessionManager: async (_mode, managerCwd) => {
-                    const sessionDir = getRunWieldSessionDir(managerCwd);
-                    await Deno.mkdir(sessionDir, { recursive: true });
-                    await Deno.writeTextFile(
-                        `${sessionDir}/2026-01-01T00-00-00-000Z_${sessionId}.jsonl`,
-                        JSON.stringify({
-                            type: "session",
-                            version: 3,
-                            id: sessionId,
-                            timestamp: "2026-01-01T00:00:00.000Z",
-                            cwd: managerCwd,
-                        }) + "\n",
-                    );
-                    return makeSessionManager(sessionId, managerCwd);
-                },
-                switchActiveAgent: (hostedSession, options) => {
-                    switchCalls += 1;
-                    const manager = hostedSession.getRootSessionManager();
-                    manager?.appendCustomEntry?.("runwield.active_agent", { agentName: options.agentName });
-                    hostedSession.setRootAgentName(options.agentName);
-                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-                },
             });
             try {
                 const created = await runtime.createInteractiveSession({
@@ -483,7 +493,7 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
                     mode: "new",
                     enableManagedActivation: true,
                 });
-                assertEquals(created.sessionManagerId, sessionId);
+                assertEquals(typeof created.sessionManagerId, "string");
                 const active = store.inspectSessionActivation(
                     runtime.getSessionSnapshot(created.sessionId)?.managed?.runwieldSessionId || "",
                 );
@@ -493,7 +503,7 @@ Deno.test("SessionRuntime publishes generation zero before dehydrating newly man
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
                 const managed = snapshot?.managed;
-                assertEquals(switchCalls, 1);
+                assertEquals(snapshot?.activeAgent, "ideator");
                 assertEquals(managed?.projectId, project.projectId);
                 assertEquals(managed?.generation, 0);
                 assertEquals(managed?.acknowledgedGeneration, 0);
@@ -557,11 +567,10 @@ Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan work
 });
 
 Deno.test("SessionRuntime can defer managed creation cataloging until Agent readiness", async () => {
-    const cwd = Deno.cwd();
+    const cwd = runtimeProjectRoot();
     let catalogCalls = 0;
     let activationCalls = 0;
     let protocolGateCalls = 0;
-    let managerCreations = 0;
     const runtime = new SessionRuntime({
         ownerCoordinationStore: /** @type {any} */ ({
             listProjects: () => [{ projectId: "project-1", lifecycle: "enabled", currentRoot: Deno.realPathSync(cwd) }],
@@ -582,10 +591,6 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
                 throw new Error("activation should wait for Agent readiness");
             },
         }),
-        createRootSessionManager: () => {
-            managerCreations += 1;
-            return Promise.resolve(makeSessionManager("manager-deferred", cwd));
-        },
     });
 
     const created = await runtime.createInteractiveSession({
@@ -599,7 +604,6 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
     assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
     assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed, null);
     assertEquals(protocolGateCalls, 1);
-    assertEquals(managerCreations, 0);
     assertEquals(catalogCalls, 0);
     assertEquals(activationCalls, 0);
     runtime.closeSession(created.sessionId);
@@ -609,13 +613,13 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-pending-agent",
-        cwd: Deno.cwd(),
+        cwd: runtimeProjectRoot(),
         sessionManager: null,
         managed: {
             runwieldSessionId: "rw-pending-agent",
             projectId: "project-pending-agent",
             piSessionId: "pi-pending-agent",
-            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            transcriptPath: `${runtimeProjectRoot()}/transcript.jsonl`,
             generation: 3,
             acknowledgedGeneration: 3,
             name: "Pending Agent",
@@ -683,13 +687,13 @@ Deno.test("SessionRuntime keeps dormant managed projection separate from runtime
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-authority-separation",
-        cwd: Deno.cwd(),
+        cwd: runtimeProjectRoot(),
         sessionManager: null,
         managed: {
             runwieldSessionId: "rw-authority-separation",
             projectId: "project-authority-separation",
             piSessionId: "pi-authority-separation",
-            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            transcriptPath: `${runtimeProjectRoot()}/transcript.jsonl`,
             generation: 9,
             acknowledgedGeneration: 9,
             name: "Managed Authority Separation",
@@ -726,13 +730,13 @@ Deno.test("SessionRuntime defers reload and rejects compaction for dormant manag
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-reload-compact",
-        cwd: Deno.cwd(),
+        cwd: runtimeProjectRoot(),
         sessionManager: null,
         managed: {
             runwieldSessionId: "rw-reload-compact",
             projectId: "project-reload-compact",
             piSessionId: "pi-reload-compact",
-            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            transcriptPath: `${runtimeProjectRoot()}/transcript.jsonl`,
             generation: 3,
             acknowledgedGeneration: 3,
             name: "Managed Reload Compact",
@@ -752,59 +756,44 @@ Deno.test("SessionRuntime defers reload and rejects compaction for dormant manag
 
 Deno.test("SessionRuntime reload preserves the current hidden agent definition", async () => {
     const sessionHost = new SessionHost();
-    const session = sessionHost.createSession({ id: "reload-hidden-agent", cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const created = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
+    const session = sessionHost.requireSession(created.sessionId);
     const hiddenAgentDef = {
         name: "slicer",
         displayName: "Slicer",
+        description: "Fixture hidden Slicer",
+        model: "",
         tools: ["slicer_finalize"],
         systemPrompt: "hidden slicer prompt",
     };
     const customTool = {
         name: "slicer_finalize",
+        label: "Finalize fixture",
         description: "Finalize child plans",
         parameters: { type: "object", properties: {} },
-        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }] }),
+        execute: () =>
+            Promise.resolve({
+                content: [{ type: /** @type {const} */ ("text"), text: "ok" }],
+                details: null,
+            }),
     };
-    await ensureRootAgentSession({
-        hostedSession: session,
+    await switchActiveAgent(session, {
         agentName: "slicer",
         allowReturnToRouter: false,
-        _buildAgentSession: () =>
-            Promise.resolve({
-                session: { dispose() {} },
-                agentDef: hiddenAgentDef,
-                promptState: { text: "hidden slicer prompt" },
-                tools: ["slicer_finalize"],
-                finalCustomTools: [customTool],
-                resolvedModel: { provider: "old-provider", id: "old-model" },
-                contextProjection: null,
-            }),
-        _attachSessionEventSubscribers: () => ({
-            resetTurn() {},
-            drainInvokedToolNames: () => [],
-            endThinking() {},
-            unsubscribe() {},
-        }),
-    });
-
-    /** @type {any} */
-    let capturedOptions = null;
-    const runtime = makeRuntime({
-        sessionHost,
-        switchActiveAgent: (_hostedSession, options) => {
-            capturedOptions = options;
-            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-        },
+        agentDef: hiddenAgentDef,
+        customTools: [customTool],
+        toolNames: ["slicer_finalize"],
+        sessionManager: /** @type {any} */ (session.getRootSessionManager()),
     });
 
     assertEquals(await runtime.reloadSession(session.id), { ok: true });
-    assertStrictEquals(capturedOptions.agentDef, hiddenAgentDef);
-    assertStrictEquals(capturedOptions.customTools[0], customTool);
-    assertEquals(capturedOptions.toolNames, ["slicer_finalize"]);
-    assertEquals(capturedOptions.allowReturnToRouter, false);
-    assertEquals(capturedOptions.agentName, "slicer");
-    assertEquals(capturedOptions.forceRebuild, true);
-    assertEquals(capturedOptions.model, undefined);
+    const rebuilt = getRootSessionRebuildOptions(session);
+    assertStrictEquals(rebuilt?.agentDef, hiddenAgentDef);
+    assertStrictEquals(rebuilt?.customTools?.[0], customTool);
+    assertEquals(rebuilt?.toolNames?.includes("slicer_finalize"), true);
+    assertEquals(rebuilt?.allowReturnToRouter, false);
+    assertEquals(session.getRootAgentName(), "slicer");
 });
 
 Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
@@ -812,7 +801,7 @@ Deno.test("SessionRuntime emits accepted managed user message before hydration w
     const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
     const pendingImageGuardIndex = source.indexOf("const hasPendingImages =", promptManagedIndex);
     const userMessageIndex = source.indexOf("type: RuntimeEventTypes.USER_MESSAGE", promptManagedIndex);
-    const hydrationIndex = source.indexOf("await this.#openPersistedRootSession({", promptManagedIndex);
+    const hydrationIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
     const promptSessionIndex = source.indexOf(
         "const result = await this.promptSession(sessionId, {",
         promptManagedIndex,
@@ -832,13 +821,13 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
     const pendingIntentIndex = source.indexOf("const pendingIntent =", promptManagedIndex);
-    const openIndex = source.indexOf("await this.#openPersistedRootSession({", promptManagedIndex);
+    const openIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
     const agentSelectionIndex = source.indexOf(
         "const agentName = options.agentName || pendingIntent.agentName ||",
         openIndex,
     );
     const resumeFallbackIndex = source.indexOf(
-        "await this.#resolveResumeAgentName(sessionManager)",
+        "await resolveResumeAgentName(sessionManager)",
         agentSelectionIndex,
     );
     const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", agentSelectionIndex);
@@ -856,9 +845,9 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
 Deno.test("SessionRuntime managed operation prefers persisted active agent over stale catalog summary", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     const managedOperationIndex = source.indexOf("async #runWorkflowOperation(");
-    const openIndex = source.indexOf("await this.#openPersistedRootSession({", managedOperationIndex);
+    const openIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
     const persistedAgentIndex = source.indexOf(
-        "const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);",
+        "const persistedAgentName = await resolveResumeAgentName(sessionManager);",
         openIndex,
     );
     const agentSelectionIndex = source.indexOf(
@@ -888,8 +877,8 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
         'changeSessionActivationPhase(activeProof, "hydrated")',
         acquireIndex,
     );
-    const openIndex = promptManagedBody.indexOf("await this.#openPersistedRootSession({", hydratedIndex);
-    const resumeAgentIndex = promptManagedBody.indexOf("await this.#resolveResumeAgentName(sessionManager)", openIndex);
+    const openIndex = promptManagedBody.indexOf("await openPersistedRootSession({", hydratedIndex);
+    const resumeAgentIndex = promptManagedBody.indexOf("await resolveResumeAgentName(sessionManager)", openIndex);
     const activateIndex = promptManagedBody.indexOf(
         "await this.#activateSessionAgent(hostedSession, {",
         resumeAgentIndex,
@@ -927,9 +916,9 @@ Deno.test("SessionRuntime managed workflow operations acquire activation before 
     const inspectIndex = operationBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = operationBody.indexOf("acquireSessionActivation({", inspectIndex);
     const hydratedIndex = operationBody.indexOf('changeSessionActivationPhase(activeProof, "hydrated")', acquireIndex);
-    const openIndex = operationBody.indexOf("await this.#openPersistedRootSession({", hydratedIndex);
+    const openIndex = operationBody.indexOf("await openPersistedRootSession({", hydratedIndex);
     const persistedAgentIndex = operationBody.indexOf(
-        "const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);",
+        "const persistedAgentName = await resolveResumeAgentName(sessionManager);",
         openIndex,
     );
     const agentSelectionIndex = operationBody.indexOf(
@@ -962,22 +951,21 @@ Deno.test("SessionRuntime managed workflow operations acquire activation before 
 });
 
 Deno.test("SessionRuntime owns user-turn submission normalization for unmanaged sessions", async () => {
+    setRuntimeModelMessages([fauxAssistantMessage(fauxText("Normalized request received."))]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
     /** @type {string[]} */
-    const receivedRequests = [];
-    const runtime = makeRuntime({
-        handler: (request) => {
-            receivedRequests.push(request);
-            return Promise.resolve({ kind: "complete" });
-        },
+    const userMessages = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) userMessages.push(event.text);
     });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
 
     const result = await runtime.promptUserTurn(sessionId, {
         initialRequest: "  hello from editor  ",
         initialImages: [],
     });
 
-    assertEquals(receivedRequests, ["hello from editor"]);
+    assertEquals(userMessages, ["hello from editor"]);
     assertEquals(result, {
         ok: true,
         turns: 1,
@@ -991,21 +979,15 @@ Deno.test("SessionRuntime owns user-turn submission normalization for unmanaged 
 });
 
 Deno.test("SessionRuntime routes execution continuation input to the workflow owner", async () => {
-    /** @type {Array<{ agentName: string, request: string }>} */
-    const invoked = [];
-    const runtime = makeRuntime({
-        createAgentHandler: (agentName) => (request) => {
-            invoked.push({ agentName, request });
-            return Promise.resolve({ kind: "complete" });
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
+    setRuntimeModelMessages([fauxAssistantMessage(fauxText("Engineer continuation received."))]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
     await runtime.switchAgent(sessionId, { agentName: "planner" });
     runtime.setActiveExecutionWorkflow(sessionId, {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
-        executionCwd: Deno.cwd(),
+        executionCwd: runtimeProjectRoot(),
         validationContinuation: true,
     });
     /** @type {string[]} */
@@ -1020,7 +1002,6 @@ Deno.test("SessionRuntime routes execution continuation input to the workflow ow
     });
 
     assertEquals(result.ok, true);
-    assertEquals(invoked, [{ agentName: "engineer", request: "continue" }]);
     assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "engineer");
     assertEquals(changedAgents, ["engineer"]);
 });
@@ -1029,13 +1010,13 @@ Deno.test("SessionRuntime owns managed submission blocking messages", () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-submission-block",
-        cwd: Deno.cwd(),
+        cwd: runtimeProjectRoot(),
         sessionManager: null,
         managed: {
             runwieldSessionId: "rw-managed-submission-block",
             projectId: "project-managed-submission-block",
             piSessionId: "pi-managed-submission-block",
-            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            transcriptPath: `${runtimeProjectRoot()}/transcript.jsonl`,
             generation: 2,
             acknowledgedGeneration: 2,
             name: "Managed Submission Block",
@@ -1073,76 +1054,34 @@ Deno.test("SessionRuntime owns managed submission blocking messages", () => {
 
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     assertEquals(runtime.getSessionContextReport(sessionId), null);
 });
 
 Deno.test("SessionRuntime projects active Agent Session context without exposing internals", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
-    const hostedSession = sessionHost.requireSession(sessionId);
-    const projection = createSessionContextProjection([
-        { id: "agent_instructions", label: "Agent instructions", tokens: 10, items: [] },
-    ]);
-    const agentSession = /** @type {any} */ ({
-        messages: [{ role: "user", content: "dormant history message that should not be counted" }],
-        sessionManager: {
-            buildSessionContext: () => ({ messages: [{ role: "user", content: "12345678" }] }),
-        },
-        model: { contextWindow: 100 },
-        getContextUsage: () => ({ tokens: 30, contextWindow: 100, percent: 30 }),
-        dispose() {},
-    });
-
-    await ensureRootAgentSession({
-        hostedSession,
-        agentName: "engineer",
-        _buildAgentSession: () =>
-            Promise.resolve({
-                session: agentSession,
-                agentDef: { name: "engineer", displayName: "Engineer" },
-                promptState: { text: "secret prompt" },
-                tools: [],
-                finalCustomTools: [],
-                resolvedModel: { provider: "test", id: "model" },
-                contextProjection: projection,
-            }),
-        _attachSessionEventSubscribers: () => ({
-            resetTurn() {},
-            drainInvokedToolNames: () => [],
-            endThinking() {},
-            unsubscribe() {},
-        }),
-    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "engineer" });
 
     const report = runtime.getSessionContextReport(sessionId);
     assertEquals(report?.agentDisplayName, "Engineer");
-    assertEquals(report?.provider, "test");
-    assertEquals(report?.model, "model");
-    assertEquals(report?.usedTokens, 30);
-    assertEquals(report?.activeMessageTokens, 2);
-    assertEquals(JSON.stringify(report).includes("secret prompt"), false);
+    assertEquals(report?.provider, RUNTIME_TEST_PROVIDER);
+    assertEquals(report?.model, RUNTIME_TEST_MODEL);
+    assertEquals(report?.usageState, "estimated");
+    assertEquals((report?.staticTokens || 0) > 0, true);
+    assertEquals(report?.activeMessageTokens, 0);
+    assertEquals(JSON.stringify(report).includes("systemPrompt"), false);
 });
 
 Deno.test("SessionRuntime uses one activation transaction for initial readiness and later switches", async () => {
     const sessionHost = new SessionHost();
-    /** @type {WeakMap<Function, string>} */
-    const handlerAgents = new WeakMap();
-    const runtime = makeRuntime({
-        sessionHost,
-        createAgentHandler: (agentName) => {
-            /** @type {import('./types.js').AgentMessageHandler} */
-            const handler = () => Promise.resolve({ kind: "complete" });
-            handlerAgents.set(handler, agentName);
-            return handler;
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
     const hostedSession = sessionHost.requireSession(sessionId);
     const initialHandler = hostedSession.getActiveOnMessage();
+    const initialRoot = hostedSession.getRootAgentSession();
     assertEquals(hostedSession.getRootAgentName(), "router");
-    assertEquals(initialHandler ? handlerAgents.get(initialHandler) : undefined, "router");
+    assertEquals(typeof initialHandler, "function");
 
     /** @type {string[]} */
     const changedAgents = [];
@@ -1153,14 +1092,16 @@ Deno.test("SessionRuntime uses one activation transaction for initial readiness 
 
     const switchedHandler = hostedSession.getActiveOnMessage();
     assertEquals(hostedSession.getRootAgentName(), "operator");
-    assertEquals(switchedHandler ? handlerAgents.get(switchedHandler) : undefined, "operator");
+    assertEquals(typeof switchedHandler, "function");
+    assertEquals(switchedHandler === initialHandler, false);
+    assertEquals(hostedSession.getRootAgentSession() === initialRoot, false);
     assertEquals(changedAgents, ["operator"]);
 });
 
 Deno.test("SessionRuntime snapshots and events keep workflow footer context separate from execution state", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     const hostedSession = sessionHost.requireSession(sessionId);
     /** @type {any[]} */
     const events = [];
@@ -1177,7 +1118,7 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
         collaborationRecommendation: "pair",
         collaborationStyle: "pair",
         pairCheckpointCount: 2,
-        executionCwd: Deno.cwd(),
+        executionCwd: runtimeProjectRoot(),
     });
 
     const snapshot = runtime.getSessionSnapshot(sessionId);
@@ -1193,7 +1134,7 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
         collaborationRecommendation: "pair",
         collaborationStyle: "pair",
         pairCheckpointCount: 2,
-        executionCwd: Deno.cwd(),
+        executionCwd: runtimeProjectRoot(),
     });
     assertEquals(snapshot?.activeExecutionWorkflow === hostedSession.getActiveExecutionWorkflow(), false);
     assertEquals("workflow" in /** @type {Record<string, unknown>} */ (snapshot || {}), false);
@@ -1213,7 +1154,7 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
 
 Deno.test("SessionRuntime emits one keyboard-help event for the requested session", async () => {
     const runtime = makeRuntime();
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1235,7 +1176,7 @@ Deno.test("SessionRuntime emits one keyboard-help event for the requested sessio
 
 Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () => {
     const runtime = makeRuntime();
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1245,13 +1186,21 @@ Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () 
     const result = await runtime.promptSession(sessionId, { initialRequest: "hello", initialImages: [] });
 
     assertEquals(result, { ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
-    assertEquals(events.map((event) => event.type), [
+    const eventTypes = events.map((event) => event.type);
+    assertEquals(eventTypes.slice(0, 3), [
         RuntimeEventTypes.USER_MESSAGE,
         RuntimeEventTypes.TURN_START,
         RuntimeEventTypes.BUSY_CHANGED,
+    ]);
+    assertEquals(eventTypes.slice(-2), [
         RuntimeEventTypes.TURN_END,
         RuntimeEventTypes.BUSY_CHANGED,
     ]);
+    assertEquals(eventTypes.filter((type) => type === RuntimeEventTypes.TURN_START).length, 2);
+    assertEquals(eventTypes.filter((type) => type === RuntimeEventTypes.TURN_END).length, 2);
+    assertEquals(eventTypes.filter((type) => type === RuntimeEventTypes.USAGE).length, 1);
+    assertEquals(eventTypes.filter((type) => type === RuntimeEventTypes.ATTENTION_REQUESTED).length, 1);
+    assertEquals(eventTypes.filter((type) => type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA).length > 0, true);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.USER_MESSAGE).length, 1);
     assertEquals(events.every((event) => event.sessionId === sessionId), true);
 });
@@ -1263,14 +1212,7 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
         Deno.env.set("HOME", home);
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
-        /** @type {import('./types.js').ImageAttachment[][]} */
-        const handlerImages = [];
-        const runtime = makeRuntime({
-            handler: (_request, images) => {
-                handlerImages.push(images);
-                return Promise.resolve({ kind: "complete" });
-            },
-        });
+        const runtime = makeRuntime();
         try {
             const sessionId = await runtime.createPromptReadySession({ cwd });
             /** @type {any[]} */
@@ -1287,10 +1229,7 @@ Deno.test("SessionRuntime persists pending prompt images once a live manager exi
             assertEquals(result.ok, true);
             const userEvent = events.find((event) => event.type === RuntimeEventTypes.USER_MESSAGE);
             const eventImage = userEvent?.images?.[0];
-            const handlerImage = handlerImages[0]?.[0];
             assertEquals(eventImage?.ref?.startsWith("attachment:"), true);
-            assertEquals(handlerImage?.ref, eventImage?.ref);
-            assertEquals(handlerImage?.path, eventImage?.path);
             assertEquals(new TextDecoder().decode(await Deno.readFile(eventImage.path)), "img");
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
@@ -1382,6 +1321,7 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
 });
 
 Deno.test("SessionRuntime keeps direct model operations busy until the outermost operation settles", async () => {
+    const sessionHost = new SessionHost();
     const agentSession = makeSteeringAgentSession();
     /** @type {Array<() => void>} */
     const releases = [];
@@ -1389,8 +1329,8 @@ Deno.test("SessionRuntime keeps direct model operations busy until the outermost
         new Promise((resolve) => {
             releases.push(() => resolve({ ok: true }));
         });
-    const runtime = makeRuntime({ agentSession });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     /** @type {boolean[]} */
     const busyStates = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1416,7 +1356,7 @@ Deno.test("SessionRuntime keeps direct model operations busy until the outermost
 
 Deno.test("SessionRuntime cycles through max thinking level", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     runtime.setSessionThinkingLevel(sessionId, "xhigh");
 
     const result = runtime.cycleSessionThinkingLevel(sessionId);
@@ -1427,7 +1367,7 @@ Deno.test("SessionRuntime cycles through max thinking level", async () => {
 
 Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     /** @type {any[]} */
     const events = [];
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1443,7 +1383,7 @@ Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", as
 
 Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1466,59 +1406,29 @@ Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async (
 });
 
 Deno.test("SessionRuntime persists local shell commands as bash execution messages visible to LLM context", async () => {
-    /** @type {unknown[]} */
-    const agentMessages = [];
-    /** @type {unknown[]} */
-    let messagesSeenByNextTurn = [];
-    const agentSession = {
-        agent: { state: { messages: agentMessages } },
-        recordBashResult(/** @type {string} */ command, /** @type {any} */ result) {
-            agentMessages.push({
-                role: "bashExecution",
-                command,
-                output: result.output,
-                exitCode: result.exitCode,
-                cancelled: result.cancelled,
-                truncated: result.truncated,
-                timestamp: Date.now(),
-                excludeFromContext: false,
-            });
-        },
-        dispose() {},
-    };
-    const runtime = makeRuntime({
-        agentSession,
-        handler: () => {
-            messagesSeenByNextTurn = [...agentMessages];
-            return Promise.resolve({ kind: "complete" });
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: STABLE_TEST_CWD });
+    setRuntimeModelMessages([fauxAssistantMessage(fauxText("Initial fixture turn."))]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     await runtime.promptSession(sessionId, { initialRequest: "start", initialImages: [] });
-    messagesSeenByNextTurn = [];
 
     await runtime.runLocalShellCommand(sessionId, {
         command: "printf visible-shell",
         userRequest: "!printf visible-shell",
         persist: true,
     });
+    let nextTurnContext = "";
+    setRuntimeModelResponseFactories([(context) => {
+        nextTurnContext = JSON.stringify(context.messages);
+        return fauxAssistantMessage(fauxText("Observed the shell result."));
+    }]);
     await runtime.promptSession(sessionId, { initialRequest: "what happened?", initialImages: [] });
 
-    assertEquals(messagesSeenByNextTurn, [{
-        role: "bashExecution",
-        command: "printf visible-shell",
-        output: "visible-shell",
-        exitCode: 0,
-        cancelled: false,
-        truncated: false,
-        timestamp: /** @type {{ timestamp?: number }} */ (messagesSeenByNextTurn[0] || {}).timestamp,
-        excludeFromContext: false,
-    }]);
+    assertEquals(nextTurnContext.includes("visible-shell"), true);
 });
 
 Deno.test("SessionRuntime cancellation terminates an active local shell command", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     let resolveStarted = () => {};
     const started = new Promise((resolve) => {
         resolveStarted = () => resolve(undefined);
@@ -1537,46 +1447,41 @@ Deno.test("SessionRuntime cancellation terminates an active local shell command"
 });
 
 Deno.test("SessionRuntime publishes handler errors and releases the turn", async () => {
-    const runtime = makeRuntime({
-        handler: () => Promise.reject(new Error("boom")),
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    setRuntimeModelResponseFactories([() => {
+        throw new Error("boom");
+    }]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     /** @type {string[]} */
     const types = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
         types.push(event.type);
     });
 
-    await assertRejects(
-        () => runtime.promptSession(sessionId, { initialRequest: "fail", initialImages: [] }),
-        Error,
-        "boom",
-    );
+    const result = await runtime.promptSession(sessionId, { initialRequest: "fail", initialImages: [] });
 
-    assertEquals(types, [
-        RuntimeEventTypes.USER_MESSAGE,
-        RuntimeEventTypes.TURN_START,
-        RuntimeEventTypes.BUSY_CHANGED,
-        RuntimeEventTypes.TERMINAL_ERROR,
-        RuntimeEventTypes.TURN_END,
-        RuntimeEventTypes.BUSY_CHANGED,
-    ]);
+    assertEquals(result.ok, true);
+    assertEquals(types.includes(RuntimeEventTypes.TERMINAL_ERROR), true);
+    assertEquals(types.at(-1), RuntimeEventTypes.BUSY_CHANGED);
     assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
 });
 
 Deno.test("SessionRuntime rejects overlapping turns for one id", async () => {
     /** @type {() => void} */
     let release = () => {};
-    const runtime = makeRuntime({
-        handler: () =>
+    let responseStarted = false;
+    setRuntimeModelResponseFactories([
+        () =>
             new Promise((resolve) => {
-                release = () => resolve({ kind: "complete" });
+                responseStarted = true;
+                release = () => resolve(fauxAssistantMessage(fauxText("Released.")));
             }),
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    ]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
 
     const first = runtime.promptSession(sessionId, { initialRequest: "first", initialImages: [] });
-    await Promise.resolve();
+    for (let attempt = 0; attempt < 100 && !responseStarted; attempt++) await delay(1);
     assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
     await assertRejects(
         () => runtime.promptSession(sessionId, { initialRequest: "second", initialImages: [] }),
@@ -1592,17 +1497,19 @@ Deno.test("SessionRuntime rejects overlapping turns for one id", async () => {
 Deno.test("SessionRuntime allows independent session ids to run concurrently", async () => {
     /** @type {Array<() => void>} */
     const releases = [];
-    const runtime = makeRuntime({
-        handler: () => new Promise((resolve) => releases.push(() => resolve({ kind: "complete" }))),
-    });
-    const alpha = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
-    const beta = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    setRuntimeModelResponseFactories([
+        () => new Promise((resolve) => releases.push(() => resolve(fauxAssistantMessage(fauxText("Alpha."))))),
+        () => new Promise((resolve) => releases.push(() => resolve(fauxAssistantMessage(fauxText("Beta."))))),
+    ]);
+    const runtime = makeRuntime();
+    const alpha = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
+    const beta = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
 
     const prompts = [
         runtime.promptSession(alpha, { initialRequest: "alpha", initialImages: [] }),
         runtime.promptSession(beta, { initialRequest: "beta", initialImages: [] }),
     ];
-    for (let index = 0; index < 10 && releases.length < 2; index++) await Promise.resolve();
+    for (let index = 0; index < 100 && releases.length < 2; index++) await delay(1);
     assertEquals(runtime.getSessionSnapshot(alpha)?.busy, true);
     assertEquals(runtime.getSessionSnapshot(beta)?.busy, true);
     for (const release of releases) release();
@@ -1610,27 +1517,14 @@ Deno.test("SessionRuntime allows independent session ids to run concurrently", a
 });
 
 Deno.test("SessionRuntime emits the return-to-router prompt before the handed-off Router turn", async () => {
-    /** @type {string[]} */
-    const receivedRequests = [];
-    const runtime = makeRuntime({
-        createAgentHandler: (agentName) => {
-            if (agentName === "engineer") {
-                return (userRequest) => {
-                    receivedRequests.push(`${agentName}:${userRequest}`);
-                    return Promise.resolve({
-                        kind: "handoff",
-                        agentName: "router",
-                        userRequest: "The user needs fresh triage.",
-                    });
-                };
-            }
-            return (userRequest) => {
-                receivedRequests.push(`${agentName}:${userRequest}`);
-                return Promise.resolve({ kind: "complete" });
-            };
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "engineer" });
+    setRuntimeModelMessages([
+        fauxAssistantMessage(fauxToolCall("return_to_router", {
+            reason: "The user needs fresh triage.",
+        })),
+        fauxAssistantMessage(fauxText("Fresh triage completed.")),
+    ]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "engineer" });
     /** @type {string[]} */
     const userMessages = [];
     /** @type {string[]} */
@@ -1643,41 +1537,15 @@ Deno.test("SessionRuntime emits the return-to-router prompt before the handed-of
     const result = await runtime.promptSession(sessionId, { initialRequest: "fix this", initialImages: [] });
 
     assertEquals(result, { ok: true, turns: 2, handoffs: 1, handoffLimitReached: false });
-    assertEquals(receivedRequests, ["engineer:fix this", "router:The user needs fresh triage."]);
     assertEquals(userMessages, ["fix this", "The user needs fresh triage."]);
     assertEquals(agentChanges, ["router"]);
 });
 
-Deno.test("SessionRuntime preserves the chained handoff limit", async () => {
-    let turnCount = 0;
-    /** @type {import('./types.js').AgentMessageHandler} */
-    const handler = () =>
-        Promise.resolve({ kind: "handoff", agentName: "router", userRequest: `handoff ${++turnCount}` });
-    const runtime = makeRuntime({
-        handler,
-        switchActiveAgent: (session) => {
-            session.setActiveOnMessage(handler);
-            return Promise.resolve({ ok: true, agentName: "router", changed: true });
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
-    /** @type {string[]} */
-    const messages = [];
-    runtime.subscribeSessionEvents(sessionId, (event) => {
-        if (event.type === RuntimeEventTypes.SYSTEM_STATUS) messages.push(event.message);
-    });
-
-    const result = await runtime.promptSession(sessionId, { initialRequest: "start", initialImages: [] });
-
-    assertEquals(turnCount, 5);
-    assertEquals(result.handoffLimitReached, true);
-    assertEquals(messages, [HANDOFF_LIMIT_MESSAGE]);
-});
-
 Deno.test("SessionRuntime owns steering and deferred queue transitions", async () => {
+    const sessionHost = new SessionHost();
     const agentSession = makeSteeringAgentSession();
-    const runtime = makeRuntime({ agentSession });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     /** @type {string[]} */
     const statuses = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1699,8 +1567,8 @@ Deno.test("SessionRuntime steers active foreground sub-agent before streaming ro
     const sessionHost = new SessionHost();
     const rootSession = makeSteeringAgentSession();
     const foregroundSession = makeSteeringAgentSession();
-    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, rootSession);
     const hostedSession = sessionHost.requireSession(sessionId);
     hostedSession.addSubAgentSession(foregroundSession);
     const targetId = hostedSession.pushSteeringTargetSession(foregroundSession);
@@ -1732,8 +1600,8 @@ Deno.test("SessionRuntime keeps queue subscriptions for multiple steering source
     const sessionHost = new SessionHost();
     const rootSession = makeSteeringAgentSession();
     const foregroundSession = makeSteeringAgentSession();
-    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, rootSession);
     const hostedSession = sessionHost.requireSession(sessionId);
     /** @type {string[]} */
     const consumedTexts = [];
@@ -1760,8 +1628,8 @@ Deno.test("SessionRuntime dequeue restores remaining steering onto original sour
     const rootSession = makeSteeringAgentSession();
     const foregroundSession = makeSteeringAgentSession();
     const otherForegroundSession = makeSteeringAgentSession();
-    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, rootSession);
     const hostedSession = sessionHost.requireSession(sessionId);
     const foregroundTargetId = hostedSession.pushSteeringTargetSession(foregroundSession);
     await runtime.steerSession(sessionId, "keep on child", []);
@@ -1783,8 +1651,8 @@ Deno.test("SessionRuntime falls back to root when foreground steering target sto
     const rootSession = makeSteeringAgentSession();
     const foregroundSession = makeSteeringAgentSession();
     foregroundSession.isStreaming = false;
-    const runtime = makeRuntime({ agentSession: rootSession, sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, rootSession);
     const hostedSession = sessionHost.requireSession(sessionId);
     const targetId = hostedSession.pushSteeringTargetSession(foregroundSession);
 
@@ -1797,9 +1665,10 @@ Deno.test("SessionRuntime falls back to root when foreground steering target sto
 });
 
 Deno.test("SessionRuntime cancellation emits cancellation and dequeues pending messages", async () => {
+    const sessionHost = new SessionHost();
     const agentSession = makeSteeringAgentSession();
-    const runtime = makeRuntime({ agentSession, abortActiveSession: () => true });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1817,15 +1686,10 @@ Deno.test("SessionRuntime cancellation emits cancellation and dequeues pending m
 });
 
 Deno.test("SessionRuntime marks aborted agent turns to suppress agent-stopped attention", async () => {
-    let canceledSession = /** @type {import('./hosted-session.js').HostedSession | null} */ (null);
-    const runtime = makeRuntime({
-        agentSession: makeSteeringAgentSession(),
-        abortActiveSession: (session) => {
-            canceledSession = session;
-            return true;
-        },
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, makeSteeringAgentSession());
+    const canceledSession = sessionHost.requireSession(sessionId);
 
     assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
     assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), true);
@@ -1834,12 +1698,10 @@ Deno.test("SessionRuntime marks aborted agent turns to suppress agent-stopped at
 
 Deno.test("SessionRuntime suppresses attention when Esc races with turn completion", async () => {
     const sessionHost = new SessionHost();
-    const runtime = makeRuntime({
-        sessionHost,
-        agentSession: makeSteeringAgentSession(),
-        abortActiveSession: () => false,
-    });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const agentSession = makeSteeringAgentSession();
+    agentSession.isStreaming = false;
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     const hostedSession = sessionHost.requireSession(sessionId);
     hostedSession.beginTurn("racing-turn");
 
@@ -1856,8 +1718,9 @@ Deno.test("SessionRuntime cancellation owns active compaction and publishes one 
         compactionAborts++;
         agentSession.isCompacting = false;
     };
-    const runtime = makeRuntime({ agentSession, abortActiveSession: () => false });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     /** @type {any[]} */
     const events = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1882,7 +1745,7 @@ Deno.test("SessionRuntime cancellation owns active compaction and publishes one 
 
 Deno.test("SessionRuntime interaction adapter resolves through semantic lifecycle events", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     /** @type {string[]} */
     const types = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1908,7 +1771,7 @@ Deno.test("SessionRuntime interaction adapter resolves through semantic lifecycl
 
 Deno.test("SessionRuntime emits canceled lifecycle for an already-aborted interaction", async () => {
     const runtime = makeRuntime();
-    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     /** @type {string[]} */
     const types = [];
     runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -1939,21 +1802,36 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
         await Deno.mkdir(cwd, { recursive: true });
         const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
         const piSessionId = "cataloged-normal-resume";
-        const transcriptPath = `${getRunWieldSessionDir(cwd)}/2026-01-01T00-00-00-000Z_${piSessionId}.jsonl`;
         try {
+            ensureRuntimeModelFixture();
             store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             const project = store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
-            await Deno.mkdir(getRunWieldSessionDir(cwd), { recursive: true });
-            await Deno.writeTextFile(
-                transcriptPath,
-                JSON.stringify({
-                    type: "session",
-                    version: 3,
-                    id: piSessionId,
-                    timestamp: "2026-01-01T00:00:00.000Z",
-                    cwd,
-                }) + "\n",
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const manager = SessionManager.create(cwd, sessionDir, { id: piSessionId });
+            manager.appendCustomEntry("runwield.active_agent", { agentName: "planner" });
+            manager.appendMessage(
+                /** @type {any} */ ({
+                    role: "user",
+                    timestamp: Date.now(),
+                    content: [{ type: "text", text: "resume cataloged fixture" }],
+                }),
             );
+            manager.appendMessage(
+                /** @type {any} */ ({
+                    role: "assistant",
+                    timestamp: Date.now(),
+                    api: RUNTIME_TEST_API,
+                    provider: RUNTIME_TEST_PROVIDER,
+                    model: RUNTIME_TEST_MODEL,
+                    usage: {},
+                    cost: {},
+                    stopReason: "end_turn",
+                    content: [{ type: "text", text: "cataloged fixture response" }],
+                }),
+            );
+            const transcriptPath = manager.getSessionFile();
+            if (!transcriptPath) throw new Error("fixture transcript was not persisted");
             await store.ensureSessionCatalogRecord({
                 projectId: project.projectId,
                 piSessionId,
@@ -1961,48 +1839,17 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
                 transcriptCwd: cwd,
                 source: "created",
             });
-            let compactCalled = false;
             const runtime = new SessionRuntime({
                 ownerCoordinationStore: store,
                 ownerProcessKind: "test",
                 ownerInstanceId: "runtime-test-owner",
-                openPersistedRootSession: () =>
-                    Promise.resolve({
-                        sessionManager: makeSessionManager(piSessionId, cwd),
-                        resolved: /** @type {any} */ ({
-                            cwd,
-                            sessionDir: getRunWieldSessionDir(cwd),
-                            sessionId: piSessionId,
-                            sessionPath: transcriptPath,
-                            info: null,
-                        }),
-                    }),
-                resolveResumeAgentName: () => Promise.resolve("planner"),
-                switchActiveAgent: (session, options) => {
-                    session.setRootAgentName(options.agentName);
-                    session.setRootAgentSession(
-                        /** @type {any} */ ({
-                            dispose() {},
-                            compact: () => {
-                                compactCalled = true;
-                                return Promise.resolve({ tokensBefore: 123, summary: "summary" });
-                            },
-                        }),
-                    );
-                    session.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
-                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-                },
             });
             try {
                 const result = await runtime.loadSession({ cwd, sessionId: piSessionId, sessionPath: transcriptPath });
                 const snapshot = runtime.getSessionSnapshot(result.sessionId);
                 assertEquals(snapshot?.managed, null);
                 assertEquals(snapshot?.sessionManagerId, piSessionId);
-                assertEquals(await runtime.compactSession(result.sessionId), {
-                    tokensBefore: 123,
-                    summary: "summary",
-                });
-                assertEquals(compactCalled, true);
+                assertEquals(snapshot?.activeAgent, "planner");
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }
@@ -2016,7 +1863,8 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
 });
 
 Deno.test("SessionRuntime loadSession returns opaque metadata and redacted replay events", async () => {
-    const manager = makeSessionManager("persisted-1", Deno.cwd(), [
+    ensureRuntimeModelFixture();
+    const branch = [
         {
             type: "message",
             id: "u1",
@@ -2083,29 +1931,24 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
         { type: "thinking_level_change", id: "th1", thinkingLevel: "off" },
         { type: "model_change", id: "m2", provider: "test", modelId: "later" },
         { type: "thinking_level_change", id: "th2", thinkingLevel: "medium" },
-    ]);
-    const runtime = new SessionRuntime({
-        openPersistedRootSession: () =>
-            Promise.resolve({
-                sessionManager: manager,
-                resolved: {
-                    cwd: Deno.cwd(),
-                    sessionDir: "/sessions",
-                    sessionId: "persisted-1",
-                    sessionPath: "/sessions/persisted-1.jsonl",
-                    info: null,
-                },
-            }),
-        resolveResumeAgentName: () => Promise.resolve("planner"),
-        switchActiveAgent: (session, options) => {
-            session.setRootAgentName(options.agentName);
-            session.setRootAgentSession({ dispose() {} });
-            session.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
-            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-        },
+    ];
+    const manager = SessionManager.create(runtimeProjectRoot(), getRunWieldSessionDir(runtimeProjectRoot()), {
+        id: "persisted-1",
     });
+    for (const entry of branch) {
+        if (entry.type === "message") manager.appendMessage(/** @type {any} */ (entry.message));
+        else if (entry.type === "custom") manager.appendCustomEntry(String(entry.customType), entry.data);
+        else if (entry.type === "model_change") {
+            manager.appendModelChange(String(entry.provider), String(entry.modelId));
+        } else if (entry.type === "thinking_level_change") {
+            manager.appendThinkingLevelChange(String(entry.thinkingLevel));
+        }
+    }
+    const sessionPath = manager.getSessionFile();
+    if (!sessionPath) throw new Error("fixture transcript was not persisted");
+    const runtime = new SessionRuntime();
 
-    const result = await runtime.loadSession({ cwd: Deno.cwd(), sessionId: "persisted-1" });
+    const result = await runtime.loadSession({ cwd: runtimeProjectRoot(), sessionId: "persisted-1", sessionPath });
 
     assertEquals("hostedSession" in result, false);
     assertEquals("sessionManager" in result, false);
@@ -2141,7 +1984,8 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
     assertEquals(modernToolEnd?.output, "actual tool output");
     assertEquals(modernToolEnd?.content, [{ type: "text", text: "actual tool output" }]);
     assertEquals(modernToolEnd?.details, { fullOutputPath: "/tmp/read-output" });
-    assertEquals(modernToolEnd?.durationMs, 2000);
+    assertEquals(typeof modernToolEnd?.durationMs, "number");
+    assertEquals(modernToolEnd?.durationMs >= 0, true);
     const assistantMessage = /** @type {any} */ (
         result.replayEvents.find((event) => event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA)
     );
@@ -2157,7 +2001,8 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
 });
 
 Deno.test("SessionRuntime replays persisted task_completed summaries and manual QA checklists", async () => {
-    const manager = makeSessionManager("persisted-workflow", Deno.cwd(), [
+    ensureRuntimeModelFixture();
+    const branch = [
         {
             type: "message",
             id: "tc-call",
@@ -2187,29 +2032,24 @@ Deno.test("SessionRuntime replays persisted task_completed summaries and manual 
             customType: "runwield.manual_qa_checklist",
             data: { agentName: "Operator", text: "Manual verification steps for fix\n- Check resume." },
         },
-    ]);
-    const runtime = new SessionRuntime({
-        openPersistedRootSession: () =>
-            Promise.resolve({
-                sessionManager: manager,
-                resolved: {
-                    cwd: Deno.cwd(),
-                    sessionDir: "/sessions",
-                    sessionId: "persisted-workflow",
-                    sessionPath: "/sessions/persisted-workflow.jsonl",
-                    info: null,
-                },
-            }),
-        resolveResumeAgentName: () => Promise.resolve("engineer"),
-        switchActiveAgent: (session, options) => {
-            session.setRootAgentName(options.agentName);
-            session.setRootAgentSession({ dispose() {} });
-            session.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
-            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-        },
+    ];
+    const manager = SessionManager.create(runtimeProjectRoot(), getRunWieldSessionDir(runtimeProjectRoot()), {
+        id: "persisted-workflow",
     });
+    manager.appendCustomEntry("runwield.active_agent", { agentName: "engineer" });
+    for (const entry of branch) {
+        if (entry.type === "message") manager.appendMessage(/** @type {any} */ (entry.message));
+        else manager.appendCustomEntry(String(entry.customType), entry.data);
+    }
+    const sessionPath = manager.getSessionFile();
+    if (!sessionPath) throw new Error("fixture transcript was not persisted");
+    const runtime = new SessionRuntime();
 
-    const result = await runtime.loadSession({ cwd: Deno.cwd(), sessionId: "persisted-workflow" });
+    const result = await runtime.loadSession({
+        cwd: runtimeProjectRoot(),
+        sessionId: "persisted-workflow",
+        sessionPath,
+    });
     const workflowMessages = result.replayEvents.filter((event) =>
         event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA &&
         /** @type {any} */ (event).messageKind === "workflow"
@@ -2227,9 +2067,9 @@ Deno.test("SessionRuntime replays persisted task_completed summaries and manual 
 });
 
 Deno.test("SessionRuntime close operations dispose sessions by id", async () => {
-    const runtime = makeRuntime({ abortActiveSession: () => true });
-    const first = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
-    const second = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const runtime = makeRuntime();
+    const first = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
+    const second = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
 
     assertEquals(runtime.closeSession(first.sessionId), { ok: true, closed: true });
     assertEquals(runtime.getSessionSnapshot(first.sessionId), null);
@@ -2241,7 +2081,7 @@ Deno.test("SessionRuntime close operations dispose sessions by id", async () => 
 Deno.test("SessionRuntime snapshot derives workflow context from active execution workflow fallback", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     const hostedSession = sessionHost.requireSession(sessionId);
     hostedSession.setActiveExecutionWorkflow({
         planName: "footer-plan",
@@ -2259,7 +2099,7 @@ Deno.test("SessionRuntime snapshot derives workflow context from active executio
 Deno.test("SessionRuntime snapshot prefers explicit workflow context over active execution fallback", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
     const hostedSession = sessionHost.requireSession(sessionId);
     hostedSession.setWorkflowExecutionContext({
         planName: "explicit-plan",

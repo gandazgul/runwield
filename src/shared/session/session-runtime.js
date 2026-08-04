@@ -67,12 +67,6 @@ export const HANDOFF_LIMIT_MESSAGE =
 /**
  * @typedef {Object} SessionRuntimeOptions
  * @property {SessionHost} [sessionHost]
- * @property {typeof switchActiveAgent} [switchActiveAgent]
- * @property {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
- * @property {(mode: import('./root-session.js').RootSessionStartMode, cwd: string) => Promise<any>} [createRootSessionManager]
- * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
- * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
- * @property {typeof steerActiveSessionWithTarget} [steerActiveSessionWithTarget]
  * @property {import('../owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
  * @property {'workspace' | 'tui' | 'acp' | 'test'} [ownerProcessKind]
  * @property {string} [ownerInstanceId]
@@ -268,18 +262,6 @@ export function shouldEmitProjectedAttention(summary, previousAttentionEventId) 
 export class SessionRuntime {
     /** @type {SessionHost} */
     #sessionHost;
-    /** @type {typeof switchActiveAgent} */
-    #switchActiveAgent;
-    /** @type {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} */
-    #abortActiveSession;
-    /** @type {(mode: import('./root-session.js').RootSessionStartMode, cwd: string) => Promise<any>} */
-    #createRootSessionManager;
-    /** @type {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} */
-    #openPersistedRootSession;
-    /** @type {(sessionManager: any) => Promise<string>} */
-    #resolveResumeAgentName;
-    /** @type {typeof steerActiveSessionWithTarget} */
-    #steerActiveSessionWithTarget;
     /** @type {Map<string, Set<SessionRuntimeEventListener>>} */
     #eventListeners;
     /** @type {Map<string, Promise<void>>} */
@@ -306,12 +288,6 @@ export class SessionRuntime {
     /** @param {SessionRuntimeOptions} [options] */
     constructor(options = {}) {
         this.#sessionHost = options.sessionHost || new SessionHost();
-        this.#switchActiveAgent = options.switchActiveAgent || switchActiveAgent;
-        this.#abortActiveSession = options.abortActiveSession || abortActiveSessionFn;
-        this.#createRootSessionManager = options.createRootSessionManager || createRootSessionManager;
-        this.#openPersistedRootSession = options.openPersistedRootSession || openPersistedRootSession;
-        this.#resolveResumeAgentName = options.resolveResumeAgentName || resolveResumeAgentName;
-        this.#steerActiveSessionWithTarget = options.steerActiveSessionWithTarget || steerActiveSessionWithTarget;
         this.#eventListeners = new Map();
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
@@ -640,7 +616,7 @@ export class SessionRuntime {
         if (!expectedTarget?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
 
         this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
-        const sourceSession = await this.#steerActiveSessionWithTarget(hostedSession, text, images);
+        const sourceSession = await steerActiveSessionWithTarget(hostedSession, text, images);
         if (!sourceSession) {
             this.#removeQueueSourceSubscription(hostedSession.id, expectedTarget);
             return { ok: true, queued: false, reason: "not_streaming" };
@@ -1026,18 +1002,18 @@ export class SessionRuntime {
         try {
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
             hydrated = true;
-            const { sessionManager } = await this.#openPersistedRootSession({
+            const { sessionManager } = await openPersistedRootSession({
                 cwd: session.cwd,
                 sessionId: managed.piSessionId,
                 sessionPath: managed.transcriptPath,
             });
-            session.setRootSessionManager(sessionManager);
+            session.setRootSessionManager(/** @type {any} */ (sessionManager));
             const pendingIntent = session.getPendingManagedTurnIntent?.() || {};
             if (pendingIntent.model || pendingIntent.provider) {
                 session.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
             }
             if (pendingIntent.thinkingLevel) session.setThinkingLevel(pendingIntent.thinkingLevel);
-            const persistedAgentName = await this.#resolveResumeAgentName(sessionManager);
+            const persistedAgentName = await resolveResumeAgentName(sessionManager);
             const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;
             const pendingModel = pendingIntent.model || pendingIntent.provider
                 ? pendingIntent.provider && pendingIntent.model
@@ -1606,7 +1582,7 @@ export class SessionRuntime {
      */
     async inspectResumableSession(options) {
         const { estimateTokens } = await import("@earendil-works/pi-coding-agent");
-        const { sessionManager } = await this.#openPersistedRootSession(options);
+        const { sessionManager } = await openPersistedRootSession(options);
         try {
             const context = sessionManager.buildSessionContext?.();
             const messages = Array.isArray(context?.messages) ? context.messages : [];
@@ -1617,7 +1593,7 @@ export class SessionRuntime {
                 : null;
             return { estimatedTokens, messageCount: messages.length, model };
         } finally {
-            sessionManager.dispose?.();
+            /** @type {any} */ (sessionManager).dispose?.();
         }
     }
 
@@ -1809,7 +1785,9 @@ export class SessionRuntime {
             let createdSessionManager = false;
             try {
                 if (!sessionManager) {
-                    sessionManager = await this.#createRootSessionManager("new", hostedSession.cwd);
+                    sessionManager = /** @type {any} */ (
+                        await createRootSessionManager("new", hostedSession.cwd)
+                    );
                     hostedSession.setRootSessionManager(sessionManager);
                     createdSessionManager = true;
                 }
@@ -1862,14 +1840,14 @@ export class SessionRuntime {
                 throw error;
             }
         }
-        if (!pendingCreation) return await this.#switchActiveAgent(hostedSession, options);
+        if (!pendingCreation) return await switchActiveAgent(hostedSession, options);
         if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
         let activeProof = pendingCreation;
         let hydrated = false;
         try {
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
             hydrated = true;
-            const result = await this.#switchActiveAgent(hostedSession, options);
+            const result = await switchActiveAgent(hostedSession, options);
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
             const managed = hostedSession.getManagedMetadata?.();
             if (!managed) throw new Error("Managed Session metadata disappeared during creation");
@@ -2345,18 +2323,18 @@ export class SessionRuntime {
             }
             activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
             hydrated = true;
-            const { sessionManager } = await this.#openPersistedRootSession({
+            const { sessionManager } = await openPersistedRootSession({
                 cwd: hostedSession.cwd,
                 sessionId: managed.piSessionId,
                 sessionPath: managed.transcriptPath,
             });
-            hostedSession.setRootSessionManager(sessionManager);
+            hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager));
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
             }
             if (pendingIntent.thinkingLevel) hostedSession.setThinkingLevel(pendingIntent.thinkingLevel);
             const agentName = options.agentName || pendingIntent.agentName ||
-                await this.#resolveResumeAgentName(sessionManager);
+                await resolveResumeAgentName(sessionManager);
             const pendingModel = pendingIntent.model || pendingIntent.provider
                 ? pendingIntent.provider && pendingIntent.model
                     ? `${pendingIntent.provider}/${pendingIntent.model}`
@@ -2453,7 +2431,7 @@ export class SessionRuntime {
         );
         const sessionManager = deferManagedCreation
             ? null
-            : await this.#createRootSessionManager(options.mode || "new", options.cwd);
+            : await createRootSessionManager(options.mode || "new", options.cwd);
         let managedSession = null;
         let managedProof = null;
         if (managedProject && ownerCoordinationStore && !deferManagedCreation) {
@@ -2477,13 +2455,13 @@ export class SessionRuntime {
                     phase: "preparing",
                 });
             } catch (error) {
-                sessionManager?.dispose?.();
+                /** @type {any} */ (sessionManager)?.dispose?.();
                 throw error;
             }
         }
         const hostedSession = this.#sessionHost.createSession({
             id: crypto.randomUUID(),
-            sessionManager,
+            sessionManager: /** @type {any} */ (sessionManager),
             cwd: options.cwd,
             managed: managedSession
                 ? {
@@ -2588,15 +2566,15 @@ export class SessionRuntime {
                 };
             }
         }
-        const { sessionManager, resolved } = await this.#openPersistedRootSession({
+        const { sessionManager, resolved } = await openPersistedRootSession({
             cwd: options.cwd,
             sessionId: options.sessionId,
             sessionPath: options.sessionPath,
         });
-        const agentName = await this.#resolveResumeAgentName(sessionManager);
+        const agentName = await resolveResumeAgentName(sessionManager);
         const hostedSession = this.#sessionHost.createSession({
             id: crypto.randomUUID(),
-            sessionManager,
+            sessionManager: /** @type {any} */ (sessionManager),
             cwd: options.cwd,
         });
         this.#attachRuntimeEventSink(hostedSession);
@@ -2755,7 +2733,7 @@ export class SessionRuntime {
                 operationCanceled = true;
             }
             this.clearQueuedMessages(session.id, "session_cancel");
-            agentCanceled = this.#abortActiveSession(session);
+            agentCanceled = abortActiveSessionFn(session);
             if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
             aborted = operationCanceled || agentCanceled;
         } finally {

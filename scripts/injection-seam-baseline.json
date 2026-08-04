@@ -102,20 +102,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/session/session-runtime.js": {
-            "seams": [
-                "abortActiveSession",
-                "createRootSessionManager",
-                "openPersistedRootSession",
-                "resolveResumeAgentName",
-                "steerActiveSessionWithTarget",
-                "switchActiveAgent"
-            ],
-            "machinery": [
-                "switchActiveAgent"
-            ],
-            "conditional": []
-        },
         "src/shared/session/session.js": {
             "seams": [
                 "_attachSessionEventSubscribers",
