@@ -11,6 +11,8 @@
   - massive files with 1 deep module responsibility but many submodules all cramed into 1 file
 - Bad types
   - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
+- Huge nested loops using continue and break for control instead function calling or event driven state machines
+- Very long functions, see huge loops and all in the same file, similar symptoms
 
 ## Followup for Claude
 
@@ -72,7 +74,6 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
 
 - [ ] for epic child continuation, after the new session starts please add a system message with the plan details, and
       Launching Planner to review plan <plan name>...
-- [ ] codex is broken now after adding claude as a model option
 - [x] wld upgrade doesnt work
 - [ ] Esc while engineer is fixing code review feedback just offers to open the review again rather than just stopping
       and allowing questions. task_completed should be the only signal for completion not llm stop or esc cancelling.
