@@ -202,7 +202,7 @@ export function buildEngineerRequest(planName, planBody, reviewFeedback, options
     if (options.collaborationStyle === "pair") {
         lines.push(
             "## Runtime Collaboration Style",
-            "Pair Execution is active. Work in coherent visible increments, inspect the headed browser before each checkpoint, call pair_checkpoint for user direction after each meaningful increment, and do not call task_completed until the full Plan and final verification are complete.",
+            "Pair Execution is active. Follow the Runtime Collaboration Style section of your instructions: work in coherent increments, call pair_checkpoint for user direction after each one, and do not call task_completed until the full Plan and final verification are complete.",
             "",
         );
     } else if (options.collaborationStyle === "autonomous") {

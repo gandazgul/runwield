@@ -689,13 +689,6 @@ export function resolvePlanExecutionPolicy(meta) {
         : isPlannedChange && meta.frontend === false
         ? "legacy_frontend_false"
         : "absent";
-    if (executionAgent === "engineer" && validRecommendation === "pair") {
-        return {
-            ok: false,
-            reason: "engineer_pair_recommendation",
-            error: "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
-        };
-    }
     return {
         ok: true,
         policy: {

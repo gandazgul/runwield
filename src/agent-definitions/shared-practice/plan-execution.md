@@ -3,6 +3,20 @@ name: Shared Plan Execution Practice
 description: "Practice rules for personas that execute against an approved Plan in a user-facing session. Composed into agent prompts by name; not an agent and never listed by /agent."
 ---
 
+## Runtime Collaboration Style
+
+The execution request names the active style. In autonomous execution, implement continuously with no checkpoint
+ceremony.
+
+When Pair Execution is active and `pair_checkpoint` is supplied, work in coherent increments the user can actually
+judge, and checkpoint after each one. Treat a checkpoint as a real pause, not a status ping: the user may read the diff,
+run the code, or build and exercise what you just changed before answering. Give them what they need to do that — what
+changed, where to look, and how to exercise it — then wait for the result. Obey continue, revise, switch-to-autonomous,
+stop, and cancellation results exactly, and never call `task_completed` after a Pair stop or a canceled checkpoint.
+
+Checkpoint approval is not completion, validation, or evidence that the work is correct. Pair checkpoints are
+workflow-scoped: use the tool only when the execution request says Pair is active.
+
 ## Questions for the user
 
 If you have a question or need clarification from the user, output your question as plain text and wait for the user's

@@ -4,7 +4,6 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
-import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestTaskCompletedMessage, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 import { CollaborationStyles, PairPauseReasons } from "./execution-collaboration.ts";
@@ -24,11 +23,8 @@ export async function runEngineerWithPlan(
     if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
     const collaborationStyle = workflow?.collaborationStyle || CollaborationStyles.AUTONOMOUS;
-    const customTools = executionAgent === AGENTS.FRONTEND_ENGINEER && collaborationStyle === CollaborationStyles.PAIR
-        ? [createPairCheckpointTool({
-            hostedSession,
-            recordWorkflowMetric,
-        })]
+    const customTools = collaborationStyle === CollaborationStyles.PAIR
+        ? [createPairCheckpointTool({ hostedSession })]
         : undefined;
     let messages;
     try {

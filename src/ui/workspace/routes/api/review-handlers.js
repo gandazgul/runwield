@@ -218,13 +218,6 @@ function validateApprovedExecutionPolicy(body, reviewPayload) {
             400,
         );
     }
-    if (executionAgent === "engineer" && collaborationRecommendation === "pair") {
-        return jsonError(
-            "engineer_pair_recommendation",
-            "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
-            400,
-        );
-    }
     return { executionAgent, collaborationRecommendation };
 }
 

@@ -387,6 +387,8 @@ Deno.test("Plan execution policy enforces owner and recommendation matrix", () =
             policy: { executionAgent: "frontend-engineer", collaborationRecommendation: "pair", source: "canonical" },
         },
     );
+    // Pair is a collaboration choice, not a browser capability: an Engineer plan can
+    // ask the user to steer between increments just as a Frontend Engineer plan can.
     assertEquals(
         resolvePlanExecutionPolicy({
             classification: "FEATURE",
@@ -394,9 +396,8 @@ Deno.test("Plan execution policy enforces owner and recommendation matrix", () =
             collaborationRecommendation: "pair",
         }),
         {
-            ok: false,
-            reason: "engineer_pair_recommendation",
-            error: "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
+            ok: true,
+            policy: { executionAgent: "engineer", collaborationRecommendation: "pair", source: "canonical" },
         },
     );
     assertEquals(resolvePlanExecutionPolicy({ classification: "PROJECT", frontend: true }), {
@@ -1357,16 +1358,18 @@ testWithFs("saveChildFeaturePlans rejects invalid child policies before writing 
                     {
                         order: 2,
                         title: "Invalid child",
-                        summary: "Pair is invalid for Engineer",
+                        summary: "Collaboration recommendation is not a supported value",
                         affectedPaths: ["src/b.js"],
                         executionAgent: "engineer",
-                        collaborationRecommendation: "pair",
+                        // @ts-expect-error Child descriptors arrive as Slicer tool JSON, so the
+                        // runtime guard must hold for values the descriptor type forbids.
+                        collaborationRecommendation: "sometimes",
                         dependencies: [],
                         content: "# Invalid child\n",
                     },
                 ]),
             Error,
-            "collaborationRecommendation: pair",
+            "Invalid collaborationRecommendation: sometimes",
         );
         assertEquals(await loadPlan(cwd, "project-breakdown-epic/01-valid-child"), null);
     } finally {

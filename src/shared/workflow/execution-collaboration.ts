@@ -52,7 +52,9 @@ export function supportsPairExecution(hostedSession) {
 export function selectRuntimeCollaborationStyle(hostedSession, policy) {
     const recommendation = policy.collaborationRecommendation || CollaborationStyles.AUTONOMOUS;
     const pairCapable = supportsPairExecution(hostedSession);
-    if (policy.executionAgent !== AGENTS.FRONTEND_ENGINEER || policy.source !== "canonical") {
+    // Legacy `frontend:`-derived policies never carried a collaboration choice, so
+    // there is no recommendation to honour and pair would be invented, not requested.
+    if (policy.source !== "canonical") {
         return {
             style: CollaborationStyles.AUTONOMOUS,
             recommendation,

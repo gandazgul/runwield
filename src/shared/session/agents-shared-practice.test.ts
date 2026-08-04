@@ -7,8 +7,8 @@ const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 
 /** Personas that compose shared practice, and the fragments each one claims. */
 const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["engineer", ["engineering-practice", "plan-execution"]],
-    ["frontend-engineer", ["engineering-practice", "plan-execution"]],
+    ["engineer", ["engineering-practice", "plan-execution", "bounded-request"]],
+    ["frontend-engineer", ["engineering-practice", "plan-execution", "bounded-request"]],
 ];
 
 interface ProjectAgentFile {
@@ -143,5 +143,46 @@ Deno.test("bundled personas compose their declared shared practice", async () =>
         assertStringIncludes(def.systemPrompt, "The Zero-Trust Implementation Protocol");
         assertStringIncludes(def.systemPrompt, "When Verification Fails, Act");
         assertStringIncludes(def.systemPrompt, "Requests that are not the Plan");
+    }
+});
+
+Deno.test("both execution personas receive the same bounded-request contract", async () => {
+    // QUICK_FIX currently routes only to Engineer, but the contract is not a
+    // browser property — Frontend Engineer must already hold it for the day UI
+    // quick fixes route to it, and neither may drift from the other meanwhile.
+    for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        assertStringIncludes(systemPrompt, "Quick Fix Checklist");
+        // The escalation fence: a QUICK_FIX has no Plan, so nothing authorized architecture.
+        assertStringIncludes(systemPrompt, "stop and call\n`return_to_router` for fresh triage");
+        assertStringIncludes(systemPrompt, "A Validation Continuation");
+        assertStringIncludes(systemPrompt, "one bullet per feedback item");
+    }
+});
+
+Deno.test("both execution personas can run a Pair checkpoint", async () => {
+    for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        assertStringIncludes(systemPrompt, "Runtime Collaboration Style");
+        assertStringIncludes(systemPrompt, "`pair_checkpoint` is supplied");
+        // A checkpoint is a pause for real steering, not a progress announcement.
+        assertStringIncludes(systemPrompt, "read the\ndiff, run the code, or build");
+    }
+});
+
+Deno.test("the shared pair ceremony stays medium-neutral", async () => {
+    // The browser-specific half belongs to Frontend Engineer's own contract; if it
+    // leaks into the shared fragment, Engineer is told to inspect a browser it has
+    // no dev server for.
+    const shared = await Deno.readTextFile(join(SHARED_PRACTICE_DIR, "plan-execution.md"));
+
+    // Word-bounded: the fragment legitimately says "Router" and `return_to_router`,
+    // which are the agent and its tool, not a browser route.
+    for (const browserTerm of ["headed browser", "viewport", "dev server", "route", "screenshot"]) {
+        assertEquals(
+            new RegExp(`\\b${browserTerm}s?\\b`, "i").test(shared),
+            false,
+            `shared plan-execution fragment must stay medium-neutral, found: ${browserTerm}`,
+        );
     }
 });
