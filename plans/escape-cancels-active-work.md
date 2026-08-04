@@ -29,11 +29,11 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T15:07:34-04:00"
 updatedAt: "2026-08-03T19:12:53.183Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "escape cancellation reliability"
+status: "validated_reviewer"
 ---
 
 # Escape Cancels Active Work
