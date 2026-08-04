@@ -12,6 +12,7 @@ import { SessionRuntime, SessionTurnInProgressError, shouldEmitProjectedAttentio
 import { getRootSessionRebuildOptions } from "./session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
+import { buildReturnToRouterPrompt } from "../workflow/workflow-results.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../git.js";
@@ -1608,7 +1609,7 @@ Deno.test("SessionRuntime emits the return-to-router prompt before the handed-of
     const result = await runtime.promptSession(sessionId, { initialRequest: "fix this", initialImages: [] });
 
     assertEquals(result, { ok: true, turns: 2, handoffs: 1, handoffLimitReached: false });
-    assertEquals(userMessages, ["fix this", "The user needs fresh triage."]);
+    assertEquals(userMessages, ["fix this", buildReturnToRouterPrompt("The user needs fresh triage.")]);
     assertEquals(agentChanges, ["router"]);
 });
 

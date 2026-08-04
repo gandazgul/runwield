@@ -13,7 +13,7 @@ import {
     resolveExecutionOwner,
     runSlicerAgent,
 } from "../workflow/workflow.js";
-import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
+import { buildReturnToRouterPrompt, readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
 import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
@@ -214,7 +214,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             return {
                 kind: "handoff",
                 agentName: routerHandoff.agentName,
-                userRequest: routerHandoff.reason,
+                userRequest: buildReturnToRouterPrompt(routerHandoff.reason),
             };
         }
 

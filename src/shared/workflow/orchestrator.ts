@@ -49,7 +49,7 @@ import {
     runPlanningAgent,
     runSlicerAgent,
 } from "./workflow.js";
-import { readLatestReturnToRouterOutcome } from "./workflow-results.js";
+import { buildReturnToRouterPrompt, readLatestReturnToRouterOutcome } from "./workflow-results.js";
 import {
     runMechanicalValidation,
     runValidationLoop,
@@ -118,7 +118,11 @@ export interface RouterHandoff {
 function toRouterHandoff(
     outcome: import("./workflow-results.js").ReturnToRouterOutcome,
 ): RouterHandoff {
-    return { kind: "handoff", agentName: outcome.agentName, userRequest: outcome.reason };
+    return {
+        kind: "handoff",
+        agentName: outcome.agentName,
+        userRequest: buildReturnToRouterPrompt(outcome.reason),
+    };
 }
 
 /**

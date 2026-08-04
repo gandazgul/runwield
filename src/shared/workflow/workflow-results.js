@@ -129,6 +129,26 @@ export function readLatestReturnToRouterOutcome(messages, fromIndex) {
 }
 
 /**
+ * Wrap a `return_to_router` handoff reason as the Router's first user message.
+ *
+ * The raw `reason` is the handing-off agent's report; it does not by itself
+ * tell the Router what to do with it. This framing makes the required action
+ * explicit: triage the handoff from the other agent and call `triage_report`,
+ * optionally following any routing recommendation the agent included.
+ *
+ * @param {string} reason - self-contained handoff report from the other agent
+ * @returns {string} explicit triage instruction with the handoff inline
+ */
+export function buildReturnToRouterPrompt(reason) {
+    return [
+        "An agent returned the conversation to you for fresh triage. Triage the report and call `triage_report`, possibly following the recommendation in the handoff. Do not attempt to fulfill the request yourself.",
+        "",
+        "<handoff from tool>",
+        reason,
+    ].join("\n");
+}
+
+/**
  * @typedef {"approved" | "feedback"} ReviewOutcome
  */
 

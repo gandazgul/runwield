@@ -10,6 +10,7 @@ import { setCustomSetting } from "../settings.js";
 import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { dispatchPostTriage, type DispatchPostTriageArgs, readLatestTriageOutcome } from "./orchestrator.ts";
+import { buildReturnToRouterPrompt } from "./workflow-results.js";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
 import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
 
@@ -238,7 +239,7 @@ Deno.test("OPERATION can hand changed scope back to Router", async () => {
         assertEquals(result, {
             kind: "handoff",
             agentName: "router",
-            userRequest: "This operation now needs a code repair.",
+            userRequest: buildReturnToRouterPrompt("This operation now needs a code repair."),
         });
         assertEquals(ci.calls, []);
         fixture.hostedSession.dispose();
