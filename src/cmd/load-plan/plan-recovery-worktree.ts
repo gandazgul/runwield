@@ -12,18 +12,17 @@ import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../sh
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import { runPlanFrontMatterTransition, runReviewReopenTransition } from "../../shared/workflow/state-transition.ts";
-import { getWorkflowDiff as getWorkflowDiffFn } from "../../shared/workflow/git-snapshot.js";
-import { getWorktreeStatus as getWorktreeStatusFn } from "../../shared/worktree.js";
+import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeStatus } from "../../shared/worktree.js";
 import {
-    findById as findWorktreeByIdFn,
-    findByPlanName as findWorktreeByPlanNameFn,
-    updateEntry as updateWorktreeRegistryEntryFn,
+    findById as findWorktreeById,
+    updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { updatePlanFrontMatter } from "../../plan-store.js";
 import { buildPlanSummary } from "./plan-presentation.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 
-import { recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
+import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanStatus } from "../../shared/workflow/plan-lifecycle.js";
 import type { UiAPI } from "../../ui/tui/types.js";
@@ -46,12 +45,6 @@ export interface RecoverablePlan extends RecoveryPlanRef {
     path?: string;
     body: string;
     markdown?: string;
-}
-
-/** How recovery finds the worktree a Plan is recorded against. */
-export interface WorktreeLookups {
-    findWorktreeById: typeof findWorktreeByIdFn;
-    findWorktreeByPlanName: typeof findWorktreeByPlanNameFn;
 }
 
 /**
@@ -83,34 +76,22 @@ export interface RecoveryWorkflowState {
 }
 
 /** Everything `reopenPlanForReview` needs to detach a Plan from its generation. */
-export interface ReopenPlanForReviewOptions extends WorktreeLookups {
+export interface ReopenPlanForReviewOptions {
     projectRoot: string;
     plan: RecoveryPlanRef;
     currentStatus: PlanStatus;
     worktreeContext?: RecoveryWorktreeContext | null;
-    updateWorktreeRegistryEntry: typeof updateWorktreeRegistryEntryFn;
-    updatePlanFrontMatter: typeof updatePlanFrontMatter;
-    recordPlanEvent: typeof recordPlanEventFn;
     session: PlanSessionSurface;
 }
 
 /**
- * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
- * @param {Object} deps
- * @param {typeof findWorktreeByIdFn} deps.findWorktreeById
- * @param {typeof findWorktreeByPlanNameFn} deps.findWorktreeByPlanName
- * @returns {Promise<RecoveryWorktreeContext | null>}
- */
-/**
  * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
- * @param {{ findWorktreeById: typeof findWorktreeByIdFn, findWorktreeByPlanName: typeof findWorktreeByPlanNameFn }} deps
  * @returns {Promise<RecoveryWorktreeContext | null>}
  */
 export async function resolveRecoveryWorktree(
     projectRoot: string,
     plan: RecoveryPlanRef,
-    { findWorktreeById, findWorktreeByPlanName: _findWorktreeByPlanName }: WorktreeLookups,
 ): Promise<RecoveryWorktreeContext | null> {
     let entry = null;
     if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
@@ -195,11 +176,6 @@ export function assertRecoveryWorktreeIsManaged(
  * @param {{ planName: string, path: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter, revision?: string }} opts.plan
  * @param {import('../../shared/workflow/plan-lifecycle.js').PlanStatus} opts.currentStatus
  * @param {RecoveryWorktreeContext | null | undefined} [opts.worktreeContext]
- * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
- * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
- * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
- * @param {Function} opts.updatePlanFrontMatter
- * @param {Function} opts.recordPlanEvent
  * @param {PlanSessionSurface} opts.session
  */
 export async function reopenPlanForReview({
@@ -207,15 +183,10 @@ export async function reopenPlanForReview({
     plan,
     currentStatus,
     worktreeContext,
-    findWorktreeById,
-    findWorktreeByPlanName,
-    updateWorktreeRegistryEntry,
-    updatePlanFrontMatter,
-    recordPlanEvent,
     session,
 }: ReopenPlanForReviewOptions): Promise<void> {
     const priorWorktree = worktreeContext === undefined
-        ? await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName })
+        ? await resolveRecoveryWorktree(projectRoot, plan)
         : worktreeContext;
     if (!priorWorktree?.id) {
         assertRecoveryWorktreeIsManaged(plan.planName, priorWorktree);
@@ -319,7 +290,6 @@ export function reportInvalidRecoveryPolicy(
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @param {string} [action]
- * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
 export async function rehydrateActiveRecoveryWorkflow(
@@ -329,8 +299,6 @@ export async function rehydrateActiveRecoveryWorkflow(
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
     action: string = "continue",
-    resolveValidationExecutionContextForRecovery: typeof resolveValidationExecutionContext =
-        resolveValidationExecutionContext,
 ): Promise<boolean> {
     const policy = resolvePlanExecutionPolicy(plan.attrs);
     if (!policy.ok) {
@@ -353,7 +321,7 @@ export async function rehydrateActiveRecoveryWorkflow(
     };
     let resolvedContext: RecoveryExecutionContext = explicitContext;
     if (action !== "continue") {
-        const resolution = await resolveValidationExecutionContextForRecovery({
+        const resolution = await resolveValidationExecutionContext({
             projectRoot,
             planName: plan.planName,
             triageMeta: plan.attrs,
@@ -403,18 +371,14 @@ export async function rehydrateActiveRecoveryWorkflow(
  * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown: string }} plan
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {typeof getWorkflowDiffFn} getWorkflowDiff
  * @param {RecoveryWorktreeContext | null} worktreeContext
- * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<void>}
  */
 export async function appendRecoveryReport(
     projectRoot: string,
     plan: RecoverablePlan,
     uiAPI: UiAPI,
-    getWorkflowDiff: typeof getWorkflowDiffFn,
     worktreeContext: RecoveryWorktreeContext | null,
-    getWorktreeStatus: typeof getWorktreeStatusFn,
 ): Promise<void> {
     const lines = [buildPlanSummary(plan)];
     if (plan.attrs.failureReason) {
@@ -554,7 +518,6 @@ export async function confirmMissingWorktreeRecreate(
  * @param {string} planName
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<boolean>}
  */
 /**
@@ -562,7 +525,6 @@ export async function confirmMissingWorktreeRecreate(
  * @param {string} planName
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<boolean>}
  */
 export async function confirmRecoveryWorktreeAvailable(
@@ -570,7 +532,6 @@ export async function confirmRecoveryWorktreeAvailable(
     planName: string,
     worktreeContext: RecoveryWorktreeContext | null,
     uiAPI: UiAPI,
-    getWorktreeStatus: typeof getWorktreeStatusFn,
 ): Promise<boolean> {
     if (!hasWorktreeContext(worktreeContext)) return true;
     if (worktreeContext?.status === "abandoned") {

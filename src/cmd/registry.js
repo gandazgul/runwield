@@ -78,6 +78,19 @@ export const COMMAND_NAMES = Object.freeze({
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
 
 /**
+ * Slash-only commands are dispatched with a real interactive UI. Keep that
+ * surface guarantee at the registry boundary so the command itself receives a
+ * required capability instead of an optional dependency bag.
+ *
+ * @param {CommandContext | undefined} options
+ * @returns {CommandContext & { uiAPI: import('../ui/tui/types.js').UiAPI }}
+ */
+function requireInteractiveCommandContext(options) {
+    if (!options?.uiAPI) throw new Error("This command is only available in the interactive session.");
+    return { ...options, uiAPI: options.uiAPI };
+}
+
+/**
  * @typedef {{ value: string, label: string, description?: string, [key: string]: unknown }} CommandCompletionItem
  */
 
@@ -207,7 +220,7 @@ export const commandRegistry = {
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
-        execute: runLoginCommand,
+        execute: (argv, options) => runLoginCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.LOGOUT]: {
@@ -222,7 +235,7 @@ export const commandRegistry = {
         notes: [
             "Environment variables and models.json provider config are not changed.",
         ],
-        execute: runLogoutCommand,
+        execute: (argv, options) => runLogoutCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.STATUS]: {
@@ -236,7 +249,7 @@ export const commandRegistry = {
         notes: [
             "This reports model/auth status for the current RunWield configuration.",
         ],
-        execute: runStatusCommand,
+        execute: (argv, options) => runStatusCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.LOAD_PLAN]: {

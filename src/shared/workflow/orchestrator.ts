@@ -50,7 +50,12 @@ import {
     runSlicerAgent,
 } from "./workflow.js";
 import { readLatestReturnToRouterOutcome } from "./workflow-results.js";
-import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.ts";
+import {
+    runMechanicalValidation,
+    runValidationLoop,
+    shouldRunWorkflowValidation,
+    SYSTEM_SEMANTIC_REVIEW_PORT,
+} from "./validation.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
@@ -622,6 +627,7 @@ export async function dispatchPostTriage({
                     finalAgentName: agentName,
                     executionContext: executionResult.executionContext,
                     localCI,
+                    semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 await recordMetric({
                     category: "execution",

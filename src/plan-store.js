@@ -3054,7 +3054,7 @@ function assertNoDuplicatePlanIds(byId) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
+ * @param {{ idGenerator?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
  * @returns {Promise<PlanResource>}
  */
 async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
@@ -3073,7 +3073,7 @@ async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
             assertNoDuplicatePlanIds(byId);
             reservedPlanIds = new Set(byId.keys());
         }
-        const idGenerator = options.idGenerator || options.__testGenerateId || (() => crypto.randomUUID());
+        const idGenerator = options.idGenerator || (() => crypto.randomUUID());
         let planId = normalizePlanId(plan.attrs.planId);
         let markdown = plan.markdown;
         let attrs = { ...plan.attrs, planId };
@@ -3126,7 +3126,7 @@ async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
+ * @param {{ idGenerator?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol, onboardExternal?: boolean }} [options]
  * @returns {Promise<PlanResource>}
  */
 export async function ensurePlanIdentity(cwd, planName, options = {}) {
@@ -3215,7 +3215,7 @@ export async function onboardExternalPlan(cwd, planName, options = {}) {
  * healing older Plans is `wld plans doctor --repair`'s job. Opt in explicitly.
  *
  * @param {string} cwd
- * @param {{ backfillMissing?: boolean, idGenerator?: () => string, __testGenerateId?: () => string }} [options]
+ * @param {{ backfillMissing?: boolean, idGenerator?: () => string }} [options]
  * @returns {Promise<PlanResource[]>}
  */
 export async function listPlanResources(cwd, options = {}) {
@@ -3246,7 +3246,7 @@ export async function listPlanResources(cwd, options = {}) {
             }
 
             const resource = await ensurePlanIdentityLocked(cwd, plan.name, {
-                idGenerator: options.idGenerator || options.__testGenerateId,
+                idGenerator: options.idGenerator,
                 reservedPlanIds,
             });
             reservedPlanIds.add(resource.planId);

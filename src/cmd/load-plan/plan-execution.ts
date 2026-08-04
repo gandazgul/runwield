@@ -8,15 +8,12 @@
  */
 
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { loadPlan as loadPlanFn, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { isGitRepositoryRequiredError } from "../../shared/git.js";
-import { isEpicPlan, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
-import {
-    decidePostExecution as decidePostExecutionFn,
-    decidePostPlanning as decidePostPlanningFn,
-} from "../../shared/workflow/decisions.js";
-import { finalizePlanImplementation as finalizePlanImplementationFn } from "../../shared/workflow/workflow.js";
-import { listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn } from "../../shared/workflow/git-snapshot.js";
+import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { decidePostExecution } from "../../shared/workflow/decisions.js";
+import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import {
     type ExecutionContextCandidate,
     type ResolvedValidationContext,
@@ -55,56 +52,39 @@ export interface ExecutablePlan {
     attrs: PlanFrontMatter;
 }
 
-/** The optional overrides every execution entry point accepts. */
-export interface ExecutionLifecycleOverrides {
-    finalizePlanImplementation?: typeof finalizePlanImplementationFn;
-    recordPlanEvent?: typeof recordPlanEventFn;
-    resolveValidationExecutionContextForRecovery?: typeof resolveValidationExecutionContext;
-}
-
 export interface ConfirmAffectedPathChangesOptions {
     projectRoot: string;
     planName: string;
     triageMeta: Partial<PlanFrontMatter>;
     uiAPI: UiAPI;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
 }
 
-export interface ValidatePostExecutionDecisionOptions extends ExecutionLifecycleOverrides {
+export interface ValidatePostExecutionDecisionOptions {
     executionDecision: WorkflowDecision;
     executionResult: unknown;
     fallbackPlanContent: string;
     runValidationLoop: PlanSessionSurface["runValidation"];
-    loadPlan: typeof loadPlanFn;
     session: PlanSessionSurface;
     uiAPI?: UiAPI;
 }
 
-export interface ExecutePostPlanningDecisionOptions extends ExecutionLifecycleOverrides {
+export interface ExecutePostPlanningDecisionOptions {
     decision: WorkflowDecision;
     fallbackPlanContent: string;
     uiAPI: UiAPI;
     executePlan: PlanSessionSurface["executePlan"];
-    decidePostExecution: typeof decidePostExecutionFn;
     runValidationLoop: PlanSessionSurface["runValidation"];
     runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
-    loadPlan: typeof loadPlanFn;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
     session: PlanSessionSurface;
 }
 
-export interface ExecuteReadyPlanOptions extends ExecutionLifecycleOverrides {
+export interface ExecuteReadyPlanOptions {
     projectRoot: string;
     plan: ExecutablePlan;
     agentName: string;
     uiAPI: UiAPI;
     executePlan: PlanSessionSurface["executePlan"];
-    runPlanningAgent?: PlanSessionSurface["runPlanningAgent"];
-    decidePostPlanning?: typeof decidePostPlanningFn;
-    decidePostExecution: typeof decidePostExecutionFn;
     runValidationLoop: PlanSessionSurface["runValidation"];
-    loadPlan: typeof loadPlanFn;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
     session: PlanSessionSurface;
 }
 
@@ -117,7 +97,6 @@ export interface ExecuteReadyPlanOptions extends ExecutionLifecycleOverrides {
  * @param {string} opts.planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @returns {Promise<boolean>}
  */
 export async function confirmAffectedPathChangesBeforeExecution({
@@ -125,7 +104,6 @@ export async function confirmAffectedPathChangesBeforeExecution({
     planName,
     triageMeta,
     uiAPI,
-    listCommitsTouchingPathsSince,
 }: ConfirmAffectedPathChangesOptions): Promise<boolean> {
     const affectedPaths = Array.isArray(triageMeta.affectedPaths) ? triageMeta.affectedPaths : [];
     const timestamp = triageMeta.updatedAt || triageMeta.createdAt;
@@ -184,13 +162,9 @@ export async function confirmAffectedPathChangesBeforeExecution({
  * @param {string} fallbackPlanContent
  * @param {import('../../plan-store.js').PlanFrontMatter} triageMeta
  * @param {PlanSessionSurface["runValidation"]} runValidationLoop
- * @param {typeof loadPlanFn} loadPlan
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
- * @param {typeof finalizePlanImplementationFn} [finalizePlanImplementation]
- * @param {typeof recordPlanEventFn} [_recordPlanEvent]
- * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
 export async function validateCompletedExecution(
@@ -199,14 +173,9 @@ export async function validateCompletedExecution(
     fallbackPlanContent: string,
     triageMeta: PlanFrontMatter,
     runValidationLoop: PlanSessionSurface["runValidation"],
-    loadPlan: typeof loadPlanFn,
     worktreeContext: RecoveryWorktreeContext | null,
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
-    finalizePlanImplementation: typeof finalizePlanImplementationFn = finalizePlanImplementationFn,
-    _recordPlanEvent: typeof recordPlanEventFn = recordPlanEventFn,
-    resolveValidationExecutionContextForRecovery: typeof resolveValidationExecutionContext =
-        resolveValidationExecutionContext,
 ): Promise<boolean> {
     const projectRoot = session.cwd;
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) {
@@ -310,7 +279,7 @@ export async function validateCompletedExecution(
             // Keep the pre-checkpoint content/metadata in tests or if the Plan was removed.
         }
     }
-    const resolution = await resolveValidationExecutionContextForRecovery({
+    const resolution = await resolveValidationExecutionContext({
         projectRoot,
         planName,
         triageMeta: effectiveMeta,
@@ -363,12 +332,8 @@ export async function validateCompletedExecution(
  * @param {unknown} opts.executionResult
  * @param {string} opts.fallbackPlanContent
  * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
- * @param {typeof loadPlanFn} opts.loadPlan
  * @param {PlanSessionSurface} opts.session
  * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
- * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
- * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
- * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<void>}
  */
 export async function validatePostExecutionDecision({
@@ -376,12 +341,8 @@ export async function validatePostExecutionDecision({
     executionResult,
     fallbackPlanContent,
     runValidationLoop,
-    loadPlan,
     session,
     uiAPI,
-    finalizePlanImplementation,
-    recordPlanEvent,
-    resolveValidationExecutionContextForRecovery,
 }: ValidatePostExecutionDecisionOptions): Promise<void> {
     if (executionDecision.kind !== "run_validation") return;
 
@@ -394,13 +355,9 @@ export async function validatePostExecutionDecision({
         fallbackPlanContent,
         triageMeta,
         runValidationLoop,
-        loadPlan,
         null,
         session,
         uiAPI,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContextForRecovery,
     );
 }
 
@@ -413,15 +370,9 @@ export async function validatePostExecutionDecision({
  * @param {string} opts.fallbackPlanContent
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["executePlan"]} opts.executePlan
- * @param {typeof decidePostExecutionFn} opts.decidePostExecution
  * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
- * @param {typeof loadPlanFn} opts.loadPlan
- * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {PlanSessionSurface} opts.session
- * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
- * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
- * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
 export async function executePostPlanningDecision({
@@ -429,15 +380,9 @@ export async function executePostPlanningDecision({
     fallbackPlanContent,
     uiAPI,
     executePlan,
-    decidePostExecution,
     runValidationLoop,
     runSlicerAgent,
-    loadPlan,
-    listCommitsTouchingPathsSince,
     session,
-    finalizePlanImplementation,
-    recordPlanEvent,
-    resolveValidationExecutionContextForRecovery,
 }: ExecutePostPlanningDecisionOptions): Promise<boolean> {
     const projectRoot = session.cwd;
     if (decision.kind === "start_slicer") {
@@ -462,7 +407,6 @@ export async function executePostPlanningDecision({
         planName,
         triageMeta,
         uiAPI,
-        listCommitsTouchingPathsSince,
     });
     if (!confirmed) return true;
 
@@ -483,12 +427,8 @@ export async function executePostPlanningDecision({
         executionResult: execRes,
         fallbackPlanContent,
         runValidationLoop,
-        loadPlan,
         session,
         uiAPI,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContextForRecovery,
     });
     return true;
 }
@@ -521,14 +461,12 @@ export function validatePlanExecutionPolicyForReadiness(plan: { attrs: PlanFront
  * @param {string} projectRoot
  * @param {{ planName: string, path: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {typeof recordPlanEventFn} recordPlanEvent
  * @returns {Promise<boolean>}
  */
 export async function prepareApprovedPlanForWork(
     projectRoot: string,
     plan: { planName: string; path?: string; attrs: PlanFrontMatter },
     uiAPI: UiAPI,
-    recordPlanEvent: typeof recordPlanEventFn,
 ): Promise<boolean> {
     if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) return false;
     if (isEpicPlan(plan.attrs)) {
@@ -569,15 +507,8 @@ export async function prepareApprovedPlanForWork(
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["executePlan"]} opts.executePlan
  * @param {PlanSessionSurface["runPlanningAgent"]} opts.runPlanningAgent
- * @param {typeof decidePostPlanningFn} opts.decidePostPlanning
- * @param {typeof decidePostExecutionFn} opts.decidePostExecution
  * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
- * @param {typeof loadPlanFn} opts.loadPlan
- * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {PlanSessionSurface} opts.session
- * @param {typeof finalizePlanImplementationFn} [opts.finalizePlanImplementation]
- * @param {typeof recordPlanEventFn} [opts.recordPlanEvent]
- * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<void>}
  */
 export async function executeReadyPlanWithRepair({
@@ -585,22 +516,15 @@ export async function executeReadyPlanWithRepair({
     plan,
     agentName,
     executePlan,
-    decidePostExecution,
     runValidationLoop,
-    loadPlan,
-    listCommitsTouchingPathsSince,
     session,
     uiAPI,
-    finalizePlanImplementation,
-    recordPlanEvent,
-    resolveValidationExecutionContextForRecovery,
 }: ExecuteReadyPlanOptions): Promise<void> {
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
         planName: plan.planName,
         triageMeta: plan.attrs,
         uiAPI,
-        listCommitsTouchingPathsSince,
     });
     if (!confirmed) return;
 
@@ -620,11 +544,7 @@ export async function executeReadyPlanWithRepair({
         executionResult: execRes,
         fallbackPlanContent: plan.markdown || plan.body || "",
         runValidationLoop,
-        loadPlan,
         session,
         uiAPI,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContextForRecovery,
     });
 }

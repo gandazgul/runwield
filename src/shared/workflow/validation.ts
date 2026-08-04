@@ -144,13 +144,13 @@ type ActiveAgentTurnOptions = {
     cwd: string;
 };
 
-type SemanticReviewPort = {
-    runIsolatedAgentSession?: (options: IsolatedAgentSessionOptions) => Promise<AgentMessage[]>;
-    getDiffText?: (baselineTree: string | undefined, cwd: string) => Promise<string>;
-    loadReviewerPrompt?: typeof loadReviewerPrompt;
-    loadReviewerFeedbackEngineerDef?: typeof loadReviewerFeedbackEngineerDef;
-    requestInteraction?: (hostedSession: HostedSession, request: InteractionRequest) => Promise<InteractionResponse>;
+export type SemanticReviewPort = {
+    runIsolatedAgentSession: (options: IsolatedAgentSessionOptions) => Promise<AgentMessage[]>;
 };
+
+export const SYSTEM_SEMANTIC_REVIEW_PORT: SemanticReviewPort = Object.freeze({
+    runIsolatedAgentSession,
+});
 
 type MechanicalValidationArgs = {
     sessionManager?: SessionManager;
@@ -169,7 +169,7 @@ type ValidationLoopArgs = {
     finalAgentName?: string;
     executionContext?: ActiveExecutionWorkflow;
     git?: GitPort;
-    semanticReviewPort?: SemanticReviewPort;
+    semanticReviewPort: SemanticReviewPort;
     localCI?: LocalCIPort;
     workRecordMnemosynePort?: WorkRecordMnemosynePort;
 };
@@ -718,7 +718,7 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
     const state = readSemanticRoundState(args, context);
     let round = state.semanticRound;
     let ledger = state.reviewLedger;
-    let diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
+    let diffText = await getDiffText(context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const reason = diffText.trim()
             ? "No implementation changes detected in workflow diff; only plan document changes were found."
@@ -902,7 +902,7 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
             }
             round = nextRound;
             ledger = review.ledger;
-            diffText = await getDiffText(args, context.baselineTree, context.executionCwd);
+            diffText = await getDiffText(context.baselineTree, context.executionCwd);
             continue;
         }
 
@@ -977,7 +977,7 @@ async function runHumanReviewPhase(args: ValidationLoopArgs, context: PhaseConte
         }
     }
 
-    const diffText = context.nonGitInPlace ? "" : await getDiffText(args, context.baselineTree, context.executionCwd);
+    const diffText = context.nonGitInPlace ? "" : await getDiffText(context.baselineTree, context.executionCwd);
     const planAttrs = getPlanAttrs(args.planContent);
     const guidedReview = {
         mode: getGuidedReviewMode(context.projectRoot),
@@ -1459,8 +1459,6 @@ async function runReviewerRound(
     | { kind: "paused"; result: ValidationPhaseResult }
     | { kind: "failed"; reason: string }
 > {
-    const runIsolatedAgentSessionImpl = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
-    const loadReviewerPromptImpl = args.semanticReviewPort?.loadReviewerPrompt || loadReviewerPrompt;
     const reviewerSessionManager = SessionManager.inMemory(context.executionCwd);
     let lastReviewerFailure = "Semantic Reviewer did not complete.";
     let nudgeReason: string | undefined;
@@ -1487,11 +1485,11 @@ async function runReviewerRound(
                 "info",
             );
         }
-        const reviewerAgentDef = await loadReviewerPromptImpl(reviewMode);
+        const reviewerAgentDef = await loadReviewerPrompt(reviewMode);
         const config = buildSemanticReviewAttempt(reviewerAgentDef, attempt, nudgeReason, state, reviewMode, diffText);
         nudgeReason = undefined;
         try {
-            const sessionMessages = await runIsolatedAgentSessionImpl({
+            const sessionMessages = await args.semanticReviewPort.runIsolatedAgentSession({
                 hostedSession: args.hostedSession,
                 agentName: AGENTS.REVIEWER,
                 userRequest: config.prompt,
@@ -1633,14 +1631,11 @@ async function dispatchReviewFeedbackRepair(
     packet: ReviewFeedbackRepairPacket,
 ): Promise<{ completed: boolean; report: string; reason?: string }> {
     emitStatus(args.hostedSession, packet.reason, "warning");
-    const runIsolatedAgentSessionImpl = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
-    const loadReviewerFeedbackEngineerDefImpl = args.semanticReviewPort?.loadReviewerFeedbackEngineerDef ||
-        loadReviewerFeedbackEngineerDef;
     try {
         const workflowState = { ...context.workflowBase, ...packet.activeWorkflow };
         args.hostedSession.setActiveExecutionWorkflow?.(workflowState);
-        const agentDef = await loadReviewerFeedbackEngineerDefImpl();
-        const sessionMessages = await runIsolatedAgentSessionImpl({
+        const agentDef = await loadReviewerFeedbackEngineerDef();
+        const sessionMessages = await args.semanticReviewPort.runIsolatedAgentSession({
             hostedSession: args.hostedSession,
             agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
             userRequest: [
@@ -2340,15 +2335,11 @@ function getProjectRoot(args: ValidationLoopArgs): string {
     return projectRoot;
 }
 
-async function getDiffText(args: ValidationLoopArgs, baselineTree: string | undefined, cwd: string): Promise<string> {
-    const getDiffTextImpl = args.semanticReviewPort?.getDiffText;
-    if (getDiffTextImpl) return await getDiffTextImpl(baselineTree, cwd);
+async function getDiffText(baselineTree: string | undefined, cwd: string): Promise<string> {
     return await getWorkflowDiff(cwd, baselineTree);
 }
 
 async function requestInteraction(args: ValidationLoopArgs, request: InteractionRequest): Promise<InteractionResponse> {
-    const requestInteractionImpl = args.semanticReviewPort?.requestInteraction;
-    if (requestInteractionImpl) return await requestInteractionImpl(args.hostedSession, request);
     return await requestHostedSessionInteraction(args.hostedSession, request);
 }
 

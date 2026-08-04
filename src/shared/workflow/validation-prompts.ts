@@ -7,14 +7,6 @@
 
 import { SUBAGENTS } from "../../constants.js";
 import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
-import type { AgentDefinition } from "../session/types.js";
-
-interface AgentPathLoadOptions {
-    agentName?: string;
-}
-
-type PromptFileResolver = (relativePath: string) => Promise<string>;
-type AgentDefinitionPathLoader = (filePath: string, options?: AgentPathLoadOptions) => Promise<AgentDefinition>;
 
 /**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
@@ -32,19 +24,11 @@ type AgentDefinitionPathLoader = (filePath: string, options?: AgentPathLoadOptio
  * (rounds three and above).
  *
  * @param {"discovery" | "verify"} [mode]
- * @param {(path: string) => Promise<string>} [readTextFile]
- * @param {PromptFileResolver} [ensurePromptFile]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
-export async function loadReviewerPrompt(
-    mode: "discovery" | "verify" = "discovery",
-    readTextFile: (path: string) => Promise<string> = Deno.readTextFile,
-    ensurePromptFile?: PromptFileResolver,
-) {
+export async function loadReviewerPrompt(mode: "discovery" | "verify" = "discovery") {
     return await loadSubAgentDefinition(SUBAGENTS.REVIEWER, {
         reviewerMode: mode,
-        readTextFile,
-        ensurePromptFile,
     });
 }
 
@@ -56,33 +40,17 @@ export async function loadReviewerPrompt(
  * dispatches it — a user never selects it, so it must stay out of `/agent`
  * listings and `return_to_router` targets.
  *
- * @param {PromptFileResolver} [ensurePromptFile]
- * @param {AgentDefinitionPathLoader} [loadFromPath]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
-export async function loadReviewerFeedbackEngineerDef(
-    ensurePromptFile?: PromptFileResolver,
-    loadFromPath?: AgentDefinitionPathLoader,
-) {
-    return await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER, {
-        ensurePromptFile,
-        loadFromPath,
-    });
+export async function loadReviewerFeedbackEngineerDef() {
+    return await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
 }
 
 /**
  * Load the post-verification Manual QA generator as a bare, tool-free prompt.
  *
- * @param {(path: string) => Promise<string>} [readTextFile]
- * @param {PromptFileResolver} [ensurePromptFile]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
-export async function loadManualQaPrompt(
-    readTextFile: (path: string) => Promise<string> = Deno.readTextFile,
-    ensurePromptFile?: PromptFileResolver,
-) {
-    return await loadSubAgentDefinition(SUBAGENTS.MANUAL_QA, {
-        readTextFile,
-        ensurePromptFile,
-    });
+export async function loadManualQaPrompt() {
+    return await loadSubAgentDefinition(SUBAGENTS.MANUAL_QA);
 }

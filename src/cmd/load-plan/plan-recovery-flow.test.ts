@@ -120,8 +120,11 @@ function makeOptions(plan: RecoveryFlowPlan, uiAPI: UiAPI): HandlePlanRecoveryOp
             reviewPlan: () => Promise.resolve({ action: "cancel" }),
             rename: () => {},
         },
-        recordWorkflowMetric: () => Promise.resolve(null),
-        probeGitRepository: () => Promise.resolve({ ok: true, state: "available", cwd: "/tmp/runwield-recovery-test" }),
+        ports: {
+            recordWorkflowMetric: () => Promise.resolve(null),
+            probeGitRepository: () =>
+                Promise.resolve({ ok: true, state: "available", cwd: "/tmp/runwield-recovery-test" }),
+        },
     };
     return Object.assign({} as HandlePlanRecoveryOptions, options);
 }
@@ -289,7 +292,8 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
         executionMode: "worktree",
         executionBaselineTree: "baseline-tree",
     }, (options) => {
-        options.probeGitRepository = () => Promise.resolve({ ok: false, state: "not_git", cwd: options.projectRoot });
+        options.ports.probeGitRepository = () =>
+            Promise.resolve({ ok: false, state: "not_git", cwd: options.projectRoot });
     });
     assertEquals(continueBlocked.result, "handled");
     assertEquals(continueBlocked.ui.prompts.length, 2);
@@ -332,7 +336,7 @@ Deno.test("Plan Recovery handled and review outcomes exit once", async () => {
         ["reset", "clear"],
         { executionBaselineTree: "baseline-tree" },
         (options) => {
-            options.probeGitRepository = () =>
+            options.ports.probeGitRepository = () =>
                 Promise.resolve({ ok: false, state: "not_git", cwd: options.projectRoot });
         },
     );

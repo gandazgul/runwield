@@ -60,7 +60,12 @@ import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../run
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
-import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.ts";
+import {
+    discoverProviderModel,
+    getModelRegistry,
+    getModelRuntime,
+    SYSTEM_MODEL_DISCOVERY_NETWORK,
+} from "../models/model-registry.ts";
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import {
     createClaudeExecutionSession,
@@ -567,6 +572,7 @@ export async function steerAgentSessionWithTarget(session, text, images) {
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
+            SYSTEM_MODEL_DISCOVERY_NETWORK,
         )
         : undefined;
     const prepared = prepareImagesForModel({
@@ -1086,7 +1092,12 @@ async function resolveModel(
         let discovered = false;
         if (!found) {
             try {
-                found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
+                found = await discoverProviderModel(
+                    modelRegistry,
+                    parsed.provider,
+                    parsed.id,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                );
                 discovered = Boolean(found);
             } catch (error) {
                 await recordModelMetric({
@@ -1701,7 +1712,9 @@ export async function buildAgentSession({
     );
     assertModelExecutionBackendSupported(resolvedModel);
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
-    const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
+    const visionFallback = activeModelSupportsImages
+        ? undefined
+        : await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
@@ -2653,6 +2666,7 @@ export async function runPrompt({
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
+            SYSTEM_MODEL_DISCOVERY_NETWORK,
         )
         : undefined;
     const preparedImages = prepareImagesForModel({

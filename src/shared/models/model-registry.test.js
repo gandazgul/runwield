@@ -213,8 +213,7 @@ Deno.test("discoverProviderModel registers a model returned by OpenAI-compatible
         });
 
         const result = await discoverProviderModel(registry, "crofai", "deepseek-v4-pro", {
-            runwieldDir: tempDir,
-            fetchFn: /** @type {typeof fetch} */ ((
+            fetch: /** @type {typeof fetch} */ ((
                 /** @type {string} */ url,
                 /** @type {{ headers?: Record<string, string> }} */ init,
             ) => {
@@ -227,7 +226,7 @@ Deno.test("discoverProviderModel registers a model returned by OpenAI-compatible
                     json: () => Promise.resolve({ data: [{ id: "deepseek-v4-pro" }] }),
                 });
             }),
-        });
+        }, { runwieldDir: tempDir });
 
         assertEquals(requestedUrl, "https://crof.ai/v1/models");
         assertEquals(authorization, "Bearer test-key");
@@ -275,19 +274,24 @@ Deno.test("discoverProviderModel defaults discovered models to text-only input",
 
         // Default discovery (active model path): must NOT claim image support,
         // otherwise raw image bytes get sent to a text-only model and silently fail.
-        await discoverProviderModel(registry, "crofai", "deepseek-v4-pro", {
-            runwieldDir: tempDir,
-            fetchFn,
-        });
+        await discoverProviderModel(
+            registry,
+            "crofai",
+            "deepseek-v4-pro",
+            { fetch: fetchFn },
+            { runwieldDir: tempDir },
+        );
         assertEquals(registeredConfig.models[0].input, ["text"]);
 
         // Explicit vision-fallback path: caller opts the discovered model into image input.
         registeredConfig = undefined;
-        await discoverProviderModel(registry, "crofai", "deepseek-v4-pro", {
-            runwieldDir: tempDir,
-            input: ["text", "image"],
-            fetchFn,
-        });
+        await discoverProviderModel(
+            registry,
+            "crofai",
+            "deepseek-v4-pro",
+            { fetch: fetchFn },
+            { runwieldDir: tempDir, input: ["text", "image"] },
+        );
         assertEquals(registeredConfig.models[0].input, ["text", "image"]);
     } finally {
         await Deno.remove(tempDir, { recursive: true });
@@ -329,12 +333,16 @@ Deno.test("discoverProviderModel honors provider imageInputModels allowlist", as
             })));
 
         // Listed in imageInputModels -> vision-capable.
-        await discoverProviderModel(registry, "crofai", "vision-model", { runwieldDir: tempDir, fetchFn });
+        await discoverProviderModel(registry, "crofai", "vision-model", { fetch: fetchFn }, {
+            runwieldDir: tempDir,
+        });
         assertEquals(registeredConfig.models[0].input, ["text", "image"]);
 
         // Not listed -> text-only.
         registeredConfig = undefined;
-        await discoverProviderModel(registry, "crofai", "text-model", { runwieldDir: tempDir, fetchFn });
+        await discoverProviderModel(registry, "crofai", "text-model", { fetch: fetchFn }, {
+            runwieldDir: tempDir,
+        });
         assertEquals(registeredConfig.models[0].input, ["text"]);
     } finally {
         await Deno.remove(tempDir, { recursive: true });

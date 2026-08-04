@@ -1,4 +1,4 @@
-import { findPlansByParent, loadPlan } from "../../plan-store.js";
+import { updatePlanFrontMatter } from "../../plan-store.js";
 import {
     closeTransitionRecordByAttestation,
     getTransitionJournalDir,
@@ -14,19 +14,9 @@ import {
     reopenPlanForReview,
 } from "./plan-recovery-worktree.ts";
 import { executeReadyPlanWithRepair, validateCompletedExecution } from "./plan-execution.ts";
-import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
-import { getWorkflowDiff, listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
-import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
-import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
-import { deleteMergedWorktreeBranch, getWorktreeStatus, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
-import {
-    findById as findWorktreeById,
-    findByPlanName as findWorktreeByPlanName,
-    updateEntry as updateWorktreeRegistryEntry,
-} from "../../shared/worktree-registry.js";
-import { updatePlanFrontMatter } from "../../plan-store.js";
+import { deleteMergedWorktreeBranch, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
+import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import { transitionFailureError } from "./transition-failure.ts";
@@ -130,8 +120,6 @@ export async function holdRecoveryPlan(context: RecoveryActionContext): Promise<
         projectRoot: context.projectRoot,
         plan: context.plan,
         uiAPI: context.uiAPI,
-        recordPlanEvent,
-        findPlansByParent,
     });
     await context.recordRecoveryResult("hold", "handled");
     return { kind: "handled" };
@@ -142,8 +130,6 @@ export async function userVerifyRecoveryPlan(context: RecoveryActionContext): Pr
         projectRoot: context.projectRoot,
         plan: context.plan,
         uiAPI: context.uiAPI,
-        recordPlanEvent,
-        autoGenerateWorkRecordForCompletedPlan,
     });
     await context.recordRecoveryResult("user_verify", "handled");
     return { kind: "handled" };
@@ -155,9 +141,7 @@ export async function inspectRecoveryPlan(context: RecoveryActionContext): Promi
         context.projectRoot,
         context.plan,
         context.uiAPI,
-        getWorkflowDiff,
         context.worktreeContext,
-        getWorktreeStatus,
     );
     await context.recordRecoveryResult("inspect", "reported", {
         hasWorktree: hasWorktreeContext(context.worktreeContext),
@@ -173,7 +157,6 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
             context.plan.planName,
             context.worktreeContext,
             context.uiAPI,
-            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };
@@ -184,13 +167,9 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
         context.plan.markdown || context.plan.body || "",
         context.plan.attrs,
         context.session.runValidation,
-        loadPlan,
         context.worktreeContext,
         context.session,
         context.uiAPI,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContext,
     );
     if (!validationStarted) {
         await context.recordRecoveryResult("validate", "blocked", { reason: "invalid_execution_policy" });
@@ -209,7 +188,6 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
             context.plan.planName,
             context.worktreeContext,
             context.uiAPI,
-            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };
@@ -241,16 +219,8 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
         agentName: context.agentName,
         uiAPI: context.uiAPI,
         executePlan: context.session.executePlan,
-        runPlanningAgent: context.session.runPlanningAgent,
-        decidePostPlanning,
-        decidePostExecution,
         runValidationLoop: context.session.runValidation,
-        loadPlan,
-        listCommitsTouchingPathsSince,
         session: context.session,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContextForRecovery: resolveValidationExecutionContext,
     });
     await context.recordRecoveryResult("continue", "handled");
     return { kind: "handled" };
@@ -335,11 +305,6 @@ export async function reviewRecoveryPlan(context: RecoveryActionContext): Promis
         plan: context.plan,
         currentStatus: context.plan.attrs.status,
         worktreeContext: context.worktreeContext,
-        findWorktreeById,
-        findWorktreeByPlanName,
-        updateWorktreeRegistryEntry,
-        updatePlanFrontMatter,
-        recordPlanEvent,
         session: context.session,
     });
     await context.recordRecoveryResult("review", "review");

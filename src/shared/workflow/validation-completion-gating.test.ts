@@ -7,7 +7,12 @@ import { loadPlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { runValidationLoop } from "./validation.ts";
-import { attachRecorder, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import {
+    attachRecorder,
+    makeUi,
+    makeValidationProjectRoot,
+    NO_ISOLATED_AGENT_PORT,
+} from "./validation-test-helpers.js";
 
 type RepairRunOptions = {
     reportCompletion: boolean;
@@ -57,6 +62,7 @@ async function runCiRepair({ reportCompletion }: RepairRunOptions) {
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", humanReviewMode: "none" },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => {
                         ciRuns += 1;
@@ -133,6 +139,7 @@ async function runObjectiveRepair({ reportCompletion }: RepairRunOptions) {
                     humanReviewMode: "none",
                     objectiveChecks,
                 },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => {
                         ciRuns += 1;

@@ -2,7 +2,12 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
 import { runValidationLoop } from "./validation.ts";
-import { makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import {
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    NO_ISOLATED_AGENT_PORT,
+} from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
@@ -31,6 +36,7 @@ Deno.test("runValidationLoop fails closed when worktree validation context is mi
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "FEATURE", status: "implemented" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "should not run", canceled: false }),
         },

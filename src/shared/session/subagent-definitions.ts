@@ -57,9 +57,6 @@ export interface DelegatedRoleDefinition {
 export interface LoadSubAgentDefinitionOptions {
     reviewerMode?: ReviewerSubAgentMode;
     delegatedRole?: DelegatedRoleId;
-    readTextFile?: (path: string) => Promise<string>;
-    ensurePromptFile?: typeof ensureBundledAgentDefFile;
-    loadFromPath?: typeof loadAgentDefFromPath;
 }
 
 export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgentDefinition>> = Object.freeze({
@@ -166,14 +163,12 @@ function subagentRelativePath(definition: SubAgentDefinition, reviewerMode: Revi
 
 async function readBundledPromptFrontMatter(
     relativePath: string,
-    readTextFile: (path: string) => Promise<string>,
-    ensurePromptFile: typeof ensureBundledAgentDefFile,
 ) {
     let lastError: Error = new Error("Bundled prompt read failed.");
     for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-            const promptPath = await ensurePromptFile(relativePath);
-            const raw = await readTextFile(promptPath);
+            const promptPath = await ensureBundledAgentDefFile(relativePath);
+            const raw = await Deno.readTextFile(promptPath);
             if (!raw.trim()) throw new TypeError("Prompt file was empty during bundled prompt load");
             return normalizeBundledPromptFrontMatter(extractYaml<PromptFrontMatterAttrs>(raw));
         } catch (error) {
@@ -192,11 +187,8 @@ async function readBundledPromptFrontMatter(
 async function loadBarePromptDefinition(
     definition: SubAgentDefinition,
     relativePath: string,
-    options: LoadSubAgentDefinitionOptions,
 ): Promise<AgentDefinition> {
-    const readTextFile = options.readTextFile || Deno.readTextFile;
-    const ensurePromptFile = options.ensurePromptFile || ensureBundledAgentDefFile;
-    const { attrs, body } = await readBundledPromptFrontMatter(relativePath, readTextFile, ensurePromptFile);
+    const { attrs, body } = await readBundledPromptFrontMatter(relativePath);
     const displayName = typeof attrs.name === "string" && attrs.name.trim()
         ? attrs.name.trim()
         : definition.displayNameFallback;
@@ -215,12 +207,9 @@ async function loadBarePromptDefinition(
 async function loadFullAgentDefinition(
     definition: SubAgentDefinition,
     relativePath: string,
-    options: LoadSubAgentDefinitionOptions,
 ): Promise<AgentDefinition> {
-    const ensurePromptFile = options.ensurePromptFile || ensureBundledAgentDefFile;
-    const loadFromPath = options.loadFromPath || loadAgentDefFromPath;
-    const promptPath = await ensurePromptFile(relativePath);
-    return await loadFromPath(promptPath, { agentName: definition.agentName });
+    const promptPath = await ensureBundledAgentDefFile(relativePath);
+    return await loadAgentDefFromPath(promptPath, { agentName: definition.agentName });
 }
 
 /**
@@ -230,13 +219,10 @@ async function loadFullAgentDefinition(
 async function applyDelegatedRoleOverlay(
     agentDef: AgentDefinition,
     role: DelegatedRoleDefinition,
-    options: LoadSubAgentDefinitionOptions,
 ): Promise<AgentDefinition> {
     if (!role.overlayFile) return agentDef;
-    const readTextFile = options.readTextFile || Deno.readTextFile;
-    const ensurePromptFile = options.ensurePromptFile || ensureBundledAgentDefFile;
     const relativePath = join(SUBAGENT_DEFINITIONS_DIR, DELEGATED_ROLES_DIR, role.overlayFile);
-    const { attrs, body } = await readBundledPromptFrontMatter(relativePath, readTextFile, ensurePromptFile);
+    const { attrs, body } = await readBundledPromptFrontMatter(relativePath);
     const overlay = body.trim();
     if (!overlay) throw new Error(`Delegated role overlay is empty: ${relativePath}`);
 
@@ -257,10 +243,10 @@ export async function loadSubAgentDefinition(
     const relativePath = subagentRelativePath(definition, reviewerMode);
 
     if (definition.loadMode !== "barePrompt") {
-        return await loadFullAgentDefinition(definition, relativePath, options);
+        return await loadFullAgentDefinition(definition, relativePath);
     }
 
-    const agentDef = await loadBarePromptDefinition(definition, relativePath, options);
+    const agentDef = await loadBarePromptDefinition(definition, relativePath);
     if (id !== SUBAGENTS.DELEGATED) return agentDef;
 
     const role = getDelegatedRole(options.delegatedRole);
@@ -269,5 +255,5 @@ export async function loadSubAgentDefinition(
             `Unknown delegated role: ${options.delegatedRole}. Valid roles: ${DELEGATED_ROLE_IDS.join(", ")}.`,
         );
     }
-    return await applyDelegatedRoleOverlay(agentDef, role, options);
+    return await applyDelegatedRoleOverlay(agentDef, role);
 }

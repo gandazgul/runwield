@@ -138,6 +138,15 @@ export function noOpRecordPlanEvent() {
 }
 
 /**
+ * External model boundary for validation scenarios that must never start an
+ * isolated Agent. Keeping the failure loud ensures a fixture cannot silently
+ * call a real LLM when a phase boundary changes.
+ */
+export const NO_ISOLATED_AGENT_PORT = Object.freeze({
+    runIsolatedAgentSession: () => Promise.reject(new Error("Unexpected isolated Agent session in validation test")),
+});
+
+/**
  * A real project root for a validation test.
  *
  * Workflow Validation settles its outcomes through the actual transaction layer,

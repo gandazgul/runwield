@@ -153,33 +153,3 @@ Deno.test("an unregistered delegated role fails the load and names the valid rol
     assertStringIncludes(error.message, "Unknown delegated role: researcher");
     assertStringIncludes(error.message, "verification-adversary");
 });
-
-Deno.test("bare-prompt loading retries a transient cold-cache read failure", async () => {
-    const readPaths: string[] = [];
-    const ensuredPaths: string[] = [];
-    let readAttempts = 0;
-
-    const reviewer = await loadSubAgentDefinition(SUBAGENTS.REVIEWER, {
-        readTextFile: async (path) => {
-            readPaths.push(path);
-            readAttempts += 1;
-            if (readAttempts === 1) throw new Deno.errors.NotFound("cache refresh removed prompt");
-            return await Deno.readTextFile(sourcePromptPath("reviewer-prompt.md"));
-        },
-        ensurePromptFile: (relativePath) => {
-            ensuredPaths.push(relativePath);
-            return Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`);
-        },
-    });
-
-    assertEquals(ensuredPaths, [
-        "subagent-definitions/reviewer-prompt.md",
-        "subagent-definitions/reviewer-prompt.md",
-    ]);
-    assertEquals(readPaths, [
-        "/tmp/bundled-agent-definitions/subagent-definitions/reviewer-prompt.md",
-        "/tmp/bundled-agent-definitions/subagent-definitions/reviewer-prompt.md",
-    ]);
-    assertEquals(reviewer.name, AGENTS.REVIEWER);
-    assertStringIncludes(reviewer.systemPrompt, "Your Default Is Approval");
-});

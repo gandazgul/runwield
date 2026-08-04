@@ -4,7 +4,7 @@
  */
 
 import { basename, extname, isAbsolute, join, normalize, relative, resolve } from "@std/path";
-import { discoverProviderModel, getModelRegistry } from "../models/model-registry.ts";
+import { discoverProviderModel } from "../models/model-registry.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { getResolvedVisionFallbackModelSetting } from "../settings.js";
 import { getRunWieldSessionDir } from "./root-session.js";
@@ -183,10 +183,11 @@ export function preflightImageAttachments(images, opts) {
 }
 
 /**
- * @param {any} [modelRegistry]
+ * @param {any} modelRegistry
+ * @param {import('../models/model-registry.ts').ModelDiscoveryNetworkPort} network
  * @returns {Promise<{ model: any, modelRef: string } | undefined>}
  */
-export async function resolveVisionFallbackModel(modelRegistry = getModelRegistry()) {
+export async function resolveVisionFallbackModel(modelRegistry, network) {
     const configured = getResolvedVisionFallbackModelSetting();
     if (!configured) return undefined;
 
@@ -198,9 +199,15 @@ export async function resolveVisionFallbackModel(modelRegistry = getModelRegistr
         try {
             // The fallback model is explicitly configured for vision, so register
             // discovered models with image input even though /models can't report it.
-            found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id, {
-                input: ["text", "image"],
-            });
+            found = await discoverProviderModel(
+                modelRegistry,
+                parsed.provider,
+                parsed.id,
+                network,
+                {
+                    input: ["text", "image"],
+                },
+            );
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Unknown visionFallback.model: ${configured}. ${message}`);

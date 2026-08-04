@@ -4,13 +4,9 @@
  */
 
 import { resolvePlanExecutionPolicy } from "../../plan-store.js";
-import { probeGitRepository as probeGitRepositoryFn } from "../../shared/git.js";
+import { probeGitRepository } from "../../shared/git.js";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
-import {
-    findById as findWorktreeByIdFn,
-    findByPlanName as findWorktreeByPlanNameFn,
-} from "../../shared/worktree-registry.js";
 import {
     canManuallyMergeRecoveredWorktree,
     hasWorktreeContext,
@@ -63,9 +59,18 @@ export interface HandlePlanRecoveryOptions {
     uiAPI: UiAPI;
     unresolvedRecords?: UnresolvedTransitionRecord[];
     session: PlanSessionSurface;
-    recordWorkflowMetric?: typeof recordWorkflowMetric;
-    probeGitRepository?: typeof probeGitRepositoryFn;
+    ports: RecoveryFlowPorts;
 }
+
+export interface RecoveryFlowPorts {
+    recordWorkflowMetric: typeof recordWorkflowMetric;
+    probeGitRepository: typeof probeGitRepository;
+}
+
+export const SYSTEM_RECOVERY_FLOW_PORTS: RecoveryFlowPorts = Object.freeze({
+    recordWorkflowMetric,
+    probeGitRepository,
+});
 
 type RecoveryMenuAnswer = RecoveryActionName | "cancel";
 
@@ -96,10 +101,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
         recordRecoveryResult: async () => {},
     };
     context.refreshRecoveryWorktree = async () => {
-        const resolved = await resolveRecoveryWorktree(projectRoot, plan, {
-            findWorktreeById: findWorktreeByIdFn,
-            findWorktreeByPlanName: findWorktreeByPlanNameFn,
-        });
+        const resolved = await resolveRecoveryWorktree(projectRoot, plan);
         plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved);
         context.worktreeContext = resolved;
         return resolved;
@@ -107,7 +109,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     context.recordRecoveryResult = async (action: string, result: string, details: RecoveryMetricDetails = {}) => {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(context.worktreeContext);
-        await (opts.recordWorkflowMetric ?? recordWorkflowMetric)({
+        await opts.ports.recordWorkflowMetric({
             category: "recovery",
             event: "recovery_action_result",
             planName: plan.planName,
@@ -119,12 +121,12 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     while (true) {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(context.worktreeContext);
-        const gitProbe = await (opts.probeGitRepository ?? probeGitRepositoryFn)(projectRoot);
+        const gitProbe = await opts.ports.probeGitRepository(projectRoot);
         const hasGitRecoveryMetadata = hasWorktree ||
             (plan.attrs.executionMode !== "non_git_in_place" && Boolean(plan.attrs.executionBaselineTree));
         const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
         const answer = await promptRecoveryAction(context, gitRecoveryBlocked, hasWorktree, canMergeWorktree);
-        await (opts.recordWorkflowMetric ?? recordWorkflowMetric)({
+        await opts.ports.recordWorkflowMetric({
             category: "recovery",
             event: "recovery_action_selected",
             planName: plan.planName,

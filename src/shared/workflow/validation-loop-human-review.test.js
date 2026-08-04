@@ -9,11 +9,17 @@ import {
     makeRecordedSession,
     makeUi,
     makeValidationProjectRoot,
+    NO_ISOLATED_AGENT_PORT,
 } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
     return { uiAPI, hostedSession: makeRecordedSession("validation-human-review-test", uiAPI) };
+}
+
+/** @param {HostedSession} hostedSession @param {(request: any) => Promise<any>} requestInteraction */
+function setInteraction(hostedSession, requestInteraction) {
+    hostedSession.setInteractionAdapter({ requestInteraction });
 }
 
 Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
@@ -33,18 +39,17 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         nonGitInPlace: true,
     });
     const requests = /** @type {string[]} */ ([]);
+    setInteraction(hostedSession, (request) => {
+        requests.push(request.type);
+        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+    });
 
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
-        semanticReviewPort: {
-            requestInteraction: (_session, request) => {
-                requests.push(request.type);
-                return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
-            },
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -71,15 +76,14 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         executionCwd: projectRoot,
         nonGitInPlace: true,
     });
+    setInteraction(hostedSession, () => Promise.resolve({ outcome: "selected", value: "skip" }));
 
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
-        semanticReviewPort: {
-            requestInteraction: () => Promise.resolve({ outcome: "selected", value: "skip" }),
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -105,19 +109,18 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         nonGitInPlace: true,
     });
     let calls = 0;
+    setInteraction(hostedSession, (request) => {
+        calls += 1;
+        if (request.type === "select") return Promise.resolve({ outcome: "selected", value: "open" });
+        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+    });
 
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
-        semanticReviewPort: {
-            requestInteraction: (_session, request) => {
-                calls += 1;
-                if (request.type === "select") return Promise.resolve({ outcome: "selected", value: "open" });
-                return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
-            },
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -159,6 +162,7 @@ Deno.test("runValidationLoop resumes at validated_reviewer and records durable h
             humanReviewMode: "none",
             humanReviewDecision: null,
         },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -219,21 +223,20 @@ function completedRepairMessages() {
 
 Deno.test("a code review closed with no answer asks instead of throwing the work back to the start", async () => {
     const { projectRoot, hostedSession, uiAPI } = await makeAwaitingReview();
+    setInteraction(hostedSession, (request) => {
+        if (request.type === "select") {
+            uiAPI.promptSelections.push(String(request.prompt));
+            return Promise.resolve({ outcome: "selected", value: "stop" });
+        }
+        return Promise.resolve({ outcome: "canceled" });
+    });
 
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
-        semanticReviewPort: {
-            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
-                if (request.type === "select") {
-                    uiAPI.promptSelections.push(String(request.prompt));
-                    return Promise.resolve({ outcome: "selected", value: "stop" });
-                }
-                return Promise.resolve({ outcome: "canceled" });
-            },
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     assertEquals(uiAPI.promptSelections.length, 1);
@@ -248,26 +251,23 @@ Deno.test("a code review closed with no answer asks instead of throwing the work
 Deno.test("Retry reopens the code review that was closed without an answer", async () => {
     const { projectRoot, hostedSession, uiAPI } = await makeAwaitingReview();
     let opened = 0;
+    setInteraction(hostedSession, (request) => {
+        if (request.type === "select") {
+            uiAPI.promptSelections.push(String(request.prompt));
+            return Promise.resolve({ outcome: "selected", value: "retry" });
+        }
+        opened += 1;
+        return Promise.resolve(
+            opened === 1 ? { outcome: "canceled" } : { outcome: "selected", _meta: { approved: true, feedback: "" } },
+        );
+    });
 
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
-        semanticReviewPort: {
-            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
-                if (request.type === "select") {
-                    uiAPI.promptSelections.push(String(request.prompt));
-                    return Promise.resolve({ outcome: "selected", value: "retry" });
-                }
-                opened += 1;
-                return Promise.resolve(
-                    opened === 1
-                        ? { outcome: "canceled" }
-                        : { outcome: "selected", _meta: { approved: true, feedback: "" } },
-                );
-            },
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     assertEquals(opened, 2, "Retry must open the same review again in this run");
@@ -282,6 +282,16 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
     const opened = [];
     let reviews = 0;
     let isolatedRuns = 0;
+    setInteraction(hostedSession, (request) => {
+        opened.push(String(request.type));
+        if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
+        reviews += 1;
+        return Promise.resolve(
+            reviews === 1
+                ? { outcome: "selected", _meta: { approved: false, feedback: "rename the helper" } }
+                : { outcome: "selected", _meta: { approved: true, feedback: "" } },
+        );
+    });
 
     // Round one: read the diff, ask for a change. Round two: approve the repair.
     const result = await runValidationLoop({
@@ -293,16 +303,6 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
             runIsolatedAgentSession: () => {
                 isolatedRuns += 1;
                 return Promise.resolve(completedRepairMessages());
-            },
-            requestInteraction: (/** @type {any} */ _session, /** @type {any} */ request) => {
-                opened.push(String(request.type));
-                if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
-                reviews += 1;
-                return Promise.resolve(
-                    reviews === 1
-                        ? { outcome: "selected", _meta: { approved: false, feedback: "rename the helper" } }
-                        : { outcome: "selected", _meta: { approved: true, feedback: "" } },
-                );
             },
         },
         localCI: {

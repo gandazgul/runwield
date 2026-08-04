@@ -14,7 +14,7 @@ import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { buildTriageReport } from "./workflow-prompts.js";
-import { runValidationLoop } from "./validation.ts";
+import { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { HostedSession } from "../session/hosted-session.js";
@@ -232,5 +232,6 @@ export async function runEpicChildContinuation(
         sessionManager,
         finalAgentName: AGENTS.ROUTER,
         executionContext: executionResult.executionContext,
+        semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
     }));
 }

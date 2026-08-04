@@ -7,7 +7,12 @@ import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { runValidationLoop, runValidationPhase } from "./validation.ts";
-import { attachRecorder, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import {
+    attachRecorder,
+    makeUi,
+    makeValidationProjectRoot,
+    NO_ISOLATED_AGENT_PORT,
+} from "./validation-test-helpers.js";
 
 function makeValidationUi(cwd = Deno.cwd()) {
     const uiAPI = makeUi();
@@ -82,6 +87,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI: {
                 run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
             },
@@ -109,6 +115,7 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -135,6 +142,7 @@ Deno.test("runValidationLoop stops without repair when an Objective-Failing Chec
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -159,6 +167,7 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
                 },
@@ -195,6 +204,7 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
         },
@@ -240,6 +250,7 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => {
                 ciRuns += 1;
@@ -275,6 +286,7 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
         },
@@ -303,6 +315,7 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI,
         });
         assertEquals(first.kind, "paused");
@@ -327,6 +340,7 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI,
         });
 

@@ -3,12 +3,13 @@ import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { getLoginProviderOptions, runLoginCommand, runLogoutCommand, runStatusCommand } from "./index.ts";
-
-type AuthUiPort = Pick<
-    import("../../ui/tui/types.js").UiAPI,
-    "abortActivePrompt" | "appendSystemMessage" | "promptSelect" | "promptText" | "showModelSelector"
->;
+import {
+    type AuthUiPort,
+    getLoginProviderOptions,
+    runLoginCommand,
+    runLogoutCommand,
+    runStatusCommand,
+} from "./index.ts";
 type TextPromptOptions = NonNullable<Parameters<AuthUiPort["promptText"]>[1]>;
 
 interface AuthFile {

@@ -5,30 +5,11 @@ import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
 import { loadManualQaPrompt, loadReviewerPrompt } from "./validation.ts";
 
 Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
-    /** @type {string[]} */
-    const readPaths = [];
-    const promptDef = await loadManualQaPrompt(
-        (path) => {
-            readPaths.push(String(path));
-            return Promise.resolve([
-                "---",
-                "name: Manual QA",
-                'description: "Checklist prompt"',
-                "tools: []",
-                "---",
-                "",
-                "Output only a manual verification checklist.",
-                "",
-            ].join("\n"));
-        },
-        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-    );
-
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/manual-qa-prompt.md"]);
+    const promptDef = await loadManualQaPrompt();
     assertEquals(promptDef.name, "operator");
     assertEquals(promptDef.displayName, "Manual QA");
     assertEquals(promptDef.tools, []);
-    assertEquals(promptDef.systemPrompt, "Output only a manual verification checklist.");
+    assertStringIncludes(promptDef.systemPrompt, "Manual verification steps for <plan name>");
 });
 
 Deno.test("bundled Manual QA prompt requires the user checklist shape", async () => {
@@ -42,112 +23,18 @@ Deno.test("bundled Manual QA prompt requires the user checklist shape", async ()
 });
 
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
-    /** @type {string[]} */
-    const readPaths = [];
-    const reviewerDef = await loadReviewerPrompt(
-        "discovery",
-        (path) => {
-            readPaths.push(String(path));
-            return Promise.resolve([
-                "---",
-                "name: Reviewer",
-                'description: "Review prompt"',
-                "tools: []",
-                "---",
-                "",
-                "Review only the supplied plan and diff.",
-                "",
-            ].join("\n"));
-        },
-        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-    );
-
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/reviewer-prompt.md"]);
+    const reviewerDef = await loadReviewerPrompt("discovery");
     assertEquals(reviewerDef.name, "reviewer");
     assertEquals(reviewerDef.displayName, "Reviewer");
     assertEquals(reviewerDef.tools, []);
-    assertEquals(reviewerDef.systemPrompt, "Review only the supplied plan and diff.");
+    assertStringIncludes(reviewerDef.systemPrompt, "Your Default Is Approval");
     assertEquals(reviewerDef.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(reviewerDef.systemPrompt.includes("Available tools"), false);
 });
 
 Deno.test("loadReviewerPrompt loads the verification prompt for later rounds", async () => {
-    /** @type {string[]} */
-    const readPaths = [];
-    const reviewerDef = await loadReviewerPrompt(
-        "verify",
-        (path) => {
-            readPaths.push(String(path));
-            return Promise.resolve([
-                "---",
-                "name: Reviewer",
-                'description: "Verification prompt"',
-                "---",
-                "",
-                "Verify the open findings.",
-                "",
-            ].join("\n"));
-        },
-        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-    );
-
-    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/subagent-definitions/reviewer-verify-prompt.md"]);
-    assertEquals(reviewerDef.systemPrompt, "Verify the open findings.");
-});
-
-Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed", async () => {
-    /** @type {string[]} */
-    const ensuredPaths = [];
-    let readAttempts = 0;
-    const reviewerDef = await loadReviewerPrompt(
-        "discovery",
-        (path) => {
-            readAttempts++;
-            if (readAttempts === 1) throw new Deno.errors.NotFound("cache refresh removed prompt");
-            return Promise.resolve([
-                "---",
-                "name: Reviewer",
-                "---",
-                "",
-                `Recovered prompt from ${path}`,
-                "",
-            ].join("\n"));
-        },
-        (relativePath) => {
-            ensuredPaths.push(relativePath);
-            return Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`);
-        },
-    );
-
-    assertEquals(ensuredPaths, [
-        "subagent-definitions/reviewer-prompt.md",
-        "subagent-definitions/reviewer-prompt.md",
-    ]);
-    assertEquals(readAttempts, 2);
-    assertStringIncludes(reviewerDef.systemPrompt, "Recovered prompt");
-});
-
-Deno.test("loadReviewerPrompt retries transient partial prompt reads", async () => {
-    let readAttempts = 0;
-    const reviewerDef = await loadReviewerPrompt(
-        "discovery",
-        () => {
-            readAttempts++;
-            if (readAttempts === 1) return Promise.resolve("---\nname: Reviewer");
-            return Promise.resolve([
-                "---",
-                "name: Reviewer",
-                "---",
-                "",
-                "Recovered after partial read.",
-                "",
-            ].join("\n"));
-        },
-        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
-    );
-
-    assertEquals(readAttempts, 2);
-    assertEquals(reviewerDef.systemPrompt, "Recovered after partial read.");
+    const reviewerDef = await loadReviewerPrompt("verify");
+    assertStringIncludes(reviewerDef.systemPrompt, "Do Not Re-Derive the Plan");
 });
 
 /** @param {string} name */

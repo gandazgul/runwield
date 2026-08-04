@@ -30,6 +30,14 @@
  * loosen: an update that would raise a count or add a machinery seam fails, so
  * "just re-baseline it" is not an escape hatch.
  *
+ * Nor is editing this file. The detectors below are all scar tissue from seams that
+ * changed shape rather than going away — a rename on destructure, an alias through a
+ * local, an optional bag retyped as a `Port`. If a seam you introduced is caught here,
+ * the fix is in the module, not in this scan: narrowing a pattern or widening a skip
+ * list leaves the module exactly as replaceable as it was and only removes the reader's
+ * ability to see it. Only change this script when it is wrong about the design rule
+ * itself — which means it flags something that is genuinely a required external port.
+ *
  * Renaming a seam looks like removing one and adding another, which the ratchet is
  * right to reject. Declare it instead:
  *
@@ -962,7 +970,12 @@ if (import.meta.main) {
         const regressions = findRegressions(sortedSeams, baseline, adopt);
         if (Object.keys(baseline).length > 0 && regressions.length > 0) {
             console.error(
-                `Refusing to loosen the injection-seam baseline:\n${formatList(regressions)}`,
+                `Refusing to loosen the injection-seam baseline:\n${formatList(regressions)}\n\n` +
+                    "`--update` records progress; it is not a way to admit a new seam. Reshaping the seam so the\n" +
+                    "scan stops seeing it — a rename, an alias, a helper, a retyped `Port`, a hand-edited baseline —\n" +
+                    "is the same thing with extra steps: the module can still have its behaviour replaced. Remove\n" +
+                    "the seam instead. Inject only true ports (Git, filesystem, clock, network) as required\n" +
+                    "arguments with no production fallback; import everything of ours directly.",
             );
             Deno.exit(1);
         }
@@ -1009,6 +1022,21 @@ if (import.meta.main) {
                 "If you REMOVED seams: run `deno task seams:update` to tighten the baseline in the same change.\n" +
                 "Never run `--update` to silence an addition; it refuses to loosen and will reject it.\n" +
                 "Background: plans/replace-deps-bag-with-capability-ports.md and src/skills/write-tests/SKILL.md.",
+        );
+        sections.push(
+            "If you are an agent: do not make this pass by changing how the seam LOOKS.\n" +
+                "Renaming the bag, aliasing it through a local, spelling the fallback a different way, hiding the\n" +
+                "read behind a helper or a computed key, retyping an optional bag as a `Port`, or widening a skip\n" +
+                "list in this script all leave the seam exactly where it was — they only cost the next reader the\n" +
+                "ability to see it. Every rule above exists because that was tried and the detector was blind to it\n" +
+                "for a while; a rule a rename defeats is not a rule, and a detector you defeat still leaves the\n" +
+                "design defect you were asked to fix. This check is a proxy for the design rule, not the rule.\n" +
+                "The only passing change is one where the module can no longer have its behaviour replaced.\n" +
+                "Use injection ONLY for a true port: a genuine boundary to something outside RunWield (Git, the\n" +
+                "filesystem, the clock, a network service), typed with required members and passed as a required\n" +
+                "argument, with no production fallback. Everything else is ours — import it and call it directly,\n" +
+                "and test it against a real fixture environment. Editing this script or hand-editing the baseline\n" +
+                "to accommodate a new seam is the same circumvention by another route.",
         );
         console.error(sections.join("\n\n"));
         Deno.exit(1);

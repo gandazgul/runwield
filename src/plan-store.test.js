@@ -1923,7 +1923,7 @@ testWithFs("ensurePlanIdentity backfills missing planId while preserving body ex
         });
         const before = await loadPlan(cwd, "needs-id");
 
-        const resource = await ensurePlanIdentity(cwd, "needs-id", { __testGenerateId: () => "generated-id" });
+        const resource = await ensurePlanIdentity(cwd, "needs-id", { idGenerator: () => "generated-id" });
         const after = await loadPlan(cwd, "needs-id");
 
         assertEquals(resource.planId, "generated-id");
@@ -1942,7 +1942,7 @@ testWithFs("ensurePlanIdentity preserves existing planId", async () => {
         await savePlan(cwd, "has-id", "# Body", { planId: "existing-id" });
         const before = await Deno.readTextFile(`${cwd}/plans/has-id.md`);
 
-        const resource = await ensurePlanIdentity(cwd, "has-id", { __testGenerateId: () => "new-id" });
+        const resource = await ensurePlanIdentity(cwd, "has-id", { idGenerator: () => "new-id" });
         const after = await Deno.readTextFile(`${cwd}/plans/has-id.md`);
 
         assertEquals(resource.planId, "existing-id");
@@ -1959,7 +1959,7 @@ testWithFs("ensurePlanIdentity skips archived plans and does not backfill them",
         const before = await Deno.readTextFile(`${cwd}/plans/archived/old.md`);
 
         await assertRejects(
-            () => ensurePlanIdentity(cwd, "archived/old", { __testGenerateId: () => "archived-id" }),
+            () => ensurePlanIdentity(cwd, "archived/old", { idGenerator: () => "archived-id" }),
             Error,
             "archived or hidden",
         );
@@ -1980,19 +1980,19 @@ testWithFs("ensurePlanIdentity retries generated collisions and rejects duplicat
         const generatedIds = ["existing-id", "new-id"];
 
         const resource = await ensurePlanIdentity(cwd, "missing", {
-            __testGenerateId: () => generatedIds.shift() || "unused",
+            idGenerator: () => generatedIds.shift() || "unused",
         });
 
         assertEquals(resource.planId, "new-id");
 
         await savePlan(cwd, "duplicate", "# Duplicate", { planId: "existing-id" });
         await assertRejects(
-            () => ensurePlanIdentity(cwd, "another-missing", { __testGenerateId: () => "another-id" }),
+            () => ensurePlanIdentity(cwd, "another-missing", { idGenerator: () => "another-id" }),
             Error,
             "Plan not found",
         );
         await assertRejects(
-            () => ensurePlanIdentity(cwd, "missing", { __testGenerateId: () => "another-id" }),
+            () => ensurePlanIdentity(cwd, "missing", { idGenerator: () => "another-id" }),
             Error,
             "Duplicate planId",
         );
@@ -2010,7 +2010,7 @@ testWithFs("listPlanResources detects duplicate existing planIds before backfill
         const before = await Deno.readTextFile(`${cwd}/plans/missing.md`);
 
         await assertRejects(
-            () => listPlanResources(cwd, { __testGenerateId: () => "should-not-write" }),
+            () => listPlanResources(cwd, { idGenerator: () => "should-not-write" }),
             Error,
             "Duplicate planId",
         );
@@ -2033,7 +2033,7 @@ testWithFs(
 
             const resources = await listPlanResources(cwd, {
                 backfillMissing: true,
-                __testGenerateId: () => ids.shift() || "unused",
+                idGenerator: () => ids.shift() || "unused",
             });
 
             assertEquals(resources.map((resource) => resource.name), ["a", "b"]);
@@ -2767,7 +2767,7 @@ testWithFs("listPlanResources does not write Plan files unless backfill is reque
         assertEquals(listed[0].planId, "");
         assertEquals((await loadPlan(cwd, "no-id"))?.revision, before?.revision);
 
-        const healed = await listPlanResources(cwd, { backfillMissing: true, __testGenerateId: () => "minted-id" });
+        const healed = await listPlanResources(cwd, { backfillMissing: true, idGenerator: () => "minted-id" });
         assertEquals(healed[0].planId, "minted-id");
         assertEquals((await loadPlan(cwd, "no-id"))?.attrs.planId, "minted-id");
     } finally {

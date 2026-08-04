@@ -22,6 +22,7 @@ import {
     runMechanicalValidation,
     runValidationLoop,
     shouldRunWorkflowValidation,
+    SYSTEM_SEMANTIC_REVIEW_PORT,
     type WorkflowValidationResult,
 } from "../workflow/validation.ts";
 import { switchActiveAgent } from "./agent-switching.js";
@@ -379,6 +380,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     sessionManager,
                     executionContext: executionResult.executionContext,
                     finalAgentName: agentName,
+                    semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 if (validationResult?.epicContinuation) {
                     return { kind: "complete", validationResult };
@@ -546,6 +548,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     triageMeta: workflow.triageMeta,
                     sessionManager,
                     finalAgentName: agentName,
+                    semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 if (validationResult?.epicContinuation) {
                     return { kind: "complete", validationResult };

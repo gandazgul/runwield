@@ -27,6 +27,7 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
         handleInput: () => {},
     };
     const uiAPI: UiAPI = {
+        abortActivePrompt: () => {},
         appendSystemMessage: (message) => messages.push(message),
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         requestRender: () => {},

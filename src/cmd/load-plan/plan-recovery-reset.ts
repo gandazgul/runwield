@@ -19,10 +19,6 @@ import {
     pathExists,
 } from "./plan-recovery-worktree.ts";
 import { executeReadyPlanWithRepair } from "./plan-execution.ts";
-import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
-import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
-import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
 import { transitionFailureError } from "./transition-failure.ts";
 
@@ -159,16 +155,8 @@ export async function resetRecoveryPlan(
         agentName: context.agentName,
         uiAPI,
         executePlan: context.session.executePlan,
-        runPlanningAgent: context.session.runPlanningAgent,
-        decidePostPlanning,
-        decidePostExecution,
         runValidationLoop: context.session.runValidation,
-        loadPlan,
-        listCommitsTouchingPathsSince,
         session: context.session,
-        finalizePlanImplementation,
-        recordPlanEvent,
-        resolveValidationExecutionContextForRecovery: resolveValidationExecutionContext,
     });
     await context.recordRecoveryResult("reset", "handled");
     return { kind: "handled" };

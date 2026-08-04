@@ -8,18 +8,10 @@
  */
 
 import { isPlannedChangeClassification } from "../../constants.js";
+import { compareChildPlansByOrder, findPlansByParent, resolvePlan } from "../../plan-store.js";
+import { isEpicPlan, isInValidation, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import {
-    compareChildPlansByOrder,
-    findPlansByParent as findPlansByParentFn,
-    resolvePlan as resolvePlanFn,
-} from "../../plan-store.js";
-import {
-    isEpicPlan,
-    isInValidation,
-    recordPlanEvent as recordPlanEventFn,
-} from "../../shared/workflow/plan-lifecycle.js";
-import {
-    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
+    autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
 import { buildPlanSummary } from "./plan-presentation.ts";
@@ -53,12 +45,8 @@ export interface HandleEpicPlanOptions {
     projectRoot: string;
     plan: EpicPlanWithBody;
     uiAPI: UiAPI;
-    findPlansByParent: typeof findPlansByParentFn;
     runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
-    recordPlanEvent: typeof recordPlanEventFn;
-    resolvePlan: typeof resolvePlanFn;
     loadChildPlan: (childPlanName: string) => Promise<void>;
-    autoGenerateWorkRecordForCompletedPlan: typeof autoGenerateWorkRecordForCompletedPlanFn;
 }
 
 /**
@@ -66,24 +54,16 @@ export interface HandleEpicPlanOptions {
  * @param {string} opts.projectRoot
  * @param {{ planName: string, body: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
- * @param {typeof resolvePlanFn} opts.resolvePlan
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
- * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} opts.autoGenerateWorkRecordForCompletedPlan
  * @returns {Promise<"handled" | "continue" | "review">}
  */
 export async function handleEpicPlan({
     projectRoot,
     plan,
     uiAPI,
-    findPlansByParent,
     runSlicerAgent,
-    recordPlanEvent,
-    resolvePlan,
     loadChildPlan,
-    autoGenerateWorkRecordForCompletedPlan,
 }: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review"> {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
@@ -177,7 +157,7 @@ export async function handleEpicPlan({
         }
 
         if (answer === "hold") {
-            await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+            await putPlanOnHold({ projectRoot, plan, uiAPI });
             return "handled";
         }
 
@@ -186,8 +166,6 @@ export async function handleEpicPlan({
                 projectRoot,
                 plan,
                 uiAPI,
-                recordPlanEvent,
-                autoGenerateWorkRecordForCompletedPlan,
             });
             return "handled";
         }

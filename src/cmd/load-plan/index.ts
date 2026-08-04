@@ -9,24 +9,21 @@ import { parseArgs } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
     archivePlan,
-    findPlansByParent,
     listPlans,
     loadPlan,
     onboardExternalPlan,
     resolvePlan,
     resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencies,
-    updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
-import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
 import {
     buildPlannerReReviewRequest,
     buildPlanSummary,
     buildReReviewRevisionRequest,
     buildResumeRequest,
 } from "./plan-presentation.ts";
-import { handlePlanRecovery } from "./plan-recovery-flow.ts";
+import { handlePlanRecovery, SYSTEM_RECOVERY_FLOW_PORTS } from "./plan-recovery-flow.ts";
 import {
     buildManagedUnsupportedLoadPlanMessage,
     createPlanSessionSurface,
@@ -71,23 +68,8 @@ import {
     requestRecoverablePlanReview,
     SESSION_COMPLETE_GUIDANCE,
 } from "../../shared/workflow/plan-review-recovery.js";
-import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
-import { probeGitRepository } from "../../shared/git.js";
-import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
-import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
-import {
-    getWorktreeStatus,
-    inspectExecutionWorktreeMergeRisk,
-    removeWorktreeGitArtifacts,
-} from "../../shared/worktree.js";
-import {
-    findById as findWorktreeById,
-    findByPlanName as findWorktreeByPlanName,
-    updateEntry as updateWorktreeRegistryEntry,
-} from "../../shared/worktree-registry.js";
 import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
-import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
 import type { CommandContext } from "../registry.js";
@@ -105,7 +87,6 @@ type TransitionRecoveryRecord = Awaited<ReturnType<typeof healSettledTransitionR
 export async function runLoadPlanCommand(argv: string[], options: CommandContext = {}): Promise<void> {
     let sessionRuntime = options.sessionRuntime;
     let runtimeSessionId = options.sessionId;
-    const resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -322,15 +303,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 projectRoot,
                 plan,
                 uiAPI,
-                listCommitsTouchingPathsSince,
-                recordPlanEvent,
-                findPlansByParent,
-                findWorktreeById,
-                findWorktreeByPlanName,
-                updateWorktreeRegistryEntry,
-                getWorktreeStatus,
-                inspectExecutionWorktreeMergeRisk,
-                removeWorktreeGitArtifacts,
             });
             if (result === "handled") return;
         }
@@ -339,12 +311,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             projectRoot,
             plan,
             uiAPI,
-            findPlansByParent,
             runSlicerAgent,
-            recordPlanEvent,
-            resolvePlan,
             loadChildPlan: loadAnotherPlan,
-            autoGenerateWorkRecordForCompletedPlan,
         });
         if (epicResult === "handled") {
             skipRouterRestore = true;
@@ -367,9 +335,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 agentName,
                 uiAPI,
                 unresolvedRecords: unresolvedLifecycleRecords,
-                recordWorkflowMetric,
                 session,
-                probeGitRepository,
+                ports: SYSTEM_RECOVERY_FLOW_PORTS,
             });
             if (result === "handled") return;
         }
@@ -417,11 +384,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     projectRoot,
                     plan,
                     currentStatus: plan.attrs.status,
-                    findWorktreeById,
-                    findWorktreeByPlanName,
-                    updateWorktreeRegistryEntry,
-                    updatePlanFrontMatter,
-                    recordPlanEvent,
                     session,
                 });
                 break;
@@ -450,7 +412,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 if (!answer || answer === "cancel") return;
 
                 if (answer === "hold") {
-                    await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+                    await putPlanOnHold({ projectRoot, plan, uiAPI });
                     return;
                 }
 
@@ -459,8 +421,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         projectRoot,
                         plan,
                         uiAPI,
-                        recordPlanEvent,
-                        autoGenerateWorkRecordForCompletedPlan,
                     });
                     return;
                 }
@@ -472,7 +432,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                             projectRoot,
                             plan,
                             uiAPI,
-                            recordPlanEvent,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
@@ -486,16 +445,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         agentName,
                         uiAPI,
                         executePlan,
-                        runPlanningAgent,
-                        decidePostPlanning,
-                        decidePostExecution,
                         runValidationLoop,
-                        loadPlan,
-                        listCommitsTouchingPathsSince,
                         session,
-                        finalizePlanImplementation,
-                        recordPlanEvent,
-                        resolveValidationExecutionContextForRecovery,
                     });
                     return;
                 }
@@ -508,11 +459,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         projectRoot,
                         plan,
                         currentStatus: preReviewStatus,
-                        findWorktreeById,
-                        findWorktreeByPlanName,
-                        updateWorktreeRegistryEntry,
-                        updatePlanFrontMatter,
-                        recordPlanEvent,
                         session,
                     });
                     await switchPlanAgent(agentName);
@@ -533,15 +479,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         fallbackPlanContent: plan.markdown || plan.body || "",
                         uiAPI,
                         executePlan,
-                        decidePostExecution,
                         runValidationLoop,
                         runSlicerAgent,
-                        loadPlan,
-                        listCommitsTouchingPathsSince,
                         session,
-                        finalizePlanImplementation,
-                        recordPlanEvent,
-                        resolveValidationExecutionContextForRecovery,
                     });
                     if (shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
@@ -558,10 +498,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     // has reviewed the Plan wastes the review.
                     assertRecoveryWorktreeIsManaged(
                         plan.planName,
-                        await resolveRecoveryWorktree(projectRoot, plan, {
-                            findWorktreeById,
-                            findWorktreeByPlanName,
-                        }),
+                        await resolveRecoveryWorktree(projectRoot, plan),
                     );
 
                     await switchPlanAgent(agentName);
@@ -682,7 +619,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                             projectRoot,
                             plan,
                             uiAPI,
-                            recordPlanEvent,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
@@ -694,7 +630,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
                                 uiAPI,
-                                listCommitsTouchingPathsSince,
                             });
                             if (!confirmed) return;
 
@@ -715,12 +650,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                                 executionResult: execRes,
                                 fallbackPlanContent: plan.markdown || plan.body || "",
                                 runValidationLoop,
-                                loadPlan,
                                 session,
                                 uiAPI,
-                                finalizePlanImplementation,
-                                recordPlanEvent,
-                                resolveValidationExecutionContextForRecovery,
                             });
                         } else {
                             uiAPI.appendSystemMessage(
@@ -753,15 +684,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         fallbackPlanContent: plan.markdown || plan.body || "",
                         uiAPI,
                         executePlan,
-                        decidePostExecution,
                         runValidationLoop,
                         runSlicerAgent,
-                        loadPlan,
-                        listCommitsTouchingPathsSince,
                         session,
-                        finalizePlanImplementation,
-                        recordPlanEvent,
-                        resolveValidationExecutionContextForRecovery,
                     });
                     if (shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
@@ -796,7 +721,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     continue;
                 }
                 if (answer === "hold") {
-                    await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
+                    await putPlanOnHold({ projectRoot, plan, uiAPI });
                     return;
                 }
                 if (answer === "user_verify") {
@@ -804,8 +729,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         projectRoot,
                         plan,
                         uiAPI,
-                        recordPlanEvent,
-                        autoGenerateWorkRecordForCompletedPlan,
                     });
                     return;
                 }
@@ -833,15 +756,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             fallbackPlanContent: plan.markdown || plan.body || "",
             uiAPI,
             executePlan,
-            decidePostExecution,
             runValidationLoop,
             runSlicerAgent,
-            loadPlan,
-            listCommitsTouchingPathsSince,
             session,
-            finalizePlanImplementation,
-            recordPlanEvent,
-            resolveValidationExecutionContextForRecovery,
         });
         if (shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;

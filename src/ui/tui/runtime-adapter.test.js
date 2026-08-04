@@ -17,6 +17,7 @@ function makeUi() {
     /** @type {any[]} */
     const validationProgressUpdates = [];
     const uiAPI = /** @type {import('./types.js').UiAPI} */ ({
+        abortActivePrompt: () => {},
         appendUserMessage: (text) => transcript.push(`user:${text}`),
         appendImage: (base64, mimeType) => transcript.push(`image:${mimeType}:${base64}`),
         appendQueuedMessage: (id, text) => transcript.push(`queue:add:${id}:${text}`),

@@ -54,7 +54,7 @@ import {
     preflightImageAttachments,
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
-import { getModelRegistry } from "../models/model-registry.ts";
+import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
@@ -1128,9 +1128,15 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
-            const { runValidationLoop } = await import("../workflow/validation.ts");
+            const { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
             const { loadPlan } = await import("../../plan-store.js");
-            let latestResult = await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
+            let latestResult = await runValidationLoop(
+                /** @type {any} */ ({
+                    ...options,
+                    hostedSession: session,
+                    semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
+                }),
+            );
             for (let phase = 0; phase < 2; phase += 1) {
                 if (latestResult?.kind !== "paused") break;
                 const plan = await loadPlan(session.cwd, options.planName).catch(() => null);
@@ -1143,6 +1149,7 @@ export class SessionRuntime {
                         hostedSession: session,
                         planContent: plan.markdown || plan.body || options.planContent,
                         triageMeta: { ...options.triageMeta, ...plan.attrs },
+                        semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     }),
                 );
             }
@@ -1206,7 +1213,8 @@ export class SessionRuntime {
             (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
         let fallbackModelRef;
         if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry))?.modelRef;
+            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK))
+                ?.modelRef;
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
     }

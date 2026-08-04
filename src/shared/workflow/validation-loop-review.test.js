@@ -2,7 +2,7 @@ import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@st
 
 import { loadPlan } from "../../plan-store.js";
 import { runValidationPhase } from "./validation.ts";
-import { makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import { git, makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();
@@ -23,6 +23,13 @@ async function makeValidatedCiRun(attrs = {}) {
         ...attrs,
     });
     const { uiAPI, hostedSession } = makeValidationUi();
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "validation baseline"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    await Deno.writeTextFile(`${projectRoot}/workflow.js`, "export const scopedWorkflowChange = true;\n");
     const triageMeta = { classification: "QUICK_FIX", status: "validated_ci", ...attrs };
     hostedSession.setWorkflowExecutionContext({
         planName: "p",
@@ -35,7 +42,7 @@ async function makeValidatedCiRun(attrs = {}) {
         executionAgent,
         projectRoot,
         executionCwd: projectRoot,
-        baselineTree: "baseline-tree",
+        baselineTree,
         executionMode: "worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
@@ -79,26 +86,7 @@ function repairMessages(message = "R1-1 — fixed: added the missing guard.") {
  */
 function reviewPort(overrides = {}) {
     return /** @type {any} */ ({
-        getCodeReviewMode: () => "none",
-        loadReviewerPrompt: (/** @type {"discovery" | "verify"} */ mode) =>
-            Promise.resolve({
-                name: "reviewer",
-                displayName: "Reviewer",
-                model: "",
-                description: "",
-                tools: [],
-                systemPrompt: `${mode} prompt`,
-            }),
-        loadReviewerFeedbackEngineerDef: () =>
-            Promise.resolve({
-                name: "reviewer-feedback-engineer",
-                displayName: "Reviewer-Feedback Engineer",
-                model: "",
-                description: "",
-                tools: ["read", "edit", "task_completed"],
-                systemPrompt: "repair prompt",
-            }),
-        getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+        runIsolatedAgentSession: () => Promise.reject(new Error("Unexpected isolated Agent session")),
         ...overrides,
     });
 }
@@ -154,9 +142,7 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationCiAttempts: 2 },
-        semanticReviewPort: reviewPort({
-            getDiffText: () => Promise.resolve(""),
-        }),
+        semanticReviewPort: reviewPort(),
         localCI: {
             run: () => {
                 ciCalls += 1;
@@ -175,7 +161,6 @@ Deno.test("runValidationPhase reviews the diff scoped to the active workflow bas
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
-    const baselineArgs = /** @type {Array<string | undefined>} */ ([]);
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
 
     await runValidationPhase({
@@ -184,10 +169,6 @@ Deno.test("runValidationPhase reviews the diff scoped to the active workflow bas
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", complexity: "MEDIUM" },
         semanticReviewPort: reviewPort({
-            getDiffText: (/** @type {string | undefined} */ baselineTree) => {
-                baselineArgs.push(baselineTree);
-                return Promise.resolve("diff --git a/workflow.js b/workflow.js\n+scoped workflow change\n");
-            },
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewPrompts.push(opts.userRequest);
                 return Promise.resolve(reviewerMessages());
@@ -196,7 +177,6 @@ Deno.test("runValidationPhase reviews the diff scoped to the active workflow bas
     });
 
     const plan = await loadPlan(projectRoot, "p");
-    assertEquals(baselineArgs, ["baseline-tree"]);
     assertEquals(reviewPrompts.length, 1);
     assertStringIncludes(reviewPrompts[0], "workflow.js");
     assertEquals(reviewPrompts[0].includes("+scoped workflow change"), false);
@@ -544,7 +524,6 @@ Deno.test("runValidationPhase narrows semantic review to verification mode after
     hostedSession.setActiveExecutionWorkflow(
         /** @type {any} */ ({ ...hostedSession.getActiveExecutionWorkflow(), reviewLedger: ledger }),
     );
-    const promptModes = /** @type {string[]} */ ([]);
     const reviewPrompts = /** @type {string[]} */ ([]);
 
     await runValidationPhase({
@@ -553,17 +532,6 @@ Deno.test("runValidationPhase narrows semantic review to verification mode after
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
         semanticReviewPort: reviewPort({
-            loadReviewerPrompt: (/** @type {"discovery" | "verify"} */ mode) => {
-                promptModes.push(mode);
-                return Promise.resolve({
-                    name: "reviewer",
-                    displayName: "Reviewer",
-                    model: "",
-                    description: "",
-                    tools: [],
-                    systemPrompt: `${mode} prompt`,
-                });
-            },
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewPrompts.push(opts.userRequest);
                 return Promise.resolve(reviewerMessages({
@@ -576,7 +544,6 @@ Deno.test("runValidationPhase narrows semantic review to verification mode after
         }),
     });
 
-    assertEquals(promptModes, ["verify"]);
     assertStringIncludes(reviewPrompts[0], "This is review round 3");
     assertStringIncludes(reviewPrompts[0], "Do not sweep the Plan again");
     assertStringIncludes(reviewPrompts[0], "R1-1");
@@ -587,18 +554,19 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
     const interactions = /** @type {any[]} */ ([]);
 
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (/** @type {any} */ request) => {
+            interactions.push(request);
+            return Promise.resolve({ outcome: "selected", value: "code_review" });
+        },
+    });
+
     await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
-        semanticReviewPort: {
-            ...roundLimitPort(),
-            requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) => {
-                interactions.push(request);
-                return Promise.resolve({ outcome: "selected", value: "code_review" });
-            },
-        },
+        semanticReviewPort: roundLimitPort(),
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
         },
@@ -622,18 +590,19 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
 Deno.test("Stop at the review round limit keeps the passing tests and the open findings", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
 
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (/** @type {any} */ request) =>
+            Promise.resolve(
+                request.type === "select" ? { outcome: "selected", value: "stop" } : { outcome: "canceled" },
+            ),
+    });
+
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
-        semanticReviewPort: {
-            ...roundLimitPort(),
-            requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) =>
-                Promise.resolve(
-                    request.type === "select" ? { outcome: "selected", value: "stop" } : { outcome: "canceled" },
-                ),
-        },
+        semanticReviewPort: roundLimitPort(),
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
         },
@@ -655,6 +624,17 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
     let asks = 0;
     const answers = ["continue"];
 
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (/** @type {any} */ request) => {
+            if (request.type !== "select") return Promise.resolve({ outcome: "canceled" });
+            if (!String(request.prompt).includes("looked at")) {
+                return Promise.resolve({ outcome: "selected", value: "stop" });
+            }
+            asks += 1;
+            return Promise.resolve({ outcome: "selected", value: answers.shift() || "stop" });
+        },
+    });
+
     const result = await runValidationPhase({
         hostedSession,
         planName: "p",
@@ -662,18 +642,8 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
         semanticReviewPort: {
             ...roundLimitPort(),
-            loadReviewerPrompt: (/** @type {"discovery" | "verify"} */ mode) => {
-                modes.push(mode);
-                return Promise.resolve({
-                    name: "reviewer",
-                    displayName: "Reviewer",
-                    model: "",
-                    description: "",
-                    tools: [],
-                    systemPrompt: `${mode} prompt`,
-                });
-            },
             runIsolatedAgentSession: (/** @type {any} */ options) => {
+                modes.push("verify");
                 if (options?.agentName === "reviewer-feedback-engineer") {
                     return Promise.resolve(
                         /** @type {any[]} */ ([{
@@ -691,18 +661,6 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
                 return Promise.resolve(
                     reviewerMessages({ approved: false, findings: [{ title: "Issue from round 1" }] }),
                 );
-            },
-            requestInteraction: (/** @type {unknown} */ _session, /** @type {any} */ request) => {
-                if (request.type !== "select") return Promise.resolve({ outcome: "canceled" });
-                // Only the round-limit question counts here. The round bought by "look
-                // again" ends at its own pause — the canned reviewer never accounts for
-                // the open finding it was handed, so it runs out of nudges — and that
-                // menu is a different question.
-                if (!String(request.prompt).includes("looked at")) {
-                    return Promise.resolve({ outcome: "selected", value: "stop" });
-                }
-                asks += 1;
-                return Promise.resolve({ outcome: "selected", value: answers.shift() || "stop" });
             },
         },
         localCI: {

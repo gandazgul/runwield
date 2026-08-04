@@ -7,7 +7,6 @@ import {
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
     getBranchHead,
-    getWorktreeStatus,
     isCommitAncestorOfBranch,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
@@ -45,7 +44,6 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
             plan.planName,
             context.worktreeContext,
             uiAPI,
-            getWorktreeStatus,
         ))
     ) {
         return { kind: "menu" };

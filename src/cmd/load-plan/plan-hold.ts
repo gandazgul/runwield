@@ -7,25 +7,21 @@
  */
 
 import { CLI_BIN } from "../../constants.js";
-import { findPlansByParent as findPlansByParentFn } from "../../plan-store.js";
-import { isEpicPlan, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
-import { listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn } from "../../shared/workflow/git-snapshot.js";
+import { findPlansByParent } from "../../plan-store.js";
+import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
 import {
-    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
+    autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
 import {
     deleteMergedWorktreeBranch,
-    getWorktreeStatus as getWorktreeStatusFn,
-    inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
-    removeWorktreeGitArtifacts as removeWorktreeGitArtifactsFn,
+    getWorktreeStatus,
+    inspectExecutionWorktreeMergeRisk,
+    removeWorktreeGitArtifacts,
 } from "../../shared/worktree.js";
-import {
-    findById as findWorktreeByIdFn,
-    findByPlanName as findWorktreeByPlanNameFn,
-    updateEntry as updateWorktreeRegistryEntryFn,
-} from "../../shared/worktree-registry.js";
+import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
 import { buildPlanSummary, formatCommitHeadsUp } from "./plan-presentation.ts";
 import { formatEpicProgressSummary } from "./plan-epic-children.ts";
 import { confirmWorktreeAction, hasWorktreeContext, resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
@@ -45,35 +41,22 @@ export interface HeldPlanWithBody extends HoldablePlan {
     markdown?: string;
 }
 
-/** The worktree lookups the hold flow needs. */
-export interface HoldWorktreeLookups {
-    findWorktreeById: typeof findWorktreeByIdFn;
-    findWorktreeByPlanName: typeof findWorktreeByPlanNameFn;
-}
-
 export interface PutPlanOnHoldOptions {
     projectRoot: string;
     plan: HoldablePlan;
     uiAPI: UiAPI;
-    recordPlanEvent: typeof recordPlanEventFn;
-    findPlansByParent: typeof findPlansByParentFn;
 }
 
 export interface MarkPlanUserVerifiedOptions {
     projectRoot: string;
     plan: HoldablePlan;
     uiAPI: UiAPI;
-    recordPlanEvent: typeof recordPlanEventFn;
-    autoGenerateWorkRecordForCompletedPlan: typeof autoGenerateWorkRecordForCompletedPlanFn;
 }
 
-export interface RunResumeCheckOptions extends HoldWorktreeLookups {
+export interface RunResumeCheckOptions {
     projectRoot: string;
     plan: HoldablePlan;
     uiAPI: UiAPI;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
-    getWorktreeStatus: typeof getWorktreeStatusFn;
-    inspectExecutionWorktreeMergeRisk: typeof inspectExecutionWorktreeMergeRiskFn;
 }
 
 /** What the Resume Check concluded, and what to tell the user about it. */
@@ -82,26 +65,16 @@ export interface ResumeCheckResult {
     messages: string[];
 }
 
-export interface ResetHeldPlanOptions extends HoldWorktreeLookups {
+export interface ResetHeldPlanOptions {
     projectRoot: string;
     plan: HoldablePlan;
     uiAPI: UiAPI;
-    recordPlanEvent: typeof recordPlanEventFn;
-    updateWorktreeRegistryEntry: typeof updateWorktreeRegistryEntryFn;
-    removeWorktreeGitArtifacts: typeof removeWorktreeGitArtifactsFn;
 }
 
-export interface HandleOnHoldPlanOptions extends HoldWorktreeLookups {
+export interface HandleOnHoldPlanOptions {
     projectRoot: string;
     plan: HeldPlanWithBody;
     uiAPI: UiAPI;
-    listCommitsTouchingPathsSince: typeof listCommitsTouchingPathsSinceFn;
-    recordPlanEvent: typeof recordPlanEventFn;
-    findPlansByParent: typeof findPlansByParentFn;
-    updateWorktreeRegistryEntry: typeof updateWorktreeRegistryEntryFn;
-    getWorktreeStatus: typeof getWorktreeStatusFn;
-    inspectExecutionWorktreeMergeRisk: typeof inspectExecutionWorktreeMergeRiskFn;
-    removeWorktreeGitArtifacts: typeof removeWorktreeGitArtifactsFn;
 }
 
 /**
@@ -166,12 +139,10 @@ export async function confirmHoldWarning(uiAPI: UiAPI, message: string): Promise
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
- * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @returns {Promise<boolean>}
  */
 export async function putPlanOnHold(
-    { projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent }: PutPlanOnHoldOptions,
+    { projectRoot, plan, uiAPI }: PutPlanOnHoldOptions,
 ): Promise<boolean> {
     if (!isHoldableStatus(plan.attrs.status)) {
         uiAPI.appendSystemMessage(`Plans with status ${plan.attrs.status} cannot be put on hold.`, true, "RunWield");
@@ -224,12 +195,10 @@ export async function putPlanOnHold(
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
- * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} opts.autoGenerateWorkRecordForCompletedPlan
  * @returns {Promise<boolean>}
  */
 export async function markPlanUserVerified(
-    { projectRoot, plan, uiAPI, recordPlanEvent, autoGenerateWorkRecordForCompletedPlan }: MarkPlanUserVerifiedOptions,
+    { projectRoot, plan, uiAPI }: MarkPlanUserVerifiedOptions,
 ): Promise<boolean> {
     if (!isUserVerifiableStatus(plan.attrs.status)) {
         uiAPI.appendSystemMessage(
@@ -297,29 +266,16 @@ export async function markPlanUserVerified(
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
- * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
- * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
- * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
- * @param {typeof inspectExecutionWorktreeMergeRiskFn} opts.inspectExecutionWorktreeMergeRisk
  * @returns {Promise<{ status: "pass" | "warn" | "fail", messages: string[] }>}
  */
 export async function runResumeCheck({
     projectRoot,
     plan,
     uiAPI: _uiAPI,
-    listCommitsTouchingPathsSince,
-    findWorktreeById,
-    findWorktreeByPlanName,
-    getWorktreeStatus,
-    inspectExecutionWorktreeMergeRisk,
 }: RunResumeCheckOptions): Promise<ResumeCheckResult> {
     const warnings = [];
     const failures = [];
-    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan, {
-        findWorktreeById,
-        findWorktreeByPlanName,
-    });
+    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan);
 
     if (hasRecordedWorktreeMetadata(plan.attrs)) {
         if (!worktreeContext?.path) {
@@ -392,27 +348,14 @@ export async function runResumeCheck({
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
- * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
- * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
- * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
- * @param {typeof removeWorktreeGitArtifactsFn} opts.removeWorktreeGitArtifacts
  * @returns {Promise<boolean>}
  */
 export async function resetHeldPlanToDraft({
     projectRoot,
     plan,
     uiAPI,
-    recordPlanEvent,
-    findWorktreeById,
-    findWorktreeByPlanName,
-    updateWorktreeRegistryEntry,
-    removeWorktreeGitArtifacts,
 }: ResetHeldPlanOptions): Promise<boolean> {
-    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan, {
-        findWorktreeById,
-        findWorktreeByPlanName,
-    });
+    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan);
     let action = "reset_keep";
     if (hasWorktreeContext(worktreeContext)) {
         action = String(
@@ -491,30 +434,12 @@ export async function resetHeldPlanToDraft({
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown?: string }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
- * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
- * @param {typeof recordPlanEventFn} opts.recordPlanEvent
- * @param {typeof findPlansByParentFn} opts.findPlansByParent
- * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
- * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
- * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
- * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
- * @param {typeof inspectExecutionWorktreeMergeRiskFn} opts.inspectExecutionWorktreeMergeRisk
- * @param {typeof removeWorktreeGitArtifactsFn} opts.removeWorktreeGitArtifacts
  * @returns {Promise<"resume" | "handled">}
  */
 export async function handleOnHoldPlan({
     projectRoot,
     plan,
     uiAPI,
-    listCommitsTouchingPathsSince,
-    recordPlanEvent,
-    findPlansByParent,
-    findWorktreeById,
-    findWorktreeByPlanName,
-    updateWorktreeRegistryEntry,
-    getWorktreeStatus,
-    inspectExecutionWorktreeMergeRisk,
-    removeWorktreeGitArtifacts,
 }: HandleOnHoldPlanOptions): Promise<"resume" | "handled"> {
     while (plan.attrs.status === "on_hold") {
         const answer = await uiAPI.promptSelect("This plan is on hold. What would you like to do?", [
@@ -535,11 +460,6 @@ export async function handleOnHoldPlan({
                 projectRoot,
                 plan,
                 uiAPI,
-                recordPlanEvent,
-                findWorktreeById,
-                findWorktreeByPlanName,
-                updateWorktreeRegistryEntry,
-                removeWorktreeGitArtifacts,
             });
             if (reset) return "resume";
             continue;
@@ -558,11 +478,6 @@ export async function handleOnHoldPlan({
                 projectRoot,
                 plan,
                 uiAPI,
-                listCommitsTouchingPathsSince,
-                findWorktreeById,
-                findWorktreeByPlanName,
-                getWorktreeStatus,
-                inspectExecutionWorktreeMergeRisk,
             });
             uiAPI.appendSystemMessage(
                 ["Resume Check:", ...check.messages.map((message) => `- ${message}`)].join("\n"),

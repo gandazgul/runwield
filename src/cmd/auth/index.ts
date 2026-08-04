@@ -6,14 +6,18 @@
 import { AGENTS } from "../../constants.js";
 import { getModelRegistry, RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { UiAPI } from "../../ui/tui/types.js";
 
-type AuthUiPort = Pick<
-    import("../../ui/tui/types.js").UiAPI,
-    "abortActivePrompt" | "appendSystemMessage" | "promptSelect" | "promptText" | "showModelSelector"
->;
+export interface AuthUiPort {
+    abortActivePrompt: NonNullable<UiAPI["abortActivePrompt"]>;
+    appendSystemMessage: UiAPI["appendSystemMessage"];
+    promptSelect: UiAPI["promptSelect"];
+    promptText: UiAPI["promptText"];
+    showModelSelector: UiAPI["showModelSelector"];
+}
 
 interface AuthCommandOptions {
-    uiAPI?: AuthUiPort;
+    uiAPI: AuthUiPort;
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
     skipPostLoginSetup?: boolean;
@@ -28,10 +32,6 @@ interface AuthProviderOption {
 const LOGIN_SUBSCRIPTION_LABEL = "Use a subscription";
 const LOGIN_API_KEY_LABEL = "Use an API key";
 const LOGIN_BACK_VALUE = "__runwield_login_back__";
-
-function getUi(options: AuthCommandOptions): AuthUiPort | undefined {
-    return options.uiAPI;
-}
 
 async function hydrateModelRegistry(registry: RunWieldModelRegistry): Promise<void> {
     await registry.getRuntime();
@@ -194,9 +194,9 @@ async function loginWithSubscription(
                 return value;
             },
         });
-        uiAPI.abortActivePrompt?.();
+        uiAPI.abortActivePrompt();
     } catch (error) {
-        uiAPI.abortActivePrompt?.();
+        uiAPI.abortActivePrompt();
         throw error;
     }
 }
@@ -219,18 +219,14 @@ async function configureInteractiveSessionAfterLogin(
     registry: RunWieldModelRegistry,
 ): Promise<void> {
     const availableModels = registry.getAvailable();
-    if (availableModels.length > 0) await options.uiAPI?.showModelSelector?.();
+    if (availableModels.length > 0) await options.uiAPI.showModelSelector();
     if (options.sessionId && options.sessionRuntime) {
         await options.sessionRuntime.switchAgent(options.sessionId, { agentName: AGENTS.ROUTER });
     }
 }
 
-export async function runLoginCommand(argv: string[], options: AuthCommandOptions = {}): Promise<void> {
-    const uiAPI = getUi(options);
-    if (!uiAPI) {
-        console.log("The /login command is only available in the interactive session.");
-        return;
-    }
+export async function runLoginCommand(argv: string[], options: AuthCommandOptions): Promise<void> {
+    const { uiAPI } = options;
 
     const registry = getModelRegistry();
     await hydrateModelRegistry(registry);
@@ -281,12 +277,8 @@ export async function runLoginCommand(argv: string[], options: AuthCommandOption
     }
 }
 
-export async function runLogoutCommand(argv: string[], options: AuthCommandOptions = {}): Promise<void> {
-    const uiAPI = getUi(options);
-    if (!uiAPI) {
-        console.log("The /logout command is only available in the interactive session.");
-        return;
-    }
+export async function runLogoutCommand(argv: string[], options: AuthCommandOptions): Promise<void> {
+    const { uiAPI } = options;
 
     const registry = getModelRegistry();
     await hydrateModelRegistry(registry);
@@ -373,10 +365,9 @@ async function formatAuthStatusLinesAsync(
     return lines.join("\n");
 }
 
-export async function runStatusCommand(_argv: string[], options: AuthCommandOptions = {}): Promise<void> {
+export async function runStatusCommand(_argv: string[], options: AuthCommandOptions): Promise<void> {
     const registry = getModelRegistry();
     await hydrateModelRegistry(registry);
     const status = await formatAuthStatusForRuntime(registry);
-    if (options.uiAPI) options.uiAPI.appendSystemMessage(status);
-    else console.log(status);
+    options.uiAPI.appendSystemMessage(status);
 }

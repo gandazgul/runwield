@@ -93,9 +93,16 @@ interface CompatibilityRequestConfig {
 
 interface DiscoverProviderModelOptions {
     runwieldDir?: string;
-    fetchFn?: typeof fetch;
     input?: ("text" | "image")[];
 }
+
+export interface ModelDiscoveryNetworkPort {
+    fetch: typeof fetch;
+}
+
+export const SYSTEM_MODEL_DISCOVERY_NETWORK: ModelDiscoveryNetworkPort = Object.freeze({
+    fetch: globalThis.fetch.bind(globalThis),
+});
 
 interface ModelRegistryOptions {
     runtime?: ModelRuntime | null;
@@ -651,6 +658,7 @@ export async function discoverProviderModel(
     modelRegistry: RunWieldModelRegistry,
     provider: string,
     modelId: string,
+    network: ModelDiscoveryNetworkPort,
     options: DiscoverProviderModelOptions = {},
 ): Promise<RunWieldModel | undefined> {
     const existing = modelRegistry.find(provider, modelId);
@@ -668,8 +676,7 @@ export async function discoverProviderModel(
     const apiKey = resolveLiteralConfigValue(providerConfig.apiKey);
     if (!baseUrl || !api || !apiKey) return undefined;
 
-    const fetchFn = options.fetchFn ?? fetch;
-    const response = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/models`, {
+    const response = await network.fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
         headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
     });
     if (!response.ok) {

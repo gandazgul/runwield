@@ -86,6 +86,7 @@ async function withSlashFixture(
                 disableModelInvocation: skill.disableModelInvocation,
             }));
             const uiAPI: SlashContext["uiAPI"] = {
+                abortActivePrompt: () => {},
                 appendSystemMessage: (message) => messages.push(message),
                 appendAgentMessageStart: () => ({ appendText: () => {} }),
                 requestRender: () => {},

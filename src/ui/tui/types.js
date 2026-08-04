@@ -57,7 +57,7 @@
  *   addToolResult?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
  *   isOutputSuppressed?: () => boolean,
  *   suppressOutput?: () => void,
- *   abortActivePrompt?: () => void,
+ *   abortActivePrompt: () => void,
  *   dispose?: () => void,
  * }} UiAPI
  */

@@ -13,6 +13,10 @@ import {
 } from "./image-attachments.js";
 import { __resetSettingsForTests } from "../settings.js";
 
+const NO_MODEL_DISCOVERY_NETWORK = {
+    fetch: () => Promise.reject(new Error("Unexpected model discovery network call")),
+};
+
 function makeSessionManager(id = "session-1") {
     return { getSessionId: () => id };
 }
@@ -155,7 +159,11 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
     await withProcessGlobalTestLock(async () => {
         await withVisionSettings({ visionFallback: { model: "test/missing" } }, async () => {
             await assertRejects(
-                () => resolveVisionFallbackModel({ find: () => undefined, hasConfiguredAuth: () => true }),
+                () =>
+                    resolveVisionFallbackModel(
+                        { find: () => undefined, hasConfiguredAuth: () => true },
+                        NO_MODEL_DISCOVERY_NETWORK,
+                    ),
                 Error,
                 "Unknown visionFallback.model",
             );
@@ -164,7 +172,11 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
         await withVisionSettings({ visionFallback: { model: "test/vision" } }, async () => {
             const model = { provider: "test", id: "vision", input: ["text", "image"] };
             await assertRejects(
-                () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => false }),
+                () =>
+                    resolveVisionFallbackModel(
+                        { find: () => model, hasConfiguredAuth: () => false },
+                        NO_MODEL_DISCOVERY_NETWORK,
+                    ),
                 Error,
                 "No API key configured for visionFallback.model",
             );
@@ -173,7 +185,11 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
         await withVisionSettings({ visionFallback: { model: "test/text" } }, async () => {
             const model = { provider: "test", id: "text", input: ["text"] };
             await assertRejects(
-                () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => true }),
+                () =>
+                    resolveVisionFallbackModel(
+                        { find: () => model, hasConfiguredAuth: () => true },
+                        NO_MODEL_DISCOVERY_NETWORK,
+                    ),
                 Error,
                 "not vision-capable",
             );
@@ -210,20 +226,19 @@ Deno.test("resolveVisionFallbackModel discovers configured provider models", asy
                     for (const model of config.models) this.models.push({ provider, ...model });
                 },
             };
-            const originalFetch = globalThis.fetch;
-            globalThis.fetch = /** @type {any} */ (() =>
-                Promise.resolve({
-                    ok: true,
-                    json: () => Promise.resolve({ data: [{ id: "discovered" }] }),
-                }));
-            try {
-                const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry));
-                assertEquals(resolved?.modelRef, "local/discovered");
-                assertEquals(resolved?.model.input, ["text", "image"]);
-                assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);
-            } finally {
-                globalThis.fetch = originalFetch;
-            }
+            const network = {
+                fetch: /** @type {typeof fetch} */ (() =>
+                    Promise.resolve(
+                        /** @type {Response} */ ({
+                            ok: true,
+                            json: () => Promise.resolve({ data: [{ id: "discovered" }] }),
+                        }),
+                    )),
+            };
+            const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry), network);
+            assertEquals(resolved?.modelRef, "local/discovered");
+            assertEquals(resolved?.model.input, ["text", "image"]);
+            assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);
         });
     });
 });

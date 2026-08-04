@@ -8,7 +8,13 @@ import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js
 import { runValidationLoop, runValidationPhase, shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { createExecutionStartPorts } from "./execution-start.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
-import { attachRecorder, makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import {
+    attachRecorder,
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    NO_ISOLATED_AGENT_PORT,
+} from "./validation-test-helpers.js";
 
 const footerExecutionRepo = defineGitFixture(async (repoPath) => {
     await savePlan(repoPath, "footer-plan", "# footer-plan\n\nvalidation fixture\n", {
@@ -162,6 +168,7 @@ Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE pl
             humanReviewMode: "none",
             humanReviewDecision: "not_required",
         },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -179,9 +186,7 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "FEATURE", status: "validated_ci" },
-            semanticReviewPort: {
-                getDiffText: () => Promise.resolve(""),
-            },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         });
 
         const plan = await loadPlan(projectRoot, "p");
@@ -195,6 +200,19 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
 
 Deno.test("runValidationLoop fails PROJECT validation when workflow diff only changes a plan document", async () => {
     const { projectRoot, hostedSession } = await makeLifecycleRun("validated_ci", { classification: "PROJECT" });
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "validation baseline"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    const baselinePlan = await loadPlan(projectRoot, "p");
+    await savePlan(projectRoot, "p", "# p\n\nPlan-only follow-up.\n", {
+        classification: "PROJECT",
+        status: "validated_ci",
+        summary: "validation fixture",
+        affectedPaths: [],
+    }, { expectedRevision: baselinePlan?.revision });
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "PROJECT", status: "validated_ci" },
@@ -202,7 +220,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
         projectRoot,
         executionCwd: projectRoot,
         executionMode: "worktree",
-        baselineTree: "baseline-tree",
+        baselineTree,
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
         worktreeBaseBranch: "main",
@@ -213,9 +231,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "PROJECT", status: "validated_ci" },
-        semanticReviewPort: {
-            getDiffText: () => Promise.resolve("diff --git a/plans/p.md b/plans/p.md\n+# p\n"),
-        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
     });
 
     const plan = await loadPlan(projectRoot, "p");
@@ -236,6 +252,7 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => {
                 ciCalls += 1;
@@ -278,16 +295,6 @@ Deno.test("runValidationLoop advances from met Objective-Failing Checks into sem
         planContent: "# p",
         triageMeta,
         semanticReviewPort: {
-            getDiffText: () => Promise.resolve("diff --git a/file.ts b/file.ts\n+const fixed = true;\n"),
-            loadReviewerPrompt: () =>
-                Promise.resolve({
-                    name: "reviewer",
-                    displayName: "Reviewer",
-                    model: "",
-                    description: "",
-                    tools: [],
-                    systemPrompt: "review prompt",
-                }),
             runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
@@ -333,6 +340,7 @@ Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Chan
             planName: "p",
             planContent: "# p",
             triageMeta: { classification, status: "implemented", objectiveChecks },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI: {
                 run: () => {
                     ciCalls += 1;
@@ -371,6 +379,7 @@ Deno.test({
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI: {
                 run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
             },
@@ -411,6 +420,7 @@ Deno.test("runValidationLoop starts at implemented and records only the mechanic
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", complexity: "MEDIUM" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
             run: () => {
                 ciCalls += 1;
