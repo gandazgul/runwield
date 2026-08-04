@@ -48,7 +48,6 @@ import {
 } from "../../shared/project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../../shared/session/agents.js";
-import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
@@ -63,7 +62,7 @@ import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 import { renderBootBanner } from "./boot-banner.ts";
-import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
+import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.ts";
 import { getHomeDir } from "../../constants.js";
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.ts";
@@ -1019,9 +1018,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             initialAgentInternalName,
             initialAgentModel: options.initialAgentModel,
             setActiveModel: setCurrentActiveModel,
-            commandRegistry,
-            getModelRegistry,
-            getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
+            projectRoot: getRuntimeSnapshot().cwd,
         });
 
     // Activate the initial root/handler pair as one Runtime transaction. The
@@ -1044,9 +1041,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                     initialAgentInternalName,
                     initialAgentModel: options.initialAgentModel,
                     setActiveModel: setCurrentActiveModel,
-                    commandRegistry,
-                    getModelRegistry,
-                    getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
+                    projectRoot: getRuntimeSnapshot().cwd,
                     forceModelSelection: true,
                 });
             } else {
@@ -1074,10 +1069,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     /** @returns {boolean} */
     function shouldBlockForModelSetup() {
         if (!modelSetupRequired) return false;
-        const availability = getSelectedDefaultModelAvailability(
-            getModelRegistry,
-            () => getSettingsManager(getRuntimeSnapshot().cwd),
-        );
+        const availability = getSelectedDefaultModelAvailability(getRuntimeSnapshot().cwd);
         if (availability.available) {
             modelSetupRequired = false;
             editor.disableSubmit = false;

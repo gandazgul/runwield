@@ -18,6 +18,23 @@ import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
 import { runSessionCommand } from "./session/index.js";
+
+/**
+ * Auth commands require the real interactive UiAPI; slash dispatch always
+ * supplies one. This adapter narrows the optional `CommandContext` surface to
+ * the auth commands' required `AuthCommandOptions` surface, so a missing UI
+ * fails loudly instead of falling back to stdout.
+ *
+ * @param {CommandContext} [options]
+ * @returns {import('./auth/index.ts').AuthCommandOptions}
+ */
+function requireAuthUi(options) {
+    const uiAPI = options?.uiAPI;
+    if (!uiAPI) {
+        throw new Error("The /login, /logout, and /status commands require the interactive session.");
+    }
+    return { ...options, uiAPI };
+}
 import { runContextCommand } from "./context/index.js";
 import { runShareCommand } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
@@ -207,7 +224,7 @@ export const commandRegistry = {
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
-        execute: runLoginCommand,
+        execute: (argv, options) => runLoginCommand(argv, requireAuthUi(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.LOGOUT]: {
@@ -222,7 +239,7 @@ export const commandRegistry = {
         notes: [
             "Environment variables and models.json provider config are not changed.",
         ],
-        execute: runLogoutCommand,
+        execute: (argv, options) => runLogoutCommand(argv, requireAuthUi(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.STATUS]: {
@@ -236,7 +253,7 @@ export const commandRegistry = {
         notes: [
             "This reports model/auth status for the current RunWield configuration.",
         ],
-        execute: runStatusCommand,
+        execute: (argv, options) => runStatusCommand(argv, requireAuthUi(options)),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.LOAD_PLAN]: {

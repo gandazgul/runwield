@@ -115,6 +115,8 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {boolean} [composedTui]
  * @property {{ userText: string, agentName?: string, assistantText: string }} [priorSession]
  * @property {"default" | "none" | "provider-without-models"} [modelSetup]
+ * @property {Array<{ marker: string, keys?: string, text?: string }>} [startupInput]
+ * @property {boolean} [expectedCleanExit]
  */
 
 /**
@@ -578,8 +580,6 @@ async function runComposedTuiScenario(scenario, options) {
         let artifactDir = null;
         /** @type {Array<{ event: string, status?: unknown, updatedAt?: unknown }>} */
         const persistedLifecycleEvents = [];
-        /** @type {null | { registry: Record<string, any>, quitName: string, execute: unknown }} */
-        let startupModelSetupCommandPatch = null;
         const writeHeartbeat = async () => {
             if (!options.heartbeatPath) return;
             await Deno.mkdir(join(options.heartbeatPath, ".."), { recursive: true }).catch(() => {});
@@ -620,18 +620,6 @@ async function runComposedTuiScenario(scenario, options) {
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
         try {
-            if (scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models") {
-                const { commandRegistry, COMMAND_NAMES } = await import("../../../cmd/registry.js");
-                startupModelSetupCommandPatch = {
-                    registry: commandRegistry,
-                    quitName: COMMAND_NAMES.QUIT,
-                    execute: commandRegistry[COMMAND_NAMES.QUIT].execute,
-                };
-                commandRegistry[COMMAND_NAMES.QUIT].execute = () => {
-                    events.push("startup:quit");
-                    return Promise.resolve();
-                };
-            }
             // Every scripted turn is served through the faux provider, including the
             // Slicer's. Excluding it meant the harness consumed that turn itself and
             // called saveChildFeaturePlans directly, so the real
@@ -735,34 +723,82 @@ async function runComposedTuiScenario(scenario, options) {
                 });
             });
             fauxProvider?.setResponses([...scriptedResponseFactories, ...fallbackResponseFactories]);
-            composition = await createInteractiveTuiComposition(null, {
+            // The welcome prompt blocks inside createInteractiveTuiComposition while
+            // scenario actions only run after it resolves, so startup-declared input
+            // has to be fed while the composition promise is still in flight. Input
+            // sent before the TUI attaches its handler to the VirtualTerminal is
+            // dropped, so every step waits for a screen marker first. The observed
+            // screen at each marker is recorded for assertions, and an
+            // expected-clean-exit scenario reports it to the parent before feeding
+            // the input that will drive the real /quit (Deno.exit(0)).
+            const startupInputSteps = scenario.startupInput || [];
+            const startupInputPromise = (async () => {
+                for (const step of startupInputSteps) {
+                    const marker = String(step.marker || "");
+                    const startedAt = Date.now();
+                    let markerObserved = false;
+                    while (Date.now() - startedAt < (scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS)) {
+                        await terminal.flush();
+                        const screen = terminal.getScreenText();
+                        if (screen.includes(marker)) {
+                            markerObserved = true;
+                            state.startupScreen = screen;
+                            state.startupScrollback = terminal.getScrollbackText();
+                            events.push(`startup:marker:${marker}`);
+                            // Report the observed screen before feeding input: an
+                            // expected-clean-exit scenario dies inside the real /quit
+                            // (Deno.exit(0)) shortly after its input lands, and the
+                            // pre-exit report is the parent's only evidence.
+                            if (scenario.expectedCleanExit) {
+                                await writeHeartbeat();
+                                console.log(JSON.stringify({
+                                    ok: true,
+                                    expectedCleanExit: true,
+                                    result: {
+                                        name: scenario.name,
+                                        state,
+                                        events,
+                                        screenText: screen,
+                                        scrollbackText: state.startupScrollback,
+                                        actor: actor.diagnostics(),
+                                        artifactDir: null,
+                                    },
+                                    env: {
+                                        root: runwieldDir ? join(runwieldDir, "..", "..") : null,
+                                        projectRoot: Deno.cwd(),
+                                    },
+                                    heartbeatArtifactDir: options.artifactRoot || null,
+                                }));
+                            }
+                            if (step.keys) terminal.input(String(step.keys));
+                            else if (step.text) terminal.typeText(String(step.text));
+                            await terminal.flush();
+                            break;
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
+                    if (!markerObserved) {
+                        throw new Error(
+                            `Startup input marker never appeared: ${
+                                JSON.stringify(marker)
+                            }. Screen:\n${terminal.getScreenText()}`,
+                        );
+                    }
+                }
+            })();
+            const compositionPromise = createInteractiveTuiComposition(null, {
                 terminal,
                 sessionStartMode: scenario.sessionStartMode || "new",
                 initialAgentName: scenario.initialAgentName || "router",
                 initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? undefined
                     : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
-                configureUiAPI: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
-                    ? (uiAPI) => {
-                        uiAPI.promptSelect = (prompt) => {
-                            // An event names what was asked, not how it was painted. Screen
-                            // text is already normalized on the way out; leaving styling in
-                            // the event made a pure color change break this assertion.
-                            events.push(
-                                `startup:prompt-select:${normalizeScreenText(String(prompt)).split("\n", 1)[0]}`,
-                            );
-                            return Promise.resolve(null);
-                        };
-                        uiAPI.showModelSelector = () => {
-                            events.push("startup:model-selector");
-                            return Promise.resolve();
-                        };
-                    }
-                    : undefined,
                 browser: reviewSurface
                     ? createGoldenReviewBrowser(reviewSurface, {}, scenario.reviewedPlan, observeReviewDecision)
                     : undefined,
             });
+            composition = await compositionPromise;
+            await startupInputPromise;
             await writeHeartbeat();
             // Startup is done and the heartbeat carries real actor state, so the
             // parent can switch from its startup budget to the scenario budget.
@@ -1600,10 +1636,6 @@ async function runComposedTuiScenario(scenario, options) {
             }
             throw error;
         } finally {
-            if (startupModelSetupCommandPatch) {
-                startupModelSetupCommandPatch.registry[startupModelSetupCommandPatch.quitName].execute =
-                    startupModelSetupCommandPatch.execute;
-            }
             unsubscribe();
             for (const session of concurrentSessions.values()) {
                 session.unsubscribe();

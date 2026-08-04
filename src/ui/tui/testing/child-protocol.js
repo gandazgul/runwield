@@ -100,6 +100,13 @@ export async function runGoldenScenarioChildProcess(request) {
         payload,
     ], { cwd: REPO_ROOT, timeoutMs: request.timeoutMs || 5000, awaitReadyMarker: true });
     const childPayload = parseLastJsonLine(result.stdout);
+    // A scenario that declares `expectedCleanExit` terminates the child through
+    // the real `/quit` (`Deno.exit(0)`) before its post-composition result is
+    // printed; the pre-exit report it logged is the terminal success signal, and
+    // the child's exit code 0 is the proof the quit path ran for real.
+    const expectedCleanExit = childPayload && typeof childPayload === "object" &&
+        /** @type {{ expectedCleanExit?: unknown }} */ (childPayload).expectedCleanExit === true;
+    const cleanExitSatisfied = expectedCleanExit && result.success === true;
     // Backstop for a child that never got to tear itself down: one wedged past
     // the grace window, or crashed before its own cleanup. The child announces
     // its environment root on startup precisely so this path can find it.
@@ -108,7 +115,7 @@ export async function runGoldenScenarioChildProcess(request) {
         !/** @type {{ ok?: unknown }} */ (childPayload).ok;
     const childReportedSuccess = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
         /** @type {{ ok?: unknown }} */ (childPayload).ok === true;
-    if (childReportedFailure || (!result.success && !childReportedSuccess)) {
+    if (childReportedFailure || (!result.success && !childReportedSuccess && !cleanExitSatisfied)) {
         const artifactDir = await writeChildFailureArtifact(normalizedRequest, result, childPayload);
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`
@@ -127,6 +134,29 @@ export async function runGoldenScenarioChildProcess(request) {
         /** @type {Error & { artifactDir?: string, childPayload?: unknown }} */ (error).artifactDir = artifactDir;
         /** @type {Error & { artifactDir?: string, childPayload?: unknown }} */ (error).childPayload = childPayload;
         throw error;
+    }
+    if (expectedCleanExit) {
+        // The child could not clean up after itself (Deno.exit skips its finally
+        // blocks); reclaim its heartbeat artifact root here.
+        const heartbeatArtifactDir = typeof childPayload === "object" && childPayload !== null &&
+                "heartbeatArtifactDir" in childPayload
+            ? /** @type {{ heartbeatArtifactDir?: unknown }} */ (childPayload).heartbeatArtifactDir
+            : null;
+        if (!request.keepArtifacts && typeof heartbeatArtifactDir === "string") {
+            await Deno.remove(heartbeatArtifactDir, { recursive: true }).catch(() => {});
+        }
+        // Run the scenario's own assertions against the pre-exit report; the
+        // child that produced it is already gone.
+        const module = await import(normalizedRequest.scenarioModule);
+        const scenario = module[normalizedRequest.exportName];
+        if (!scenario) throw new Error(`Missing scenario export: ${normalizedRequest.exportName}`);
+        const report = /** @type {{ result?: unknown }} */ (childPayload).result;
+        if (!report || typeof report !== "object") {
+            throw new Error("Expected-clean-exit scenario did not report a pre-exit result.");
+        }
+        for (const assertion of scenario.assertions || []) {
+            await assertion(/** @type {any} */ (report));
+        }
     }
     return childPayload || {};
 }

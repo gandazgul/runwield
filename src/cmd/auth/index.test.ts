@@ -1,180 +1,143 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { getModelRegistry } from "../../shared/models/model-registry.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { getLoginProviderOptions, runLoginCommand, runLogoutCommand, runStatusCommand } from "./index.ts";
+import { createInteractiveCompositionHarness } from "../../ui/tui/testing/interactive-composition-fixture.ts";
 
-type AuthUiPort = Pick<
-    import("../../ui/tui/types.js").UiAPI,
-    "abortActivePrompt" | "appendSystemMessage" | "promptSelect" | "promptText" | "showModelSelector"
->;
-type TextPromptOptions = NonNullable<Parameters<AuthUiPort["promptText"]>[1]>;
+const FIXTURE_PROVIDER = "runtime-command-fixture";
+const FIXTURE_PROVIDER_DISPLAY = "Runtime Command Fixture Provider";
+const API_KEY_PROMPT = "Enter API key for Runtime Command Fixture Provider:";
+const MODEL_SELECTOR_MARKER = "Only showing models from configured providers";
 
 interface AuthFile {
     [providerId: string]: { type: "api_key"; key: string };
 }
 
-interface AuthUiHarness {
-    messages: string[];
-    selections: Array<string | null>;
-    textInputs: Array<string | null>;
-    textPrompts: Array<{ title: string; options: TextPromptOptions | undefined }>;
-    modelSelectorCalls: number;
-    uiAPI: AuthUiPort;
-}
-
-const FIXTURE_PROVIDER = "runtime-command-fixture";
-
-function createUiHarness(): AuthUiHarness {
-    const harness: AuthUiHarness = {
-        messages: [],
-        selections: [],
-        textInputs: [],
-        textPrompts: [],
-        modelSelectorCalls: 0,
-        uiAPI: {
-            appendSystemMessage: (message) => harness.messages.push(message),
-            promptSelect: () => Promise.resolve(harness.selections.shift() ?? null),
-            promptText: (title, options) => {
-                harness.textPrompts.push({ title, options });
-                return Promise.resolve(harness.textInputs.shift() ?? null);
-            },
-            showModelSelector: () => {
-                harness.modelSelectorCalls += 1;
-            },
-            abortActivePrompt: () => {},
-        },
-    };
-    return harness;
-}
-
 async function readFixtureAuthFile(homeDir: string): Promise<AuthFile> {
-    return JSON.parse(await Deno.readTextFile(join(homeDir, ".wld", "auth.json")));
+    return JSON.parse(await Deno.readTextFile(join(homeDir, ".wld", "auth.json"))) as AuthFile;
 }
 
-Deno.test("auth commands exercise the real model registry in one isolated fixture home", async (test) => {
-    await withRuntimeCommandFixture("auth-command-", async ({ homeDir, projectRoot }) => {
-        const registry = getModelRegistry();
-        await registry.getRuntime();
-
-        await test.step("provider choices come from the hydrated registry without starting OAuth", () => {
-            const apiKeyProviders = getLoginProviderOptions(registry, "api_key");
-            const oauthProviders = getLoginProviderOptions(registry, "oauth");
-
-            assertEquals(apiKeyProviders.find((provider) => provider.id === FIXTURE_PROVIDER), {
-                id: FIXTURE_PROVIDER,
-                name: "Runtime Command Fixture Provider",
-                authType: "api_key",
-            });
-            assert(oauthProviders.some((provider) => provider.id === "openai-codex"));
-            assert(oauthProviders.every((provider) => provider.authType === "oauth"));
+/**
+ * All auth flows are typed as slash commands through the composed real TUI:
+ * real slash dispatch, real prompt components, real registry and credential
+ * store. No test here builds a hand-made UI bag or calls the command functions
+ * directly.
+ */
+Deno.test("auth commands exercise the real model registry through composed slash dispatch", async (test) => {
+    await withRuntimeCommandFixture("auth-command-", async ({ homeDir }) => {
+        const harness = await createInteractiveCompositionHarness({
+            initialAgentName: "guide",
+            terminalRows: 40,
         });
+        try {
+            const composition = await harness.waitForComposition(30_000);
+            assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent, "guide");
 
-        await test.step("API-key login persists through the real credential store and status machinery", async () => {
-            const ui = createUiHarness();
-            ui.textInputs.push(" fixture-secret ");
-
-            await runLoginCommand(["api-key", FIXTURE_PROVIDER], {
-                uiAPI: ui.uiAPI,
-                skipPostLoginSetup: true,
+            await test.step("provider choices come from the hydrated registry without starting OAuth", async () => {
+                await harness.type("/login subscription\r");
+                const providerScreen = await harness.waitForScreen("Select provider to configure:");
+                assert(providerScreen.includes("OpenAI Codex"), "OAuth provider list must come from the registry");
+                assertStringIncludes(providerScreen, "subscription");
+                await harness.pressKey("escape"); // back to authentication-method choice
+                await harness.waitForScreen("Select authentication method:");
+                await harness.pressKey("escape"); // cancel login entirely; no OAuth started
+                await harness.waitForIdle(3_000);
             });
 
-            assertEquals(await readFixtureAuthFile(homeDir), {
-                [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
+            await test.step("API-key login persists through the real credential store and status machinery", async () => {
+                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+                await harness.waitForScreen(API_KEY_PROMPT);
+                await harness.type(" fixture-secret \r");
+                await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
+                assertEquals(await readFixtureAuthFile(homeDir), {
+                    [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
+                });
+                // Post-login setup shows the model selector; cancel it to settle.
+                await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+                await harness.pressKey("escape");
+                await harness.waitForIdle(5_000);
+
+                await harness.type("/status\r");
+                const statusScreen = await harness.waitForScreen("Available models:");
+                assertStringIncludes(statusScreen, "Available models:");
+                assertStringIncludes(
+                    statusScreen,
+                    `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key stored`,
+                );
             });
-            assertEquals(ui.textPrompts, [{
-                title: "Enter API key for Runtime Command Fixture Provider:",
-                options: { allowEmpty: false, persistResult: false },
-            }]);
-            assertEquals(ui.messages.at(-1), "Logged in to Runtime Command Fixture Provider.");
 
-            const statusUi = createUiHarness();
-            await runStatusCommand([], { uiAPI: statusUi.uiAPI });
-            assertStringIncludes(statusUi.messages[0], "Available models:");
-            assertStringIncludes(
-                statusUi.messages[0],
-                "Runtime Command Fixture Provider (runtime-command-fixture): API key stored",
-            );
-        });
+            await test.step("misleading Claude CLI credentials stay out of API auth status and logout choices", async () => {
+                await Deno.writeTextFile(
+                    join(homeDir, ".wld", "auth.json"),
+                    JSON.stringify({
+                        [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
+                        "claude-cli": { type: "api_key", key: "fake" },
+                    }),
+                );
+                await harness.type("/status\r");
+                const statusScreen = await harness.waitForScreen("Available models:");
+                assert(!statusScreen.includes("Claude CLI"), "Claude CLI must not appear in API auth status");
+                assert(!statusScreen.includes("claude-cli"), "Claude CLI must not appear in API auth status");
 
-        await test.step("misleading Claude CLI credentials stay out of API auth status and logout choices", async () => {
-            await Deno.writeTextFile(
-                join(homeDir, ".wld", "auth.json"),
-                JSON.stringify({
+                await harness.type(`/logout claude-cli\r`);
+                const logoutScreen = await harness.waitForScreen("Select provider to logout:");
+                assert(!logoutScreen.includes("claude-cli"), "Claude CLI must not appear in logout choices");
+                await harness.pressKey("escape");
+                await harness.waitForIdle(3_000);
+                assertEquals(await readFixtureAuthFile(homeDir), {
                     [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
                     "claude-cli": { type: "api_key", key: "fake" },
-                }),
-            );
-
-            const statusUi = createUiHarness();
-            await runStatusCommand([], { uiAPI: statusUi.uiAPI });
-            assert(!statusUi.messages[0].includes("Claude CLI"));
-            assert(!statusUi.messages[0].includes("claude-cli"));
-
-            const logoutUi = createUiHarness();
-            logoutUi.selections.push("claude-cli");
-            await runLogoutCommand([], { uiAPI: logoutUi.uiAPI });
-            assertEquals(logoutUi.messages, []);
-            assertEquals(await readFixtureAuthFile(homeDir), {
-                [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
-                "claude-cli": { type: "api_key", key: "fake" },
+                });
+                // Restore the fixture-only credential state for the remaining steps.
+                await Deno.writeTextFile(
+                    join(homeDir, ".wld", "auth.json"),
+                    JSON.stringify({ [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" } }),
+                );
             });
 
-            await Deno.writeTextFile(
-                join(homeDir, ".wld", "auth.json"),
-                JSON.stringify({ [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" } }),
-            );
-        });
-
-        await test.step("post-login setup switches a real Runtime session back to Router", async () => {
-            const runtime = new SessionRuntime();
-            const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "engineer" });
-            const ui = createUiHarness();
-            ui.textInputs.push("replacement-secret");
-            try {
-                await runLoginCommand([FIXTURE_PROVIDER], {
-                    uiAPI: ui.uiAPI,
-                    sessionId,
-                    sessionRuntime: runtime,
-                });
-
-                assertEquals(ui.modelSelectorCalls, 1);
+            await test.step("post-login setup shows the model selector and switches a real Runtime Session back to Router", async () => {
+                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+                await harness.waitForScreen(API_KEY_PROMPT);
+                await harness.type("replacement-secret\r");
+                await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
+                await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+                await harness.pressKey("escape");
+                const runtime = composition.runtime;
+                const sessionId = composition.sessionId;
+                for (let attempt = 0; attempt < 200; attempt += 1) {
+                    if (runtime.getSessionSnapshot(sessionId)?.activeAgent === "router") break;
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                }
                 assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "router");
                 assertEquals((await readFixtureAuthFile(homeDir))[FIXTURE_PROVIDER], {
                     type: "api_key",
                     key: "replacement-secret",
                 });
-            } finally {
-                runtime.closeSession(sessionId);
-            }
-        });
-
-        await test.step("logout removes the fixture credential through the real registry", async () => {
-            const ui = createUiHarness();
-            await runLogoutCommand([FIXTURE_PROVIDER], { uiAPI: ui.uiAPI });
-
-            assertEquals(await readFixtureAuthFile(homeDir), {});
-            assertEquals(ui.messages, ["Logged out of Runtime Command Fixture Provider."]);
-
-            const statusUi = createUiHarness();
-            await runStatusCommand([], { uiAPI: statusUi.uiAPI });
-            assert(
-                !statusUi.messages[0].includes(
-                    "Runtime Command Fixture Provider (runtime-command-fixture): API key stored",
-                ),
-            );
-        });
-
-        await test.step("cancelled API-key input leaves the real credential store unchanged", async () => {
-            const ui = createUiHarness();
-            await runLoginCommand(["api-key", FIXTURE_PROVIDER], {
-                uiAPI: ui.uiAPI,
-                skipPostLoginSetup: true,
+                await harness.waitForIdle(5_000);
             });
 
-            assertEquals(await readFixtureAuthFile(homeDir), {});
-            assertEquals(ui.messages, []);
-        });
+            await test.step("logout removes the fixture credential through the real registry", async () => {
+                await harness.type(`/logout ${FIXTURE_PROVIDER}\r`);
+                await harness.waitForScreen(`Logged out of ${FIXTURE_PROVIDER_DISPLAY}.`);
+                assertEquals(await readFixtureAuthFile(homeDir), {});
+
+                await harness.type("/status\r");
+                const statusScreen = await harness.waitForScreen("key in models.json");
+                assertStringIncludes(
+                    statusScreen,
+                    `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): key in models.json`,
+                    "status must reflect the removed stored credential",
+                );
+            });
+
+            await test.step("cancelled API-key input leaves the real credential store unchanged", async () => {
+                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+                await harness.waitForScreen(API_KEY_PROMPT);
+                await harness.pressKey("escape");
+                await harness.waitForIdle(3_000);
+                assertEquals(await readFixtureAuthFile(homeDir), {});
+            });
+        } finally {
+            await harness.dispose();
+        }
     });
 });

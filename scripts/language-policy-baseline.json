@@ -133,7 +133,6 @@
     "src/ui/tui/keybindings.js",
     "src/ui/tui/managed-session-sync.js",
     "src/ui/tui/mermaid-markdown.js",
-    "src/ui/tui/model-welcome.js",
     "src/ui/tui/runtime-adapter.js",
     "src/ui/tui/runtime-interaction-adapter.js",
     "src/ui/tui/testing/child-protocol.js",

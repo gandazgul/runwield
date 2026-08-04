@@ -1,17 +1,6 @@
 {
     "comment": "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
     "files": {
-        "src/cmd/auth/index.ts": {
-            "seams": [
-                "abortActivePrompt",
-                "appendSystemMessage",
-                "promptSelect",
-                "promptText",
-                "showModelSelector"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
         "src/cmd/load-plan/plan-epic-flow.ts": {
             "seams": [
                 "autoGenerateWorkRecordForCompletedPlan",
@@ -107,14 +96,6 @@
                 "loadReviewerFeedbackEngineerDef",
                 "loadReviewerPrompt"
             ],
-            "conditional": []
-        },
-        "src/ui/tui/model-welcome.js": {
-            "seams": [
-                "getModelRegistry",
-                "getSettingsManager"
-            ],
-            "machinery": [],
             "conditional": []
         }
     }
