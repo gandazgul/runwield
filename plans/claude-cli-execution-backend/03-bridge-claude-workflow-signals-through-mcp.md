@@ -21,7 +21,7 @@ parentPlan: "claude-cli-execution-backend"
 order: 3
 dependencies:
     - "02-add-claude-cli-backend-transcript-tracer-bullet"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Bridge Claude Workflow Signals Through MCP
