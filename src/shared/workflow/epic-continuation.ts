@@ -22,6 +22,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { WorkflowValidationResult } from "./validation.ts";
 import { createGitPort } from "../git-port.ts";
 import { systemLocalCIPort } from "./validation-local-ci.ts";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 
 const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 
@@ -236,6 +237,7 @@ export async function runEpicChildContinuation(
         executionContext: executionResult.executionContext,
         git: createGitPort(),
         localCI: systemLocalCIPort,
+        workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
         semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
     }));
 }

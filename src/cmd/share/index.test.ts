@@ -139,7 +139,11 @@ Deno.test("share cleans the real exported fixture when gist creation fails", asy
 });
 
 Deno.test("share requires UI and a real active Runtime session", async () => {
-    await assertRejects(() => runShareCommand([], {}), Error, "UI API is required");
+    await assertRejects(
+        () => runShareCommand([], { githubCli: createGitHubFixture().port }),
+        Error,
+        "UI API is required",
+    );
 
     const ui = createUi();
     const github = createGitHubFixture();

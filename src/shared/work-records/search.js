@@ -86,9 +86,9 @@ export function parseWorkRecordSearchJson(output) {
 
 /**
  * @param {string} cwd
- * @param {{ mnemosynePort?: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} [options]
+ * @param {{ mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} options
  */
-async function ensureSearchBootstrap(cwd, options = {}) {
+async function ensureSearchBootstrap(cwd, options) {
     const canonical = await listWorkRecords(cwd, { createDir: false });
     if (!canonical.length) return { bootstrapped: false, rebuild: null, canonical };
     if (!(await isWorkRecordIndexEmpty(cwd, options))) return { bootstrapped: false, rebuild: null, canonical };
@@ -99,9 +99,9 @@ async function ensureSearchBootstrap(cwd, options = {}) {
 /**
  * @param {string} cwd
  * @param {string} query
- * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, mnemosynePort?: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} [options]
+ * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} options
  */
-export async function searchWorkRecords(cwd, query, options = {}) {
+export async function searchWorkRecords(cwd, query, options) {
     const trimmed = String(query || "").trim();
     if (!trimmed) throw new Error("Work Record search query is required.");
     const accessMode = options.includeAll ? "all" : options.accessMode || "current";

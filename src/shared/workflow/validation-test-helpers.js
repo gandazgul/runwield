@@ -215,10 +215,13 @@ export const UNEXPECTED_VALIDATION_PORTS = Object.freeze({
     localCI: Object.freeze({
         run: () => Promise.reject(new Error("Unexpected Local CI run in validation test")),
     }),
+    workRecordMnemosynePort: Object.freeze({
+        run: () => Promise.reject(new Error("Unexpected Mnemosyne run in validation test")),
+    }),
 });
 
 /**
- * @typedef {Omit<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI"> & Partial<Pick<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI">>} ValidationTestArgs
+ * @typedef {Omit<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI" | "workRecordMnemosynePort"> & Partial<Pick<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI" | "workRecordMnemosynePort">>} ValidationTestArgs
  */
 
 /** Run the public loop with explicit external-boundary fixtures. @param {ValidationTestArgs} args */

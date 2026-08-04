@@ -172,7 +172,7 @@ type ValidationLoopArgs = {
     git: GitPort;
     semanticReviewPort: SemanticReviewPort;
     localCI: LocalCIPort;
-    workRecordMnemosynePort?: WorkRecordMnemosynePort;
+    workRecordMnemosynePort: WorkRecordMnemosynePort;
 };
 
 type PhaseContext = {

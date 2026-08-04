@@ -149,7 +149,7 @@ interface RunFeaturePostVerificationHandoffsOptions {
     planName: string;
     planContent: string;
     projectRoot: string;
-    mnemosynePort?: WorkRecordMnemosynePort;
+    mnemosynePort: WorkRecordMnemosynePort;
 }
 
 /**
@@ -158,7 +158,7 @@ interface RunFeaturePostVerificationHandoffsOptions {
  * @param {string} args.planName
  * @param {string} args.planContent
  * @param {string} args.projectRoot
- * @param {WorkRecordMnemosynePort} [args.mnemosynePort]
+ * @param {WorkRecordMnemosynePort} args.mnemosynePort
  */
 export async function runFeaturePostVerificationHandoffs({
     hostedSession,
@@ -181,7 +181,7 @@ export async function runFeaturePostVerificationHandoffs({
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
         cwd: projectRoot,
         planName,
-        ...(mnemosynePort ? { mnemosynePort } : {}),
+        mnemosynePort,
     }).catch((error) => {
         const reason = error instanceof Error ? error.message : String(error);
         return {

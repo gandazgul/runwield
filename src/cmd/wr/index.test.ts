@@ -54,7 +54,10 @@ async function saveVerifiedPlan(projectRoot: string): Promise<void> {
     });
 }
 
-async function captureCommand(argv: string[], options: WorkRecordCommandOptions = {}): Promise<string> {
+async function captureCommand(
+    argv: string[],
+    options: WorkRecordCommandOptions = { mnemosynePort: createWorkRecordMnemosyneFixture() },
+): Promise<string> {
     const logs: string[] = [];
     const originalLog = console.log;
     console.log = (...values) => logs.push(values.map(String).join(" "));
@@ -179,7 +182,9 @@ Deno.test("wld wr read --no-open serves canonical Markdown without launching a b
         };
 
         let readUrl = "";
-        const command = runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--no-open"]);
+        const command = runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--no-open"], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        });
         try {
             readUrl = await Promise.race([
                 urlReady.promise,
@@ -219,17 +224,26 @@ Deno.test("wld wr rejects invalid command arguments before touching project stat
         Deno.chdir(projectRoot);
 
         await assertRejects(
-            () => runWorkRecordsCommand(["backfill", "--yes", "--dry-run"]),
+            () =>
+                runWorkRecordsCommand(["backfill", "--yes", "--dry-run"], {
+                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                }),
             Error,
             "Cannot combine --yes with --dry-run",
         );
         await assertRejects(
-            () => runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--all"]),
+            () =>
+                runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--all"], {
+                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                }),
             Error,
             "Unsupported flag: --all",
         );
         await assertRejects(
-            () => runWorkRecordsCommand(["index", "rebuild", "--all"]),
+            () =>
+                runWorkRecordsCommand(["index", "rebuild", "--all"], {
+                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                }),
             Error,
             "Unsupported flag: --all",
         );

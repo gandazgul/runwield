@@ -21,7 +21,6 @@ import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "./mnemosyne-port.ts";
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
 const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
@@ -62,6 +61,10 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {(source: WorkRecordSource) => Promise<GeneratedWorkRecordSections>|GeneratedWorkRecordSections} [generateSections]
  * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
  * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
+ */
+
+/**
+ * @typedef {GenerationOptions & { mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} WorkRecordGenerationOptions
  */
 
 /**
@@ -339,7 +342,7 @@ async function updateSourceFrontMatter(cwd, source, updates) {
 /**
  * @param {string} cwd
  * @param {WorkRecordSource} source
- * @param {GenerationOptions} options
+ * @param {WorkRecordGenerationOptions} options
  * @returns {Promise<WorkRecordSource>}
  */
 async function ensureSourcePlanId(cwd, source, options) {
@@ -536,12 +539,12 @@ async function linkSourceToRecord(cwd, source, record, now) {
 /**
  * @param {string} cwd
  * @param {import('./schema.js').WorkRecordResource} record
- * @param {GenerationOptions} options
+ * @param {WorkRecordGenerationOptions} options
  */
 async function bestEffortSyncGeneratedRecord(cwd, record, options) {
     try {
         await syncWorkRecordToIndex(cwd, record, {
-            mnemosynePort: options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemosynePort: options.mnemosynePort,
         });
         return "";
     } catch (error) {
@@ -574,9 +577,9 @@ async function recordGenerationFailure(cwd, source, now, error) {
 /**
  * @param {string} cwd
  * @param {WorkRecordSource} inputSource
- * @param {GenerationOptions} [options]
+ * @param {WorkRecordGenerationOptions} options
  */
-export async function generateWorkRecordForSource(cwd, inputSource, options = {}) {
+export async function generateWorkRecordForSource(cwd, inputSource, options) {
     const now = options.now ? options.now() : new Date();
     let source = inputSource;
     try {
@@ -635,10 +638,10 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
 
 /**
  * @param {string} cwd
- * @param {GenerationOptions} [options]
+ * @param {WorkRecordGenerationOptions} options
  * @returns {Promise<BackfillResult>}
  */
-export async function runWorkRecordBackfill(cwd, options = {}) {
+export async function runWorkRecordBackfill(cwd, options) {
     const preview = await previewWorkRecordBackfill(cwd);
     /** @type {BackfillResult["outcomes"]} */
     const outcomes = [];

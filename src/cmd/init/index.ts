@@ -18,25 +18,16 @@ import { loadSubAgentDefinition } from "../../shared/session/subagent-definition
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
-import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { printCommandHelp } from "../help/index.ts";
 import { isInitDone, recordInitDone, recordInitOffered } from "./init-state.ts";
-
-interface InteractiveSessionPort {
-    startInteractiveSession(
-        initialRequest: string | null,
-        options: { initialAgentName?: string },
-    ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
-}
+import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 interface InitCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
     sessionRuntime?: SessionRuntime;
     sessionId?: string;
-    sessionPort?: InteractiveSessionPort;
+    sessionPort: InteractiveSessionPort;
 }
-
-const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
@@ -62,7 +53,7 @@ function shouldLaunchTuiForModelSetup(
 /**
  * Run the init command.
  */
-export async function runInitCommand(argv: string[], options: InitCommandOptions = {}): Promise<void> {
+export async function runInitCommand(argv: string[], options: InitCommandOptions): Promise<void> {
     const parsed = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
@@ -103,7 +94,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     await extractBundledSkills();
 
     if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(getCwd()))) {
-        await (options.sessionPort || DEFAULT_SESSION_PORT).startInteractiveSession(`/${COMMAND_NAMES.INIT}`, {
+        await options.sessionPort.startInteractiveSession(`/${COMMAND_NAMES.INIT}`, {
             initialAgentName: AGENTS.ROUTER,
         });
         return;

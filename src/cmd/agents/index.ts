@@ -3,21 +3,14 @@
 import { basename } from "@std/path";
 import type { Component } from "@earendil-works/pi-tui";
 import { printCommandHelp } from "../help/index.ts";
-import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { listAvailableAgents } from "../../shared/session/agents.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { AGENTS, getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
+import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 export { getAgentCompletions } from "./getArgumentCompletions.js";
-
-interface InteractiveSessionPort {
-    startInteractiveSession(
-        userRequest: string | null,
-        options: { initialAgentName?: string },
-    ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
-}
 
 interface AgentsCommandOptions {
     tui?: import("../../ui/tui/types.js").TuiAPI;
@@ -25,7 +18,7 @@ interface AgentsCommandOptions {
     editor?: import("../../ui/tui/types.js").EditorAPI;
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
-    sessionPort?: InteractiveSessionPort;
+    sessionPort: InteractiveSessionPort;
 }
 
 interface AgentsTuiOptions {
@@ -35,8 +28,6 @@ interface AgentsTuiOptions {
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
 }
-
-const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
 
 async function runAgentsCommandCli(
     agentName: string,
@@ -113,7 +104,7 @@ async function runAgentsCommandTUI(
 
 export async function runAgentsCommand(
     argv: string[],
-    options: AgentsCommandOptions = {},
+    options: AgentsCommandOptions,
 ): Promise<void> {
     const [agentName = ""] = argv;
 
@@ -133,5 +124,5 @@ export async function runAgentsCommand(
         return;
     }
 
-    await runAgentsCommandCli(agentName, argv.slice(1), options.sessionPort || DEFAULT_SESSION_PORT);
+    await runAgentsCommandCli(agentName, argv.slice(1), options.sessionPort);
 }

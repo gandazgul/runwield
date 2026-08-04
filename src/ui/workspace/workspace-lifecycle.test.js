@@ -163,7 +163,11 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
             heldFromStatus: "in_progress",
             classification: "FEATURE",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const missingToken = await app(
             new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
                 method: "POST",
@@ -378,7 +382,11 @@ Deno.test("Workspace lifecycle API requires Resume Check confirmation for stalen
             holdStalenessBaseline: "baseline",
             classification: "FEATURE",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const warned = await postLifecycle(app, cwd, "held-warning-id", { action: "resume_from_hold" });
         assertEquals(warned.status, 409);
         const warningBody = await warned.json();
@@ -407,7 +415,11 @@ Deno.test("Workspace Resume Check does not expose absolute worktree paths in blo
             worktreeBranch: "missing-branch",
             classification: "FEATURE",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const response = await postLifecycle(app, cwd, "held-leak-id", { action: "resume_from_hold" });
         assertEquals(response.status, 409);
         const bodyText = await response.text();
@@ -460,7 +472,11 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
         });
         const loaded = await loadPlanBodyById(cwd, "locked-api-id");
         const before = await Deno.readTextFile(`${cwd}/plans/locked.md`);
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
 
         const bodyEdit = await app(
             new Request("http://localhost/api/plans/locked-api-id/body", {

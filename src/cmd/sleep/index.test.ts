@@ -3,7 +3,13 @@ import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { exportMnemosyneCollection, type MnemosynePort, runSleepCommand, SLEEP_PROMPT } from "./index.ts";
+import {
+    exportMnemosyneCollection,
+    type InteractiveSessionPort,
+    type MnemosynePort,
+    runSleepCommand,
+    SLEEP_PROMPT,
+} from "./index.ts";
 
 interface ExportInvocation {
     args: string[];
@@ -47,6 +53,10 @@ function createMnemosyneFixture(
     return fixture;
 }
 
+const UNEXPECTED_SESSION_PORT: InteractiveSessionPort = {
+    startInteractiveSession: () => Promise.reject(new Error("interactive session must not start")),
+};
+
 async function captureConsole(run: () => void | Promise<void>): Promise<{ logs: string[]; errors: string[] }> {
     const logs: string[] = [];
     const errors: string[] = [];
@@ -64,7 +74,12 @@ async function captureConsole(run: () => void | Promise<void>): Promise<{ logs: 
 }
 
 Deno.test("sleep help uses the real command registry", async () => {
-    const output = await captureConsole(() => runSleepCommand(["--help"]));
+    const output = await captureConsole(() =>
+        runSleepCommand(["--help"], {
+            mnemosynePort: createMnemosyneFixture().port,
+            sessionPort: UNEXPECTED_SESSION_PORT,
+        })
+    );
     assertStringIncludes(output.logs.join("\n"), "Usage (sleep):");
     assertStringIncludes(output.logs.join("\n"), "memory");
 });
@@ -73,6 +88,7 @@ Deno.test("standalone sleep delegates only interactive session startup", async (
     let request: string | null = null;
     let agentName = "";
     await runSleepCommand([], {
+        mnemosynePort: createMnemosyneFixture().port,
         sessionPort: {
             startInteractiveSession: (nextRequest, options) => {
                 request = nextRequest;
@@ -151,6 +167,7 @@ Deno.test("sleep backs up fixture memory before a real Runtime switches and runs
                 sessionRuntime: runtime,
                 uiAPI: { appendSystemMessage: (message) => messages.push(message) },
                 mnemosynePort: mnemosyne.port,
+                sessionPort: UNEXPECTED_SESSION_PORT,
             });
 
             assertEquals(mnemosyne.ensureCalls, 1);
@@ -186,6 +203,7 @@ Deno.test("sleep leaves a real Runtime on its current Agent when external backup
                         sessionRuntime: runtime,
                         uiAPI: { appendSystemMessage: (message) => messages.push(message) },
                         mnemosynePort: mnemosyne.port,
+                        sessionPort: UNEXPECTED_SESSION_PORT,
                     }),
                 Error,
                 "export refused",
@@ -207,6 +225,7 @@ Deno.test("sleep rejects missing persisted Runtime state before touching Mnemosy
                 sessionRuntime: new SessionRuntime(),
                 uiAPI: { appendSystemMessage: () => {} },
                 mnemosynePort: mnemosyne.port,
+                sessionPort: UNEXPECTED_SESSION_PORT,
             }),
         Error,
         "persisted root session id",

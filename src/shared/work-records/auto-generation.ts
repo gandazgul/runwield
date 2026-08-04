@@ -13,7 +13,7 @@ import {
     loadPlan,
 } from "../../plan-store.js";
 import { shouldAutoGenerateWorkRecordsOnPlanCompletion } from "../settings.js";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT, type WorkRecordMnemosynePort } from "./mnemosyne-port.ts";
+import type { WorkRecordMnemosynePort } from "./mnemosyne-port.ts";
 import { listWorkRecords } from "./store.js";
 import {
     attachEpicChildren,
@@ -40,7 +40,7 @@ export interface WorkRecordAutoGenerationResult {
 export interface AutoGenerateWorkRecordArgs {
     cwd: string;
     planName: string;
-    mnemosynePort?: WorkRecordMnemosynePort;
+    mnemosynePort: WorkRecordMnemosynePort;
 }
 
 interface TargetedWorkRecordSource {
@@ -141,7 +141,7 @@ export function formatWorkRecordAutoGenerationResult(result: WorkRecordAutoGener
 export async function autoGenerateWorkRecordForCompletedPlan({
     cwd,
     planName,
-    mnemosynePort = SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+    mnemosynePort,
 }: AutoGenerateWorkRecordArgs): Promise<WorkRecordAutoGenerationResult> {
     if (!shouldAutoGenerateWorkRecordsOnPlanCompletion(cwd)) {
         return withMessage({ status: "disabled", planName, message: "" });

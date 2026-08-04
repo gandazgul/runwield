@@ -57,15 +57,15 @@
  * introduce one — the seam has to be in the source entry already, and the total
  * cannot rise.
  *
- * When the scan itself is fixed, modules it could never see before appear all at once
- * and look exactly like a mass regression. Adopt them explicitly:
+ * When the scan itself is fixed, modules and seam spellings it could never see before
+ * appear all at once and look exactly like regressions. Adopt them explicitly:
  *
  *     deno run -A scripts/check-injection-seams.js --update --adopt-newly-visible
  *
- * This is only ever correct in the same change as a detection fix. It records modules
- * absent from the baseline and nothing else — a module already listed still may not
- * grow — so newly-visible seams land under the same shrink-only rule as the rest
- * rather than being waved through.
+ * This is only ever correct in the same change as a detection fix. It records newly
+ * visible modules and newly visible seams inside known modules, then puts both under
+ * the same shrink-only rule as the rest. Without the flag, either kind of growth is
+ * still rejected.
  */
 
 const BASELINE_PATH = new URL("./injection-seam-baseline.json", import.meta.url);
@@ -949,17 +949,18 @@ async function readBaseline() {
 /**
  * @param {SeamEntry} current
  * @param {SeamEntry} baseline
- * @param {boolean} [adoptNewModules] Record modules the scan can now see for the first
- *   time. Only ever correct together with a detection fix: the seams were always there,
- *   and once recorded they can only shrink like every other entry.
+ * @param {boolean} [adoptNewlyVisible] Record modules or individual seams the scan can
+ *   now see for the first time. Only ever correct together with a detection fix: the
+ *   seams were always there, and once recorded they can only shrink like every other
+ *   entry.
  */
-function findRegressions(current, baseline, adoptNewModules = false) {
+export function findRegressions(current, baseline, adoptNewlyVisible = false) {
     /** @type {string[]} */
     const problems = [];
     for (const [path, entry] of Object.entries(current)) {
         const before = baseline[path];
         if (!before) {
-            if (!adoptNewModules) {
+            if (!adoptNewlyVisible) {
                 const conditional = entry.conditional?.length || 0;
                 problems.push(
                     `${path}: newly detected module with ${entry.seams.length} injection seam(s)` +
@@ -973,11 +974,11 @@ function findRegressions(current, baseline, adoptNewModules = false) {
         // Compared by name, not by count: swapping one seam for another keeps the count
         // flat while quietly changing what the module claims it does not own.
         const added = entry.seams.filter((name) => !before.seams.includes(name));
-        if (added.length > 0) {
+        if (added.length > 0 && !adoptNewlyVisible) {
             problems.push(`${path}: new injection seam(s): ${added.join(", ")}.`);
         }
         const addedConditional = multisetAdditions(entry.conditional || [], before.conditional || []);
-        if (addedConditional.length > 0) {
+        if (addedConditional.length > 0 && !adoptNewlyVisible) {
             problems.push(`${path}: new conditional injection seam(s): ${addedConditional.join(", ")}.`);
         }
         // Only a *new* seam over machinery is a regression. When the denylist grows to
@@ -987,7 +988,7 @@ function findRegressions(current, baseline, adoptNewModules = false) {
         const addedMachinery = entry.machinery
             .filter((name) => !before.machinery.includes(name))
             .filter((name) => !before.seams.includes(name));
-        if (addedMachinery.length > 0) {
+        if (addedMachinery.length > 0 && !adoptNewlyVisible) {
             problems.push(
                 `${path}: machinery must never be replaceable, but these became injectable: ${
                     addedMachinery.join(", ")
@@ -1097,8 +1098,8 @@ function applyMoves(baseline, moves) {
 
 if (import.meta.main) {
     const update = Deno.args.includes("--update");
-    // Only meaningful alongside a fix to the scan itself: it adopts modules the scan
-    // could not previously see. It never permits a known module to grow.
+    // Only meaningful alongside a fix to the scan itself: it adopts modules and seams
+    // the scan could not previously see. The resulting baseline remains shrink-only.
     const adopt = Deno.args.includes("--adopt-newly-visible");
     /** @type {Array<[string, string, string]>} */
     const moves = [];

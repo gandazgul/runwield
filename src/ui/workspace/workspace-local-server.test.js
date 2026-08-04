@@ -11,6 +11,7 @@ import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
 import { PlanDetail } from "./components/PlanDetail.jsx";
 
 import { createWorkspaceApp } from "./server.js";
+import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 
 Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
     const cwd = await Deno.makeTempDir();
@@ -21,7 +22,11 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
             classification: "FEATURE",
             summary: "SSR card",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const rejected = await app(new Request("http://localhost/"));
         assertEquals(rejected.status, 401);
         const pageResponse = await app(new Request("http://localhost/?token=secret&q=workspace"));
@@ -116,7 +121,11 @@ Deno.test("Workspace page routes require Astro handler instead of static React f
             classification: "FEATURE",
             summary: "Two",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const response = await app(new Request("http://localhost/?token=secret"));
         const body = await response.text();
         if (response.status === 503) {
@@ -165,7 +174,11 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         const board = await loadBoard(cwd);
         assertEquals(board.plans.length, 1);
 
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
         const api = await app(
             new Request("http://localhost/api/plans/detail-id", {
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret" },
@@ -311,7 +324,11 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
             "---\nplanId: api-id\n# comment remains\nclassification: FEATURE\nstatus: draft\nunknown: kept\n---\n";
         await Deno.writeTextFile(`${cwd}/plans/api.md`, `${frontMatter}# Original\n`);
         const loaded = await loadPlanBodyById(cwd, "api-id");
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        }).handler();
 
         const rejected = await app(new Request("http://localhost/api/plans/api-id/body", { method: "POST" }));
         assertEquals(rejected.status, 401);

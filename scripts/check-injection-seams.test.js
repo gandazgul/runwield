@@ -3,6 +3,7 @@ import {
     collectConditionalSeamKeys,
     collectConditionalSeams,
     collectSeamNames,
+    findRegressions,
     isMachinerySeam,
 } from "./check-injection-seams.js";
 
@@ -531,4 +532,33 @@ Deno.test("collectSeamNames leaves ordinary optional data fallbacks alone", () =
     `);
 
     assertEquals(names, []);
+});
+
+Deno.test("findRegressions rejects newly visible seams inside a known module by default", () => {
+    const baseline = {
+        "src/known.ts": { seams: ["existing"], machinery: [], conditional: [] },
+    };
+    const current = {
+        "src/known.ts": { seams: ["existing", "newlyVisible"], machinery: [], conditional: [] },
+    };
+
+    assertEquals(findRegressions(current, baseline), [
+        "src/known.ts: new injection seam(s): newlyVisible.",
+    ]);
+});
+
+Deno.test("findRegressions explicitly adopts newly visible modules and seams in known modules", () => {
+    const baseline = {
+        "src/known.ts": { seams: ["existing"], machinery: [], conditional: [] },
+    };
+    const current = {
+        "src/known.ts": {
+            seams: ["existing", "newlyVisible"],
+            machinery: ["newlyVisible"],
+            conditional: ["members:newlyVisible"],
+        },
+        "src/new.ts": { seams: ["externalPort"], machinery: [], conditional: [] },
+    };
+
+    assertEquals(findRegressions(current, baseline, true), []);
 });

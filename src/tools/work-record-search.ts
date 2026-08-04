@@ -4,10 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { formatWorkRecordSearchResults, searchWorkRecords } from "../shared/work-records/index.ts";
-import {
-    SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
-    type WorkRecordMnemosynePort,
-} from "../shared/work-records/mnemosyne-port.ts";
+import type { WorkRecordMnemosynePort } from "../shared/work-records/mnemosyne-port.ts";
 
 export const WORK_RECORD_SEARCH_TOOL_NAME = "work_record_search";
 
@@ -18,7 +15,7 @@ const PARAMETERS = Type.Object({
 interface WorkRecordSearchToolOptions {
     cwd: string;
     accessMode?: "current" | "all";
-    mnemosynePort?: WorkRecordMnemosynePort;
+    mnemosynePort: WorkRecordMnemosynePort;
 }
 
 type SearchResult = Awaited<ReturnType<typeof searchWorkRecords>>;
@@ -34,7 +31,7 @@ type WorkRecordSearchResult = AgentToolResult<WorkRecordSearchDetails> & { isErr
 
 export function createWorkRecordSearchTool(opts: WorkRecordSearchToolOptions) {
     const accessMode = opts.accessMode || "current";
-    const mnemosynePort = opts.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
+    const mnemosynePort = opts.mnemosynePort;
     return defineTool<typeof PARAMETERS, WorkRecordSearchDetails>({
         name: WORK_RECORD_SEARCH_TOOL_NAME,
         label: "Work Record Search",

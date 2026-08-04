@@ -16,11 +16,11 @@ export interface GitHubCliPort {
     run(args: string[]): Promise<CommandResult>;
 }
 
-interface ShareCommandOptions {
+export interface ShareCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
     sessionRuntime?: SessionRuntime;
     sessionId?: string;
-    githubCli?: GitHubCliPort;
+    githubCli: GitHubCliPort;
 }
 
 /**
@@ -36,12 +36,12 @@ async function runGitHubCli(args: string[]): Promise<CommandResult> {
     };
 }
 
-const DEFAULT_GITHUB_CLI: GitHubCliPort = { run: runGitHubCli };
+export const SYSTEM_GITHUB_CLI_PORT: GitHubCliPort = { run: runGitHubCli };
 
 /**
  * Run the share command.
  */
-export async function runShareCommand(_argv: string[], options: ShareCommandOptions = {}): Promise<void> {
+export async function runShareCommand(_argv: string[], options: ShareCommandOptions): Promise<void> {
     const { uiAPI, sessionRuntime, sessionId: runtimeSessionId } = options;
 
     if (!uiAPI) {
@@ -56,7 +56,7 @@ export async function runShareCommand(_argv: string[], options: ShareCommandOpti
     let tmpFile = "";
     try {
         // 1. Check if gh is installed
-        const githubCli = options.githubCli || DEFAULT_GITHUB_CLI;
+        const githubCli = options.githubCli;
         const ghVersion = await githubCli.run(["--version"]);
         if (!ghVersion.success) {
             uiAPI.appendSystemMessage("Error: GitHub CLI ('gh') is not installed. Please install it first.", true);

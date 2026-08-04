@@ -8,9 +8,13 @@ import { createUiApi } from "../../ui/tui/api.js";
 import { SpinnerBlock } from "../../ui/tui/blocks.js";
 import { VirtualTerminal } from "../../ui/tui/testing/virtual-terminal.js";
 import { runAgentsCommand } from "./index.ts";
+import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 const decoder = new TextDecoder();
 const FIXTURE_AGENT = "fixture-agent";
+const UNEXPECTED_SESSION_PORT: InteractiveSessionPort = {
+    startInteractiveSession: () => Promise.reject(new Error("Unexpected interactive session in agent command test")),
+};
 
 class CompatibleVirtualTerminal extends VirtualTerminal {
     override drainInput(): Promise<void> {
@@ -90,7 +94,7 @@ async function runUnknownAgentChild(): Promise<Deno.CommandOutput> {
     const moduleUrl = import.meta.resolve("./index.ts");
     const configPath = fromFileUrl(new URL("../../../deno.json", import.meta.url));
     const source = `import { runAgentsCommand } from ${JSON.stringify(moduleUrl)};\n` +
-        `await runAgentsCommand(["not-a-real-agent"]);\n`;
+        `await runAgentsCommand(["not-a-real-agent"], { sessionPort: { startInteractiveSession: () => Promise.reject(new Error("unexpected session")) } });\n`;
     try {
         return await new Deno.Command(Deno.execPath(), {
             args: ["eval", "--config", configPath, source],
@@ -110,7 +114,7 @@ async function runUnknownAgentChild(): Promise<Deno.CommandOutput> {
 Deno.test("agent help uses the real command registry", async () => {
     await withRuntimeCommandFixture("agent-help-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
-        const logs = await captureLogs(() => runAgentsCommand(["help"]));
+        const logs = await captureLogs(() => runAgentsCommand(["help"], { sessionPort: UNEXPECTED_SESSION_PORT }));
         assertStringIncludes(logs.join("\n"), "Usage (agent):");
         assertStringIncludes(logs.join("\n"), "Talk directly to an agent");
     });
@@ -120,7 +124,7 @@ Deno.test("agent CLI lists definitions discovered from the fixture project", asy
     await withRuntimeCommandFixture("agent-list-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await writeFixtureAgent(projectRoot);
-        const logs = await captureLogs(() => runAgentsCommand([]));
+        const logs = await captureLogs(() => runAgentsCommand([], { sessionPort: UNEXPECTED_SESSION_PORT }));
         assertStringIncludes(logs.join("\n"), "Available agents:");
         assertStringIncludes(logs.join("\n"), "fixture-agent");
         assertStringIncludes(logs.join("\n"), "Exercises fixture agent discovery");
@@ -171,6 +175,7 @@ Deno.test("agent chooser switches the real Runtime session to a fixture definiti
                 tui: harness.tui,
                 sessionId,
                 sessionRuntime: runtime,
+                sessionPort: UNEXPECTED_SESSION_PORT,
             });
 
             for (let attempt = 0; attempt < 100; attempt++) {

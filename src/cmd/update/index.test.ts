@@ -89,6 +89,7 @@ Deno.test("update downloads the pinned installer, writes a real temp script, exe
         runUpdateCommand([], {
             networkPort: network.port,
             installerPort: installer.port,
+            exitPort: createExitFixture().port,
         })
     );
 
@@ -124,6 +125,7 @@ Deno.test("update falls back to the GitHub web raw installer URL after raw.githu
     await runUpdateCommand([], {
         networkPort: network.port,
         installerPort: installer.port,
+        exitPort: createExitFixture().port,
     });
 
     assertEquals(urls, [
@@ -144,6 +146,7 @@ Deno.test("update passes the real WLD_INSTALL_DIR environment override to the in
             await runUpdateCommand([], {
                 networkPort: network.port,
                 installerPort: installer.port,
+                exitPort: createExitFixture().port,
             });
             assertEquals(installer.invocations[0].env.WLD_INSTALL_DIR, "/fixture/custom/bin");
         } finally {
@@ -155,7 +158,13 @@ Deno.test("update passes the real WLD_INSTALL_DIR environment override to the in
 
 Deno.test("update rejects arguments through the real usage formatter before external work", async () => {
     const exits = createExitFixture();
-    const output = await captureConsole(() => runUpdateCommand(["extra"], { exitPort: exits.port }));
+    const output = await captureConsole(() =>
+        runUpdateCommand(["extra"], {
+            networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
+            installerPort: createInstallerFixture().port,
+            exitPort: exits.port,
+        })
+    );
 
     assertEquals(output.errors, ["Usage: wld update\n       wld upgrade"]);
     assertEquals(exits.codes, [1]);

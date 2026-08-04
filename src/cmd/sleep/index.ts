@@ -7,7 +7,6 @@ import { parseArgs } from "@std/cli/parse-args";
 import { basename, dirname, join, resolve } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
-import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { printCommandHelp } from "../help/index.ts";
 import { COMMAND_NAMES } from "../registry.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
@@ -24,22 +23,22 @@ export interface MnemosynePort {
     run(args: string[]): Promise<MnemosyneCommandResult>;
 }
 
-interface InteractiveSessionPort {
+export interface InteractiveSessionPort {
     startInteractiveSession(
         initialRequest: string | null,
         options: { initialAgentName?: string },
     ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
 }
 
-interface SleepCommandOptions {
+export interface SleepCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
-    mnemosynePort?: MnemosynePort;
-    sessionPort?: InteractiveSessionPort;
+    mnemosynePort: MnemosynePort;
+    sessionPort: InteractiveSessionPort;
 }
 
-const DEFAULT_MNEMOSYNE_PORT: MnemosynePort = {
+export const SYSTEM_SLEEP_MNEMOSYNE_PORT: MnemosynePort = {
     ensureAvailable: ensureMnemosyneBinary,
     run: (args) =>
         new Deno.Command("mnemosyne", {
@@ -48,8 +47,6 @@ const DEFAULT_MNEMOSYNE_PORT: MnemosynePort = {
             stderr: "piped",
         }).output(),
 };
-
-const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
 
 /**
  * Inlined sleep prompt content.
@@ -120,7 +117,7 @@ Delete with \`mnemosyne delete [memory id]\` and add with \`mnemosyne add [memor
 export async function exportMnemosyneCollection(
     collectionName: string,
     outputPath: string,
-    port: Pick<MnemosynePort, "run"> = DEFAULT_MNEMOSYNE_PORT,
+    port: Pick<MnemosynePort, "run">,
 ): Promise<void> {
     await Deno.mkdir(dirname(outputPath), { recursive: true });
     const result = await port.run([
@@ -151,7 +148,7 @@ export async function exportMnemosyneCollection(
 /**
  * Handle `sleep` command.
  */
-export async function runSleepCommand(argv: string[], options: SleepCommandOptions = {}): Promise<void> {
+export async function runSleepCommand(argv: string[], options: SleepCommandOptions): Promise<void> {
     const parsed = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
@@ -164,7 +161,7 @@ export async function runSleepCommand(argv: string[], options: SleepCommandOptio
     }
 
     if (!options.uiAPI) {
-        await (options.sessionPort || DEFAULT_SESSION_PORT).startInteractiveSession("/sleep", {
+        await options.sessionPort.startInteractiveSession("/sleep", {
             initialAgentName: AGENTS.ENGINEER,
         });
         return;
@@ -178,7 +175,7 @@ export async function runSleepCommand(argv: string[], options: SleepCommandOptio
     const snapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
     if (!snapshot?.sessionManagerId) throw new Error("Sleep mode requires a persisted root session id.");
 
-    const mnemosyne = options.mnemosynePort || DEFAULT_MNEMOSYNE_PORT;
+    const mnemosyne = options.mnemosynePort;
     await mnemosyne.ensureAvailable();
 
     const cwd = snapshot.cwd;

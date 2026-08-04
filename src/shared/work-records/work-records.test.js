@@ -342,6 +342,7 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
             idGenerator: () => "44444444-4444-4444-8444-444444444444",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({
@@ -349,7 +350,6 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
                 summary: "Completed the standalone feature.",
                 futurePlanningNotes: "Reuse this seam.",
             }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
         });
 
         assertEquals(outcome.status, "generated");
@@ -426,13 +426,13 @@ Deno.test("Work Record generation includes the task completion report", async ()
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: (source) => ({
                 title: "Reported Outcome",
                 summary: `Completed with evidence: ${source.executionReport}`,
             }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
         });
 
         assertEquals(outcome.status, "generated");
@@ -628,6 +628,7 @@ Deno.test("Work Record generation rejects empty structured sections and records 
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({ title: "", summary: "" }),
@@ -657,6 +658,7 @@ Deno.test("Work Record generation records failure backlink without changing term
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => {

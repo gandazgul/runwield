@@ -2,25 +2,16 @@
 
 import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp } from "../help/index.ts";
-import { startInteractiveSession } from "../../ui/tui/chat-session.js";
-
-interface InteractiveSessionPort {
-    startInteractiveSession(
-        userRequest: string | null,
-        options: { sessionStartMode?: "new" | "continue" },
-    ): Promise<import("../../ui/tui/types.js").UiAPI | void>;
-}
+import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 interface RouterCommandOptions {
     sessionStartMode?: "new" | "continue";
-    sessionPort?: InteractiveSessionPort;
+    sessionPort: InteractiveSessionPort;
 }
-
-const DEFAULT_SESSION_PORT: InteractiveSessionPort = { startInteractiveSession };
 
 export async function runRouterCommand(
     argv: string[],
-    options: RouterCommandOptions = {},
+    options: RouterCommandOptions,
 ): Promise<void> {
     const userRequest = argv.join(" ").trim();
 
@@ -29,8 +20,7 @@ export async function runRouterCommand(
         return;
     }
 
-    const sessionPort = options.sessionPort || DEFAULT_SESSION_PORT;
-    await sessionPort.startInteractiveSession(userRequest || null, {
+    await options.sessionPort.startInteractiveSession(userRequest || null, {
         sessionStartMode: options.sessionStartMode || "new",
     });
 }

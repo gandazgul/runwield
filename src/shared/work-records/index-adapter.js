@@ -5,14 +5,13 @@
 
 import { basename, dirname } from "@std/path";
 import { listWorkRecords } from "./store.js";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "./mnemosyne-port.ts";
 
 const LOCATOR_PREFIX = "work-record:";
 const REBUILD_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work Record index.";
 
 /**
  * @typedef {Object} WorkRecordIndexOptions
- * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
+ * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} mnemosynePort
  */
 
 /**
@@ -104,10 +103,10 @@ function decode(bytes) {
 /**
  * @param {string} cwd
  * @param {string[]} args
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function runMnemosyneWorkRecordCommand(cwd, args, options = {}) {
-    const mnemosynePort = options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
+export async function runMnemosyneWorkRecordCommand(cwd, args, options) {
+    const mnemosynePort = options.mnemosynePort;
     let result;
     try {
         result = await mnemosynePort.run(args, { cwd });
@@ -125,9 +124,9 @@ export async function runMnemosyneWorkRecordCommand(cwd, args, options = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function verifyMnemosyneUpdateAvailable(cwd, options = {}) {
+export async function verifyMnemosyneUpdateAvailable(cwd, options) {
     const help = await runMnemosyneWorkRecordCommand(cwd, ["update", "--help"], options);
     if (!help.includes("update <id>") || !help.includes("--replace-tags")) {
         throw new Error("mnemosyne update prerequisite is unavailable or missing strict --replace-tags support.");
@@ -137,9 +136,9 @@ export async function verifyMnemosyneUpdateAvailable(cwd, options = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function initializeWorkRecordIndex(cwd, options = {}) {
+export async function initializeWorkRecordIndex(cwd, options) {
     await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], options);
 }
 
@@ -179,9 +178,9 @@ function parsePlainListDocumentIds(output, options = {}) {
 /**
  * @param {string} cwd
  * @param {string} recordId
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options = {}) {
+export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
     const out = await runMnemosyneWorkRecordCommand(cwd, [
         "list",
         "--name",
@@ -199,9 +198,9 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options = 
 /**
  * @param {string} cwd
  * @param {import('./schema.js').WorkRecordResource} record
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function syncWorkRecordToIndex(cwd, record, options = {}) {
+export async function syncWorkRecordToIndex(cwd, record, options) {
     await verifyMnemosyneUpdateAvailable(cwd, options);
     await initializeWorkRecordIndex(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
@@ -232,9 +231,9 @@ export async function syncWorkRecordToIndex(cwd, record, options = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function isWorkRecordIndexEmpty(cwd, options = {}) {
+export async function isWorkRecordIndexEmpty(cwd, options) {
     try {
         const out = await runMnemosyneWorkRecordCommand(cwd, [
             "list",
@@ -253,9 +252,9 @@ export async function isWorkRecordIndexEmpty(cwd, options = {}) {
 
 /**
  * @param {string} cwd
- * @param {WorkRecordIndexOptions} [options]
+ * @param {WorkRecordIndexOptions} options
  */
-export async function rebuildWorkRecordIndex(cwd, options = {}) {
+export async function rebuildWorkRecordIndex(cwd, options) {
     await verifyMnemosyneUpdateAvailable(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     try {

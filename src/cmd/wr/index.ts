@@ -17,17 +17,14 @@ import {
     runWorkRecordBackfill,
     searchWorkRecords,
 } from "../../shared/work-records/index.ts";
-import {
-    SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
-    type WorkRecordMnemosynePort,
-} from "../../shared/work-records/mnemosyne-port.ts";
+import type { WorkRecordMnemosynePort } from "../../shared/work-records/mnemosyne-port.ts";
 import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 import { printCommandHelp } from "../help/index.js";
 
 export interface WorkRecordCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
-    mnemosynePort?: WorkRecordMnemosynePort;
+    mnemosynePort: WorkRecordMnemosynePort;
 }
 
 function promptForBackfillConfirmation(message: string): boolean {
@@ -96,9 +93,9 @@ function formatRebuildResult(result: Awaited<ReturnType<typeof rebuildWorkRecord
 
 export async function runWorkRecordsCommand(
     argv: string[],
-    options: WorkRecordCommandOptions = {},
+    options: WorkRecordCommandOptions,
 ): Promise<void> {
-    const mnemosynePort = options.mnemosynePort || SYSTEM_WORK_RECORD_MNEMOSYNE_PORT;
+    const mnemosynePort = options.mnemosynePort;
     const subcommand = argv[0] && !argv[0].startsWith("-") ? argv[0] : "list";
     const rest = subcommand === "list" ? (argv[0] === "list" ? argv.slice(1) : argv) : argv.slice(1);
 

@@ -29,6 +29,7 @@ import {
 } from "./routes/api/review-handlers.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
 import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
@@ -127,7 +128,7 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {string} cwd
  * @property {string} token
  * @property {boolean} [skipTokenCheck]
- * @property {import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort} [mnemosynePort]
+ * @property {import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort} mnemosynePort
  */
 
 /**
@@ -395,7 +396,7 @@ function hasReviewAssetToken(request, token) {
     }
 }
 
-/** @param {Request} request @param {{ cwd: string, mnemosynePort?: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state */
+/** @param {Request} request @param {{ cwd: string, mnemosynePort: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -416,7 +417,7 @@ function isAstroPageRoute(pathname) {
     return pathname === "/" || pathname === "/closed" || pathname === "/on-hold" || pathname.startsWith("/plans/");
 }
 
-/** @param {Request} request @param {{ cwd: string, mnemosynePort?: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state @param {string} pathname */
+/** @param {Request} request @param {{ cwd: string, mnemosynePort: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state @param {string} pathname */
 async function handleLocalApiRequest(request, state, pathname) {
     if (request.method === "GET" && pathname === "/api/workspace") return await workspaceApi(ctx(request, state));
     if (request.method === "GET" && pathname === "/api/plans") return await plansApi(ctx(request, state));
@@ -1089,7 +1090,11 @@ export function startWorkspaceServer(options) {
             store: options.store,
             publicOrigin: ownerPublicOrigin,
         })
-        : createWorkspaceApp({ cwd: options.cwd ?? Deno.cwd(), token: options.token ?? "" });
+        : createWorkspaceApp({
+            cwd: options.cwd ?? Deno.cwd(),
+            token: options.token ?? "",
+            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+        });
     return Deno.serve({
         hostname: options.host,
         port: options.port,

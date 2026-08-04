@@ -6,11 +6,16 @@ import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { getCwdInitState } from "./init-state.ts";
 import { runInitCommand } from "./index.ts";
+import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 interface InitUi {
     messages: Array<{ message: string; error?: boolean }>;
     uiAPI: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
 }
+
+const UNEXPECTED_SESSION_PORT: InteractiveSessionPort = {
+    startInteractiveSession: () => Promise.reject(new Error("Unexpected interactive session in init command test")),
+};
 
 function createUi(): InitUi {
     const messages: Array<{ message: string; error?: boolean }> = [];
@@ -45,7 +50,9 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
             const originalSettings = await Deno.readTextFile(settingsPath);
 
             await test.step("help comes from the real command registry before project inspection", async () => {
-                const output = await captureConsole(() => runInitCommand(["--help"]));
+                const output = await captureConsole(() =>
+                    runInitCommand(["--help"], { sessionPort: UNEXPECTED_SESSION_PORT })
+                );
                 assertStringIncludes(output.logs.join("\n"), "Usage (init):");
                 assertStringIncludes(output.logs.join("\n"), "Runs a one-time agent");
             });
@@ -53,7 +60,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
             await test.step("an empty fixture project remains uninitialized", async () => {
                 Deno.chdir(alternateRoot);
                 const ui = createUi();
-                await runInitCommand([], { uiAPI: ui.uiAPI });
+                await runInitCommand([], { uiAPI: ui.uiAPI, sessionPort: UNEXPECTED_SESSION_PORT });
 
                 assertStringIncludes(ui.messages[0].message, "Nothing to initialize yet");
                 assertEquals(await getCwdInitState(), undefined);
@@ -115,6 +122,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
                         uiAPI: ui.uiAPI,
                         sessionRuntime: runtime,
                         sessionId: created.sessionId,
+                        sessionPort: UNEXPECTED_SESSION_PORT,
                     });
 
                     const state = await getCwdInitState();
@@ -137,7 +145,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
             await test.step("a second init reads the persisted guard and does not run another Agent", async () => {
                 Deno.chdir(projectRoot);
                 const ui = createUi();
-                await runInitCommand([], { uiAPI: ui.uiAPI });
+                await runInitCommand([], { uiAPI: ui.uiAPI, sessionPort: UNEXPECTED_SESSION_PORT });
 
                 assertEquals(ui.messages.length, 1);
                 assertStringIncludes(ui.messages[0].message, "Init has already been run");

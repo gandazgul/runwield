@@ -14,6 +14,7 @@ import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { buildPlanSummary } from "./plan-presentation.ts";
 import {
     buildEpicDoneEnoughSummary,
@@ -223,6 +224,7 @@ export async function handleEpicPlan({
                 workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
                     cwd: projectRoot,
                     planName: plan.planName,
+                    mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                 });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);

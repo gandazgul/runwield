@@ -1131,8 +1131,13 @@ export class SessionRuntime {
             const { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
             const { createGitPort } = await import("../git-port.ts");
             const { systemLocalCIPort } = await import("../workflow/validation-local-ci.ts");
+            const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
             const { loadPlan } = await import("../../plan-store.js");
-            const validationPorts = { git: createGitPort(), localCI: systemLocalCIPort };
+            const validationPorts = {
+                git: createGitPort(),
+                localCI: systemLocalCIPort,
+                workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            };
             let latestResult = await runValidationLoop(
                 /** @type {any} */ ({
                     ...options,

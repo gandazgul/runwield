@@ -7,7 +7,7 @@ import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
 import { runPlansCommand } from "./plans/index.ts";
 import { runWorkRecordsCommand } from "./wr/index.ts";
 import { runRouterCommand } from "./router/index.ts";
-import { runSleepCommand } from "./sleep/index.ts";
+import { runSleepCommand, SYSTEM_SLEEP_MNEMOSYNE_PORT } from "./sleep/index.ts";
 import { runHelpCommand } from "./help/index.js";
 import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
 import { getModelCompletions, runModelsCommand } from "./models/index.ts";
@@ -19,7 +19,7 @@ import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
 import { runSessionCommand } from "./session/index.js";
 import { runContextCommand } from "./context/index.js";
-import { runShareCommand } from "./share/index.ts";
+import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
 import { runInitCommand } from "./init/index.ts";
 import { runThemeCommand } from "./theme/index.ts";
@@ -30,11 +30,18 @@ import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
-import { runUpdateCommand } from "./update/index.ts";
+import {
+    runUpdateCommand,
+    SYSTEM_INSTALLER_PROCESS_PORT,
+    SYSTEM_PROCESS_EXIT_PORT,
+    SYSTEM_UPDATE_NETWORK_PORT,
+} from "./update/index.ts";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
 import { runAcpCommand } from "./acp/index.js";
 import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
+import { SYSTEM_INTERACTIVE_SESSION_PORT } from "../ui/tui/interactive-session-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../shared/work-records/mnemosyne-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
 /** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
@@ -144,7 +151,8 @@ export const commandRegistry = {
             "This is the default command when no explicit command is provided.",
             `Source-run fallback: ${DEV_CLI_RUN} "<user request>"`,
         ],
-        execute: runRouterCommand,
+        execute: (argv, options) =>
+            runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.ACP]: {
@@ -178,7 +186,8 @@ export const commandRegistry = {
             "Bypasses the router triage flow — sends prompts directly to the agent.",
             "Use /agent inside the TUI to switch agents at any time.",
         ],
-        execute: runAgentsCommand,
+        execute: (argv, options) =>
+            runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
         surfaces: ["cli", "slash"],
         getArgumentCompletions: getAgentCompletions,
     },
@@ -356,7 +365,7 @@ export const commandRegistry = {
             "Requires GitHub CLI ('gh') to be installed and authenticated.",
             "Saves session as a secret (private) Gist.",
         ],
-        execute: runShareCommand,
+        execute: (argv, options) => runShareCommand(argv, { ...options, githubCli: SYSTEM_GITHUB_CLI_PORT }),
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.EXPORT]: {
@@ -463,7 +472,8 @@ export const commandRegistry = {
             "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemosyne collection.",
             "Manual create remains deferred to later Work Records slices.",
         ],
-        execute: runWorkRecordsCommand,
+        execute: (argv, options) =>
+            runWorkRecordsCommand(argv, { ...options, mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.SLEEP]: {
@@ -481,7 +491,12 @@ export const commandRegistry = {
             "Starts or switches to Engineer and keeps that Agent active for follow-up questions.",
             "You can also run /sleep directly inside the interactive TUI.",
         ],
-        execute: runSleepCommand,
+        execute: (argv, options) =>
+            runSleepCommand(argv, {
+                ...options,
+                mnemosynePort: SYSTEM_SLEEP_MNEMOSYNE_PORT,
+                sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
+            }),
         surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.HELP]: {
@@ -529,7 +544,13 @@ export const commandRegistry = {
             "When possible, WLD_INSTALL_DIR is set to the current wld binary directory before running install.sh.",
             "Set WLD_INSTALL_DIR yourself to choose a specific installation directory.",
         ],
-        execute: runUpdateCommand,
+        execute: (argv, options) =>
+            runUpdateCommand(argv, {
+                ...options,
+                networkPort: SYSTEM_UPDATE_NETWORK_PORT,
+                installerPort: SYSTEM_INSTALLER_PROCESS_PORT,
+                exitPort: SYSTEM_PROCESS_EXIT_PORT,
+            }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.QUIT]: {
@@ -568,7 +589,7 @@ export const commandRegistry = {
             "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
             "This command is also available as /init inside the interactive TUI.",
         ],
-        execute: runInitCommand,
+        execute: (argv, options) => runInitCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
         surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.THEME]: {

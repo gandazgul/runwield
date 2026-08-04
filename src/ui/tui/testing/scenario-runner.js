@@ -22,6 +22,7 @@ import {
 } from "./isolated-environment.js";
 import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-review-surface.js";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
+import { createWorkRecordMnemosyneFixture } from "../../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 
 /**
  * Scenario waits poll and return the moment the condition holds, so this budget
@@ -1260,6 +1261,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const generated = await autoGenerateWorkRecordForCompletedPlan({
                         cwd: Deno.cwd(),
                         planName: String(typed.planName || ""),
+                        mnemosynePort: createWorkRecordMnemosyneFixture(),
                     });
                     const records = await listWorkRecords(Deno.cwd(), { createDir: false });
                     state.workRecord = {

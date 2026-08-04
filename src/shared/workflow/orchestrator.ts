@@ -58,6 +58,7 @@ import {
 } from "./validation.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
 
@@ -629,6 +630,7 @@ export async function dispatchPostTriage({
                     executionContext: executionResult.executionContext,
                     git: createGitPort(),
                     localCI,
+                    workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 await recordMetric({

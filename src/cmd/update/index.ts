@@ -24,14 +24,14 @@ export interface ProcessExitPort {
     exit(code: number): void;
 }
 
-type UpdateCommandOptions = import("../registry.js").CommandContext & {
-    networkPort?: UpdateNetworkPort;
-    installerPort?: InstallerProcessPort;
-    exitPort?: ProcessExitPort;
+export type UpdateCommandOptions = import("../registry.js").CommandContext & {
+    networkPort: UpdateNetworkPort;
+    installerPort: InstallerProcessPort;
+    exitPort: ProcessExitPort;
 };
 
-const DEFAULT_NETWORK_PORT: UpdateNetworkPort = { fetch: globalThis.fetch };
-const DEFAULT_INSTALLER_PORT: InstallerProcessPort = {
+export const SYSTEM_UPDATE_NETWORK_PORT: UpdateNetworkPort = { fetch: globalThis.fetch };
+export const SYSTEM_INSTALLER_PROCESS_PORT: InstallerProcessPort = {
     async run(scriptPath, releaseTag, env) {
         const result = await new Deno.Command("bash", {
             args: [scriptPath, releaseTag],
@@ -43,7 +43,7 @@ const DEFAULT_INSTALLER_PORT: InstallerProcessPort = {
         return result.code;
     },
 };
-const DEFAULT_EXIT_PORT: ProcessExitPort = { exit: Deno.exit };
+export const SYSTEM_PROCESS_EXIT_PORT: ProcessExitPort = { exit: Deno.exit };
 
 function usage(): string {
     return "Usage: wld update\n       wld upgrade";
@@ -67,10 +67,10 @@ function buildInstallerEnv(installDir: string | undefined, env: Record<string, s
     return { ...env, WLD_INSTALL_DIR: installDir };
 }
 
-export async function runUpdateCommand(argv: string[] = [], options: UpdateCommandOptions = {}): Promise<void> {
-    const network = options.networkPort || DEFAULT_NETWORK_PORT;
-    const installerProcess = options.installerPort || DEFAULT_INSTALLER_PORT;
-    const processExit = options.exitPort || DEFAULT_EXIT_PORT;
+export async function runUpdateCommand(argv: string[], options: UpdateCommandOptions): Promise<void> {
+    const network = options.networkPort;
+    const installerProcess = options.installerPort;
+    const processExit = options.exitPort;
 
     if (argv.length > 0) {
         console.error(usage());

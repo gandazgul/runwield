@@ -814,16 +814,16 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 
 /**
  * @typedef {Object} WorkspaceLifecycleActionOptions
- * @property {import('../../../shared/work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
+ * @property {import('../../../shared/work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} mnemosynePort
  */
 
 /**
  * @param {string} cwd
  * @param {string} planId
  * @param {unknown} payload
- * @param {WorkspaceLifecycleActionOptions} [options]
+ * @param {WorkspaceLifecycleActionOptions} options
  */
-export async function applyWorkspaceLifecycleAction(cwd, planId, payload, options = {}) {
+export async function applyWorkspaceLifecycleAction(cwd, planId, payload, options) {
     const request = validateLifecycleActionPayload(payload, { requireRevision: true });
     const expectedRevision = String(request.expectedRevision);
     const resource = await findPlanById(cwd, planId);
@@ -903,7 +903,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, option
             workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
                 cwd,
                 planName,
-                ...(options.mnemosynePort ? { mnemosynePort: options.mnemosynePort } : {}),
+                mnemosynePort: options.mnemosynePort,
             });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
