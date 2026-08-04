@@ -92,9 +92,15 @@ export async function runGoldenScenarioChildProcess(request) {
             : toFileUrl(join(REPO_ROOT, request.scenarioModule)).href,
     };
     const payload = JSON.stringify(normalizedRequest);
+    // `--no-check`: the child re-executes code the parent test file already ran
+    // under `--no-check`; type-checking it again resolves deno.json's whole
+    // `compilerOptions.types` graph, and the `"vite/client"` entry pulls
+    // npm:vite + dependencies — a large registry download on cold caches that
+    // stalls scenario startup. The repo type gate is `deno task check`.
     const result = await runGoldenChild([
         "run",
         "-A",
+        "--no-check",
         fromFileUrl(import.meta.url),
         CHILD_FLAG,
         payload,

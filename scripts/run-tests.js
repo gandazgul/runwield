@@ -33,6 +33,11 @@
  * The passthrough form injects `-A` unless the caller passed their own
  * permission flags: without env access the sandbox marker in src/constants.js
  * is unreadable and its guard misfires, blaming a direct `deno test` run.
+ * It also injects `--no-check` (matching the full-suite path and every task
+ * invocation) unless the caller passed it: type-checking here resolves
+ * deno.json's `compilerOptions.types` graph, whose `"vite/client"` entry pulls
+ * npm:vite on every run — a large registry download on cold caches. The type
+ * gate is `deno task check`, not these sandboxed executions.
  */
 import { join, relative } from "@std/path";
 
@@ -177,6 +182,16 @@ try {
             arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
         );
         const testArgs = hasPermissionFlags ? Deno.args : ["-A", ...Deno.args];
+        // Match the full-suite path (runIsolatedSuite) and every task invocation
+        // (test:golden-tui, workspace:test) by running tests with `--no-check`
+        // unless the caller already asked for type-checking. Type-checking here
+        // resolves deno.json's whole `compilerOptions.types` graph — the
+        // `"vite/client"` entry pulls npm:vite and its dependencies on every
+        // invocation, a large registry download on any machine without a warm
+        // cache that can blow past minute-scale budgets before a single test
+        // runs. `deno task check` owns type-checking; these children are
+        // sandboxed executions, not the type gate.
+        if (!testArgs.includes("--no-check")) testArgs.push("--no-check");
         await prewarmDenoDir(env, testArgs);
         const child = new Deno.Command(Deno.execPath(), {
             args: ["test", ...testArgs],
