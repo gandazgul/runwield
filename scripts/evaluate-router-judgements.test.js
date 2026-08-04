@@ -21,7 +21,7 @@ Deno.test("summarizeJudgements compares router against human labels", () => {
     assertEquals(summary.unlabelledRows, 1);
     assertEquals(summary.router.agreementRate, 0.5);
     assertEquals(summary.router.unscoredRows, 0);
-    assertEquals(summary.router.corrections, { "QUICK_FIX->FEATURE": 1 });
+    assertEquals(summary.router.corrections, { "QUICK_FIX->PLANNED_CHANGE": 1 });
 });
 
 Deno.test("checkThresholds reports threshold failures", () => {

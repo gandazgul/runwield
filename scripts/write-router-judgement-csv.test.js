@@ -13,9 +13,9 @@ Deno.test("buildJudgementCsvRow adds human columns and Router disagreement metri
         affectedPaths: ["src/cmd/version/index.js"],
     }, { decisionId: "d1", humanJudgement: "FEATURE", humanNotes: "manual correction" });
 
-    assertEquals(row.humanJudgement, "FEATURE");
+    assertEquals(row.humanJudgement, "PLANNED_CHANGE");
     assertEquals(row.routerAgreesWithHuman, "FALSE");
-    assertEquals(row.routerCorrection, "QUICK_FIX->FEATURE");
+    assertEquals(row.routerCorrection, "QUICK_FIX->PLANNED_CHANGE");
     assertEquals(row.routerDistanceFromHuman, 1);
     assertEquals(row.routerDisagreementKind, "scope_underestimated");
     assertEquals(row.routerSummary, "add version output");

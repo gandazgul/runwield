@@ -4,7 +4,7 @@
  * Shared utilities for Router evaluation CSV generation and scoring.
  */
 
-import { ROUTING_INTENTS } from "../src/constants.js";
+import { LEGACY_ROUTING_INTENT_FEATURE, ROUTING_INTENT_PLANNED_CHANGE, ROUTING_INTENTS } from "../src/constants.js";
 
 export const ROUTER_JUDGEMENT_COLUMNS = [
     "decisionId",
@@ -124,6 +124,7 @@ export function parseCsv(text) {
  */
 export function normalizeRoutingIntentCell(value) {
     const text = oneLine(value).toUpperCase();
+    if (text === LEGACY_ROUTING_INTENT_FEATURE) return ROUTING_INTENT_PLANNED_CHANGE;
     return ROUTING_INTENTS.includes(text) ? text : "";
 }
 
@@ -164,9 +165,16 @@ export function classifyRoutingIntentDisagreement(from, to) {
     ) {
         return "answer_action_boundary";
     }
-    if (a === "QUICK_FIX" && (b === "FEATURE" || b === "PROJECT")) return "scope_underestimated";
-    if ((a === "FEATURE" || a === "PROJECT") && b === "QUICK_FIX") return "scope_overestimated";
-    if ((a === "FEATURE" && b === "PROJECT") || (a === "PROJECT" && b === "FEATURE")) {
+    if (a === "QUICK_FIX" && (b === ROUTING_INTENT_PLANNED_CHANGE || b === "PROJECT")) {
+        return "scope_underestimated";
+    }
+    if ((a === ROUTING_INTENT_PLANNED_CHANGE || a === "PROJECT") && b === "QUICK_FIX") {
+        return "scope_overestimated";
+    }
+    if (
+        (a === ROUTING_INTENT_PLANNED_CHANGE && b === "PROJECT") ||
+        (a === "PROJECT" && b === ROUTING_INTENT_PLANNED_CHANGE)
+    ) {
         return "feature_project_boundary";
     }
     if (a === "IDEATION" || b === "IDEATION") return "ideation_boundary";
