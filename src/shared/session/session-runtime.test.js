@@ -120,6 +120,33 @@ function makeRuntime(options = {}) {
     });
 }
 
+Deno.test("SessionRuntime commits a Claude CLI model reconfiguration only after root rebuild succeeds", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({ id: "claude-model-commit", cwd: STABLE_TEST_CWD });
+    session.setRootAgentName("guide");
+    /** @type {string[]} */
+    const switched = [];
+    const runtime = makeRuntime({
+        sessionHost,
+        switchActiveAgent: (hostedSession, options) => {
+            switched.push(options.model);
+            hostedSession.setRootAgentSession(/** @type {any} */ ({ kind: "claude-cli", session: { dispose() {} } }));
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
+    });
+    /** @type {import('./session-runtime-events.js').SessionRuntimeEvent[]} */
+    const events = [];
+    runtime.subscribeSessionEvents("claude-model-commit", (event) => {
+        events.push(event);
+    });
+
+    await runtime.reconfigureSessionModel("claude-model-commit", "sonnet", "claude-cli");
+
+    assertEquals(switched, ["claude-cli/sonnet"]);
+    assertEquals(session.getActiveModelState(), { model: "sonnet", provider: "claude-cli" });
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.MODEL_CHANGED).length, 1);
+});
+
 Deno.test("SessionRuntime restores the previous user model override when active root rebuild fails", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({ id: "model-rollback", cwd: STABLE_TEST_CWD });

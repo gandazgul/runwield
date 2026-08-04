@@ -136,7 +136,6 @@
         "src/shared/session/session.js": {
             "seams": [
                 "_attachSessionEventSubscribers",
-                "_buildAgentSession",
                 "_runPrompt"
             ],
             "machinery": [],

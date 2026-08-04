@@ -15,12 +15,12 @@ affectedPaths:
 executionAgent: "engineer"
 createdAt: "2026-08-03T18:20:03.227Z"
 updatedAt: "2026-08-03T18:20:03.227Z"
-status: "draft"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 2
 dependencies:
     - "01-register-claude-cli-backend-models"
+status: "ready_for_work"
 ---
 
 # Add Claude CLI Backend Transcript Tracer Bullet

@@ -40,6 +40,10 @@ HostedSession, Task, Work Item
 it is not shared project knowledge or a source for cross-Session Agent retrieval. _Avoid_: Work Record, planning memory,
 shared conversation
 
+**Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession or
+Claude CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution Backend does not
+transfer Session Transcript, workflow, lifecycle, or replay authority away from RunWield.
+
 **Session Transcript Segment**: An ordered durable portion of a Session Transcript that supplies one isolated
 model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
 Session, Agent Session, JSONL file

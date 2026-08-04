@@ -88,6 +88,52 @@ Deno.test("root-session persisted helpers list open and guard cwd paths", async 
     });
 });
 
+Deno.test("root-session helpers reopen Claude CLI entries in the existing RunWield JSONL", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        try {
+            const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+            const cwd = `${home}/repo`;
+            await Deno.mkdir(cwd, { recursive: true });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            const manager = SessionManager.create(cwd, sessionDir, { id: "claude-root" });
+            manager.appendCustomEntry("runwield.execution_backend", { version: 1, backend: "claude-cli" });
+            manager.appendMessage({ role: "user", timestamp: Date.now(), content: [{ type: "text", text: "hello" }] });
+            manager.appendModelChange("claude-cli", "sonnet");
+            manager.appendMessage({
+                role: "assistant",
+                timestamp: Date.now(),
+                api: "anthropic-messages",
+                provider: "claude-cli",
+                model: "sonnet",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: "stop",
+                content: [{ type: "text", text: "hi" }],
+            });
+
+            const opened = await openPersistedRootSession({ cwd, sessionId: "claude-root" });
+            const serialized = JSON.stringify(getRootSessionBranchEntries(opened.sessionManager));
+            assertEquals(opened.resolved.sessionId, "claude-root");
+            assertEquals(serialized.includes("runwield.execution_backend"), true);
+            assertEquals(serialized.includes("model_change"), true);
+            assertEquals(serialized.includes("hi"), true);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
 Deno.test("catalog-safe root session locators read only header metadata and preserve transcript bytes", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");

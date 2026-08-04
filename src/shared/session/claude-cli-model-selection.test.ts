@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import {
@@ -10,14 +10,10 @@ import { __resetSettingsForTests, getSettingsManager } from "../settings.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { setActiveModel } from "../../ui/tui/chat-session.js";
 
-Deno.test("configured Claude CLI model reaches the typed pre-runtime backend rejection", () => {
+Deno.test("configured Claude CLI model is supported by typed execution backend dispatch", () => {
     const model = getModelRegistry().find("claude-cli", "sonnet");
     assert(model);
-    assertThrows(
-        () => assertModelExecutionBackendSupported(model),
-        UnsupportedModelExecutionBackendError,
-        "Claude CLI execution backend is not installed yet",
-    );
+    assertModelExecutionBackendSupported(model);
 });
 
 Deno.test("explicit Claude CLI selection persists a deferred default and leaves current runtime Session unchanged", async () => {

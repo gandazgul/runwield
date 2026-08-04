@@ -166,7 +166,8 @@ Deno.test("both execution personas can run a Pair checkpoint", async () => {
         assertStringIncludes(systemPrompt, "Runtime Collaboration Style");
         assertStringIncludes(systemPrompt, "`pair_checkpoint` is supplied");
         // A checkpoint is a pause for real steering, not a progress announcement.
-        assertStringIncludes(systemPrompt, "read the\ndiff, run the code, or build");
+        assertStringIncludes(systemPrompt, "read the diff,");
+        assertStringIncludes(systemPrompt, "run the code, or build");
     }
 });
 

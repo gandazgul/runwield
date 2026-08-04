@@ -61,6 +61,14 @@ import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
 import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.ts";
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
+import {
+    createClaudeExecutionSession,
+    createPiExecutionSession,
+    getExecutionSteeringTarget,
+    getRootExecutionMessages,
+    isExecutionSession,
+} from "./execution-backend.ts";
+import { ClaudeCliExecutionSession } from "./backends/claude-cli/execution-session.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
@@ -519,16 +527,17 @@ export function abortActiveSession(hostedSession) {
     const targetHostedSession = requireHostedSession(hostedSession, "abortActiveSession");
     let aborted = false;
     const root = /** @type {any} */ (targetHostedSession.getRootAgentSession());
-    if (root && root.isStreaming) {
+    const rootTarget = root && isExecutionSession(root) ? root.session : root;
+    if (rootTarget && rootTarget.isStreaming) {
         try {
-            root.abort();
+            rootTarget.abort();
         } catch (_e) { /* ignore */ }
         aborted = true;
     }
     // Clear any stale steering/follow-up messages from the agent's queue
-    if (root) {
+    if (rootTarget) {
         try {
-            root.clearQueue();
+            rootTarget.clearQueue();
         } catch (_e) { /* ignore */ }
     }
     for (const subSession of targetHostedSession.getSubAgentSessions()) {
@@ -593,8 +602,9 @@ export async function steerRootSession(hostedSession, text, images) {
  */
 export async function steerRootSessionWithTarget(hostedSession, text, images) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
+    const root = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     return await steerAgentSessionWithTarget(
-        /** @type {any} */ (targetHostedSession.getRootAgentSession()),
+        root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root,
         text,
         images,
     );
@@ -1974,6 +1984,108 @@ export async function buildAgentSession({
 }
 
 /**
+ * Build the model-selected execution session for root and HostedSession-backed isolated turns.
+ * Pi models continue through buildAgentSession(); Claude CLI models bypass Pi entirely.
+ *
+ * @param {Parameters<typeof buildAgentSession>[0]} opts
+ * @returns {Promise<{
+ *   executionSession: import('./execution-backend.ts').ExecutionSession,
+ *   session: any,
+ *   agentDef: import('./types.js').AgentDefinition,
+ *   promptState: { text: string },
+ *   tools: string[],
+ *   finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   resolvedModel: any,
+ *   resolvedThinkingLevel: string | undefined,
+ *   resolvedTemperature: number | undefined,
+ *   contextProjection: import('./session-context-report.js').SessionContextProjection,
+ *   imageMode?: string,
+ *   visionFallbackModelRef?: string
+ * }>}
+ */
+export async function buildExecutionSession(opts) {
+    const targetHostedSession = opts.hostedSession
+        ? requireHostedSession(opts.hostedSession, "buildExecutionSession")
+        : null;
+    const sessionCwd = opts.cwd || targetHostedSession?.cwd;
+    if (!sessionCwd) throw new Error("buildExecutionSession: cwd or hostedSession cwd is required");
+    const agentDef = opts._agentDefOverride || await loadAgentDef(opts.agentName, sessionCwd);
+    const modelRegistry = getModelRegistry();
+    const resolvedModel = withModelCompatibility(
+        await resolveModel(
+            opts.modelOverride,
+            agentDef,
+            opts.agentName,
+            modelRegistry,
+            targetHostedSession || undefined,
+            sessionCwd,
+        ),
+    );
+    assertModelExecutionBackendSupported(resolvedModel);
+    const backend =
+        /** @type {import('../models/model-registry.ts').RunWieldModel} */ (resolvedModel)?.executionBackend || "pi";
+    if (backend === "pi") {
+        const built = await buildAgentSession(opts);
+        return { ...built, executionSession: createPiExecutionSession(built.session) };
+    }
+    if (backend !== "claude-cli") {
+        throw new Error(
+            `Unsupported model execution backend "${backend}" for ${resolvedModel.provider}/${resolvedModel.id}.`,
+        );
+    }
+    const effectiveSessionManager = opts.sessionManager || SessionManager.inMemory(sessionCwd);
+    const { prompt: finalSystemPrompt, projection: contextProjection } =
+        await assembleFinalSystemPromptWithContextProjection(
+            agentDef,
+            [],
+            [],
+            sessionCwd,
+            opts.projectStateContext,
+        );
+    const promptState = { text: finalSystemPrompt };
+    const session = new ClaudeCliExecutionSession({
+        cwd: sessionCwd,
+        agentName: opts.agentName,
+        finalSystemPrompt,
+        model: resolvedModel,
+        sessionManager: effectiveSessionManager,
+        hostedSession: targetHostedSession || undefined,
+    });
+    await recordWorkflowMetric({
+        category: "model_selection",
+        event: "session_configured",
+        agentName: opts.agentName,
+        details: {
+            provider: resolvedModel.provider,
+            model: resolvedModel.id,
+            source: resolvedModel && typeof resolvedModel === "object"
+                ? modelSelectionSourceByModel.get(resolvedModel)
+                : undefined,
+            selectedProvider: resolvedModel.provider,
+            selectedModel: resolvedModel.id,
+            selectedSource: resolvedModel && typeof resolvedModel === "object"
+                ? modelSelectionSourceByModel.get(resolvedModel)
+                : undefined,
+            imageMode: "blocked",
+            hasVisionFallback: false,
+        },
+    }, sessionCwd);
+    return {
+        executionSession: createClaudeExecutionSession(session),
+        session,
+        agentDef,
+        promptState,
+        tools: [],
+        finalCustomTools: [],
+        resolvedModel,
+        resolvedThinkingLevel: undefined,
+        resolvedTemperature: undefined,
+        contextProjection,
+        imageMode: "blocked",
+    };
+}
+
+/**
  * Per-session subscriber state. Lives alongside the AgentSession and is reset
  * at the start of each prompt via resetTurn().
  *
@@ -2700,11 +2812,7 @@ export function getRootSessionContextProjection(hostedSession) {
     const meta = rootSessionMetadata.get(session);
     if (!meta?.contextProjection) return null;
     const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
-    const messages = Array.isArray(contextMessages)
-        ? contextMessages
-        : Array.isArray(session.messages)
-        ? session.messages
-        : [];
+    const messages = Array.isArray(contextMessages) ? contextMessages : getRootExecutionMessages(session);
     return {
         projection: meta.contextProjection,
         activeMessageTokens: estimateAgentMessagesTokens(/** @type {any} */ (messages)),
@@ -2734,7 +2842,8 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
             if (meta?.steeringTargetId) targetHostedSession.popSteeringTargetSession(meta.steeringTargetId);
         } catch (_e) { /* ignore */ }
         try {
-            existing.dispose();
+            if (isExecutionSession(existing)) existing.session.dispose();
+            else existing.dispose();
         } catch (_e) { /* ignore */ }
         rootSessionMetadata.delete(existing);
     }
@@ -2774,8 +2883,16 @@ export async function ensureRootAgentSession(opts) {
     const existing = /** @type {any} */ (hostedSession.getRootAgentSession());
     const existingMeta = existing ? rootSessionMetadata.get(existing) : undefined;
     const rootProjectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
-    const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
+    const buildSessionFn = opts._buildAgentSession || buildExecutionSession;
     const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
+    const built = await buildSessionFn({
+        ...opts,
+        hostedSession,
+        cwd: opts.cwd || hostedSession.cwd,
+        sessionManager: /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
+        projectStateContext: rootProjectStateContext,
+        allowReturnToRouter: opts.allowReturnToRouter ?? true,
+    });
     const {
         session,
         agentDef,
@@ -2786,14 +2903,9 @@ export async function ensureRootAgentSession(opts) {
         contextProjection,
         imageMode,
         visionFallbackModelRef,
-    } = await buildAgentSessionFn({
-        ...opts,
-        hostedSession,
-        cwd: opts.cwd || hostedSession.cwd,
-        sessionManager: /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
-        projectStateContext: rootProjectStateContext,
-        allowReturnToRouter: opts.allowReturnToRouter ?? true,
-    });
+    } = built;
+    const executionSession = built.executionSession || null;
+    const rootSession = executionSession?.kind === "claude-cli" ? executionSession : session;
 
     try {
         hostedSession.assertActive();
@@ -2804,7 +2916,14 @@ export async function ensureRootAgentSession(opts) {
         throw error;
     }
 
-    const subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
+    const subscriberState = executionSession?.kind === "claude-cli"
+        ? {
+            resetTurn: () => {},
+            drainInvokedToolNames: () => [],
+            endThinking: () => {},
+            unsubscribe: () => {},
+        }
+        : attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
 
     if (existing) {
         try {
@@ -2824,15 +2943,17 @@ export async function ensureRootAgentSession(opts) {
         opts.agentName,
     );
 
-    hostedSession.setRootAgentSession(session);
-    const steeringTargetId = hostedSession.pushSteeringTargetSession(session);
+    hostedSession.setRootAgentSession(rootSession);
+    const steeringTargetId = hostedSession.pushSteeringTargetSession(
+        executionSession ? getExecutionSteeringTarget(executionSession) : session,
+    );
     hostedSession.setRootAgentName(opts.agentName);
     if (opts.activeHandler) hostedSession.setActiveOnMessage(opts.activeHandler);
     recordActiveAgent(
         /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
         opts.agentName,
     );
-    rootSessionMetadata.set(session, {
+    rootSessionMetadata.set(rootSession, {
         agentDef,
         promptState,
         subscriberState,
@@ -2850,7 +2971,7 @@ export async function ensureRootAgentSession(opts) {
         steeringTargetId,
     });
 
-    return session;
+    return rootSession;
 }
 
 /**
@@ -2903,10 +3024,13 @@ export async function runRootTurn({
 
     meta.rootTurnCount += 1;
     const finalRequest = applyAttentionNudge(agentName, userRequest, meta.rootTurnCount);
+    if (isExecutionSession(session) && session.kind === "claude-cli") {
+        return await session.session.runTurn({ userRequest: finalRequest, images });
+    }
     const runPromptFn = _runPrompt || runPrompt;
 
     return await runPromptFn({
-        session,
+        session: isExecutionSession(session) ? session.session : session,
         agentDef: meta.agentDef,
         agentName,
         userRequest: finalRequest,
@@ -3016,15 +3140,19 @@ export async function runIsolatedAgentSession(opts) {
     const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
     const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
 
-    const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
+    const buildSessionFn = opts._buildAgentSession || buildExecutionSession;
     const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
     const runPromptFn = opts._runPrompt || runPrompt;
-    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSessionFn({
+    const built = await buildSessionFn({
         ...opts,
         hostedSession,
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
     });
+    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = built;
+    const executionSession = built.executionSession || null;
+    const executionRoot = executionSession || session;
+    const steeringTarget = executionSession ? getExecutionSteeringTarget(executionSession) : session;
     /** @type {SubscriberState | undefined} */
     let subscriberState;
     let agentInfoId = "";
@@ -3032,14 +3160,21 @@ export async function runIsolatedAgentSession(opts) {
     let registeredSubAgent = false;
     const abortChild = () => {
         try {
-            session.abort();
+            steeringTarget.abort();
         } catch (_e) { /* ignore */ }
     };
 
     try {
         opts.signal?.throwIfAborted();
-        subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
-        hostedSession.addSubAgentSession(session);
+        subscriberState = executionSession?.kind === "claude-cli"
+            ? {
+                resetTurn: () => {},
+                drainInvokedToolNames: () => [],
+                endThinking: () => {},
+                unsubscribe: () => {},
+            }
+            : attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
+        hostedSession.addSubAgentSession(steeringTarget);
         registeredSubAgent = true;
 
         const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
@@ -3049,9 +3184,16 @@ export async function runIsolatedAgentSession(opts) {
             resolvedModel?.provider || "",
             opts.agentName,
         );
-        steeringTargetId = hostedSession.pushSteeringTargetSession(session);
+        steeringTargetId = hostedSession.pushSteeringTargetSession(steeringTarget);
         opts.signal?.addEventListener("abort", abortChild, { once: true });
         opts.signal?.throwIfAborted();
+        if (executionSession?.kind === "claude-cli") {
+            return await executionSession.session.runTurn({
+                userRequest: opts.userRequest,
+                images: opts.images,
+                signal: opts.signal,
+            });
+        }
         return await runPromptFn({
             session,
             agentDef,
@@ -3079,14 +3221,15 @@ export async function runIsolatedAgentSession(opts) {
         }
         if (registeredSubAgent) {
             try {
-                hostedSession.removeSubAgentSession(session);
+                hostedSession.removeSubAgentSession(steeringTarget);
             } catch (_e) { /* ignore */ }
         }
         try {
             subscriberState?.unsubscribe();
         } catch (_e) { /* ignore */ }
         try {
-            session.dispose();
+            if (isExecutionSession(executionRoot)) executionRoot.session.dispose();
+            else session.dispose();
         } catch (_e) { /* ignore */ }
     }
 }
