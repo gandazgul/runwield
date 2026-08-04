@@ -94,6 +94,13 @@ export function supportsPairExecution(hostedSession) {
 }
 
 /**
+ * Run a root Planner or Architect turn.
+ *
+ * Callers that already know which Plan the turn is about — `load-plan` resume
+ * and re-review, Epic child continuation — pass it as `options.planName`. It is
+ * recorded through `hostedSession.setWorkflowPlanName` before the turn starts so
+ * a compacted planning session still has a pointer back to its draft.
+ *
  * @param {*} options
  * @returns {Promise<PlanOutcomeResult>}
  */

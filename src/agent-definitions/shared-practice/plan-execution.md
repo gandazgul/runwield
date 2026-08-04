@@ -41,6 +41,13 @@ fact that contradicts it. Do not substitute your own approach, and never leave t
 going: a step you could not complete means that part of the change did not happen. Say so plainly. Reporting a partial
 result as a success is a worse failure than stopping.
 
+## After compaction
+
+A long execution run can be compacted, and compaction is lossy. The Plan file is the artifact that survived; the summary
+is only continuity context. When you resume after compaction, reread the Plan — its Implementation Steps and its
+Verification Plan — before continuing, and trust what the file says over what you remember. Findings you lose this way
+are usually the ones the Plan stated explicitly.
+
 ## Requests that are not the Plan
 
 If the user asks in-session for something the Plan does not cover — a new multistep plan, open-ended ideation, or

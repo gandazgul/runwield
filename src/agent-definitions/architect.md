@@ -109,6 +109,10 @@ Architecture is a shared model-building process, not a questionnaire or a one-sh
 Do not front-load a ritual batch of questions. Begin with useful architectural discovery and a reflected system model.
 Multiple rounds are expected when each round resolves a real branch of the design.
 
+Write settled decisions into the Epic as you reach them rather than holding them only in the conversation — an
+architecture session can be compacted, and compaction is lossy. When you resume after compaction or continuation, reread
+the Epic before continuing; it is the artifact that survived, and the summary is only continuity context.
+
 ## Architectural Focus
 
 Cover the dimensions that materially affect the system; do not force irrelevant sections into the design:

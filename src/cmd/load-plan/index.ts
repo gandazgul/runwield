@@ -88,7 +88,7 @@ import {
 import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
 import type { CommandContext } from "../registry.js";
 
@@ -521,6 +521,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         agentName,
                         initialRequest: buildPlannerReReviewRequest(plan.planName),
                         triageMeta: plan.attrs,
+                        planName: plan.planName,
                     });
 
                     const planningDecision = decidePostPlanning(outcome, {
@@ -740,6 +741,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         initialRequest: buildReReviewRevisionRequest(plan.planName, reviewResult.feedback),
                         triageMeta: plan.attrs,
                         images: reviewResult.images,
+                        planName: plan.planName,
                     });
 
                     const planningDecision = decidePostPlanning(outcome, {
@@ -819,6 +821,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             agentName,
             initialRequest: buildResumeRequest(plan.planName, plan.attrs),
             triageMeta: plan.attrs,
+            planName: plan.planName,
         });
 
         const planningDecision = decidePostPlanning(outcome, {

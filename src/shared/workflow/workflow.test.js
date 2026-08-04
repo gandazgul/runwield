@@ -9,6 +9,7 @@ import {
     extractAssistantOutput,
     finalizePlanImplementation,
     readLatestPlanOutcome,
+    runPlanningAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
@@ -1077,4 +1078,57 @@ Deno.test("execution preparation still refuses when lifecycle front matter drift
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
+});
+
+Deno.test("runPlanningAgent records a known Plan name before the planning turn starts", async () => {
+    await withRuntimeCommandFixture("workflow-planning-plan-name-", async ({ setModelResponseFactory }) => {
+        const projectRoot = await makeWorkflowProject([{ name: "resumed-plan", status: "draft" }]);
+        const hostedSession = makeAgentHostedSession("workflow-planning-plan-name", projectRoot);
+        let planNameDuringTurn = null;
+        setModelResponseFactory(() => {
+            planNameDuringTurn = hostedSession.getWorkflowContext()?.planName ?? null;
+            return fauxAssistantMessage(fauxText("Acknowledged; nothing to finalize yet."));
+        });
+
+        try {
+            const result = await runPlanningAgent({
+                agentName: "planner",
+                initialRequest: "Resume the draft Plan.",
+                triageMeta: {},
+                hostedSession,
+                sessionManager: hostedSession.getRootSessionManager(),
+                planName: "resumed-plan",
+            });
+
+            assertEquals(result.outcome, "no_call");
+            // The pointer has to exist *before* the turn: compaction fires mid-turn, and
+            // one recorded only on the way out is exactly the one that goes missing.
+            assertEquals(planNameDuringTurn, "resumed-plan");
+            assertEquals(hostedSession.getWorkflowContext()?.planName, "resumed-plan");
+        } finally {
+            hostedSession.dispose();
+        }
+    });
+});
+
+Deno.test("runPlanningAgent leaves workflow Plan context alone when no Plan name is known", async () => {
+    await withRuntimeCommandFixture("workflow-planning-no-plan-name-", async ({ setModelResponseFactory }) => {
+        const projectRoot = await makeWorkflowProject([{ name: "unrelated-plan", status: "draft" }]);
+        const hostedSession = makeAgentHostedSession("workflow-planning-no-plan-name", projectRoot);
+        setModelResponseFactory(() => fauxAssistantMessage(fauxText("Still gathering context.")));
+
+        try {
+            await runPlanningAgent({
+                agentName: "planner",
+                initialRequest: "Plan something new.",
+                triageMeta: {},
+                hostedSession,
+                sessionManager: hostedSession.getRootSessionManager(),
+            });
+
+            assertEquals(hostedSession.getWorkflowContext()?.planName, undefined);
+        } finally {
+            hostedSession.dispose();
+        }
+    });
 });

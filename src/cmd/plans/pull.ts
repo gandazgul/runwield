@@ -12,7 +12,7 @@ import {
     updatePlanCollaborationMetadata,
 } from "../../plan-store.js";
 import { MAINTAINER_SCOPE, redactSecrets } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { decryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import {
@@ -256,6 +256,7 @@ export async function pullPlanForRevision(
         const client = createCollaborationClient({
             serverUrl: resolved.serverUrl,
             bearerCapability: resolved.maintainerCapability,
+            fetch: SYSTEM_COLLABORATION_FETCH,
         });
         space = normalizeSpaceResponse(await client.getSharedSpace(resolved.spaceId) as WireValue);
         revision = normalizeRevisionResponse(
@@ -463,7 +464,12 @@ async function launchPlanningAgent(pulled: PulledPlanRevision, options: RunPlans
     if (typeof sessionRuntime.switchAgent === "function") {
         await sessionRuntime.switchAgent(sessionId, { agentName, allowReturnToRouter: false });
     }
-    return await sessionRuntime.runPlanningAgent(sessionId, { agentName, initialRequest, triageMeta: pulled.attrs });
+    return await sessionRuntime.runPlanningAgent(sessionId, {
+        agentName,
+        initialRequest,
+        triageMeta: pulled.attrs,
+        planName: pulled.planName,
+    });
 }
 
 export async function runPlansPullCommand(

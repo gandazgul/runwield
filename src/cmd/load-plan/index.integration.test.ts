@@ -346,6 +346,9 @@ Deno.test("load-plan runs the real Planner and plan_written machinery against th
 
                 assertEquals((await loadPlan(projectRoot, "planned"))?.attrs.status, "ready_for_work");
                 assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "planner");
+                // The resumed Planner turn records the Plan it was opened on, so a
+                // compaction mid-draft still has a pointer back to the file.
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext?.planName, "planned");
             } finally {
                 runtime.closeAllSessions();
             }

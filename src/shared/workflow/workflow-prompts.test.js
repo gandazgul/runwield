@@ -1,5 +1,10 @@
-import { assertStringIncludes } from "@std/assert";
-import { buildEngineerRequest, buildSlicerRequest, buildTriageReport } from "./workflow-prompts.js";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import {
+    buildEngineerRequest,
+    buildReAnchorMessage,
+    buildSlicerRequest,
+    buildTriageReport,
+} from "./workflow-prompts.js";
 
 Deno.test("buildSlicerRequest includes existing child order and dependencies", () => {
     const request = buildSlicerRequest({
@@ -118,4 +123,65 @@ Deno.test("buildEngineerRequest reconstructs planned classification for loaded l
     assertStringIncludes(request, "- Routing Intent: PLANNED_CHANGE");
     assertStringIncludes(request, "- Plan Classification: PLANNED_CHANGE");
     assertStringIncludes(request, "- Summary: Loaded from disk.");
+});
+
+Deno.test("buildReAnchorMessage names the draft Plan and its sections for Planner", () => {
+    const message = buildReAnchorMessage({ agentName: "planner", planName: "some-plan" });
+
+    assertStringIncludes(String(message), "Context was compacted.");
+    assertStringIncludes(String(message), "draft Plan is `plans/some-plan.md`");
+    assertStringIncludes(String(message), "Implementation Steps");
+});
+
+Deno.test("buildReAnchorMessage names the Epic for Architect", () => {
+    const message = buildReAnchorMessage({ agentName: "architect", planName: "some-epic" });
+
+    assertStringIncludes(String(message), "Epic is `plans/some-epic.md`");
+    assertStringIncludes(String(message), "Vertical Slice Findings");
+});
+
+Deno.test("buildReAnchorMessage points both execution agents at the Verification Plan", () => {
+    for (const agentName of ["engineer", "frontend-engineer"]) {
+        const message = String(buildReAnchorMessage({ agentName, planName: "some-plan" }));
+
+        assertStringIncludes(message, "Plan is `plans/some-plan.md`");
+        assertStringIncludes(message, "Verification Plan");
+    }
+});
+
+Deno.test("buildReAnchorMessage carries open review issues for a repair turn", () => {
+    const message = String(buildReAnchorMessage({
+        agentName: "reviewer-feedback-engineer",
+        planName: "some-plan",
+        openReviewItems: "[R1-1] Seam check never runs\n  Plan requirement: Verification Plan step 3",
+    }));
+
+    assertStringIncludes(message, "plans/some-plan.md");
+    assertStringIncludes(message, "## Open Review Issue Ledger");
+    assertStringIncludes(message, "[R1-1] Seam check never runs");
+});
+
+Deno.test("buildReAnchorMessage omits an empty Review Issue Ledger", () => {
+    const message = String(buildReAnchorMessage({
+        agentName: "reviewer-feedback-engineer",
+        planName: "some-plan",
+        openReviewItems: "(none)",
+    }));
+
+    assertStringIncludes(message, "plans/some-plan.md");
+    if (message.includes("Open Review Issue Ledger")) {
+        throw new Error("An empty ledger must not add a ledger section");
+    }
+});
+
+Deno.test("buildReAnchorMessage returns null for agents with no durable artifact", () => {
+    for (const agentName of ["delegated", "reviewer", "slicer", "router", "recorder", ""]) {
+        assertEquals(buildReAnchorMessage({ agentName, planName: "some-plan" }), null);
+    }
+});
+
+Deno.test("buildReAnchorMessage returns null when no Plan pointer survived", () => {
+    assertEquals(buildReAnchorMessage({ agentName: "engineer" }), null);
+    assertEquals(buildReAnchorMessage({ agentName: "engineer", planName: "   " }), null);
+    assertEquals(buildReAnchorMessage(), null);
 });

@@ -82,6 +82,9 @@ costs far less than a "fixed" that does not survive verification.
 - **Ask, don't guess:** If a finding is genuinely incomprehensible without the context you do not have, do not invent an
   interpretation. Report it as blocked and say exactly what you were missing. You have no user turn — a question you
   cannot answer from the code becomes a blocked item, never a `task_completed` that asks one.
+- **Reread after compaction:** A long repair can be compacted. The Plan and the open findings are the artifacts that
+  survived; the summary is only continuity context. Reread them before continuing rather than working from what you
+  remember.
 
 ## When a Finding Is Out of Reach
 

@@ -196,6 +196,7 @@ export async function runEpicChildContinuation(
             triageMeta: plan.attrs,
             sessionManager,
             hostedSession,
+            planName,
         });
         const decision = decidePostPlanning(outcome, {
             planningAgentName: AGENTS.PLANNER,

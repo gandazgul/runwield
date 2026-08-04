@@ -1,6 +1,9 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { readLatestPlanOutcome } from "./workflow-results.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { HostedSession } from "../session/hosted-session.js";
+import type { PlanFrontMatter } from "../../plan-store.js";
 
 /**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
@@ -15,10 +18,38 @@ import { runActiveAgentTurn } from "../session/agent-switching.js";
  * @property {Array<{base64: string, mimeType: string}>} [images]
  */
 
+export interface RunPlanningAgentOptions {
+    agentName: string;
+    initialRequest: string;
+    hostedSession: HostedSession;
+    triageMeta?: Partial<PlanFrontMatter>;
+    sessionManager?: SessionManager;
+    images?: Array<{ base64: string; mimeType: string }>;
+    /**
+     * The Plan this turn is already known to be about — resume, re-review, and Epic
+     * child continuation all know it before the agent starts.
+     */
+    planName?: string;
+}
+
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta, sessionManager, hostedSession, images },
+    {
+        agentName,
+        initialRequest,
+        triageMeta,
+        sessionManager,
+        hostedSession,
+        images,
+        planName,
+    }: RunPlanningAgentOptions,
 ) {
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
+
+    // Callers resuming or re-reviewing an existing Plan already know its name.
+    // Recording it before the turn is what makes the draft reachable after
+    // compaction: the transcript is lossy, so a pointer parsed back out of it is
+    // exactly the thing that goes missing.
+    if (planName) hostedSession.setWorkflowPlanName(planName);
 
     const messages = await runActiveAgentTurn({
         hostedSession,

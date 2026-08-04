@@ -3,7 +3,7 @@
  * User prompts and agent request text used by workflow execution.
  */
 
-import { formatPlannedWorkLabel } from "../../constants.js";
+import { AGENTS, formatPlannedWorkLabel } from "../../constants.js";
 
 /**
  * @typedef {Object} TriageReportContext
@@ -152,6 +152,90 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         "## Epic Markdown",
         epicText,
     );
+
+    return lines.join("\n");
+}
+
+/**
+ * @typedef {Object} ReAnchorArtifact
+ * @property {string} label - How the agent's own prompt refers to its durable artifact.
+ * @property {string} sections - The sections worth rereading, in the artifact's own order.
+ */
+
+/**
+ * The durable artifact each agent must re-anchor on after compaction.
+ *
+ * The entry carries only the artifact's name and its sections. Why the reread
+ * matters belongs to the agent prompt, and duplicating it here is exactly the
+ * drift this table exists to avoid. An agent absent from the table has no
+ * durable artifact — a Delegated Agent Session has a brief, a Reviewer has a
+ * diff — so it is never re-anchored.
+ *
+ * @type {Readonly<Record<string, ReAnchorArtifact>>}
+ */
+const RE_ANCHOR_ARTIFACTS = Object.freeze({
+    [AGENTS.PLANNER]: {
+        label: "draft Plan",
+        sections: "Objective, Approach, Implementation Steps, and Verification Plan",
+    },
+    [AGENTS.ARCHITECT]: {
+        label: "Epic",
+        sections: "Objective, Vertical Slice Findings, Files to Modify, and Verification Plan",
+    },
+    [AGENTS.ENGINEER]: {
+        label: "Plan",
+        sections: "Implementation Steps, Verification Plan, and Edge Cases & Considerations",
+    },
+    [AGENTS.FRONTEND_ENGINEER]: {
+        label: "Plan",
+        sections: "Implementation Steps, Verification Plan, and Edge Cases & Considerations",
+    },
+    [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: {
+        label: "Plan",
+        sections: "Implementation Steps and Verification Plan",
+    },
+});
+
+/**
+ * @typedef {Object} ReAnchorContext
+ * @property {string} [agentName]
+ * @property {string} [planName] - Normalized Plan name: no `plans/` prefix, no `.md` suffix.
+ * @property {string} [openReviewItems] - Rendered open Review Issue Ledger items for a repair turn.
+ */
+
+/**
+ * Build the message injected into the first provider request after compaction,
+ * pointing the active agent back at the artifact the discarded context was
+ * about.
+ *
+ * Returns null — and nothing is injected — when the agent has no durable
+ * artifact or when no Plan pointer survived, because a re-anchor that names no
+ * file is noise.
+ *
+ * @param {ReAnchorContext} [context]
+ * @returns {string | null}
+ */
+export function buildReAnchorMessage(context = {}) {
+    const agentName = typeof context.agentName === "string" ? context.agentName.trim() : "";
+    const artifact = RE_ANCHOR_ARTIFACTS[agentName];
+    if (!artifact) return null;
+
+    const planName = typeof context.planName === "string" ? context.planName.trim() : "";
+    if (!planName) return null;
+
+    const lines = [
+        "## Context Re-Anchor",
+        "",
+        `Context was compacted. Your ${artifact.label} is \`plans/${planName}.md\`.`,
+        `Reread it before continuing: ${artifact.sections}.`,
+    ];
+
+    if (agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
+        const openReviewItems = typeof context.openReviewItems === "string" ? context.openReviewItems.trim() : "";
+        if (openReviewItems && openReviewItems !== "(none)") {
+            lines.push("", "## Open Review Issue Ledger", "", openReviewItems);
+        }
+    }
 
     return lines.join("\n");
 }
