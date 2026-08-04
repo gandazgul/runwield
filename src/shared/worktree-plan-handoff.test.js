@@ -2,6 +2,33 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 
 import { loadPlan, savePlan } from "../plan-store.js";
 
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
+ * filesystem metadata settles after Git worktree operations. Retry boundedly so
+ * cleanup flakiness does not fail an otherwise successful handoff test.
+ *
+ * @param {string} path
+ */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            const isRetryable = error instanceof Error &&
+                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
+            if (!isRetryable || attempt === 4) throw error;
+            await delay(25 * (attempt + 1));
+        }
+    }
+}
+
 /**
  * @param {string} cwd
  * @param {string} planName
@@ -55,7 +82,7 @@ Deno.test("primary Plan path handoff restores tracked and untracked working file
         assertStringIncludes(await git(projectRoot, ["status", "--short", "--", "plans/tracked.md"]), "MM");
         assertEquals(await Deno.readTextFile(`${projectRoot}/plans/untracked.md`), "untracked implemented\n");
     } finally {
-        await Deno.remove(projectRoot, { recursive: true });
+        await removeTempDir(projectRoot);
     }
 });
 
@@ -113,8 +140,8 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
 
@@ -176,8 +203,8 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
 
@@ -256,8 +283,8 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
 
@@ -336,8 +363,8 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
 
@@ -423,8 +450,8 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
 
@@ -500,7 +527,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
                 force: true,
             });
         }
-        await Deno.remove(projectRoot, { recursive: true });
-        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await removeTempDir(projectRoot);
+        await removeTempDir(worktreeRoot).catch(() => {});
     }
 });
