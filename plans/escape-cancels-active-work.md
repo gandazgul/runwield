@@ -60,21 +60,22 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T15:07:34-04:00"
-updatedAt: "2026-08-04T04:57:45.924Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-04T12:24:20.574Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-04T04:54:13.461Z"
+verifiedAt: "2026-08-04T12:24:20.574Z"
 userVerifiedAt: null
 executionReport: "- Implemented all 9 plan steps: new `src/shared/foreground-process.ts` process-tree primitive (detached group + negative-pid SIGKILL on Unix, taskkill /F /T on Windows, race-safe abort/timeout binding, pre-abort spawn skip, no DI seam); `runLocalShellCommand()`, `runLocalCI()`, and `runObjectiveChecks()` migrated to it; Workflow Validation now registers the Objective-Failing Check phase as an active interaction and treats its cancellation as the same resumable retry-or-stop pause as canceled CI (no failure staging, no Engineer repair, Plan stays `implemented`); `docs/architecture.md` documents SessionRuntime as cancellation authority and the module as subprocess-tree owner.\n- Objective-Failing Checks: OC1/OC2 confirmed red on baseline (exit 1, descendant survived) and green after (exit 0); OC3 test \"Workflow Validation treats canceled Objective-Failing Checks as a resumable pause\" added and passing.\n- Test delta: +13 new tests (6 foreground-process, 3 objective-checks, 3 validation-local-ci in a new file, 1 validation-loop-core), 0 deleted; existing direct-sleep cancellation test retained alongside the new descendant regression. Targeted suite: 106 passed / 0 failed across all 7 plan-listed test files.\n- Mutation-verified: removing `detached` turns the three descendant-kill tests red; restored to green.\n- `deno task seams:check` holds (69 seams / 27 modules, no new seam).\n- `deno task ci` passes (exit 0, 242 files passed / 0 failed). First run flaked once on golden TUI scenario `presentation-runtime-prompts-and-queued-state` — unrelated to changed code (TUI presentation scenario), passed in isolation and on full re-run; noting it as a possible pre-existing flake under parallel load.\n- Manual TUI verification steps from the plan were not run (no interactive terminal available): Escape during `!`/`!!`, during QUICK_FIX CI, during executable-Plan CI + Objective-Failing Checks, and during an agent bash tool call remain for the user to exercise."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "d763debff5bb1042bfc0b860de9a7a08f7611baa"
-worktreeId: "5bd0f423"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-escape-cancels-active-work-5bd0f423"
-worktreeBranch: "runwield/worktree/escape-cancels-active-work-5bd0f423"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "d3733bfbef65f0d4e23f117aad5749e8cb897cf4"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "8046ed712f77fdb99cebc0f53f49fdd5bead6a0f"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "escape cancellation reliability"
 validationCiAttempts: 0

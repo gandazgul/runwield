@@ -10,6 +10,12 @@
  */
 
 import { getCustomSetting, setCustomSetting } from "../settings.js";
+import { spawnForegroundShell } from "../foreground-process.ts";
+import {
+    captureProcessStreamTail,
+    formatCapturedProcessOutput,
+    PROCESS_STREAM_OUTPUT_LIMIT_BYTES,
+} from "./process-output.ts";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -19,89 +25,7 @@ import {
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 
-const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
-interface CapturedProcessStream {
-    text: string;
-    totalBytes: number;
-    truncated: boolean;
-}
-
-/**
- * @param {Uint8Array<ArrayBufferLike>} left
- * @param {Uint8Array<ArrayBufferLike>} right
- * @returns {Uint8Array<ArrayBufferLike>}
- */
-function concatBytes(left: Uint8Array<ArrayBufferLike>, right: Uint8Array<ArrayBufferLike>) {
-    const combined = new Uint8Array(left.byteLength + right.byteLength);
-    combined.set(left, 0);
-    combined.set(right, left.byteLength);
-    return combined;
-}
-
-/**
- * Read a process stream without using Deno.Command.output(), whose internal
- * buffer can throw before large-but-successful validation commands finish.
- * Retain the tail because build/test failures are usually reported last.
- *
- * @param {ReadableStream<Uint8Array>} stream
- * @param {number} limitBytes
- * @returns {Promise<CapturedProcessStream>}
- */
-async function captureProcessStreamTail(stream: ReadableStream<Uint8Array>, limitBytes: number) {
-    const reader = stream.getReader();
-    /** @type {Uint8Array<ArrayBufferLike>} */
-    let retained = new Uint8Array(0) as Uint8Array<ArrayBufferLike>;
-    let totalBytes = 0;
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            totalBytes += value.byteLength;
-
-            if (value.byteLength >= limitBytes) {
-                retained = value.slice(value.byteLength - limitBytes);
-                continue;
-            }
-
-            retained = concatBytes(retained, value);
-            if (retained.byteLength > limitBytes) {
-                retained = retained.slice(retained.byteLength - limitBytes);
-            }
-        }
-    } finally {
-        reader.releaseLock();
-    }
-
-    return {
-        text: new TextDecoder().decode(retained),
-        totalBytes,
-        truncated: totalBytes > retained.byteLength,
-    };
-}
-
-/**
- * @param {CapturedProcessStream} stdout
- * @param {CapturedProcessStream} stderr
- * @returns {string}
- */
-function formatCapturedProcessOutput(stdout: CapturedProcessStream, stderr: CapturedProcessStream) {
-    const output = `${stdout.text}\n${stderr.text}`;
-    if (!stdout.truncated && !stderr.truncated) return output;
-
-    const notices = [];
-    if (stdout.truncated) {
-        notices.push(
-            `[RunWield] stdout truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stdout.totalBytes} bytes.`,
-        );
-    }
-    if (stderr.truncated) {
-        notices.push(
-            `[RunWield] stderr truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stderr.totalBytes} bytes.`,
-        );
-    }
-    return `${output}\n${notices.join("\n")}\n`;
-}
+const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = PROCESS_STREAM_OUTPUT_LIMIT_BYTES;
 
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
@@ -172,17 +96,6 @@ export async function runLocalCI(
     const toolCallId = `validation-ci-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const interactionId = `validation-ci:${toolCallId}`;
     const abortController = new AbortController();
-    let child: Deno.ChildProcess | null = null;
-    let canceled = false;
-    const abortValidationProcess = () => {
-        canceled = true;
-        try {
-            child?.kill();
-        } catch (_e) {
-            // Process may have already exited.
-        }
-    };
-    abortController.signal.addEventListener("abort", abortValidationProcess, { once: true });
     hostedSession.addActiveInteraction(interactionId, { abortController });
     const runtimeTool = describeRuntimeTool("bash", { command: cmdArgs });
 
@@ -195,28 +108,21 @@ export async function runLocalCI(
     const startTime = Date.now();
 
     try {
-        const isWindows = Deno.build.os === "windows";
-        const cmdExe = isWindows ? "cmd" : "sh";
-        const cmdFlag = isWindows ? "/c" : "-c";
-
-        const command = new Deno.Command(cmdExe, {
-            args: [cmdFlag, cmdArgs],
-            cwd,
-            stdout: "piped",
-            stderr: "piped",
-        });
-
-        child = command.spawn();
-        const [status, stdout, stderr] = await Promise.all([
-            child.status,
-            captureProcessStreamTail(child.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
-            captureProcessStreamTail(child.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+        // The foreground-process module owns the wrapper shell's process group,
+        // so canceling this interaction terminates the whole CI tree — not only
+        // `sh -c` — and settles the inherited output pipes.
+        const shell = spawnForegroundShell({ command: cmdArgs, cwd, signal: abortController.signal });
+        const [outcome, stdout, stderr] = await Promise.all([
+            shell.done,
+            captureProcessStreamTail(shell.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+            captureProcessStreamTail(shell.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
         ]);
+        const canceled = outcome.terminatedBy !== null;
         const output = canceled
             ? `${formatCapturedProcessOutput(stdout, stderr)}\nValidation canceled.\n`
             : formatCapturedProcessOutput(stdout, stderr);
         const durationMs = Date.now() - startTime;
-        const isError = canceled || status.code !== 0;
+        const isError = canceled || (outcome.exitCode ?? 1) !== 0;
 
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.TOOL_END,
@@ -228,11 +134,12 @@ export async function runLocalCI(
         });
 
         return {
-            exitCode: canceled ? 130 : status.code,
+            exitCode: canceled ? 130 : outcome.exitCode ?? 1,
             output,
             ...(canceled ? { canceled: true } : {}),
         };
     } catch (error) {
+        const canceled = abortController.signal.aborted;
         const reason = error instanceof Error ? error.message : String(error);
         const output = canceled ? "Validation canceled." : `Failed to spawn validation process: ${reason}`;
         const durationMs = Date.now() - startTime;
@@ -250,7 +157,8 @@ export async function runLocalCI(
             ...(canceled ? { canceled: true } : {}),
         };
     } finally {
-        abortController.signal.removeEventListener("abort", abortValidationProcess);
+        // Reached only after the process tree and both streams have settled, so
+        // Escape cannot unregister the interaction while a descendant still runs.
         hostedSession.removeActiveInteraction(interactionId);
     }
 }

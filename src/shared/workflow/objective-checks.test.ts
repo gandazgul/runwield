@@ -158,3 +158,115 @@ Deno.test("objective-checks module does not import validation modules", async ()
     assertEquals(/from\s+["'][^"']*validation|import\s*\(\s*["'][^"']*validation/.test(source), false);
     assertMatch(source, /process-output\.ts/);
 });
+
+const IS_WINDOWS = Deno.build.os === "windows";
+
+function processAlive(pid: number): boolean {
+    try {
+        Deno.kill(pid, "SIGCONT");
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Run one check whose descendant outlives a wrapper-only kill, and hand back
+ * the descendant's pid once it is definitely running.
+ */
+async function runCheckWithDescendant(options: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+}): Promise<
+    {
+        resultsPromise: Promise<import("./objective-checks.ts").ObjectiveCheckResult[]>;
+        descendantPid: number;
+        cwd: string;
+    }
+> {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-oc-tree-" });
+    const pidFile = `${cwd}/descendant.pid`;
+    const resultsPromise = runObjectiveChecks({
+        cwd,
+        checks: [{ id: "OC-TREE", command: `sleep 30 & echo $! > ${pidFile}; wait` }],
+        signal: options.signal,
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    });
+    let descendantPid = 0;
+    while (!descendantPid) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        descendantPid = Number(await Deno.readTextFile(pidFile).then((text) => text.trim(), () => "")) || 0;
+    }
+    return { resultsPromise, descendantPid, cwd };
+}
+
+Deno.test({
+    name: "runObjectiveChecks abort kills descendant processes, not only the wrapper shell",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const abortController = new AbortController();
+        const { resultsPromise, descendantPid, cwd } = await runCheckWithDescendant({
+            signal: abortController.signal,
+        });
+        try {
+            assertEquals(processAlive(descendantPid), true, "descendant should be running before abort");
+            abortController.abort();
+            const [result] = await resultsPromise;
+            assertEquals(result.status, "broken");
+            assertEquals(result.exitCode, null);
+            assertEquals(processAlive(descendantPid), false, "abort must kill the check's whole process tree");
+        } finally {
+            if (processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    },
+});
+
+Deno.test({
+    name: "runObjectiveChecks timeout kills descendant processes, not only the wrapper shell",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const { resultsPromise, descendantPid, cwd } = await runCheckWithDescendant({ timeoutMs: 50 });
+        try {
+            assertEquals(processAlive(descendantPid), true, "descendant should be running before the timeout");
+            const [result] = await resultsPromise;
+            assertEquals(result.status, "broken");
+            assertEquals(result.exitCode, null);
+            assertStringIncludes(result.reason || "", "timed out");
+            assertEquals(processAlive(descendantPid), false, "timeout must kill the check's whole process tree");
+        } finally {
+            if (processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    },
+});
+
+Deno.test({
+    name: "runObjectiveChecks does not start remaining checks after its signal aborts",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-oc-stop-" });
+        const marker = `${cwd}/second-check-ran`;
+        const abortController = new AbortController();
+        try {
+            const resultsPromise = runObjectiveChecks({
+                cwd,
+                checks: [
+                    { id: "OC-FIRST", command: "sleep 30" },
+                    { id: "OC-SECOND", command: `touch ${marker}` },
+                ],
+                signal: abortController.signal,
+            });
+            // Let the first check start, then cancel while it is running.
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            abortController.abort();
+            const results = await resultsPromise;
+            assertEquals(results.length, 1, "the second check must not start after cancellation");
+            assertEquals(results[0].id, "OC-FIRST");
+            const markerExists = await Deno.stat(marker).then(() => true, () => false);
+            assertEquals(markerExists, false);
+        } finally {
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    },
+});

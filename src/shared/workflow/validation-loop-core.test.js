@@ -349,6 +349,57 @@ Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Chan
     }
 });
 
+Deno.test({
+    name: "Workflow Validation treats canceled Objective-Failing Checks as a resumable pause",
+    ignore: Deno.build.os === "windows",
+    fn: async () => {
+        const objectiveChecks = [
+            { id: "OC1", command: "sleep 30", rationale: "long check stopped by Escape" },
+            {
+                id: "OC2",
+                command: "touch must-not-run-after-cancel.marker",
+                rationale: "must not start once cancellation lands",
+            },
+        ];
+        const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", {
+            classification: "PLANNED_CHANGE",
+            objectiveChecks: /** @type {any} */ (objectiveChecks),
+        });
+
+        const validation = runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+            localCI: {
+                run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            },
+        });
+        // Wait until the Objective-Failing Check phase owns an active interaction,
+        // then cancel it exactly the way Escape does.
+        while (![...hostedSession.getActiveInteractions().keys()].some((id) => id.startsWith("objective-checks:"))) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        hostedSession.cancelActiveInteractions();
+        const result = await validation;
+
+        const plan = await loadPlan(projectRoot, "p");
+        assertEquals(result.kind, "paused");
+        assertStringIncludes(result.kind === "paused" ? result.reason || "" : "", "Run this Plan again");
+        // Cancellation is a resumable pause: no failure is staged and the Plan
+        // keeps its `implemented` status and work ownership for a later Retry.
+        assertEquals(plan?.attrs.status, "implemented");
+        assertEquals(plan?.attrs.validationCiAttempts ?? 0, 0);
+        const markerExists = await Deno.stat(`${projectRoot}/must-not-run-after-cancel.marker`).then(
+            () => true,
+            () => false,
+        );
+        assertEquals(markerExists, false, "remaining checks must not start after cancellation");
+        assertEquals(hostedSession.getActiveInteractions().size, 0, "the phase releases its interaction");
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    },
+});
+
 Deno.test("runValidationLoop starts at implemented and records only the mechanical pass boundary", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", { complexity: "MEDIUM" });

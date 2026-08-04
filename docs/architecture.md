@@ -474,6 +474,16 @@ and root-affecting configuration remain active.
   processes registered as interactions.
 - `closeSessionWhenIdle()` cancels an active turn, awaits its settlement, and only then disposes session-owned state.
 
+### Foreground subprocess ownership
+
+`SessionRuntime.cancelSession()` is the sole cancellation authority: TUI (Escape, first Ctrl+C), ACP, and every other
+consumer call it and never hold process handles themselves. Process-tree ownership lives one layer down, in
+`src/shared/foreground-process.ts`. Every RunWield-owned foreground shell — local `!`/`!!` commands, configured local
+CI, and Objective-Failing Checks — is spawned through that module as an independently terminable process tree (detached
+process group plus negative-pid group signal on Unix-like systems, `taskkill /F /T` on Windows), bound to a Session
+active-interaction `AbortSignal` and an optional timeout. Cancellation therefore terminates the whole descendant tree,
+not just the wrapper shell, and the spawn/abort race is closed inside the module rather than re-implemented per caller.
+
 ### Runtime events and interactions
 
 `session-runtime-events.js` defines the adapter-neutral event vocabulary. It covers:
