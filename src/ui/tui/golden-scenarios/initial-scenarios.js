@@ -58,19 +58,26 @@ function assertKeyboardHelpVisible(result) {
 
 /** @param {GoldenScenarioResult} result */
 function assertStartupLoginPromptOpened(result) {
-    assertEventIncludes(result, "startup:prompt-select:Welcome to RunWield");
-    assertEventIncludes(result, "startup:quit");
+    const startupScreen = String(result.state.startupScreen || "");
     assert(
-        !result.events.includes("startup:model-selector"),
+        startupScreen.includes("Welcome to RunWield"),
+        `Expected no-provider startup to show the real login prompt. Screen:\n${startupScreen}`,
+    );
+    assert(
+        !startupScreen.includes("Only showing models from configured providers"),
         "Expected no-provider startup to open login before model selection.",
     );
 }
 
 /** @param {GoldenScenarioResult} result */
 function assertStartupModelSelectorOpened(result) {
-    assertEventIncludes(result, "startup:model-selector");
+    const startupScreen = String(result.state.startupScreen || "");
     assert(
-        !result.events.includes("startup:prompt-select:Welcome to RunWield"),
+        startupScreen.includes("Only showing models from configured providers"),
+        `Expected configured-provider startup to open the real model selector. Screen:\n${startupScreen}`,
+    );
+    assert(
+        !startupScreen.includes("Welcome to RunWield"),
         "Expected configured-provider startup to open model selection without login onboarding.",
     );
 }
@@ -211,6 +218,14 @@ export const startupNoProvidersOpensLoginScenario = {
     composedTui: true,
     modelSetup: "none",
     terminal: { columns: 100, rows: 30 },
+    // The welcome login prompt blocks composition startup, so the cancel key is
+    // fed in flight once the prompt is on screen. Cancelling follows the real
+    // /quit path, which exits the child with code 0 — the child protocol treats
+    // that clean exit as this scenario's terminal success signal.
+    startupInput: [
+        { marker: "Welcome to RunWield", keys: "\x1b" },
+    ],
+    expectedCleanExit: true,
     actions: [],
     assertions: [assertStartupLoginPromptOpened],
     timeoutMs: 5000,
@@ -221,6 +236,11 @@ export const startupProviderWithoutModelsOpensModelScenario = {
     composedTui: true,
     modelSetup: "provider-without-models",
     terminal: { columns: 100, rows: 30 },
+    // The model selector blocks composition startup; Esc cancels it so the
+    // scenario can resolve and assert the real screen it observed.
+    startupInput: [
+        { marker: "Only showing models from configured providers", keys: "\x1b" },
+    ],
     actions: [],
     assertions: [assertStartupModelSelectorOpened],
     timeoutMs: 5000,

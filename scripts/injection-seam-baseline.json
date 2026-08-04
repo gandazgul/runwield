@@ -15,15 +15,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/ui/tui/model-welcome.js": {
-            "seams": [
-                "commandRegistry",
-                "getModelRegistry",
-                "getSettingsManager"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
         "src/ui/workspace/server.js": {
             "seams": [
                 "adapter"
