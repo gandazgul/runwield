@@ -16,8 +16,8 @@
 
 ## Followup for Claude
 
-- [plan-recovery-flow.ts: splitting `handlePlanRecovery`](PLAN-RECOVERY-SPLIT.md) — what the 1,073-line function does,
-  why it needs a control-flow change rather than a move, and the order to do it in
+- [plan-recovery-flow.ts: splitting `handlePlanRecovery`](plans/split-plan-recovery-flow.md) — what the 1,073-line
+  function does, why it needs a control-flow change rather than a move, and the order to do it in
 - move load-plan modules to a plans module and keep load-plan as a command module that calls into plans module
 
 - [ ] 5 plans to execute next, in series:
