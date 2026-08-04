@@ -1,4 +1,5 @@
 ---
+planId: "221237ea-d2be-4472-be4b-27fb45ed68f5"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -32,20 +33,62 @@ objectiveChecks:
     - id: "OC3"
       command: "bash -lc 'set -e; grep -q \"getSelectable\" src/cmd/models/getArgumentCompletions.js; grep -q \"isSelectable\" src/cmd/resume/index.ts; deno run -A scripts/run-tests.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/shared/session/session-runtime.test.js src/ui/tui/model-welcome.test.js'"
       rationale: "Fails on the current auth-only completion/resume paths and can pass only when deferred selection integrates without breaking runnable onboarding, API-auth status, resume, or transactional model reconfiguration."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-03T22:39:28.275Z"
+    head: "d61332680f346768ac48b1c402d1dc033588982d"
+    results:
+        - id: "OC1"
+          command: "deno run -A scripts/run-tests.js src/shared/models/claude-cli-models.test.ts src/shared/session/claude-cli-model-selection.test.ts"
+          rationale: "Both focused files are absent on the baseline; passing requires Claude selector registration/metadata, deferred selection persistence, transactional rollback, and pre-Pi execution rejection as tested behavior."
+          status: "unmet"
+          stdout: ""
+          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/src/shared/session/claude-cli-model-selection.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m91\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m180\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+          exitCode: 1
+          durationMs: 48
+          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/src/shared/session/claude-cli-model-selection.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m91\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m180\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+        - id: "OC2"
+          command: "bash -lc 'set -e; test -s src/shared/models/model-registry.ts; test -s src/shared/models/model-validation.ts; test ! -e src/shared/models/model-registry.js; test ! -e src/shared/models/model-validation.js; ! grep -qE \"src/shared/models/model-(registry|validation)\\.js\" scripts/language-policy-baseline.json; deno task language-policy:check; deno task check'"
+          rationale: "Fails on the current JavaScript-only shape and proves the production modules, live imports, language baseline, and type graph were actually migrated rather than wrapped or aliased."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 10
+          output: "\n"
+        - id: "OC3"
+          command: "bash -lc 'set -e; grep -q \"getSelectable\" src/cmd/models/getArgumentCompletions.js; grep -q \"isSelectable\" src/cmd/resume/index.ts; deno run -A scripts/run-tests.js src/cmd/models/index.test.ts src/cmd/auth/index.test.ts src/cmd/resume/index.test.ts src/shared/session/session-runtime.test.js src/ui/tui/model-welcome.test.js'"
+          rationale: "Fails on the current auth-only completion/resume paths and can pass only when deferred selection integrates without breaking runnable onboarding, API-auth status, resume, or transactional model reconfiguration."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-03T22:37:54.536Z"
+updatedAt: "2026-08-04T01:38:19.716Z"
+status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 1
 dependencies:
     []
+implementedAt: "2026-08-04T01:13:03.486Z"
+verifiedAt: "2026-08-04T01:38:19.716Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-worktreeStatus: "abandoned"
-status: "validated_reviewer"
+executionReport: "- Implemented approved plan `claude-cli-execution-backend/01-register-claude-cli-backend-models`: migrated model registry/validation to TypeScript, removed the retired JS modules, updated imports and policy baselines, and preserved the existing model-runtime config refresh/state behavior.\n- Registered selectable Claude CLI references for exactly `sonnet`, `opus`, `haiku`, and `fable`, plus non-empty pass-through selectors, with external CLI metadata while excluding them from runnable availability and API/OAuth auth flows.\n- Added typed unsupported-backend execution rejection before Pi runtime/session creation, plus deferred `/model` persistence so Claude CLI selections save defaults without switching the current Session.\n- Made active model reconfiguration transactional: failed activation restores the previous user override/root Session state and emits no model-changed event.\n- Test coverage changed by +7 tests: added 4 Claude model registry/validation tests, added 2 Claude CLI selection/deferred persistence tests, and added 1 SessionRuntime rollback regression; no tests were removed or replaced.\n- Verification passed: focused behavior suite (82 passed), settings/selection/onboarding suite (84 passed), exact OC1/OC2/OC3 commands passed, `deno task check && deno task language-policy:check && deno task seams:check` passed, and full `deno task ci` passed."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "59c398630754f7c6da5e120def175c4324724ff7"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "f43e61e33f33b2cdf21913cab817a6890fafd9f9"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Register Claude CLI Backend Models
