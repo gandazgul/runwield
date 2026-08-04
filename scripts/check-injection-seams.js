@@ -206,21 +206,6 @@ function normalizeCollaboratorName(name) {
 }
 
 /**
- * Collaborators whose production implementation has a deliberately broader name.
- * The public override still replaces the whole collaborator and is therefore the
- * same seam even though a strict same-name comparison cannot see it.
- *
- * @param {string} member
- * @param {string} implementation
- */
-function namesSameCollaborator(member, implementation) {
-    const normalizedMember = normalizeCollaboratorName(member);
-    const normalizedImplementation = normalizeCollaboratorName(implementation);
-    if (normalizedMember === normalizedImplementation) return true;
-    return normalizedMember === "buildAgentSession" && normalizedImplementation === "buildExecutionSession";
-}
-
-/**
  * Whether a same-name fallback plausibly substitutes behavior rather than data.
  * Structural matching sees both `options.runTurn || runTurn` and
  * `resource.planId || attrs.planId`; only the first is an injection seam. Explicit
@@ -249,7 +234,7 @@ function isBehavioralCollaborator(name) {
  */
 function isImplementationDefault(expression) {
     const name = finalMemberName(expression);
-    if (/^(?:true|false|null|undefined|NaN|Infinity)$/.test(name)) return false;
+    if (/^(?:true|false|null|undefined|NaN|Infinity|await|new|typeof)$/.test(name)) return false;
     if (/^[A-Z0-9_$]+$/.test(name)) return false;
     return /^[A-Za-z_$][\w$]*$/.test(name);
 }
@@ -377,7 +362,7 @@ function collectCapabilityFallbacks(text) {
  */
 function collectTestHookAssignments(text) {
     const assigned = [];
-    const hook = /export\s+function\s+__(?:set|reset)[A-Za-z_$][\w$]*ForTests?\s*\(([^)]*)\)\s*\{/g;
+    const hook = /export\s+function\s+__(?:set|reset)[A-Za-z_$][\w$]*Tests?\s*\(([^)]*)\)\s*\{/g;
     for (const match of text.matchAll(hook)) {
         const params = new Set(
             match[1].split(",").map((part) => part.trim().match(/^([A-Za-z_$][\w$]*)/)?.[1]).filter(Boolean),
@@ -529,21 +514,32 @@ export function collectSeamNames(text) {
     // field is the other tell, so the implementation has to be handed over whole.
     for (const capability of collectCapabilityFallbacks(scannedText)) names.add(capability);
 
-    // Structural fallback: the member name and its production implementation are
-    // the same after removing conventional `_`, `Fn`, and `Impl` affixes. This sees
-    // `options._buildAgentSession || buildAgentSession` without needing to guess what
-    // the surrounding options object is called.
+    // Structural fallback: a behavioral member falling back to a production
+    // implementation is replaceable machinery even when the two names differ. This
+    // sees both `options._buildAgentSession || buildAgentSession` and
+    // `options.runGuideCommand || runConfiguredGuideCommand`; renaming the concrete
+    // implementation must not make the seam disappear.
     for (
         const fallback of scannedText.matchAll(
-            /((?:[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*)+[A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/g,
+            /((?:options|args|opts|deps|ports|overrides|dependencies)(?:\s*(?:\?\.|\.)\s*[A-Za-z_$][\w$]*)+)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)/g,
         )
     ) {
         const member = finalMemberName(fallback[1]);
         const implementation = finalMemberName(fallback[2]);
-        if (
-            namesSameCollaborator(member, implementation) &&
-            isBehavioralCollaborator(member)
-        ) names.add(member);
+        if (substitutesImplementation(member, member, implementation, true)) names.add(member);
+    }
+
+    // An inline no-op is still an implementation fallback. It is worse than a named
+    // default because the command can report success while silently doing nothing:
+    // `options.setActiveModel || (() => {})`. There is no implementation name to
+    // compare, so the behavioral member name is the evidence.
+    for (
+        const fallback of scannedText.matchAll(
+            /((?:[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*)+[A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*\(\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/g,
+        )
+    ) {
+        const member = finalMemberName(fallback[1]);
+        if (isBehavioralCollaborator(member)) names.add(member);
     }
 
     // Destructuring defaults hide the same choice in a parameter declaration:

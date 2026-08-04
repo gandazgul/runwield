@@ -22,7 +22,7 @@ interface PlansUiOptions {
 }
 
 interface PlansUiCommandOptions {
-    browser?: BrowserPort;
+    browser: BrowserPort;
     signal?: AbortSignal;
 }
 
@@ -127,19 +127,6 @@ export function buildPlansUiUrl({ host, port, token, path = "/" }: PlansUiUrlOpt
     return url.href;
 }
 
-export async function openBrowser(url: string): Promise<boolean> {
-    const command = Deno.build.os === "darwin" ? "open" : Deno.build.os === "windows" ? "cmd" : "xdg-open";
-    const args = Deno.build.os === "windows" ? ["/c", "start", "", url] : [url];
-    try {
-        const child = new Deno.Command(command, { args, stdout: "null", stderr: "null" }).spawn();
-        return (await child.status).success;
-    } catch {
-        return false;
-    }
-}
-
-const SYSTEM_BROWSER: BrowserPort = { open: openBrowser };
-
 export function printPlansUiHelp(): void {
     console.log("Usage: wld plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open] [--help]");
     console.log("Starts the local read-only Workspace board for Plans in the current checkout.");
@@ -152,7 +139,7 @@ function installShutdownHandler(controller: AbortController): () => void {
     return () => Deno.removeSignalListener("SIGINT", handler);
 }
 
-export async function runPlansUiCommand(argv: string[], options: PlansUiCommandOptions = {}): Promise<void> {
+export async function runPlansUiCommand(argv: string[], options: PlansUiCommandOptions): Promise<void> {
     let parsed: PlansUiOptions;
     try {
         parsed = parsePlansUiArgs(argv);
@@ -192,7 +179,7 @@ export async function runPlansUiCommand(argv: string[], options: PlansUiCommandO
         try {
             const url = buildPlansUiUrl({ host: parsed.host, port: server.addr.port, token });
             console.log(`[RunWield] Workspace: ${url}`);
-            if (!parsed.noOpen) await (options.browser || SYSTEM_BROWSER).open(url);
+            if (!parsed.noOpen) await options.browser.open(url);
             await server.finished;
         } finally {
             controller.abort();

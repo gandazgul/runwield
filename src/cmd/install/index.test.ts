@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { resolveInstalledWldExtensionResources } from "../../shared/extensions/wld-extension-manifest.js";
+import { resolveInstalledPackagePromptResources } from "../../shared/package-resources.js";
 import { __resetSettingsForTests, getSettingsManager } from "../../shared/settings.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getAvailableThemes, initRunWieldTheme } from "../../ui/theme/theme.js";
@@ -144,7 +145,7 @@ async function captureConsole(run: () => Promise<void>): Promise<{ logs: string[
 Deno.test("runInstallCommand installs and reports real local package resources", async () => {
     await withInstallCommandFixture(
         { extension: "incompatible", passiveResources: true },
-        async ({ projectRoot, source }) => {
+        async ({ packageDir, projectRoot, source }) => {
             const output = await captureConsole(() => runInstallCommand([source]));
 
             assertEquals(output.errors, []);
@@ -158,6 +159,10 @@ Deno.test("runInstallCommand installs and reports real local package resources",
                 "  Use -a/--agent to choose the target agent when needed.",
             ]);
             assertEquals(getSettingsManager(projectRoot).getGlobalSettings().packages?.length, 1);
+            assertEquals(
+                (await resolveInstalledPackagePromptResources()).map((resource) => resource.path),
+                [join(packageDir, "prompts", "fixture.md")],
+            );
             assert(getAvailableThemes().includes("fixture-install-theme"));
             assertEquals(Deno.exitCode, 0);
         },

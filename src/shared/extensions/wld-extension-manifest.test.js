@@ -5,7 +5,6 @@ import {
     findPackageRootForExtensionResource,
     getWldExtensionPaths,
     isWldCompatibleExtensionManifest,
-    resolveInstalledWldExtensionResources,
 } from "./wld-extension-manifest.js";
 
 Deno.test("isWldCompatibleExtensionManifest recognizes the WLD code-extension marker", () => {
@@ -99,55 +98,6 @@ Deno.test("findPackageRootForExtensionResource ascends from nested extension fil
         );
 
         assertEquals(packageRoot, root);
-    } finally {
-        await Deno.remove(root, { recursive: true }).catch(() => {});
-    }
-});
-
-Deno.test("resolveInstalledWldExtensionResources skips missing packages and filters compatible extensions", async () => {
-    const root = await Deno.makeTempDir({ prefix: "runwield-wld-extension-resolve-" });
-    const extensionPath = join(root, "index.js");
-    /** @type {string[]} */
-    const missingActions = [];
-
-    try {
-        await Deno.writeTextFile(
-            join(root, "package.json"),
-            JSON.stringify({
-                pi: {
-                    wld: {
-                        compatible: true,
-                        extensionApi: 1,
-                        kind: "code-extension",
-                    },
-                },
-            }),
-        );
-        await Deno.writeTextFile(extensionPath, "export default () => ({});\n");
-
-        const packageManager = {
-            /** @param {(source: string) => Promise<"install" | "skip" | "error">} onMissing */
-            async resolve(onMissing) {
-                missingActions.push(await onMissing("npm:missing"));
-                return {
-                    themes: [],
-                    skills: [],
-                    prompts: [],
-                    extensions: [{
-                        path: extensionPath,
-                        enabled: true,
-                        metadata: { source: "npm:ok", scope: "user", origin: "package", baseDir: root },
-                    }],
-                };
-            },
-        };
-
-        const resources = await resolveInstalledWldExtensionResources({
-            packageManager: /** @type {any} */ (packageManager),
-        });
-
-        assertEquals(missingActions, ["skip"]);
-        assertEquals(getWldExtensionPaths(resources), [extensionPath]);
     } finally {
         await Deno.remove(root, { recursive: true }).catch(() => {});
     }

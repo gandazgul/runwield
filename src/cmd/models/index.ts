@@ -5,6 +5,9 @@
 
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { parseProviderModel } from "../../shared/models/model-validation.ts";
+import { setActiveSessionModel, setDefaultModelSelection } from "../../shared/session/model-selection.ts";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp } from "../help/index.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
@@ -25,23 +28,26 @@ interface ModelsCommandEditor {
     setText(text: string): void;
 }
 
-interface ModelActivationResult {
-    status?: "active" | "deferred";
-    message?: string;
-}
-
 interface ModelsCommandOptions {
     uiAPI?: ModelsCommandUi;
     editor?: ModelsCommandEditor;
-    setActiveModel?(
-        model: string,
-        provider?: string,
-    ): Promise<ModelActivationResult | void> | ModelActivationResult | void;
+    sessionId?: string;
+    sessionRuntime?: SessionRuntime;
+}
+
+const INTERACTIVE_SESSION_REQUIRED = "Model switching requires an interactive RunWield session.";
+
+async function activateModel(
+    options: ModelsCommandOptions,
+    model: string,
+    provider: string,
+) {
+    if (!options.sessionRuntime || !options.sessionId) return null;
+    return await setActiveSessionModel(options.sessionRuntime, options.sessionId, model, provider);
 }
 
 export async function runModelsCommand(argv: string[], options: ModelsCommandOptions = {}): Promise<void> {
     const { uiAPI, editor } = options;
-    const setActiveModel = options.setActiveModel || (() => {});
     const firstArg = argv[0]?.trim();
 
     if (firstArg === "help" || firstArg === "--help" || firstArg === "-h") {
@@ -74,7 +80,13 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
                     if (parsed.ok) {
                         const found = modelRegistry.find(parsed.provider, parsed.id);
                         if (found) {
-                            const activation = await setActiveModel(found.id, found.provider);
+                            const activation = await activateModel(options, found.id, found.provider);
+                            if (!activation) {
+                                uiAPI.appendSystemMessage(INTERACTIVE_SESSION_REQUIRED);
+                                editor.setText("");
+                                editor.disableSubmit = false;
+                                return;
+                            }
                             uiAPI.appendSystemMessage(
                                 activation?.status === "deferred"
                                     ? activation.message ||
@@ -107,7 +119,16 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
         return;
     }
 
-    const activation = await setActiveModel(targetModel.id, targetModel.provider);
+    const activation = await activateModel(options, targetModel.id, targetModel.provider);
+    if (!activation) {
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(INTERACTIVE_SESSION_REQUIRED);
+        } else {
+            await setDefaultModelSelection(getCwd(), targetModel.id, targetModel.provider);
+            console.log(`Set default model to ${targetModel.provider}/${targetModel.id}`);
+        }
+        return;
+    }
     const message = activation?.status === "deferred"
         ? activation.message ||
             `Saved ${targetModel.provider}/${targetModel.id} for later. The current Session was not switched.`

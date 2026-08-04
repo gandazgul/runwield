@@ -26,9 +26,10 @@ Deno.test("remote Workspace mode isolates local Plan Board and local APIs", asyn
 Deno.test("remote Shared Space API enforces capabilities, ciphertext storage, lifecycle, and delete", async () => {
     const reviewerCapability = "reviewer-secret-capability";
     const maintainerCapability = "maintainer-secret-capability";
-    const database = openRemoteDatabase();
-    const adapter = createRemoteWorkspaceAdapter({ database });
-    const app = createWorkspaceApp({ mode: "remote", adapter }).handler();
+    const workspaceApp = createWorkspaceApp({ mode: "remote" });
+    const adapter = workspaceApp.adapter;
+    const database = adapter.database;
+    const app = workspaceApp.handler();
     try {
         const reviewerHash = await hashCapability(reviewerCapability);
         const maintainerHash = await hashCapability(maintainerCapability);
@@ -183,9 +184,10 @@ Deno.test("remote Shared Space API enforces capabilities, ciphertext storage, li
 });
 
 Deno.test("remote requests over configured JSON body limit are rejected before writes", async () => {
-    const database = openRemoteDatabase();
-    const adapter = createRemoteWorkspaceAdapter({ database });
-    const app = createWorkspaceApp({ mode: "remote", adapter, maxRequestBytes: 64 }).handler();
+    const workspaceApp = createWorkspaceApp({ mode: "remote", maxRequestBytes: 64 });
+    const adapter = workspaceApp.adapter;
+    const database = adapter.database;
+    const app = workspaceApp.handler();
     try {
         const response = await app(
             new Request("http://localhost/api/spaces", {

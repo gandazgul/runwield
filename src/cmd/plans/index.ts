@@ -15,6 +15,7 @@ import { runPlansReadCommand } from "./read.ts";
 import { runPlansShareCommand } from "./share.ts";
 import { runPlansUiCommand } from "./ui.ts";
 import { runPlansUnshareCommand } from "./unshare.ts";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 
 type PlanEntry = Awaited<ReturnType<typeof listPlans>>[number];
 
@@ -64,7 +65,7 @@ function printChildPlan(child: PlanEntry): void {
 export async function runPlansCommand(argv: string[]): Promise<void> {
     const [subcommand] = argv;
     if (subcommand === "ui") {
-        await runPlansUiCommand(argv.slice(1));
+        await runPlansUiCommand(argv.slice(1), { browser: SYSTEM_BROWSER_PORT });
         return;
     }
     if (subcommand === "archive") {

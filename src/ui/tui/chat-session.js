@@ -58,7 +58,7 @@ import {
 } from "../../cmd/init/init-state.ts";
 import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { isUnsupportedModelExecutionBackendError } from "../../shared/models/model-execution.ts";
+import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
@@ -70,18 +70,6 @@ import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from
 import { installKeybindings } from "./keybindings.js";
 import { hasClipboardImage, readClipboardImage } from "./clipboard.ts";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
-
-/** @type {(projectRoot?: string) => ReturnType<typeof getSettingsManager>} */
-let getSettingsManagerForPersistence = getSettingsManager;
-
-/**
- * Test-only hook for code paths that persist model/thinking selections.
- *
- * @param {((projectRoot?: string) => ReturnType<typeof getSettingsManager>) | null} provider
- */
-export function __setSettingsManagerForPersistenceTests(provider) {
-    getSettingsManagerForPersistence = provider || getSettingsManager;
-}
 
 /** @type {Set<string>} */
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
@@ -438,37 +426,7 @@ function createPastedImagePreview(image) {
  * @param {string} [provider]
  * @returns {Promise<{ status: "active" | "deferred", message?: string }>}
  */
-export async function setActiveModel(runtime, sessionId, model, provider) {
-    const snapshot = runtime.getSessionSnapshot(sessionId);
-    if (!snapshot) throw new Error("Cannot set model for a missing runtime session.");
-    try {
-        await runtime.reconfigureSessionModel(sessionId, model, provider || "");
-    } catch (error) {
-        if (!(error instanceof Error) || !isUnsupportedModelExecutionBackendError(error)) throw error;
-        try {
-            const settingsManager = getSettingsManagerForPersistence(snapshot.cwd);
-            await settingsManager.setDefaultModel(model);
-            await settingsManager.setDefaultProvider(provider || "");
-        } catch (e) {
-            console.error(`Failed to persist deferred model selection: ${e}`);
-        }
-        return {
-            status: "deferred",
-            message: `${error.message} Saved ${
-                provider ? `${provider}/${model}` : model
-            } for later. The current Session was not switched.`,
-        };
-    }
-
-    try {
-        const settingsManager = getSettingsManagerForPersistence(snapshot.cwd);
-        await settingsManager.setDefaultModel(model);
-        await settingsManager.setDefaultProvider(provider || "");
-    } catch (e) {
-        console.error(`Failed to persist model selection: ${e}`);
-    }
-    return { status: "active" };
-}
+export { setActiveSessionModel as setActiveModel };
 
 /**
  * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} level
@@ -476,7 +434,7 @@ export async function setActiveModel(runtime, sessionId, model, provider) {
  */
 export async function persistThinkingLevel(level, projectRoot) {
     try {
-        const settingsManager = getSettingsManagerForPersistence(projectRoot);
+        const settingsManager = getSettingsManager(projectRoot);
         await settingsManager.setDefaultThinkingLevel(level);
     } catch (e) {
         console.error(`Failed to persist thinking level: ${e}`);
@@ -530,13 +488,13 @@ export async function runScopedSubmitHandoffLoop(
  *   initialAgentModel?: string,
  *   onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
  *   onSessionReplaced?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
- *   browser?: import('../../shared/browser-port.ts').BrowserPort,
+ *   browser: import('../../shared/browser-port.ts').BrowserPort,
  *   terminal?: any,
  *   skipModelWelcome?: boolean,
  *   configureUiAPI?: (uiAPI: import('./types.js').UiAPI) => void,
- * }} [options]
+ * }} options
  */
-export async function startInteractiveSession(initialUserRequest, options = {}) {
+export async function startInteractiveSession(initialUserRequest, options) {
     CHAT_BUILTIN_SLASH_NAMES = new Set(
         getSlashCommandDefinitions().map((command) => command.name),
     );
@@ -917,7 +875,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         runtime: sessionRuntime,
         sessionId: sessionId,
         uiAPI,
-        browser: options.browser || SYSTEM_BROWSER_PORT,
+        browser: options.browser,
         notifyRunWieldEvent: notifyRunWieldEventQuietly,
         onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
     });
@@ -931,7 +889,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     sessionDisposables.push(() => managedSyncController.dispose());
 
     /** @param {string} model @param {string} [provider] */
-    const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
+    const setCurrentActiveModel = (model, provider) =>
+        setActiveSessionModel(sessionRuntime, sessionId, model, provider);
 
     let builtinSlashInvocationNames = new Set();
     /** @type {typeof promptTemplates} */
@@ -975,7 +934,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             runtime: sessionRuntime,
             sessionId: sessionId,
             uiAPI,
-            browser: options.browser || SYSTEM_BROWSER_PORT,
+            browser: options.browser,
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
@@ -1026,7 +985,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             sessionRuntime,
             initialAgentInternalName,
             initialAgentModel: options.initialAgentModel,
-            setActiveModel: setCurrentActiveModel,
             projectRoot: getRuntimeSnapshot().cwd,
         });
 
@@ -1049,7 +1007,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                     sessionRuntime,
                     initialAgentInternalName,
                     initialAgentModel: options.initialAgentModel,
-                    setActiveModel: setCurrentActiveModel,
                     projectRoot: getRuntimeSnapshot().cwd,
                     forceModelSelection: true,
                 });
@@ -1401,7 +1358,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                 chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
                 resolveTemplateModel,
                 dispatchExpandedUserRequest: submitToActiveRoot,
-                setActiveModel: setCurrentActiveModel,
                 replaceRuntimeSession,
                 generationGuard,
             })
@@ -1586,7 +1542,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
  * the production startup path, then adds explicit lifecycle controls around it.
  *
  * @param {string | null} initialUserRequest
- * @param {Parameters<typeof startInteractiveSession>[1]} [options]
+ * @param {Parameters<typeof startInteractiveSession>[1]} options
  * @returns {Promise<{
  *   uiAPI: import('./types.js').UiAPI,
  *   runtime: SessionRuntime,
@@ -1597,7 +1553,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
  *   dispose: () => Promise<void>,
  * }>}
  */
-export async function createInteractiveTuiComposition(initialUserRequest, options = {}) {
+export async function createInteractiveTuiComposition(initialUserRequest, options) {
     /** @type {SessionRuntime | null} */
     let runtime = null;
     /** @type {string | null} */

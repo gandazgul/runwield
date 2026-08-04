@@ -54,7 +54,7 @@ export interface ScriptedOAuthProviderHandle {
     /** Script the next login attempt's outcome. */
     setOutcome(outcome: ScriptedOAuthOutcome): void;
     /** Remove the provider from the process-wide runtime. */
-    unregister(): void;
+    unregister(): Promise<void>;
 }
 
 export const SCRIPTED_OAUTH_PROVIDER_ID = "scripted-oauth-provider";
@@ -73,7 +73,9 @@ const SCRIPTED_OAUTH_API = "runtime-scripted-oauth";
  * The name sorts first in the OAuth provider list so a bare Enter at the real
  * provider prompt selects this provider, never a real builtin OAuth provider.
  */
-export function registerScriptedOAuthProvider(): ScriptedOAuthProviderHandle {
+const activeScriptedOAuthProviders = new Set<ScriptedOAuthProviderHandle>();
+
+export async function registerScriptedOAuthProvider(): Promise<ScriptedOAuthProviderHandle> {
     let outcome: ScriptedOAuthOutcome = { kind: "success" };
     const provider: Provider = createProvider({
         id: SCRIPTED_OAUTH_PROVIDER_ID,
@@ -129,20 +131,27 @@ export function registerScriptedOAuthProvider(): ScriptedOAuthProviderHandle {
         },
     });
 
-    const registry = getModelRegistry();
-    const runtimePromise = registry.getRuntime();
-    void runtimePromise.then((runtime) => runtime.registerNativeProvider(provider));
+    const runtime = await getModelRegistry().getRuntime();
+    runtime.registerNativeProvider(provider);
 
-    return {
+    const handle: ScriptedOAuthProviderHandle = {
         providerId: SCRIPTED_OAUTH_PROVIDER_ID,
         providerName: SCRIPTED_OAUTH_PROVIDER_NAME,
         setOutcome(next) {
             outcome = next;
         },
         unregister() {
-            void runtimePromise.then((runtime) => runtime.unregisterProvider(SCRIPTED_OAUTH_PROVIDER_ID));
+            runtime.unregisterProvider(SCRIPTED_OAUTH_PROVIDER_ID);
+            activeScriptedOAuthProviders.delete(handle);
+            return Promise.resolve();
         },
     };
+    activeScriptedOAuthProviders.add(handle);
+    return handle;
+}
+
+async function unregisterScriptedOAuthProviders(): Promise<void> {
+    await Promise.all(Array.from(activeScriptedOAuthProviders, (provider) => provider.unregister()));
 }
 
 /**
@@ -183,6 +192,7 @@ export async function withRuntimeCommandFixture<T>(
 ): Promise<T> {
     const providerState = options.providerState || "default";
     return await withProcessGlobalTestLock(async () => {
+        await unregisterScriptedOAuthProviders();
         const previousHome = Deno.env.get("HOME");
         const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
         const previousMnemosyneDbPath = Deno.env.get("MNEMOSYNE_DB_PATH");
@@ -286,6 +296,7 @@ export async function withRuntimeCommandFixture<T>(
                 },
             });
         } finally {
+            await unregisterScriptedOAuthProviders();
             fauxProvider.unregister?.();
             initRunWieldTheme();
             __resetSettingsForTests();

@@ -452,6 +452,7 @@ async function launchPlanningAgent(pulled: PulledPlanRevision, options: RunPlans
     if (!sessionRuntime || !sessionId) {
         const { startInteractiveSession } = await import("../../ui/tui/" + "chat-session.js");
         await startInteractiveSession(null, {
+            browser: (await import("../../shared/browser-port.ts")).SYSTEM_BROWSER_PORT,
             onSessionReady: (nextSessionId: string, nextRuntime: SessionRuntime) => {
                 sessionId = nextSessionId;
                 sessionRuntime = nextRuntime;

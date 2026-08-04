@@ -1,51 +1,36 @@
 import { assertEquals } from "@std/assert";
 import {
     countPackageResourcesForSource,
+    filterEnabledPackagePrompts,
     getPackagePromptTemplatePaths,
-    resolveInstalledPackagePromptResources,
 } from "./package-resources.js";
 
-Deno.test("resolveInstalledPackagePromptResources returns enabled package prompts only", async () => {
-    /** @type {Array<unknown>} */
-    const missingActions = [];
-    const packageManager = {
-        /** @param {(source: string) => Promise<"install" | "skip" | "error">} onMissing */
-        async resolve(onMissing) {
-            missingActions.push(await onMissing("npm:missing"));
-            return {
-                themes: [],
-                extensions: [],
-                skills: [{
-                    path: "/pkg/skills/nope.md",
+Deno.test("filterEnabledPackagePrompts returns enabled package prompts only", () => {
+    const resources = filterEnabledPackagePrompts(
+        /** @type {any} */ ({
+            themes: [],
+            extensions: [],
+            skills: [],
+            prompts: [
+                {
+                    path: "/pkg/prompts/explain.md",
                     enabled: true,
                     metadata: { source: "npm:x", scope: "user", origin: "package" },
-                }],
-                prompts: [
-                    {
-                        path: "/pkg/prompts/explain.md",
-                        enabled: true,
-                        metadata: { source: "npm:x", scope: "user", origin: "package" },
-                    },
-                    {
-                        path: "/pkg/prompts/off.md",
-                        enabled: false,
-                        metadata: { source: "npm:x", scope: "user", origin: "package" },
-                    },
-                    {
-                        path: "/home/.wld/prompts/local.md",
-                        enabled: true,
-                        metadata: { source: "local", scope: "user", origin: "top-level" },
-                    },
-                ],
-            };
-        },
-    };
+                },
+                {
+                    path: "/pkg/prompts/off.md",
+                    enabled: false,
+                    metadata: { source: "npm:x", scope: "user", origin: "package" },
+                },
+                {
+                    path: "/home/.wld/prompts/local.md",
+                    enabled: true,
+                    metadata: { source: "local", scope: "user", origin: "top-level" },
+                },
+            ],
+        }),
+    );
 
-    const resources = await resolveInstalledPackagePromptResources({
-        packageManager: /** @type {any} */ (packageManager),
-    });
-
-    assertEquals(missingActions, ["skip"]);
     assertEquals(getPackagePromptTemplatePaths(resources), ["/pkg/prompts/explain.md"]);
 });
 

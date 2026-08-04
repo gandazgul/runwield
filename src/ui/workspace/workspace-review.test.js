@@ -11,7 +11,11 @@ import {
     startReviewWorkspaceServer,
 } from "./server.js";
 
-import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
+import {
+    createReviewAgentState,
+    reviewAgentApi,
+    runConfiguredGuideCommand,
+} from "./routes/api/review-agent-handlers.js";
 
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -22,6 +26,8 @@ import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testin
 // directory.
 const TEST_PROJECT_ROOT = RUNWIELD_ROOT;
 const REVIEW_AGENT_PROJECT_ROOT = makeToolProjectFixture("runwield-workspace-review-agent-");
+
+const UNUSED_GUIDE_COMMAND = () => Promise.reject(new Error("Fixture guide command should not run."));
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
@@ -328,6 +334,7 @@ Deno.test("review guide jobs prefer WLD over external agent host CLIs", async ()
                         everythingElse: [],
                     },
                 },
+                runGuideCommand: runConfiguredGuideCommand,
             });
 
             const launch = await reviewAgentApi(
@@ -437,6 +444,7 @@ Deno.test("review guide jobs record generation result metrics", async () => {
                     everythingElse: [],
                 },
             },
+            runGuideCommand: UNUSED_GUIDE_COMMAND,
         });
 
         const launch = await reviewAgentApi(
@@ -482,6 +490,7 @@ Deno.test("review guide failure metrics redact provider error details", async ()
                     everythingElse: [],
                 },
             },
+            runGuideCommand: UNUSED_GUIDE_COMMAND,
         });
 
         const launch = await reviewAgentApi(

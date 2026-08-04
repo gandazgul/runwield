@@ -111,7 +111,6 @@ function requireInteractiveCommandContext(options) {
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
- * @property {(model: string, provider?: string) => Promise<void | { status?: "active" | "deferred", message?: string }> | { status?: "active" | "deferred", message?: string } | void} [setActiveModel]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {boolean} [skipPostLoginSetup]
@@ -196,7 +195,7 @@ export const commandRegistry = {
         aliases: ["models"],
         displayName: "Model",
         description: "Switch AI model",
-        summary: "Switch active AI model via slash command or CLI.",
+        summary: "Switch the active AI model or set the CLI default.",
         usage: [
             `${bin("model")}                         Show CLI usage when no model is supplied`,
             `${bin("model <provider>/<model_id>")}`,
@@ -205,7 +204,7 @@ export const commandRegistry = {
             "/model <provider>/<model_id>",
         ],
         notes: [
-            "Switches the active AI model for the current runtime session.",
+            "The slash command switches the current runtime Session; the CLI command sets the default for future Sessions.",
             "Inside the interactive session, use '/model <tab>' for autocomplete.",
         ],
         execute: runModelsCommand,

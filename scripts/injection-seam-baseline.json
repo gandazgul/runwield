@@ -1,26 +1,4 @@
 {
     "comment": "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
-    "files": {
-        "src/cmd/plans/ui.ts": {
-            "seams": [
-                "browser"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/chat-session.js": {
-            "seams": [
-                "browser"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/workspace/server.js": {
-            "seams": [
-                "adapter"
-            ],
-            "machinery": [],
-            "conditional": []
-        }
-    }
+    "files": {}
 }

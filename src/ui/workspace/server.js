@@ -28,7 +28,6 @@ import {
     reviewFeedbackApi,
 } from "./routes/api/review-handlers.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
-import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
@@ -37,7 +36,12 @@ import { buildPlanBoardSearchIndex } from "./plan-search.js";
 import { PlanDetail } from "./components/PlanDetail.jsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
-import { cleanupReviewAgentState, createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
+import {
+    cleanupReviewAgentState,
+    createReviewAgentState,
+    reviewAgentApi,
+    runConfiguredGuideCommand,
+} from "./routes/api/review-agent-handlers.js";
 import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.js";
 import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 import {
@@ -94,6 +98,7 @@ const WORKSPACE_PLAN_ADAPTER_URL_KEY = Symbol.for("runwield.workspace.plan-adapt
 ).href;
 
 /** @typedef {{ handler: () => (request: Request) => Promise<Response> }} WorkspaceApp */
+/** @typedef {WorkspaceApp & { adapter: import("./server/remote-adapter.js").RemoteWorkspaceAdapter }} RemoteWorkspaceApp */
 const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
 
 /**
@@ -108,8 +113,7 @@ const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
  * @typedef {Object} OwnerWorkspaceAppOptions
  * @property {"owner"} mode
  * @property {string} publicOrigin
- * @property {string} [dbPath]
- * @property {ReturnType<typeof openOwnerCoordinationStore>} [store]
+ * @property {import("../../shared/owner-coordination/index.js").OwnerCoordinationStore} store
  */
 
 /**
@@ -135,7 +139,6 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @typedef {Object} RemoteWorkspaceAppOptions
  * @property {"remote"} mode
  * @property {string} [dbPath]
- * @property {import("./server/remote-adapter.js").RemoteWorkspaceAdapter} [adapter]
  * @property {number} [maxRequestBytes]
  * @property {number} [retentionDays]
  */
@@ -147,11 +150,13 @@ export function createWorkspaceApp(options) {
     return createLocalWorkspaceApp(options);
 }
 
-/** @param {RemoteWorkspaceAppOptions} options */
+/** @param {RemoteWorkspaceAppOptions} options @returns {RemoteWorkspaceApp} */
 export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
     const app = createWorkspaceRouter();
-    const adapter = options.adapter ??
-        createRemoteWorkspaceAdapter({ dbPath: options.dbPath, retention: { days: options.retentionDays } });
+    const adapter = createRemoteWorkspaceAdapter({
+        dbPath: options.dbPath,
+        retention: { days: options.retentionDays },
+    });
     registerStaticRoutes(app);
     app.use(async (ctx) => {
         ctx.state.collaboration = adapter;
@@ -180,7 +185,7 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
 /** @param {OwnerWorkspaceAppOptions} options */
 export function createOwnerWorkspaceApp(options) {
     const app = createWorkspaceRouter();
-    const store = options.store || openOwnerCoordinationStore({ dbPath: options.dbPath });
+    const store = options.store;
     setAstroOwnerWorkspaceStore(store);
     const connections = createOwnerConnectionRegistry();
     const sessionContinuation = createWorkspaceSessionContinuationService({ store });
@@ -300,7 +305,9 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemosyne
  * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code" }} options
  */
 export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType }) {
-    const reviewAgentState = reviewType === "code" ? createReviewAgentState({ cwd, token, reviewPayload }) : null;
+    const reviewAgentState = reviewType === "code"
+        ? createReviewAgentState({ cwd, token, reviewPayload, runGuideCommand: runConfiguredGuideCommand })
+        : null;
     return {
         cleanup: () => reviewAgentState ? cleanupReviewAgentState(reviewAgentState) : Promise.resolve(),
         handler() {
@@ -1068,10 +1075,13 @@ function assertWorkspaceServerTransportPolicy(options) {
 }
 
 /**
- * @param {{ mode?: "local" | "remote" | "owner", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, adapter?: import("./server/remote-adapter.js").RemoteWorkspaceAdapter, maxRequestBytes?: number, retentionDays?: number, publicOrigin?: string, trustTlsTerminator?: boolean, store?: ReturnType<typeof openOwnerCoordinationStore> }} options
+ * @param {{ mode?: "local" | "remote" | "owner", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, maxRequestBytes?: number, retentionDays?: number, publicOrigin?: string, trustTlsTerminator?: boolean, store?: import("../../shared/owner-coordination/index.js").OwnerCoordinationStore }} options
  */
 export function startWorkspaceServer(options) {
     assertWorkspaceServerTransportPolicy(options);
+    if (options.mode === "owner" && !options.store) {
+        throw new Error("Owner Workspace requires an open owner-coordination store.");
+    }
     const ownerPublicOrigin = options.mode === "owner"
         ? normalizeWorkspacePublicOrigin(options.publicOrigin || `http://${options.host}:${options.port}`)
         : "";
@@ -1079,14 +1089,12 @@ export function startWorkspaceServer(options) {
         ? createWorkspaceApp({
             mode: "remote",
             dbPath: options.dbPath,
-            adapter: options.adapter,
             maxRequestBytes: options.maxRequestBytes,
             retentionDays: options.retentionDays,
         })
         : options.mode === "owner"
         ? createWorkspaceApp({
             mode: "owner",
-            dbPath: options.dbPath,
             store: options.store,
             publicOrigin: ownerPublicOrigin,
         })

@@ -7,8 +7,7 @@
 
 import { dirname } from "@std/path";
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES } from "./routes/remote-api.js";
-import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
-import { startWorkspaceServer } from "./server.js";
+import { createRemoteWorkspaceApp } from "./server.js";
 
 export const DEFAULT_REMOTE_HOST = "0.0.0.0";
 export const DEFAULT_REMOTE_PORT = 8080;
@@ -97,11 +96,17 @@ export async function runRemoteWorkspaceServer(
     log: RemoteServerLogger,
 ): Promise<void> {
     let cleanupTimer: number | undefined;
-    let adapter: ReturnType<typeof createRemoteWorkspaceAdapter> | undefined;
+    let adapter: ReturnType<typeof createRemoteWorkspaceApp>["adapter"] | undefined;
 
     try {
         await Deno.mkdir(dirname(config.dbPath), { recursive: true });
-        adapter = createRemoteWorkspaceAdapter({ dbPath: config.dbPath, retention: { days: config.retentionDays } });
+        const app = createRemoteWorkspaceApp({
+            mode: "remote",
+            dbPath: config.dbPath,
+            maxRequestBytes: config.maxRequestBytes,
+            retentionDays: config.retentionDays,
+        });
+        adapter = app.adapter;
         adapter.reconcileRetentionPolicy();
         const deleted = adapter.cleanupExpiredSharedSpaces();
         if (deleted > 0) log(`[RunWield] Removed ${deleted} expired Shared Space(s) at startup.`);
@@ -119,15 +124,12 @@ export async function runRemoteWorkspaceServer(
                 }
             }, REMOTE_CLEANUP_INTERVAL_MS);
         }
-        const server = startWorkspaceServer({
-            mode: "remote",
-            host: config.host,
+        const server = Deno.serve({
+            hostname: config.host,
             port: config.port,
-            dbPath: config.dbPath,
             signal,
-            adapter,
-            maxRequestBytes: config.maxRequestBytes,
-        });
+            automaticCompression: true,
+        }, app.handler());
         const actualPort = server.addr.port;
         log(`[RunWield] Remote Workspace Plan Server listening on http://${config.host}:${actualPort}`);
         log(`[RunWield] SQLite database: ${config.dbPath}`);

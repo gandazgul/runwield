@@ -6,7 +6,8 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN } from "../../constants.js";
 import { getOwnerCoordinationDatabasePath, openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { isLoopbackHost, openBrowser, parsePort } from "../plans/ui.ts";
+import { isLoopbackHost, parsePort } from "../plans/ui.ts";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 
 export const WORKSPACE_DEFAULT_HOST = "127.0.0.1";
 export const WORKSPACE_DEFAULT_PORT = 8787;
@@ -121,7 +122,7 @@ export async function runWorkspaceServeCommand(argv: string[]): Promise<void> {
                 "[RunWield] Session continuation disabled. Restart with --enable-session-activation after stopping incompatible processes.",
             );
         }
-        if (!parsed.noOpen) await openBrowser(url);
+        if (!parsed.noOpen) await SYSTEM_BROWSER_PORT.open(url);
         await server.finished;
     } finally {
         removeShutdownHandlers();

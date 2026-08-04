@@ -534,6 +534,50 @@ Deno.test("collectSeamNames leaves ordinary optional data fallbacks alone", () =
     assertEquals(names, []);
 });
 
+Deno.test("collectSeamNames detects behavioral callbacks that fall back to an inline no-op", () => {
+    assertEquals(
+        collectSeamNames(`
+            const setActiveModel = options.setActiveModel || (() => {});
+            const title = options.title || (() => {});
+        `),
+        ["setActiveModel"],
+    );
+});
+
+Deno.test("collectSeamNames detects behavioral object properties with differently named implementations", () => {
+    assertEquals(
+        collectSeamNames(`
+            const state = {
+                runGuideCommand: options.runGuideCommand || runConfiguredGuideCommand,
+            };
+        `),
+        ["runGuideCommand"],
+    );
+});
+
+Deno.test("collectSeamNames does not mistake boolean expressions or constructors for behavioral fallbacks", () => {
+    assertEquals(
+        collectSeamNames(`
+            const selectable = RuntimeInteractionTypes.SELECT || interaction.type === RuntimeInteractionTypes.APPROVAL;
+            const now = options.now || new Date().toISOString();
+            if (uiAPI.startToolExecution || HIDDEN_TOOL_BLOCK_NAMES.has(toolName)) return;
+        `),
+        [],
+    );
+});
+
+Deno.test("collectSeamNames detects replacement hooks whose descriptive name ends in Tests", () => {
+    assertEquals(
+        collectSeamNames(`
+            let getSettingsManagerForPersistence = getSettingsManager;
+            export function __setSettingsManagerForPersistenceTests(provider) {
+                getSettingsManagerForPersistence = provider || getSettingsManager;
+            }
+        `),
+        ["getSettingsManagerForPersistence"],
+    );
+});
+
 Deno.test("findRegressions rejects newly visible seams inside a known module by default", () => {
     const baseline = {
         "src/known.ts": { seams: ["existing"], machinery: [], conditional: [] },

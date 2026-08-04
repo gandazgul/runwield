@@ -11,6 +11,7 @@ import {
     startupProviderWithoutModelsOpensModelScenario,
 } from "./initial-scenarios.js";
 import { GoldenScenarioActor, runGoldenScenario } from "../testing/mod.js";
+import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 
 /**
  * Remove the artifact root a failed child retained.
@@ -153,6 +154,7 @@ Deno.test("golden composition cleans up partial startup failure", async () => {
             await assertRejects(
                 () =>
                     createInteractiveTuiComposition(null, {
+                        browser: NO_OPEN_BROWSER_PORT,
                         terminal,
                         skipModelWelcome: true,
                         onSessionReady: () => {

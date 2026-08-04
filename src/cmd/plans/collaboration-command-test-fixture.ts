@@ -1,4 +1,4 @@
-import { createWorkspaceApp } from "../../ui/workspace/server.js";
+import { createRemoteWorkspaceApp } from "../../ui/workspace/server.js";
 import { createRemoteWorkspaceAdapter } from "../../ui/workspace/server/remote-adapter.js";
 
 type RemoteWorkspaceAdapter = ReturnType<typeof createRemoteWorkspaceAdapter>;
@@ -11,8 +11,9 @@ export interface CollaborationServerFixture {
 export async function withCollaborationServer(
     run: (fixture: CollaborationServerFixture) => Promise<void>,
 ): Promise<void> {
-    const adapter = createRemoteWorkspaceAdapter();
-    const handler = createWorkspaceApp({ mode: "remote", adapter }).handler();
+    const app = createRemoteWorkspaceApp({ mode: "remote" });
+    const adapter = app.adapter;
+    const handler = app.handler();
     const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, handler);
     const address = server.addr;
     if (address.transport !== "tcp") {

@@ -2,6 +2,7 @@
 
 import { startInteractiveSession } from "./chat-session.js";
 import type { UiAPI } from "./types.js";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 
 export interface InteractiveSessionOptions {
     initialAgentName?: string;
@@ -17,5 +18,6 @@ export interface InteractiveSessionPort {
 
 /** Production composition for commands that launch the interactive TUI. */
 export const SYSTEM_INTERACTIVE_SESSION_PORT: InteractiveSessionPort = Object.freeze({
-    startInteractiveSession,
+    startInteractiveSession: (userRequest: string | null, options: InteractiveSessionOptions) =>
+        startInteractiveSession(userRequest, { ...options, browser: SYSTEM_BROWSER_PORT }),
 });

@@ -21,11 +21,6 @@ export interface ModelAvailability {
     error: string | null;
 }
 
-export interface ModelActivationResult {
-    status?: "active" | "deferred";
-    message?: string;
-}
-
 /**
  * A model-summary shape sufficient for availability classification. The real
  * `RunWieldModelRegistry` satisfies it structurally; tests may hand a plain
@@ -54,10 +49,6 @@ export interface MaybeShowModelWelcomeOptions {
     sessionRuntime: SessionRuntime;
     initialAgentInternalName: string;
     initialAgentModel?: string;
-    setActiveModel?(
-        model: string,
-        provider?: string,
-    ): Promise<ModelActivationResult | void> | ModelActivationResult | void;
     forceModelSelection?: boolean;
     /** Project root that scopes the settings manager used for defaults. */
     projectRoot: string;
@@ -227,10 +218,7 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
         afterLoginAvailability = getConfiguredModelAvailability();
     }
 
-    await commandRegistry[COMMAND_NAMES.MODEL].execute([], {
-        ...runCommandContext(options),
-        setActiveModel: options.setActiveModel,
-    });
+    await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
 
     const afterSelectionAvailability = getSelectedDefaultModelAvailability(options.projectRoot);
     if (!afterSelectionAvailability.available) {

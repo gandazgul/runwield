@@ -100,31 +100,18 @@ Deno.test("embedded theme supplies workflow footer tokens and partial overrides 
     assertEquals(resolved.colors.complexityHigh, "#f38ba8");
 });
 
-Deno.test("createThemeFromJson constructs a Theme from resolved foreground and background colors", () => {
-    class FakeTheme {
-        /** @param {Record<string, string | number>} fgColors @param {Record<string, string | number>} bgColors @param {string} colorMode @param {{ name?: string }} options */
-        constructor(fgColors, bgColors, colorMode, options) {
-            this.fgColors = fgColors;
-            this.bgColors = bgColors;
-            this.colorMode = colorMode;
-            this.name = options.name;
-        }
-    }
-
-    const theme = /** @type {any} */ (createThemeFromJson({
-        name: "custom",
-        vars: { accent: "#abcdef", bg: "#111111" },
-        colors: {
-            accent: "accent",
-            selectedBg: "bg",
-        },
-    }, {
-        colorMode: "256color",
-        ThemeCtor: /** @type {any} */ (FakeTheme),
-    }));
+Deno.test("createThemeFromJson constructs the real Pi Theme from resolved colors", async () => {
+    const base = JSON.parse(await Deno.readTextFile(new URL("./catppuccin-mocha.json", import.meta.url)));
+    const theme = createThemeFromJson(
+        mergeThemeJson(base, {
+            name: "custom",
+            vars: { accent: "#abcdef", bg: "#111111" },
+            colors: { accent: "accent", selectedBg: "bg" },
+        }),
+        { colorMode: "256color" },
+    );
 
     assertEquals(theme.name, "custom");
-    assertEquals(theme.colorMode, "256color");
-    assertEquals(theme.fgColors, { accent: "#abcdef" });
-    assertEquals(theme.bgColors, { selectedBg: "#111111" });
+    assertEquals(theme.fg("accent", "RunWield").includes("RunWield"), true);
+    assertEquals(theme.bg("selectedBg", "RunWield").includes("RunWield"), true);
 });

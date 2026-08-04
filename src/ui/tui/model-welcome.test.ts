@@ -8,12 +8,16 @@ import {
     withRuntimeCommandFixture,
 } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import {
     detectModelAvailability,
     getConfiguredModelAvailability,
     getSelectedDefaultModelAvailability,
 } from "./model-welcome.ts";
-import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
+import {
+    createInteractiveCompositionHarness,
+    type InteractiveCompositionHarness,
+} from "./testing/interactive-composition-fixture.ts";
 
 const WELCOME_TITLE = "Welcome to RunWield";
 const MODEL_SELECTOR_MARKER = "Only showing models from configured providers";
@@ -25,8 +29,12 @@ interface RegistryValueModel {
     provider: string;
 }
 
-/** @returns {{ getAvailable: () => RegistryValueModel[], find: (provider: string, id: string) => RegistryValueModel | undefined }} */
-function registryValue(available: RegistryValueModel[]) {
+interface RegistryValue {
+    getAvailable(): RegistryValueModel[];
+    find(provider: string, id: string): RegistryValueModel | undefined;
+}
+
+function registryValue(available: RegistryValueModel[]): RegistryValue {
     return {
         getAvailable: () => available,
         find: (provider: string, id: string) =>
@@ -36,7 +44,7 @@ function registryValue(available: RegistryValueModel[]) {
 
 /** Drive the onboarding completion path through the scripted OAuth provider. */
 async function completeOnboardingWithScriptedProvider(
-    harness: Awaited<ReturnType<typeof createInteractiveCompositionHarness>>,
+    harness: InteractiveCompositionHarness,
 ): Promise<void> {
     await harness.type("\r"); // welcome prompt: "Use a subscription login"
     await harness.waitForScreen("Select provider to configure:");
@@ -46,6 +54,17 @@ async function completeOnboardingWithScriptedProvider(
     await harness.waitForScreen(`Logged in to ${SCRIPTED_OAUTH_PROVIDER_NAME}.`);
     await harness.waitForScreen(MODEL_SELECTOR_MARKER);
     await harness.type(`${SCRIPTED_OAUTH_MODEL}\r`);
+}
+
+async function waitForWelcomeRePrompt(harness: InteractiveCompositionHarness): Promise<string> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        const screen = harness.terminal.getScreenText();
+        if (screen.includes(WELCOME_TITLE) && !screen.includes("Select provider to configure:")) return screen;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(
+        `Login cancellation did not return to the welcome prompt. Screen:\n${harness.terminal.getScreenText()}`,
+    );
 }
 
 Deno.test("detectModelAvailability treats at least one available model as usable", () => {
@@ -99,7 +118,7 @@ Deno.test("no providers opens the real welcome prompt and never the model select
             const screen = await harness.waitForScreen(WELCOME_TITLE);
             assert(screen.includes("Use a subscription login"));
             assert(!screen.includes(MODEL_SELECTOR_MARKER), "no-provider startup must not open the model selector");
-            const provider = registerScriptedOAuthProvider();
+            const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "success" });
             await completeOnboardingWithScriptedProvider(harness);
             await harness.waitForComposition(30_000);
@@ -144,11 +163,11 @@ Deno.test("cancelled model selection activates no root Session", async () => {
 });
 
 Deno.test("subscription login through the scripted OAuth fixture runs the real /login then /model order and activates the root Session", async () => {
-    await withRuntimeCommandFixture("model-welcome-subscription-", async ({ homeDir, projectRoot }) => {
+    await withRuntimeCommandFixture("model-welcome-subscription-", async ({ projectRoot }) => {
         const harness = await createInteractiveCompositionHarness({});
         try {
             await harness.waitForScreen(WELCOME_TITLE);
-            const provider = registerScriptedOAuthProvider();
+            const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "success" });
             await harness.type("\r"); // welcome prompt: "Use a subscription login"
             await harness.waitForScreen("Select provider to configure:");
@@ -173,11 +192,7 @@ Deno.test("subscription login through the scripted OAuth fixture runs the real /
             assertEquals(snapshot?.activeModel.model, SCRIPTED_OAUTH_MODEL);
             assertEquals(snapshot?.busy, false);
 
-            const authFile = JSON.parse(await Deno.readTextFile(join(homeDir, ".wld", "auth.json"))) as Record<
-                string,
-                { type?: string }
-            >;
-            assertEquals(authFile[SCRIPTED_OAUTH_PROVIDER_ID]?.type, "oauth");
+            assertEquals(await getModelRegistry().getStoredCredentialType(SCRIPTED_OAUTH_PROVIDER_ID), "oauth");
             assertEquals(getSettingsManager(projectRoot).getDefaultModel(), SCRIPTED_OAUTH_MODEL);
             assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), SCRIPTED_OAUTH_PROVIDER_ID);
         } finally {
@@ -191,7 +206,7 @@ Deno.test("login failure renders a user-visible error and activates no root Sess
         const harness = await createInteractiveCompositionHarness({});
         try {
             await harness.waitForScreen(WELCOME_TITLE);
-            const provider = registerScriptedOAuthProvider();
+            const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "failure", error: "boom" });
             await harness.type("\r");
             await harness.waitForScreen("Select provider to configure:");
@@ -202,6 +217,7 @@ Deno.test("login failure renders a user-visible error and activates no root Sess
                 harness.runtime.getSessionSnapshot(harness.sessionId)?.activeAgent !== "router",
                 "login failure must not activate the root Session",
             );
+            assertEquals(await getModelRegistry().getStoredCredentialType(SCRIPTED_OAUTH_PROVIDER_ID), undefined);
             // The welcome prompt re-appears instead of dropping to chat.
             await harness.waitForScreen(WELCOME_TITLE);
 
@@ -219,19 +235,22 @@ Deno.test("cancelled login re-prompts instead of returning to chat", async () =>
         const harness = await createInteractiveCompositionHarness({});
         try {
             await harness.waitForScreen(WELCOME_TITLE);
-            const provider = registerScriptedOAuthProvider();
+            const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "cancel" });
             await harness.type("\r"); // "Use a subscription login"
             await harness.waitForScreen("Select provider to configure:");
-            await harness.pressKey("escape"); // back to authentication-method choice
-            await harness.waitForScreen("Select authentication method:");
-            await harness.pressKey("escape"); // cancel login entirely
-            const rePrompted = await harness.waitForScreen(WELCOME_TITLE);
+            await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
+            const rePrompted = await waitForWelcomeRePrompt(harness);
             assert(rePrompted.includes("Use a subscription login"), "login cancellation must re-prompt the welcome");
+            assert(
+                !rePrompted.includes("Select provider to configure:"),
+                "login cancellation must leave the provider prompt",
+            );
             assert(
                 harness.runtime.getSessionSnapshot(harness.sessionId)?.activeAgent !== "router",
                 "cancelled login must not activate the root Session",
             );
+            assertEquals(await getModelRegistry().getStoredCredentialType(SCRIPTED_OAUTH_PROVIDER_ID), undefined);
 
             provider.setOutcome({ kind: "success" });
             await completeOnboardingWithScriptedProvider(harness);
@@ -247,7 +266,7 @@ Deno.test("failed root activation returns focus to the editor with recovery guid
         const harness = await createInteractiveCompositionHarness({ initialAgentName: "no-such-agent" });
         try {
             await harness.waitForScreen(WELCOME_TITLE);
-            const provider = registerScriptedOAuthProvider();
+            const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "success" });
             await completeOnboardingWithScriptedProvider(harness);
             const screen = await harness.waitForScreen("Failed to initialize root agent after model setup");

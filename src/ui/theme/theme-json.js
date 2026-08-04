@@ -110,15 +110,13 @@ export function splitFgBgColors(colors) {
 /**
  * Build a Pi Theme instance from a parsed theme JSON object.
  * @param {ThemeJson} themeJson
- * @param {{ colorMode?: "truecolor" | "256color", ThemeCtor?: typeof Theme }} [options]
+ * @param {{ colorMode?: "truecolor" | "256color" }} [options]
  * @returns {ThemeInstance}
  */
 export function createThemeFromJson(themeJson, options = {}) {
     const resolvedJson = resolveThemeVars(themeJson);
     const { fgColors, bgColors } = splitFgBgColors(resolvedJson.colors);
-    const ThemeCtor = options.ThemeCtor || Theme;
-
-    return new ThemeCtor(
+    return new Theme(
         /** @type {any} */ (fgColors),
         /** @type {any} */ (bgColors),
         options.colorMode || detectColorMode(),

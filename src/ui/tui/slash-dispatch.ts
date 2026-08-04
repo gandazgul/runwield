@@ -60,11 +60,6 @@ interface UnresolvedTemplateModel {
     ok: false;
 }
 
-interface ModelActivationResult {
-    status?: "active" | "deferred";
-    message?: string;
-}
-
 export interface SlashContext {
     userRequest: string;
     savedImages: ImageAttachment[];
@@ -80,10 +75,6 @@ export interface SlashContext {
     skills: SkillMeta[];
     chatPromptAgentName: string;
     resolveTemplateModel(templateModel: string): ResolvedTemplateModel | UnresolvedTemplateModel;
-    setActiveModel?(
-        model: string,
-        provider?: string,
-    ): Promise<ModelActivationResult | void> | ModelActivationResult | void;
     replaceRuntimeSession?(nextSessionId: string): void;
     notifyRunWieldEvent?(eventName: string, options?: NotificationOptions): Promise<void> | void;
     dispatchExpandedUserRequest?(text: string, images: ImageAttachment[]): Promise<void>;
@@ -175,7 +166,6 @@ async function dispatchBuiltin(
             sessionStartedAt: ctx.sessionStartedAt,
             tui: ctx.tui,
             originalHandleInput: ctx.originalHandleInput,
-            setActiveModel: ctx.setActiveModel,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
             notifyRunWieldEvent,
         });

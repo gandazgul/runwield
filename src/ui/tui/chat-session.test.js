@@ -1,6 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
-    __setSettingsManagerForPersistenceTests,
     buildFooterContextStat,
     buildFooterLine1Parts,
     buildFooterLocationText,
@@ -17,6 +16,9 @@ import {
     shouldShowFooterThinkingLevel,
 } from "./chat-session.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { getSettingsManager } from "../../shared/settings.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
 
 Deno.test("chat session layout keeps transcript, validation panel, spinner, prompts, accessories, and editor in order", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
@@ -359,64 +361,52 @@ Deno.test("resolveTemplateModel validates provider/id lookup and auth", () => {
 });
 
 Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persists selection", async () => {
-    const calls = /** @type {any[]} */ ([]);
-    const runtime = /** @type {any} */ ({
-        getSessionSnapshot: () => ({ cwd: Deno.cwd(), activeModel: { model: "old", provider: "test" } }),
-        /** @param {string} sessionId @param {string} model @param {string} provider */
-        reconfigureSessionModel: (sessionId, model, provider) => {
-            calls.push({ sessionId, model, provider });
-            return Promise.resolve({ ok: true });
-        },
+    await withRuntimeCommandFixture("chat-session-model-persistence-", async ({ projectRoot }) => {
+        const runtime = new SessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            await setActiveModel(runtime, sessionId, "model-a", "provider-a");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "model-a",
+                provider: "provider-a",
+            });
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "model-a");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "provider-a");
+        } finally {
+            runtime.closeAllSessions();
+        }
     });
-    const persisted = /** @type {string[]} */ ([]);
-    try {
-        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
-            setDefaultModel: (/** @type {string} */ model) => {
-                persisted.push(`model:${model}`);
-                return Promise.resolve();
-            },
-            setDefaultProvider: (/** @type {string} */ provider) => {
-                persisted.push(`provider:${provider}`);
-                return Promise.resolve();
-            },
-        }));
-        await setActiveModel(runtime, "runtime-id", "model-a", "provider-a");
-    } finally {
-        __setSettingsManagerForPersistenceTests(null);
-    }
-    assertEquals(calls, [{ sessionId: "runtime-id", model: "model-a", provider: "provider-a" }]);
-    assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
 });
 
-Deno.test("setActiveModel propagates Runtime reconfiguration failure", async () => {
-    const runtime = /** @type {any} */ ({
-        getSessionSnapshot: () => ({ cwd: Deno.cwd(), activeModel: { model: "old", provider: "test" } }),
-        reconfigureSessionModel: () => Promise.reject(new Error("No API key")),
+Deno.test("setActiveModel rejects a missing real Runtime session", async () => {
+    await withRuntimeCommandFixture("chat-session-missing-model-session-", async () => {
+        const runtime = new SessionRuntime();
+        await assertRejects(
+            () => setActiveModel(runtime, "missing-session", "model", "test"),
+            Error,
+            "missing runtime session",
+        );
     });
-    await assertRejects(() => setActiveModel(runtime, "runtime-id", "model", "test"), Error, "No API key");
 });
 
-Deno.test("getActiveModel reads only the Runtime snapshot", () => {
-    const runtime = /** @type {any} */ ({
-        getSessionSnapshot: () => ({ activeModel: { model: "model-a", provider: "provider-a" } }),
+Deno.test("getActiveModel reads the real Runtime snapshot", async () => {
+    await withRuntimeCommandFixture("chat-session-active-model-", async ({ projectRoot }) => {
+        const runtime = new SessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            runtime.setSessionModel(sessionId, "model-a", "provider-a");
+            assertEquals(getActiveModel(runtime, sessionId), "model-a");
+        } finally {
+            runtime.closeAllSessions();
+        }
     });
-    assertEquals(getActiveModel(runtime, "runtime-id"), "model-a");
 });
 
 Deno.test("persistThinkingLevel stores the selected level", async () => {
-    const persisted = /** @type {string[]} */ ([]);
-    try {
-        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
-            setDefaultThinkingLevel: (/** @type {string} */ level) => {
-                persisted.push(level);
-                return Promise.resolve();
-            },
-        }));
-        await persistThinkingLevel("high");
-    } finally {
-        __setSettingsManagerForPersistenceTests(null);
-    }
-    assertEquals(persisted, ["high"]);
+    await withRuntimeCommandFixture("chat-session-thinking-persistence-", async ({ projectRoot }) => {
+        await persistThinkingLevel("high", projectRoot);
+        assertEquals(getSettingsManager(projectRoot).getDefaultThinkingLevel(), "high");
+    });
 });
 
 Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async () => {

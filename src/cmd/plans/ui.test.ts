@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { savePlan } from "../../plan-store.js";
-import type { BrowserPort } from "../../shared/browser-port.ts";
+import { type BrowserPort, NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { buildPlansUiUrl, isLoopbackHost, parsePlansUiArgs, runPlansUiCommand } from "./ui.ts";
 
@@ -150,6 +150,7 @@ Deno.test("runPlansUiCommand warns for an explicit non-loopback bind", async () 
         try {
             const captured = await captureConsole(() =>
                 runPlansUiCommand(["--bind", "0.0.0.0", "--port", "0", "--no-open"], {
+                    browser: NO_OPEN_BROWSER_PORT,
                     signal: controller.signal,
                 })
             );
@@ -164,10 +165,12 @@ Deno.test("runPlansUiCommand warns for an explicit non-loopback bind", async () 
 });
 
 Deno.test("runPlansUiCommand reports argument errors and prints real help", async () => {
-    const invalid = await captureConsole(() => runPlansUiCommand(["--port", "70000"]));
+    const invalid = await captureConsole(() =>
+        runPlansUiCommand(["--port", "70000"], { browser: NO_OPEN_BROWSER_PORT })
+    );
     assertStringIncludes(invalid.errors.join("\n"), "Invalid --port value");
     assertStringIncludes(invalid.errors.join("\n"), "wld plans ui --help");
 
-    const help = await captureConsole(() => runPlansUiCommand(["--help"]));
+    const help = await captureConsole(() => runPlansUiCommand(["--help"], { browser: NO_OPEN_BROWSER_PORT }));
     assertStringIncludes(help.logs.join("\n"), "Usage: wld plans ui");
 });

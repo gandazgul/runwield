@@ -1,4 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { getSettingsManager } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runModelsCommand } from "./index.ts";
 
@@ -55,38 +57,54 @@ async function captureLogs(run: () => Promise<void>): Promise<string[]> {
 }
 
 Deno.test("runModelsCommand switches an explicit configured model through the real registry", async () => {
-    await withRuntimeCommandFixture("runwield-model-command-", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
         const ui = makeUi();
-        let activeModel = "";
+        const runtime = new SessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
 
-        await runModelsCommand([FIXTURE_MODEL], {
-            uiAPI: ui.uiAPI,
-            setActiveModel: (model, provider) => {
-                activeModel = `${provider}/${model}`;
-            },
-        });
+            await runModelsCommand([FIXTURE_MODEL], {
+                uiAPI: ui.uiAPI,
+                sessionId,
+                sessionRuntime: runtime,
+            });
 
-        assertEquals(activeModel, FIXTURE_MODEL);
-        assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "fixture-model");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "runtime-command-fixture");
+            assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+        } finally {
+            runtime.closeAllSessions();
+        }
     });
 });
 
 Deno.test("runModelsCommand fallback selector lists and switches real configured models", async () => {
-    await withRuntimeCommandFixture("runwield-model-command-", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
         const ui = makeUi(FIXTURE_MODEL);
-        let activeModel = "";
+        const runtime = new SessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
 
-        await runModelsCommand([], {
-            uiAPI: ui.uiAPI,
-            editor: ui.editor,
-            setActiveModel: (model, provider) => {
-                activeModel = `${provider}/${model}`;
-            },
-        });
+            await runModelsCommand([], {
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+                sessionId,
+                sessionRuntime: runtime,
+            });
 
-        assertEquals(activeModel, FIXTURE_MODEL);
-        assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
-        assertEquals(ui.editor.disableSubmit, false);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+            assertEquals(ui.editor.disableSubmit, false);
+        } finally {
+            runtime.closeAllSessions();
+        }
     });
 });
 
@@ -125,4 +143,13 @@ Deno.test("runModelsCommand reports CLI usage without reading user configuration
         assertEquals(logs.length, 1);
         assertStringIncludes(logs[0], "Usage: wld model");
     });
+});
+
+Deno.test("runModelsCommand sets the fixture-scoped default from the standalone CLI", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-", async ({ alternateRoot }) => {
+        const logs = await captureLogs(() => runModelsCommand([FIXTURE_MODEL]));
+        assertEquals(logs, [`Set default model to ${FIXTURE_MODEL}`]);
+        assertEquals(getSettingsManager(alternateRoot).getDefaultModel(), "fixture-model");
+        assertEquals(getSettingsManager(alternateRoot).getDefaultProvider(), "runtime-command-fixture");
+    }, { providerState: "provider-no-model" });
 });

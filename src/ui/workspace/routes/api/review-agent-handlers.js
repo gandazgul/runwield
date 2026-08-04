@@ -26,7 +26,7 @@ import { createReviewWidgetStore } from "./review-widget-handlers.js";
  */
 
 /**
- * @param {{ token: string, cwd: string, reviewPayload: Record<string, unknown>, runGuideCommand?: ReviewAgentState["runGuideCommand"] }} options
+ * @param {{ token: string, cwd: string, reviewPayload: Record<string, unknown>, runGuideCommand: ReviewAgentState["runGuideCommand"] }} options
  * @returns {ReviewAgentState}
  */
 export function createReviewAgentState(options) {
@@ -35,7 +35,7 @@ export function createReviewAgentState(options) {
         jobs: new Map(),
         streams: new Set(),
         widgets: createReviewWidgetStore(),
-        runGuideCommand: options.runGuideCommand || runConfiguredGuideCommand,
+        runGuideCommand: options.runGuideCommand,
     };
 }
 
@@ -312,7 +312,7 @@ function detectGuideProvider() {
 }
 
 /** @param {string} prompt @param {AbortSignal} signal @param {string} cwd */
-async function runConfiguredGuideCommand(prompt, signal, cwd) {
+export async function runConfiguredGuideCommand(prompt, signal, cwd) {
     const configured = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
     const command = configured ? shellCommand(configured) : await resolveRunWieldGuideCommand(cwd);
     const child = new Deno.Command(command.command, {

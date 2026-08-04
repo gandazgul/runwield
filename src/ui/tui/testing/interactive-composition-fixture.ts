@@ -25,6 +25,7 @@
 
 import { endBlink } from "../boot-logo.ts";
 import { createInteractiveTuiComposition } from "../chat-session.js";
+import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 import type { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { stopTUI } from "../tui.js";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
@@ -112,6 +113,7 @@ export function createInteractiveCompositionHarness(
     let resolvedComposition: Awaited<ReturnType<typeof createInteractiveTuiComposition>> | null = null;
 
     compositionPromise = createInteractiveTuiComposition(null, {
+        browser: NO_OPEN_BROWSER_PORT,
         terminal,
         sessionStartMode: options.sessionStartMode || "new",
         initialAgentName: options.initialAgentName || "router",

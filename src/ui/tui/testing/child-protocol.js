@@ -112,16 +112,13 @@ export async function runGoldenScenarioChildProcess(request) {
     // the child's exit code 0 is the proof the quit path ran for real.
     const expectedCleanExit = childPayload && typeof childPayload === "object" &&
         /** @type {{ expectedCleanExit?: unknown }} */ (childPayload).expectedCleanExit === true;
-    const cleanExitSatisfied = expectedCleanExit && result.success === true;
     // Backstop for a child that never got to tear itself down: one wedged past
     // the grace window, or crashed before its own cleanup. The child announces
     // its environment root on startup precisely so this path can find it.
     if (!request.keepArtifacts) await removeChildEnvironmentRoot(childPayload);
     const childReportedFailure = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
         !/** @type {{ ok?: unknown }} */ (childPayload).ok;
-    const childReportedSuccess = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
-        /** @type {{ ok?: unknown }} */ (childPayload).ok === true;
-    if (childReportedFailure || (!result.success && !childReportedSuccess && !cleanExitSatisfied)) {
+    if (childReportedFailure || !result.success) {
         const artifactDir = await writeChildFailureArtifact(normalizedRequest, result, childPayload);
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`

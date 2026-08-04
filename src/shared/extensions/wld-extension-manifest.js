@@ -131,18 +131,15 @@ export function getWldExtensionPaths(resources) {
  *   cwd?: string,
  *   agentDir?: string,
  *   settingsManager?: any,
- *   PackageManager?: typeof DefaultPackageManager,
- *   packageManager?: { resolve: (onMissing?: (source: string) => Promise<"install" | "skip" | "error">) => Promise<ResolvedPaths> },
  * }} [options]
  * @returns {Promise<ResolvedResource[]>}
  */
 export async function resolveInstalledWldExtensionResources(options = {}) {
-    const packageManager = options.packageManager ||
-        new (options.PackageManager || DefaultPackageManager)({
-            cwd: options.cwd || Deno.cwd(),
-            agentDir: options.agentDir || getSettingsDir("global"),
-            settingsManager: /** @type {any} */ (options.settingsManager || getSettingsManager()),
-        });
+    const packageManager = new DefaultPackageManager({
+        cwd: options.cwd || Deno.cwd(),
+        agentDir: options.agentDir || getSettingsDir("global"),
+        settingsManager: /** @type {any} */ (options.settingsManager || getSettingsManager()),
+    });
 
     const resolved = await packageManager.resolve(() => Promise.resolve("skip"));
     return await filterWldCompatibleExtensionResources(resolved.extensions);

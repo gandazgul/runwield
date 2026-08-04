@@ -264,7 +264,6 @@ export async function runLoginCommand(argv: string[], options: AuthCommandOption
         try {
             if (provider.authType === "oauth") await loginWithSubscription(uiAPI, provider, registry);
             else await loginWithApiKey(uiAPI, provider, registry);
-            await registry.refresh();
             uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
             if (!options.skipPostLoginSetup) await configureInteractiveSessionAfterLogin(options, registry);
         } catch (error) {
@@ -298,7 +297,6 @@ export async function runLogoutCommand(argv: string[], options: AuthCommandOptio
 
     try {
         await logoutProvider(registry, provider.id);
-        await registry.refresh();
         uiAPI.appendSystemMessage(`Logged out of ${provider.name}.`);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

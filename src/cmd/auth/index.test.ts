@@ -1,143 +1,153 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
-import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { createInteractiveCompositionHarness } from "../../ui/tui/testing/interactive-composition-fixture.ts";
+import {
+    registerScriptedOAuthProvider,
+    SCRIPTED_OAUTH_PROVIDER_ID,
+    withRuntimeCommandFixture,
+} from "../testing/runtime-command-fixture.ts";
+import { getModelRegistry, type RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
+import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import {
+    createInteractiveCompositionHarness,
+    type InteractiveCompositionHarness,
+} from "../../ui/tui/testing/interactive-composition-fixture.ts";
 
 const FIXTURE_PROVIDER = "runtime-command-fixture";
 const FIXTURE_PROVIDER_DISPLAY = "Runtime Command Fixture Provider";
 const API_KEY_PROMPT = "Enter API key for Runtime Command Fixture Provider:";
 const MODEL_SELECTOR_MARKER = "Only showing models from configured providers";
 
-interface AuthFile {
-    [providerId: string]: { type: "api_key"; key: string };
+interface AuthTestContext {
+    harness: InteractiveCompositionHarness;
+    registry: RunWieldModelRegistry;
+    runtime: SessionRuntime;
+    sessionId: string;
 }
 
-async function readFixtureAuthFile(homeDir: string): Promise<AuthFile> {
-    return JSON.parse(await Deno.readTextFile(join(homeDir, ".wld", "auth.json"))) as AuthFile;
-}
-
-/**
- * All auth flows are typed as slash commands through the composed real TUI:
- * real slash dispatch, real prompt components, real registry and credential
- * store. No test here builds a hand-made UI bag or calls the command functions
- * directly.
- */
-Deno.test("auth commands exercise the real model registry through composed slash dispatch", async (test) => {
-    await withRuntimeCommandFixture("auth-command-", async ({ homeDir }) => {
-        const harness = await createInteractiveCompositionHarness({
+async function withAuthTest(
+    prefix: string,
+    run: (context: AuthTestContext) => Promise<void>,
+): Promise<void> {
+    await withRuntimeCommandFixture(prefix, async () => {
+        const harness = createInteractiveCompositionHarness({
             initialAgentName: "guide",
             terminalRows: 40,
         });
         try {
             const composition = await harness.waitForComposition(30_000);
+            const registry = getModelRegistry();
+            await registry.getRuntime();
+            assert(
+                !registry.getOAuthProviders().some((provider) => provider.id === SCRIPTED_OAUTH_PROVIDER_ID),
+                "a scripted provider from another fixture must not leak into this registry",
+            );
             assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent, "guide");
-
-            await test.step("provider choices come from the hydrated registry without starting OAuth", async () => {
-                await harness.type("/login subscription\r");
-                const providerScreen = await harness.waitForScreen("Select provider to configure:");
-                assert(providerScreen.includes("OpenAI Codex"), "OAuth provider list must come from the registry");
-                assertStringIncludes(providerScreen, "subscription");
-                await harness.pressKey("escape"); // back to authentication-method choice
-                await harness.waitForScreen("Select authentication method:");
-                await harness.pressKey("escape"); // cancel login entirely; no OAuth started
-                await harness.waitForIdle(3_000);
-            });
-
-            await test.step("API-key login persists through the real credential store and status machinery", async () => {
-                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
-                await harness.waitForScreen(API_KEY_PROMPT);
-                await harness.type(" fixture-secret \r");
-                await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
-                assertEquals(await readFixtureAuthFile(homeDir), {
-                    [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
-                });
-                // Post-login setup shows the model selector; cancel it to settle.
-                await harness.waitForScreen(MODEL_SELECTOR_MARKER);
-                await harness.pressKey("escape");
-                await harness.waitForIdle(5_000);
-
-                await harness.type("/status\r");
-                const statusScreen = await harness.waitForScreen("Available models:");
-                assertStringIncludes(statusScreen, "Available models:");
-                assertStringIncludes(
-                    statusScreen,
-                    `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key stored`,
-                );
-            });
-
-            await test.step("misleading Claude CLI credentials stay out of API auth status and logout choices", async () => {
-                await Deno.writeTextFile(
-                    join(homeDir, ".wld", "auth.json"),
-                    JSON.stringify({
-                        [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
-                        "claude-cli": { type: "api_key", key: "fake" },
-                    }),
-                );
-                await harness.type("/status\r");
-                const statusScreen = await harness.waitForScreen("Available models:");
-                assert(!statusScreen.includes("Claude CLI"), "Claude CLI must not appear in API auth status");
-                assert(!statusScreen.includes("claude-cli"), "Claude CLI must not appear in API auth status");
-
-                await harness.type(`/logout claude-cli\r`);
-                const logoutScreen = await harness.waitForScreen("Select provider to logout:");
-                assert(!logoutScreen.includes("claude-cli"), "Claude CLI must not appear in logout choices");
-                await harness.pressKey("escape");
-                await harness.waitForIdle(3_000);
-                assertEquals(await readFixtureAuthFile(homeDir), {
-                    [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
-                    "claude-cli": { type: "api_key", key: "fake" },
-                });
-                // Restore the fixture-only credential state for the remaining steps.
-                await Deno.writeTextFile(
-                    join(homeDir, ".wld", "auth.json"),
-                    JSON.stringify({ [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" } }),
-                );
-            });
-
-            await test.step("post-login setup shows the model selector and switches a real Runtime Session back to Router", async () => {
-                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
-                await harness.waitForScreen(API_KEY_PROMPT);
-                await harness.type("replacement-secret\r");
-                await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
-                await harness.waitForScreen(MODEL_SELECTOR_MARKER);
-                await harness.pressKey("escape");
-                const runtime = composition.runtime;
-                const sessionId = composition.sessionId;
-                for (let attempt = 0; attempt < 200; attempt += 1) {
-                    if (runtime.getSessionSnapshot(sessionId)?.activeAgent === "router") break;
-                    await new Promise((resolve) => setTimeout(resolve, 50));
-                }
-                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "router");
-                assertEquals((await readFixtureAuthFile(homeDir))[FIXTURE_PROVIDER], {
-                    type: "api_key",
-                    key: "replacement-secret",
-                });
-                await harness.waitForIdle(5_000);
-            });
-
-            await test.step("logout removes the fixture credential through the real registry", async () => {
-                await harness.type(`/logout ${FIXTURE_PROVIDER}\r`);
-                await harness.waitForScreen(`Logged out of ${FIXTURE_PROVIDER_DISPLAY}.`);
-                assertEquals(await readFixtureAuthFile(homeDir), {});
-
-                await harness.type("/status\r");
-                const statusScreen = await harness.waitForScreen("key in models.json");
-                assertStringIncludes(
-                    statusScreen,
-                    `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): key in models.json`,
-                    "status must reflect the removed stored credential",
-                );
-            });
-
-            await test.step("cancelled API-key input leaves the real credential store unchanged", async () => {
-                await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
-                await harness.waitForScreen(API_KEY_PROMPT);
-                await harness.pressKey("escape");
-                await harness.waitForIdle(3_000);
-                assertEquals(await readFixtureAuthFile(homeDir), {});
+            await run({
+                harness,
+                registry,
+                runtime: composition.runtime,
+                sessionId: composition.sessionId,
             });
         } finally {
             await harness.dispose();
         }
+    });
+}
+
+Deno.test("subscription provider choices come from the hydrated fixture registry", async () => {
+    await withAuthTest("auth-provider-list-", async ({ harness }) => {
+        const provider = await registerScriptedOAuthProvider();
+        await harness.type("/login subscription\r");
+        const providerScreen = await harness.waitForScreen("Select provider to configure:");
+        assertStringIncludes(providerScreen, provider.providerName);
+        assertStringIncludes(providerScreen, "subscription");
+        await harness.pressKey("escape");
+        await harness.waitForScreen("Select authentication method:");
+        await harness.pressKey("escape");
+        await harness.waitForIdle(3_000);
+    });
+});
+
+Deno.test("API-key login persists through the fixture credential store and status command", async () => {
+    await withAuthTest("auth-api-key-login-", async ({ harness, registry }) => {
+        await registry.logoutProvider(FIXTURE_PROVIDER);
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
+
+        await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+        await harness.waitForScreen(API_KEY_PROMPT);
+        await harness.type(" fixture-secret \r");
+        await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), "api_key");
+
+        await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+        await harness.pressKey("escape");
+        await harness.waitForIdle(5_000);
+        await harness.type("/status\r");
+        const statusScreen = await harness.waitForScreen("Available models:");
+        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key stored`);
+    });
+});
+
+Deno.test("non-registry CLI credentials stay out of API auth status and logout choices", async () => {
+    await withAuthTest("auth-claude-cli-exclusion-", async ({ harness, registry }) => {
+        await registry.setProviderApiKey("claude-cli", "fixture-only-key");
+        assertEquals(
+            (await registry.listStoredCredentialProviders()).map((provider) => provider.id),
+            [FIXTURE_PROVIDER],
+        );
+
+        await harness.type("/status\r");
+        const statusScreen = await harness.waitForScreen("Available models:");
+        assert(!statusScreen.includes("(claude-cli):"));
+
+        await harness.type("/logout\r");
+        const logoutScreen = await harness.waitForScreen("Select provider to logout:");
+        assertStringIncludes(logoutScreen, FIXTURE_PROVIDER_DISPLAY);
+        await harness.pressKey("escape");
+        await harness.waitForIdle(3_000);
+    });
+});
+
+Deno.test("post-login setup shows the model selector and switches the real Session to Router", async () => {
+    await withAuthTest("auth-post-login-session-", async ({ harness, registry, runtime, sessionId }) => {
+        await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+        await harness.waitForScreen(API_KEY_PROMPT);
+        await harness.type("replacement-secret\r");
+        await harness.waitForScreen(`Logged in to ${FIXTURE_PROVIDER_DISPLAY}.`);
+        await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+        await harness.pressKey("escape");
+
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+            if (runtime.getSessionSnapshot(sessionId)?.activeAgent === "router") break;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "router");
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), "api_key");
+        await harness.waitForIdle(5_000);
+    });
+});
+
+Deno.test("logout removes the fixture credential and status reflects the fallback model key", async () => {
+    await withAuthTest("auth-logout-", async ({ harness, registry }) => {
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), "api_key");
+        await harness.type(`/logout ${FIXTURE_PROVIDER}\r`);
+        await harness.waitForScreen(`Logged out of ${FIXTURE_PROVIDER_DISPLAY}.`);
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
+
+        await harness.type("/status\r");
+        const statusScreen = await harness.waitForScreen("key in models.json");
+        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): key in models.json`);
+    });
+});
+
+Deno.test("cancelling API-key input leaves the fixture credential store unchanged", async () => {
+    await withAuthTest("auth-api-key-cancel-", async ({ harness, registry }) => {
+        await registry.logoutProvider(FIXTURE_PROVIDER);
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
+
+        await harness.type(`/login api-key ${FIXTURE_PROVIDER}\r`);
+        await harness.waitForScreen(API_KEY_PROMPT);
+        await harness.pressKey("escape");
+        await harness.waitForIdle(3_000);
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
     });
 });

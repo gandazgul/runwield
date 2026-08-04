@@ -70,6 +70,7 @@ import {
 } from "../../shared/workflow/plan-review-recovery.js";
 import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
 import type { CommandContext } from "../registry.js";
@@ -151,6 +152,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         uiAPI = await startInteractiveSession(
             null,
             {
+                browser: SYSTEM_BROWSER_PORT,
                 onSessionReady: (nextSessionId, nextRuntime) => {
                     runtimeSessionId = nextSessionId;
                     sessionRuntime = nextRuntime;
