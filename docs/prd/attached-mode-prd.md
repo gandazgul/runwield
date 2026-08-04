@@ -1,28 +1,38 @@
-# Product Requirements Document: Attached Mode
+# Product Requirements Document: RunWield Connect
 
-Last updated: 2026-07-24 16:53 EDT
+Last updated: 2026-08-04
 
 ## Objective
 
 Make RunWield's planning, verification, and organizational-memory workflow available inside the coding agent a user
 already prefers, without making RunWield the user's default interface or model execution layer.
 
-**Attached Mode** should let a user keep Claude Code, Codex, OpenCode, or Pi, explicitly invoke RunWield for one User
+**RunWield Connect** should let a user keep Claude Code, Codex, OpenCode, or Pi, explicitly invoke RunWield for one User
 Request, and receive the deepest workflow that the External Agent Host can honestly support. Every LLM call remains
-owned and made by the External Agent Host. RunWield remains authoritative for durable workflow truth: Plans, review,
-Plan Lifecycle, execution isolation, validation outcomes, recovery evidence, Work Records, and organizational memory.
+owned and made by the External Agent Host. RunWield Core remains authoritative for durable workflow truth: Plans,
+review, Plan Lifecycle, execution isolation, validation outcomes, recovery evidence, Work Records, and organizational
+memory.
 
-Attached Mode is both a low-friction acquisition surface and a durable first-class product mode. Users who never move to
-Managed or Native experiences must still receive a complete, trustworthy product. Conversion should be earned through
-stronger integration and convenience, not forced through deliberate feature withholding.
+RunWield Connect is the public name for this plugin ecosystem, beginning with first-party plugins. **Attached mode**
+remains the internal architectural term, and an **Attached Workflow** remains the per-request domain object coordinated
+through a Connect plugin. Public installation, distribution, compatibility, and documentation surfaces should say
+RunWield Connect or RunWield Connect for the relevant host.
 
-The three product promises are:
+Connect is both a low-friction acquisition surface and a durable first-class part of RunWield. Users who never adopt
+RunWield Core as their primary interface or RunWield Workspace must still receive a complete, trustworthy product.
+Adoption of other RunWield surfaces should be earned through stronger integration and convenience, not forced through
+deliberate feature withholding.
 
-| Mode     | Promise                                                       |
-| -------- | ------------------------------------------------------------- |
-| Attached | Keep your agent. Add RunWield's planning and verification.    |
-| Managed  | Use your preferred agent inside RunWield's complete workflow. |
-| Native   | Use the fully integrated RunWield experience.                 |
+The product-family promises are:
+
+| Product            | Promise                                                  |
+| ------------------ | -------------------------------------------------------- |
+| RunWield Connect   | Keep your agent. Add RunWield planning and verification. |
+| RunWield Core      | Run the complete local workflow through `wld`.           |
+| RunWield Workspace | Collaborate on planning and records across projects.     |
+
+When Core drives a workflow but delegates agent turns to Pi, Claude through `claude -p`, or another harness, those are
+Execution Backends within Core. They are siblings at the runtime boundary and do not need separate product names.
 
 ## Problem Statement
 
@@ -35,7 +45,7 @@ state, approval, worktree baselines, validation, merge-back, recovery, Work Reco
 running a hidden RunWield Agent behind a host slash command would preserve the host's interface but not the promise to
 "keep your agent."
 
-Attached Mode therefore needs a cooperative boundary:
+RunWield Connect therefore needs a cooperative boundary:
 
 - the External Agent Host owns the conversation, model access, and all Agent reasoning;
 - RunWield supplies role prompts, Skills, deterministic workflow gates, durable artifacts, review surfaces, validation,
@@ -49,13 +59,13 @@ not expose.
 
 ## Target Users
 
-Attached Mode primarily serves:
+RunWield Connect primarily serves:
 
 - existing Claude Code users who want stronger planning, review, verification, recovery, and project memory without
   replacing Claude Code;
 - existing Codex users with the same need after the Claude integration proves the shared contract;
-- teams evaluating RunWield who want to begin within familiar tools before adopting Managed or Native experiences;
-- users who prefer to remain permanently Attached and accept host-specific UX or enforcement limitations while keeping
+- teams evaluating RunWield who want to begin within familiar tools before using Core directly or adopting Workspace;
+- users who prefer to remain permanently on Connect and accept host-specific UX or enforcement limitations while keeping
   RunWield's verification semantics intact.
 
 External Agent Host priority is:
@@ -71,12 +81,12 @@ This order is a product and distribution priority, not a judgment that later hos
 
 ### Per-Request Opt-In
 
-- Installing Attached Mode must not alter ordinary External Agent Host behavior.
+- Installing a RunWield Connect plugin must not alter ordinary External Agent Host behavior.
 - A user explicitly starts one Attached Workflow for one User Request, conceptually through `/runwield <request>` or the
   closest host-native equivalent.
 - RunWield prompts, restrictions, and lifecycle claims apply only within that Attached Workflow.
 - The host returns to ordinary behavior after the workflow reaches an outcome.
-- Existing RunWield closure and recovery choices govern an active workflow; Attached Mode does not introduce a separate
+- Existing RunWield closure and recovery choices govern an active workflow; Connect does not introduce a separate
   partially governed lifecycle.
 
 ### Host-Owned Model Execution
@@ -84,13 +94,13 @@ This order is a product and distribution priority, not a judgment that later hos
 - Every LLM call is made by the External Agent Host using the user's existing host model access.
 - This includes Triage, planning, ideation, implementation, semantic review, repair, recording, and delegated worker
   calls.
-- Attached Mode does not require separate RunWield model credentials or a RunWield account.
+- RunWield Connect does not require separate RunWield model credentials or a RunWield account.
 - RunWield may inject its Agent prompts and Skills or ask the host to create isolated workers, but it must not silently
   substitute a RunWield-owned Agent Session.
 
 ### RunWield-Owned Workflow Truth
 
-RunWield remains the sole authority for:
+RunWield Core remains the sole authority for:
 
 - canonical Plan files and Plan Lifecycle transitions;
 - approval and readiness decisions;
@@ -105,8 +115,8 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 
 ### One Verification Meaning
 
-- A Verified Plan means the same thing in Attached, Managed, and Native experiences.
-- Attached Mode must not introduce host-specific "verified-ish" Plan statuses.
+- A Verified Plan means the same thing in RunWield Connect and RunWield Core, regardless of Core Execution Backend.
+- RunWield Connect must not introduce host-specific "verified-ish" Plan statuses.
 - If a host cannot satisfy a required invariant, RunWield must fail visibly, use an existing explicit fallback, or
   produce an existing non-verified outcome.
 - Host capability differences belong in a disclosed compatibility matrix rather than weaker durable truth.
@@ -117,7 +127,7 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 - Claude Code may use true permission-mode controls, Skills, plugin hooks, MCP tools, subagents, and worktree hooks.
 - Codex may use its Skills, plugins, MCP, subagents, and command hooks while respecting documented hook coverage gaps.
 - OpenCode and Pi may use their deeper plugin or extension APIs without making those APIs prerequisites for the shared
-  Attached contract.
+  Connect contract.
 - A shared product semantic may be implemented differently by each host. For example, the canonical RunWield Planning
   Gate may use a real host Plan mode where available and deterministic mutation blocking elsewhere.
 - Unsupported capabilities must be surfaced before the workflow depends on them.
@@ -154,7 +164,7 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 
 ### Local, On-Demand Core
 
-- The first Attached release does not require an always-running daemon or Session Host.
+- The first Connect release does not require an always-running daemon or Session Host.
 - The host adapter may invoke local RunWield Core capabilities on demand.
 - Durable artifacts, workflow ownership, checkpoints, and recovery evidence must allow safe continuation after process
   loss.
@@ -163,19 +173,20 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 
 ### First-Class Product, Organic Conversion
 
-- Attached Mode is a supported destination for users who never convert.
+- RunWield Connect is a supported destination for users who never adopt another RunWield surface.
 - Primary product outcomes are successful verified work, retained use, and trustworthy recovery.
-- Movement to Managed or Native experiences is a secondary organic outcome.
-- Upgrade messaging may explain genuine integration advantages but must not reserve otherwise feasible Attached
-  capabilities solely to manufacture conversion pressure.
+- Movement to direct Core use or Workspace is a secondary organic outcome.
+- Product-family messaging may explain genuine integration and collaboration advantages but must not reserve feasible
+  Connect capabilities solely to manufacture conversion pressure.
 
 ## Product Experience
 
 ### Installation and Inactive Use
 
-The user installs the first-party adapter through the External Agent Host's normal extension mechanism. Installation
-must establish or obtain compatible local RunWield Core dependencies without requiring separate model authentication.
-Executable hooks and local Core access must be disclosed through the host's normal trust and permission experience.
+The user installs the first-party RunWield Connect plugin through the External Agent Host's normal extension mechanism.
+Installation must establish or obtain compatible local RunWield Core dependencies without requiring separate model
+authentication. Executable hooks and local Core access must be disclosed through the host's normal trust and permission
+experience.
 
 After installation:
 
@@ -185,7 +196,7 @@ After installation:
 - uninstalling or disabling the adapter returns the host to its prior behavior without removing canonical project
   artifacts.
 
-### Starting an Attached Workflow
+### Starting an Attached Workflow with Connect
 
 The primary experience is conceptually:
 
@@ -248,21 +259,21 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 - RunWield must distinguish safe continuation from uncertain external side effects.
 - Recovery must ask the user when a host command, filesystem change, merge, or validation action may have partially
   completed.
-- Attached Mode does not promise exact continuation at an interrupted token or exactly-once replay of arbitrary host
+- RunWield Connect does not promise exact continuation at an interrupted token or exactly-once replay of arbitrary host
   tool calls.
 
 ### Documentation and Positioning
 
 - The README must position RunWield as the planning, verification, and organizational-memory layer for AI software
-  development and explain Attached, Managed, and Native promises together.
-- Attached must appear as a distinct installation mode, with current Preview or stable availability shown per External
-  Agent Host.
+  development and explain Connect, Core, and Workspace together.
+- RunWield Connect must appear as a distinct plugin ecosystem, with current Preview or stable availability shown per
+  External Agent Host.
 - Host-specific guides must cover installation, `/runwield` activation, optional `/runwield:init`, review, permissions,
   local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
 - Documentation must distinguish available adapters from planned targets and must not imply parity based only on a
   host's listed APIs.
-- Managed and Native comparisons may explain genuine workflow and UX advantages without suggesting that Attached is an
-  intentionally incomplete trial.
+- Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
+  suggesting that Connect is an intentionally incomplete trial.
 
 ## Technical Approach
 
@@ -274,7 +285,7 @@ without constructing or prompting RunWield's own Pi Agent Sessions.
 This boundary is conceptually different from ACP:
 
 - ACP makes an external application a client of a RunWield-executed Session.
-- Attached Mode keeps the External Agent Host as the executor and asks Core to coordinate durable workflow truth.
+- RunWield Connect keeps the External Agent Host as the executor and asks Core to coordinate durable workflow truth.
 
 The exact transport is an architectural choice. MCP, stdio commands, a local protocol, or a bounded combination may be
 used, provided every host adapter consumes the same Core semantics and no adapter reimplements Plan Lifecycle or
@@ -283,15 +294,15 @@ validation authority.
 ### Decouple Workflow Authority From Model Invocation
 
 Current end-to-end orchestration frequently invokes RunWield-owned Pi `AgentSession` instances and interprets protected
-Pi tool results. Attached Mode requires the workflow engine to distinguish:
+Pi tool results. Connect's attached architecture requires the workflow engine to distinguish:
 
 - deciding which role or workflow action is required;
 - delivering the relevant prompt, Skill, context, and tool contract to an External Agent Host;
 - accepting and validating a structured result from that host;
 - recording durable Plan Events and continuing workflow orchestration.
 
-Native and Managed execution may retain their appropriate model-invocation adapters. Attached adds an External Agent
-Host adapter; it must not fork the domain state machine.
+Core Sessions may retain Pi or use other Execution Backends such as Claude CLI. Connect instead adds an External Agent
+Host adapter, where the host owns the conversation and every model call; it must not fork the domain state machine.
 
 ### First-Party Host Adapter Responsibilities
 
@@ -369,7 +380,7 @@ Preview labels and verification claims must reflect tested capabilities rather t
 
 ## Release Strategy
 
-### Stage 1: Claude Code FEATURE Preview
+### Stage 1: RunWield Connect for Claude Code FEATURE Preview
 
 Ship an explicitly labeled Preview after the complete FEATURE journey succeeds end to end. The Preview must include
 truthful capability documentation and must not imply full Routing Intent parity.
@@ -377,11 +388,11 @@ truthful capability documentation and must not imply full Routing Intent parity.
 Lighter Routing Intents may be included when they satisfy their normal semantics, but breadth must not delay proving the
 FEATURE lifecycle.
 
-### Stage 2: Stable Claude Attached
+### Stage 2: Stable RunWield Connect for Claude Code
 
-Claude Attached becomes stable only when:
+RunWield Connect for Claude Code becomes stable only when:
 
-- every canonical Routing Intent is supported or explicitly proven irrelevant to Attached Mode;
+- every canonical Routing Intent is supported or explicitly proven irrelevant to Connect;
 - lifecycle, review, isolation, validation, recovery, Work Record, and memory behavior meet the shared RunWield
   semantics;
 - supported Claude Code versions pass repeatable black-box integration coverage;
@@ -402,7 +413,7 @@ product semantics. Later adapters must reuse the host-neutral Core contract rath
 
 ### Preview Acceptance
 
-- A user can install Claude Attached without configuring a second model provider or RunWield account.
+- A user can install RunWield Connect for Claude Code without configuring a second model provider or RunWield account.
 - A normal Claude Code request made after installation but outside `/runwield` receives no RunWield prompt injection,
   restriction, or workflow state.
 - A first `/runwield` FEATURE request works in an uninitialized trusted Git repository.
@@ -415,8 +426,8 @@ product semantics. Later adapters must reuse the host-neutral Core contract rath
 - A Work Record is produced from structured evidence without copying the Claude transcript.
 - At least one interrupted planning/review checkpoint and one interrupted execution/validation checkpoint recover safely
   in black-box tests.
-- Disabling Attached Mode leaves canonical Plans, Work Records, and recovery evidence intact while restoring ordinary
-  host behavior.
+- Disabling the Connect plugin leaves canonical Plans, Work Records, and recovery evidence intact while restoring
+  ordinary host behavior.
 
 ### Stable Product Outcomes
 
@@ -428,12 +439,12 @@ Measure:
 - Attached Workflow completion, failure, cancellation, and recovery rates;
 - percentage of planned workflows that preserve worktree isolation;
 - validation and semantic-review convergence outcomes;
-- retained Attached use across Projects and time;
+- retained Connect use across Projects and time;
 - frequency and cause of host-capability fallbacks;
-- voluntary progression to Managed or Native experiences as a secondary metric.
+- voluntary adoption of direct Core use or Workspace as a secondary metric.
 
 Metrics must be privacy-safe and must not contain raw prompts, host transcripts, source content, secrets, or sensitive
-paths. Conversion must not be optimized by reducing Attached capability.
+paths. Adoption of other RunWield surfaces must not be optimized by reducing Connect capability.
 
 ## Risks and Mitigations
 
@@ -481,11 +492,12 @@ Independent planning, implementation, review, repair, and recording roles consum
 parsimony, bounded retries, and clear progress reporting. Do not hide the fact that stronger verification may require
 multiple host model calls.
 
-### Mode Confusion
+### Product and Control-Direction Confusion
 
-Users may interpret Attached as RunWield secretly taking over Claude Code or as a weaker verification tier.
-Documentation must consistently explain who makes model calls, when RunWield is active, which system owns workflow
-truth, and why Managed or Native may offer a smoother experience without changing Verified semantics.
+Users may interpret Connect as RunWield secretly taking over Claude Code, as a weaker verification tier, or as the same
+thing as Core invoking Claude as an Execution Backend. Documentation must consistently explain who makes model calls,
+when RunWield is active, which system owns workflow truth, and why direct Core use or Workspace may offer a smoother
+experience without changing Verified semantics.
 
 ## External Feasibility Evidence
 
@@ -520,7 +532,7 @@ capability evidence.
 - Promising exactly-once replay of arbitrary interrupted host commands, model turns, or filesystem side effects.
 - Tamper-proof enterprise enforcement when users or administrators can disable the adapter or its hooks.
 - Shipping shallow simultaneous adapters for all External Agent Hosts before the Claude FEATURE vertical slice works.
-- Withholding otherwise feasible Attached capabilities solely to encourage Managed or Native conversion.
+- Withholding otherwise feasible Connect capabilities solely to encourage direct Core or Workspace adoption.
 - Replacing External Work Sources or adding ticket lifecycle synchronization.
 
 ## Open Engineering Questions

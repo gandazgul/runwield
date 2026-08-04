@@ -1,7 +1,7 @@
 ---
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "Deliver the first complete Attached Mode vertical slice: a Claude Code FEATURE workflow in which Claude owns every model call and RunWield Core owns planning, review, isolation, validation, recovery, Work Records, and durable workflow truth."
+summary: "Deliver the first complete RunWield Connect vertical slice: a Claude Code FEATURE workflow in which Claude owns every model call and RunWield Core owns planning, review, isolation, validation, recovery, Work Records, and durable workflow truth."
 affectedPaths:
     - "src/cmd/attached/"
     - "src/shared/attached/"
@@ -19,20 +19,21 @@ affectedPaths:
     - "CONTEXT.md"
     - "README.md"
 createdAt: "2026-08-03T13:15:40-04:00"
-updatedAt: "2026-08-03T17:46:50.268Z"
+updatedAt: "2026-08-04T18:34:02-04:00"
 status: "ready_for_decomposition"
 origin: "internal"
 userVerifiedAt: null
 ---
 
-# Attached Mode: Claude Code FEATURE Preview
+# RunWield Connect for Claude Code: FEATURE Preview
 
 ## Context
 
-`docs/prd/attached-mode-prd.md` defines Attached Mode as a first-class product mode in which an External Agent Host owns
-the conversation, model access, and every agent turn while RunWield owns durable workflow truth. This Epic covers only
-the first release stage: the complete Claude Code FEATURE Preview journey. Claude stable support and later Codex,
-OpenCode, and Pi adapters will be planned as subsequent Epics using evidence from this vertical slice.
+`docs/prd/attached-mode-prd.md` defines RunWield Connect as the plugin ecosystem in which an External Agent Host owns
+the conversation, model access, and every agent turn while RunWield owns durable workflow truth. **Attached mode**
+remains the internal architecture and **Attached Workflow** the per-request domain term. This Epic covers only the first
+release stage: the complete first-party RunWield Connect for Claude Code FEATURE Preview journey. Claude stable support
+and later Codex, OpenCode, and Pi plugins will be planned as subsequent Epics using evidence from this vertical slice.
 
 The Preview must prove that a user can install the Claude adapter, explicitly invoke RunWield for one FEATURE-sized User
 Request in an otherwise uninitialized trusted Git repository, plan and review without implementation edits, execute in a
@@ -46,17 +47,21 @@ A prerequisite refactor is required before this Epic can execute its validation 
 Attached-specific copy would be a second validation engine, not small adapter code. A separately triaged and approved
 Plan or Epic must first extract the Workflow Validation sequencing, convergence policy, and gate predicates into a
 session-independent engine consumed by the existing Pi path. This Epic is blocked until that prerequisite preserves the
-current Native/Managed validation behavior under the shared engine.
+current Core Session validation behavior under the shared engine.
 
 ADR-014 records the accepted boundary: an `AttachedWorkflowCoordinator` is a sibling runtime to `SessionRuntime`.
 Short-lived `wld attached ...` commands are the canonical Core boundary, and Model Context Protocol (MCP) is a thin
 model-facing adapter over those same operations. The existing TUI, Agent Client Protocol (ACP), and SessionRuntime paths
 remain RunWield-executed Session surfaces and do not become Attached Mode dependencies.
 
+This control direction is the defining Connect boundary. If RunWield owns the Session and invokes Claude through
+`claude -p`, Claude is a Core Execution Backend alongside Pi; that capability is not Connect and has no separate product
+mode name.
+
 ## Objective
 
-Deliver a capability-disclosed Claude Code FEATURE Preview that completes the PRD's full planned-work journey without
-weakening existing Plan Lifecycle or verification semantics.
+Deliver a capability-disclosed RunWield Connect for Claude Code FEATURE Preview that completes the PRD's full
+planned-work journey without weakening existing Plan Lifecycle or verification semantics.
 
 ### Target architecture
 
@@ -114,8 +119,8 @@ domain authorities can decide whether a Plan is approved, ready, implemented, va
   recovery checkpoints. It references the active Plan and worktree records but never copies their status or evidence. It
   is durable project-local RunWield state so a new Core process can resume safely.
 - **Plan Lifecycle and Plan Store** — remain the only authorities for canonical Plan content, Plan Events, Plan Status,
-  approval, readiness, and verification. Attached operations must call the same transition services as Native and
-  Managed workflows.
+  approval, readiness, and verification. Attached operations must call the same transition services as Core Session
+  workflows.
 - **Plan Workflow Lease** — must be generalized to recognize an Attached Workflow as a consequential-work owner without
   weakening its single-owner guarantee. Host session identifiers are audit and binding evidence, not an independent
   lifecycle authority. The glossary relationship currently limiting a lease to one Session must be updated in the same
@@ -189,8 +194,9 @@ baseline, lifecycle position, and completion contract.
 
 ### Claude-specific adapter behavior
 
-- Installation uses Claude Code's first-party plugin mechanism and obtains or verifies a compatible local RunWield Core
-  without asking for model credentials or a RunWield account.
+- Installation presents the integration as **RunWield Connect for Claude Code**, uses Claude Code's first-party plugin
+  mechanism, and obtains or verifies a compatible local RunWield Core without asking for model credentials or a RunWield
+  account.
 - Activation is per request. Hooks, role context, and mutation restrictions are inert unless their host session is bound
   to a live Attached Workflow.
 - The Planning Gate uses Claude's deterministic pre-tool permission/hook controls to deny edits and mutating command
@@ -227,9 +233,9 @@ baseline, lifecycle position, and completion contract.
 - ADR-010 makes TUI and ACP sibling adapters over SessionRuntime. Attached is not another such adapter because the
   External Agent Host executes the model turns. ADR-014 preserves ADR-010's dependency direction by introducing a
   sibling runtime over shared domain authorities instead.
-- `plans/claude-cli-execution-backend.md` concerns RunWield invoking Claude CLI as a Managed execution backend. Attached
-  Mode reverses that control direction. Protocol utilities may converge later, but the projects must not share workflow
-  ownership or make either one a prerequisite for the other.
+- `plans/claude-cli-execution-backend.md` concerns RunWield Core invoking Claude CLI as an Execution Backend alongside
+  Pi. Connect reverses that control direction: Claude Code is the External Agent Host. Protocol utilities may converge
+  later, but the projects must not share workflow ownership or make either one a prerequisite for the other.
 
 ## Files to Modify
 
@@ -241,7 +247,7 @@ baseline, lifecycle position, and completion contract.
 - `src/shared/workflow/` — consume the separately delivered session-independent validation engine; centralize any
   Triage, completion, review, and repair schemas currently implicit in Pi tool results so both carriers use one semantic
   contract. This Epic must not recreate validation sequencing here or in the adapter.
-- `src/tools/` — make existing Native/Managed protected tools consume the same structured outcome contracts where needed
+- `src/tools/` — make existing Core Session protected tools consume the same structured outcome contracts where needed
   to prevent semantic drift; tools remain Session carriers, not sources of workflow policy.
 - `src/shared/session/agent-assets.js` and related asset-resolution modules — expose the canonical layered role/Skill
   inputs and version evidence needed for host-native materialization without creating an Attached dependency on
@@ -253,12 +259,12 @@ baseline, lifecycle position, and completion contract.
 - `src/ui/review/review-launcher.js` and `src/ui/workspace/` review endpoints — persist pending plan/code review
   decisions, waiting reasons, and resumable review identifiers for process-per-call coordination while preserving the
   existing Plannotator experience.
-- `src/attached/claude/` — package the Claude Code plugin manifest, command/Skill/subagent templates, hooks, MCP
-  transport adapter, asset materializer, install/update/disable/uninstall integration, and black-box host fixtures.
-  Domain decisions are forbidden from this adapter area.
+- `src/attached/claude/` — package the RunWield Connect for Claude Code plugin manifest, command/Skill/subagent
+  templates, hooks, MCP transport adapter, asset materializer, install/update/disable/uninstall integration, and
+  black-box host fixtures. Domain decisions are forbidden from this adapter area.
 - `README.md`, `docs/`, and `docs/prd/attached-mode-prd.md` — document Preview installation, explicit activation,
-  capability limits, permissions, privacy, review, recovery, update/disable/uninstall, and the Attached/Managed/Native
-  promises without implying untested host parity.
+  capability limits, permissions, privacy, review, recovery, update/disable/uninstall, and the Connect/Core/Workspace
+  product family without implying untested host parity.
 - `CONTEXT.md` — in the implementation change that makes the relationships true, update Plan Workflow Lease language to
   include Attached Workflow ownership and add agreed coordinator/record terms without treating generated assets or
   compatibility projections as authorities.
@@ -302,6 +308,8 @@ baseline, lifecycle position, and completion contract.
   repository and complete the PRD's full 16-step FEATURE Preview journey, including Plannotator Feedback/resubmission,
   independent review/repair, optional human review when configured, merge-back, Work Record creation, and two
   process-loss recoveries.
+- Manual: verify host-visible installation, update, compatibility, disable, and uninstall surfaces consistently use
+  **RunWield Connect for Claude Code**, while logs and developer diagnostics may use the internal attached-mode terms.
 - Manual: issue ordinary Claude Code prompts before activation, during a different host conversation, and after terminal
   closure/disablement; verify no RunWield role prompt, restriction, inspection, or state change applies.
 - Expected: no Core process contacts a model provider or invokes a Claude/Pi model process; only host-originated turns
@@ -359,8 +367,8 @@ baseline, lifecycle position, and completion contract.
 
 Existing behavior that must remain protected after every child lands:
 
-- Native and Managed TUI/Workspace Sessions continue to use SessionRuntime, existing transcript segmentation,
-  interaction/event semantics, routing, planning, execution, validation, and recovery behavior.
+- Core TUI/Workspace Sessions continue to use SessionRuntime, existing transcript segmentation, interaction/event
+  semantics, routing, planning, execution, validation, and recovery behavior.
 - ACP remains a client of RunWield-executed Sessions and preserves ADR-010's dependency direction.
 - Existing Plan statuses, Plan Events, readiness rules, validation convergence, worktree publication safeguards, and
   Work Record provenance retain their current meaning.
@@ -369,7 +377,7 @@ Existing behavior that must remain protected after every child lands:
 
 Behavior expected to stop existing:
 
-- No existing Native, Managed, ACP, Plan Lifecycle, or validation behavior is intentionally removed by this Epic.
+- No existing Core Session, ACP, Plan Lifecycle, or validation behavior is intentionally removed by this Epic.
 - Within the new Attached path, prompt-only planning enforcement, copied role prompts, host-prose lifecycle transitions,
   in-memory-only review waits, and adapter-owned Plan/worktree/validation state must never exist as accepted behavior.
 
@@ -400,7 +408,7 @@ Behavior expected to stop existing:
 - **Unobservable mutation paths** — capability preflight must disclose them and either use an existing explicit fallback
   or refuse the Preview journey. Post-turn inspection is defense in depth, not proof that a hard pre-tool gate existed.
 - **Dirty or nonstandard repositories** — preserve the existing Git/non-Git consent and worktree safety semantics.
-  Attached Mode must not silently clean, stash, reset, or relocate host work.
+  RunWield Connect must not silently clean, stash, reset, or relocate host work.
 - **Worktree handoff failure** — prefer a fresh Claude subagent started in the RunWield worktree. Use only an existing
   explicit in-place consent path when its reduced recovery assurance is disclosed and the Preview's declared capability
   allows it; do not let Claude create an independent worktree.

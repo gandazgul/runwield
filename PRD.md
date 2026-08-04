@@ -58,10 +58,29 @@ The detailed Workspace product requirements live in [runwield-workspace-PRD.md](
 That PRD marries the local Plan management UI and encrypted collaborative planning directions into the self-hostable and
 hosted Workspace story.
 
-### 2.3 Naming
+### 2.3 RunWield Connect
+
+**RunWield Connect** is the plugin ecosystem that brings RunWield planning, verification, recovery, Work Records, and
+memory into external agent hosts such as Claude Code, Codex, OpenCode, and Pi. It begins with first-party plugins built
+and compatibility-tested by RunWield.
+
+The external host remains the user's interface and makes every model call. RunWield Core supplies the durable workflow
+authority and local operations on demand. A user explicitly activates Connect for an individual request; installing a
+Connect plugin must not alter ordinary host behavior.
+
+Connect is a first-class way to use RunWield, not a deliberately weakened trial of Core or Workspace. Its detailed
+requirements live in [attached-mode-prd.md](./docs/prd/attached-mode-prd.md). That document retains **attached mode**
+and **Attached Workflow** as internal architectural terms while using RunWield Connect as the public product name.
+
+When RunWield Core owns the Session and invokes another harness non-interactively, such as Claude Code through
+`claude -p`, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core capabilities, not
+RunWield Connect plugins or separately branded product modes.
+
+### 2.4 Naming
 
 - **RunWield**: public product and umbrella brand.
 - **RunWield Core**: free local harness.
+- **RunWield Connect**: plugins for using RunWield workflows inside external agent hosts.
 - **RunWield Workspace**: collaborative SaaS product.
 - **`wld`**: CLI command.
 - **Wield**: acceptable shorthand after context is established.

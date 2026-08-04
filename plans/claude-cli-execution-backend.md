@@ -18,7 +18,7 @@ affectedPaths:
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/attached-mode-prd.md"
 createdAt: "2026-08-02T12:25:40-04:00"
-updatedAt: "2026-08-03T18:20:03.279Z"
+updatedAt: "2026-08-04T18:34:02-04:00"
 status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
@@ -76,8 +76,8 @@ The target architecture must make these ownership boundaries explicit:
   reimplementing lifecycle behavior.
 
 No ADR was created during this Epic drafting. The rationale is recorded here because the decision is localized to this
-feature and follows existing Attached Mode direction: use host-native capabilities while preserving Core-owned workflow
-semantics.
+feature and follows the same host-native-capability principle as RunWield Connect while preserving a different control
+direction and Core-owned workflow semantics.
 
 ## Vertical Slice Findings
 
@@ -164,8 +164,8 @@ tools may move RunWield lifecycle state.
   work here needs Frontend Engineer ownership and headed-browser verification in child Plans.
 - `docs/prd/runwield-core-prd.md` — document Claude CLI as a Core-supported execution backend and clarify model/provider
   terminology if needed.
-- `docs/prd/attached-mode-prd.md` — keep language aligned with Attached Mode without conflating this feature with
-  user-hosted Attached Workflows; document what is shared and what differs.
+- `docs/prd/attached-mode-prd.md` — keep language aligned with RunWield Connect without conflating this Core Execution
+  Backend with a user-hosted Attached Workflow; document what is shared and what differs.
 
 Likely new modules should live under a narrow execution/backend namespace, for example
 `src/shared/session/backends/claude-cli/`, so the subprocess runner, stream parser, prompt appendix, MCP bridge, and
@@ -301,9 +301,10 @@ tool entry points.
 
 ## Edge Cases & Considerations
 
-- **Mode confusion:** This feature runs Claude Code from inside a RunWield Session; it is not the same as Attached Mode
-  where Claude Code is the user's host. Documentation must explain that Claude owns the model/tool call, while RunWield
-  owns the workflow and transcript.
+- **Product and control-direction confusion:** This feature runs Claude Code from inside a RunWield Core Session; Claude
+  is an Execution Backend alongside Pi. It is not RunWield Connect, where Claude Code is the user's External Agent Host.
+  Documentation must explain that Core owns the workflow and transcript in both cases, but Connect leaves the
+  conversation and every model call under the external host's control.
 - **Prompt/system-prompt choice:** Appending RunWield's agent instructions to Claude Code's default system prompt is the
   safer default because it preserves Claude Code's tool guidance and permission behavior. Replacing the system prompt
   should be an explicit advanced configuration only if later evidence requires it.

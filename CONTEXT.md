@@ -1,24 +1,39 @@
 # RunWield Context
 
-RunWield is an opinionated, plan-by-default coding harness that routes development requests through triage, planning,
-review, execution, and validation. This context defines the project language used by agents, docs, plans, and code.
+RunWield is collaborative software planning with AI. Its product family combines a local plan-by-default coding harness,
+plugins for external agent hosts, and a collaborative SaaS Workspace. This context defines the project language used by
+agents, docs, plans, and code.
 
 ## Language
 
-### Harness
+### Product and Runtime
 
-**RunWield**: The plan-by-default coding harness that routes user requests through triage and specialized agents.
-_Avoid_: Harness, tool, framework
+**RunWield**: The umbrella product and public brand for collaborative software planning with AI. Its product family
+includes RunWield Core, RunWield Connect, and RunWield Workspace. _Avoid_: RunWield Core when referring only to the
+umbrella, Wield AI
+
+**RunWield Core**: The free local plan-by-default coding harness and runtime, operated through the `wld` CLI and its
+local interfaces. Core owns local workflow truth and may execute Agent turns through Pi or another Execution Backend.
+_Avoid_: `wld` as a product name, Native Mode, Managed Mode
+
+**RunWield Workspace**: The collaborative SaaS product for planning and records across Projects. _Avoid_: RunWield when
+a distinction from Core or Connect is required, local Workspace UI
 
 **External Agent Host**: A coding-agent product such as Claude Code, Codex, OpenCode, or Pi that owns the user
 conversation and model access for an Attached Workflow. _Avoid_: Provider, Session Host, host harness
 
-**Attached Mode**: A RunWield installation mode in which an External Agent Host makes every model call and users invoke
-RunWield explicitly for individual User Requests. _Avoid_: Plugin mode, always-on RunWield, trial mode
+**RunWield Connect**: The public product name for RunWield's plugin ecosystem for External Agent Hosts, beginning with
+first-party plugins. A Connect plugin lets users explicitly invoke RunWield workflows inside an External Agent Host
+while that host retains the conversation and makes every model call. _Avoid_: Plugin mode, always-on RunWield, trial
+mode
 
-**Attached Workflow**: The per-request RunWield workflow active inside an External Agent Host, with RunWield governing
-durable workflow truth while the host performs agent reasoning and execution. _Avoid_: Attached Mode, Managed Mode,
-RunWield Session
+**Attached Mode**: The internal architecture underlying RunWield Connect, in which an External Agent Host makes every
+model call and users invoke RunWield explicitly for individual User Requests. Use RunWield Connect in customer-facing
+product language. _Avoid_: Public product name, RunWield Execution Backend
+
+**Attached Workflow**: The per-request RunWield workflow active inside an External Agent Host through RunWield Connect,
+with RunWield governing durable workflow truth while the host performs agent reasoning and execution. _Avoid_: Attached
+Mode, Managed Mode, RunWield Session
 
 **TUI**: The terminal-based interactive user interface that hosts agent conversations and renders workflow output.
 _Avoid_: Shell, console
@@ -515,7 +530,8 @@ command definition, prompt command
   truth, review, validation, recovery evidence, Work Records, and organizational memory.
 - An **Attached Workflow** persists structured evidence and durable artifacts without copying the host conversation into
   a **Session Transcript**.
-- A **Verified Plan** has the same meaning in Attached, Managed, and Native experiences.
+- A **Verified Plan** has the same meaning in **RunWield Connect** and **RunWield Core**, regardless of which
+  **Execution Backend** Core uses.
 - An **External Work Source** owns **Tickets** and demand management; RunWield owns planning, execution, **Plan
   Lifecycle**, and delivery truth.
 - A **Forge** owns **Forge Change Requests**, repository review policy, branch publication, and remote merge outcomes.
