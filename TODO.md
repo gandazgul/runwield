@@ -46,7 +46,7 @@
       mechanically and semantically verified. Later decomposition must preserve the module boundaries and observable
       outcomes above rather than organizing work only by files or Claude extension primitives.
 
-- [ ] Improve engineer with [./agent-prompt-architecture-notes.md]
+- [x] Improve engineer with [./agent-prompt-architecture-notes.md]
 
 ## __deps refactor
 
@@ -70,6 +70,10 @@ runImplementationCheckpointTransition internally. It isn't machinery by name, bu
 
 ### P0
 
+- [ ] for epic child continuation, after the new session starts please add a system message with the plan details, and
+      Launching Planner to review plan <plan name>...
+- [ ] codex is broken now after adding claude as a model option
+- [x] wld upgrade doesnt work
 - [ ] Esc while engineer is fixing code review feedback just offers to open the review again rather than just stopping
       and allowing questions. task_completed should be the only signal for completion not llm stop or esc cancelling.
 
