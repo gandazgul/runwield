@@ -38,7 +38,7 @@ interface ConfigObject {
     [key: string]: ConfigValue;
 }
 
-interface ConfiguredCredential {
+interface ConfiguredCredential extends ConfigObject {
     type?: string;
     key?: ConfigValue;
 }
@@ -192,8 +192,8 @@ export class RunWieldCredentialStore {
         for (const [providerId, credential] of Object.entries(parsed)) {
             if (!isJsonRecord(credential)) continue;
             data[providerId] = {
+                ...credential,
                 type: typeof credential.type === "string" ? credential.type : undefined,
-                key: credential.key,
             };
         }
         return data;

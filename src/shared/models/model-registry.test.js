@@ -1,6 +1,11 @@
 import { assert, assertEquals, assertObjectMatch, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { discoverProviderModel, migratePiModelConfigOnce, RunWieldModelRegistry } from "./model-registry.ts";
+import {
+    discoverProviderModel,
+    migratePiModelConfigOnce,
+    RunWieldCredentialStore,
+    RunWieldModelRegistry,
+} from "./model-registry.ts";
 
 Deno.test("RunWield model runtime registers statically bundled OAuth loaders before creation", async () => {
     const source = await Deno.readTextFile(new URL("./model-registry.ts", import.meta.url));
@@ -63,6 +68,34 @@ Deno.test("migratePiModelConfigOnce supports legacy ~/.pi file location", async 
 
         assertEquals(result.copied, ["auth.json"]);
         assertEquals(await Deno.readTextFile(join(runwieldDir, "auth.json")), '{"openai-codex":{"type":"oauth"}}');
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("RunWieldCredentialStore preserves Codex OAuth token fields", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-model-credentials-oauth-" });
+    try {
+        const authPath = join(tempDir, "auth.json");
+        await Deno.writeTextFile(
+            authPath,
+            JSON.stringify({
+                "openai-codex": {
+                    type: "oauth",
+                    refresh: "refresh-token",
+                    access: "access-token",
+                    expires: 123456789,
+                },
+            }),
+        );
+        const store = new RunWieldCredentialStore(authPath);
+
+        assertEquals(await store.read("openai-codex"), {
+            type: "oauth",
+            refresh: "refresh-token",
+            access: "access-token",
+            expires: 123456789,
+        });
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }
