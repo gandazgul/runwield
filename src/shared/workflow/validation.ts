@@ -486,6 +486,22 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
         }
         if (ciResult.exitCode === 0) {
             const objectiveCheckOutcome = await runPlanObjectiveChecks(args, phase.context, attempts);
+            if (objectiveCheckOutcome.kind === "canceled") {
+                // Same resumable pause as canceled CI: no lifecycle failure, no
+                // Engineer repair, and the Plan stays `implemented` for Retry.
+                const pause: UserActionPause = {
+                    whatHappened:
+                        `The Objective-Failing Checks for "${args.planName}" were stopped before they finished, so RunWield cannot tell yet whether the work is good.`,
+                    doThis: "Pick Retry to run them again, or Stop to come back to this later.",
+                };
+                if (await pauseForUserAction(args, pause) === "retry") continue;
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: `${pause.whatHappened} Run this Plan again when you are ready.`,
+                };
+            }
             if (objectiveCheckOutcome.kind === "passed") {
                 await recordLifecycleEvent(
                     args,
@@ -1664,6 +1680,7 @@ async function dispatchReviewFeedbackRepair(
 type ObjectiveCheckPhaseOutcome =
     | { kind: "passed" }
     | { kind: "skipped" }
+    | { kind: "canceled" }
     | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
     | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
 
@@ -1680,7 +1697,23 @@ async function runPlanObjectiveChecks(
         args.hostedSession,
         `Running Objective-Failing Checks for ${args.planName}: ${checks.map((check) => check.id).join(", ")}.`,
     );
-    const results = await runObjectiveChecks({ checks, cwd: context.executionCwd });
+    // Register the whole phase as a Session active interaction so Escape reaches
+    // it exactly like it reaches local CI: one abort, whole process trees stop,
+    // and remaining checks are never scheduled.
+    const interactionId = `objective-checks:${args.planName}:${Date.now()}`;
+    const abortController = new AbortController();
+    args.hostedSession.addActiveInteraction(interactionId, { abortController });
+    let results: ObjectiveCheckResult[];
+    try {
+        results = await runObjectiveChecks({
+            checks,
+            cwd: context.executionCwd,
+            signal: abortController.signal,
+        });
+    } finally {
+        args.hostedSession.removeActiveInteraction(interactionId);
+    }
+    const canceled = abortController.signal.aborted;
     const summary = summarizeObjectiveChecks(results);
     await recordMetric(args, context.projectRoot, {
         category: "validation",
@@ -1692,9 +1725,16 @@ async function runPlanObjectiveChecks(
             met: summary.met,
             unmet: summary.unmet,
             broken: summary.broken,
+            canceled,
             checks: results.map((result) => ({ id: result.id, status: result.status, exitCode: result.exitCode })),
         },
     });
+    if (canceled) {
+        // Cancellation is a user pause, not a check defect: report it apart from
+        // broken/unmet so the caller never stages a failure or a repair for it.
+        emitStatus(args.hostedSession, "Objective-Failing Checks canceled.", "warning");
+        return { kind: "canceled" };
+    }
     emitStatus(args.hostedSession, summary.block, summary.broken || summary.unmet ? "warning" : "success");
     if (summary.broken > 0) {
         return { kind: "broken", reason: `Objective-Failing Check defect.\n\n${summary.block}`, results };

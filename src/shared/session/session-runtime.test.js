@@ -1536,6 +1536,53 @@ Deno.test("SessionRuntime cancellation terminates an active local shell command"
     assertEquals(result.exitCode, 130);
 });
 
+Deno.test({
+    name: "SessionRuntime cancellation kills the local shell command's descendant processes",
+    ignore: Deno.build.os === "windows",
+    fn: async () => {
+        const runtime = makeRuntime();
+        const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
+        const pidFile = await Deno.makeTempFile({ prefix: "runwield-local-shell-descendant-" });
+        let resolveStarted = () => {};
+        const started = new Promise((resolve) => {
+            resolveStarted = () => resolve(undefined);
+        });
+        runtime.subscribeSessionEvents(sessionId, (event) => {
+            if (event.type === RuntimeEventTypes.TOOL_START) resolveStarted();
+        });
+
+        const command = runtime.runLocalShellCommand(sessionId, {
+            command: `sleep 30 & echo $! > ${pidFile}; wait`,
+            persist: false,
+        });
+        await started;
+        let descendantPid = 0;
+        while (!descendantPid) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            descendantPid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
+        }
+        runtime.cancelSession(sessionId);
+        const result = await command;
+
+        let descendantAlive = true;
+        try {
+            Deno.kill(descendantPid, "SIGCONT");
+        } catch {
+            descendantAlive = false;
+        }
+        if (descendantAlive) Deno.kill(descendantPid, "SIGKILL");
+        await Deno.remove(pidFile).catch(() => {});
+
+        assertEquals(result.canceled, true);
+        assertEquals(result.exitCode, 130);
+        assertEquals(
+            descendantAlive,
+            false,
+            "cancellation must kill the wrapper shell's descendants, not only the wrapper",
+        );
+    },
+});
+
 Deno.test("SessionRuntime publishes handler errors and releases the turn", async () => {
     const runtime = makeRuntime({
         handler: () => Promise.reject(new Error("boom")),

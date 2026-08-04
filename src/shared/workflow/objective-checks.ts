@@ -3,6 +3,7 @@
  * Run Plan-owned Objective-Failing Checks and classify their results.
  */
 
+import { spawnForegroundShell } from "../foreground-process.ts";
 import {
     captureProcessStreamTail,
     formatCapturedProcessOutput,
@@ -59,11 +60,6 @@ export interface RunObjectiveChecksOptions {
 const SHELL_NOT_FOUND_EXIT_CODES = new Set([126, 127]);
 export const DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS = 60_000;
 
-function shellCommand(command: string): { cmd: string; args: string[] } {
-    if (Deno.build.os === "windows") return { cmd: "cmd", args: ["/c", command] };
-    return { cmd: "sh", args: ["-c", command] };
-}
-
 function statusForExitCode(exitCode: number): ObjectiveCheckStatus {
     if (exitCode === 0) return "met";
     if (SHELL_NOT_FOUND_EXIT_CODES.has(exitCode)) return "broken";
@@ -91,64 +87,30 @@ async function runOneObjectiveCheck(
     timeoutMs: number,
 ): Promise<ObjectiveCheckResult> {
     const startedAt = Date.now();
-    const { cmd, args } = shellCommand(check.command);
-    const timeout = new AbortController();
-    let child: Deno.ChildProcess | null = null;
-    let timedOut = false;
-    let aborted = false;
-    const timeoutId = setTimeout(() => {
-        timedOut = true;
-        try {
-            child?.kill("SIGKILL");
-        } catch {
-            // Process may already have exited.
-        }
-    }, timeoutMs);
-    const abortChild = () => {
-        aborted = true;
-        try {
-            child?.kill("SIGTERM");
-        } catch {
-            // Process may already have exited.
-        }
-    };
-    signal?.addEventListener("abort", abortChild, { once: true });
-
     try {
-        if (signal?.aborted) {
-            aborted = true;
-            return {
-                id: check.id,
-                command: check.command,
-                ...(check.rationale ? { rationale: check.rationale } : {}),
-                status: "broken",
-                stdout: "",
-                stderr: "",
-                exitCode: null,
-                durationMs: Date.now() - startedAt,
-                output: "",
-                reason: abortReason(signal),
-            };
-        }
-        child = new Deno.Command(cmd, {
-            args,
-            cwd,
-            stdout: "piped",
-            stderr: "piped",
-        }).spawn();
-        const [status, stdout, stderr] = await Promise.all([
-            child.status,
-            captureProcessStreamTail(child.stdout, PROCESS_STREAM_OUTPUT_LIMIT_BYTES),
-            captureProcessStreamTail(child.stderr, PROCESS_STREAM_OUTPUT_LIMIT_BYTES),
+        // The foreground-process module owns the abort/timeout triggers and
+        // kills the whole process tree — including a pre-aborted signal, which
+        // skips the spawn entirely.
+        const shell = spawnForegroundShell({ command: check.command, cwd, signal, timeoutMs });
+        const [outcome, stdout, stderr] = await Promise.all([
+            shell.done,
+            captureProcessStreamTail(shell.stdout, PROCESS_STREAM_OUTPUT_LIMIT_BYTES),
+            captureProcessStreamTail(shell.stderr, PROCESS_STREAM_OUTPUT_LIMIT_BYTES),
         ]);
-        const output = formatCapturedProcessOutput(stdout, stderr);
-        const exitCode = timedOut || aborted ? null : status.code;
-        const resultStatus: ObjectiveCheckStatus = timedOut || aborted ? "broken" : statusForExitCode(status.code);
+        const timedOut = outcome.terminatedBy === "timeout";
+        const aborted = outcome.terminatedBy === "abort";
+        const output = aborted && outcome.exitCode === null && stdout.totalBytes === 0 && stderr.totalBytes === 0
+            ? ""
+            : formatCapturedProcessOutput(stdout, stderr);
+        const exitCode = timedOut || aborted ? null : outcome.exitCode;
+        const resultStatus: ObjectiveCheckStatus = timedOut || aborted
+            ? "broken"
+            : statusForExitCode(outcome.exitCode ?? 1);
         const reason = timedOut
             ? `Objective check timed out after ${timeoutMs}ms.`
             : aborted
             ? abortReason(signal)
-            : reasonForExitCode(status.code);
+            : reasonForExitCode(outcome.exitCode ?? 1);
         return {
             id: check.id,
             command: check.command,
@@ -175,10 +137,6 @@ async function runOneObjectiveCheck(
             output: "",
             reason: `Failed to spawn objective check: ${reason}`,
         };
-    } finally {
-        clearTimeout(timeoutId);
-        signal?.removeEventListener("abort", abortChild);
-        timeout.abort();
     }
 }
 
@@ -188,7 +146,11 @@ export async function runObjectiveChecks(
     if (!cwd) throw new Error("runObjectiveChecks: cwd is required");
     const results: ObjectiveCheckResult[] = [];
     for (const check of checks) {
+        if (signal?.aborted) break;
         results.push(await runOneObjectiveCheck(check, cwd, signal, timeoutMs));
+        // Stop scheduling remaining checks once cancellation lands: later checks
+        // must not start new work after the user has stopped this phase.
+        if (signal?.aborted) break;
     }
     return results;
 }

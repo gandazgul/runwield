@@ -55,6 +55,7 @@ import {
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
 import { getModelRegistry } from "../models/model-registry.ts";
+import { spawnForegroundShell } from "../foreground-process.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -1318,19 +1319,12 @@ export class SessionRuntime {
         };
         const interactionId = `local-shell:${toolCallId}`;
         const abortController = new AbortController();
-        /** @type {Deno.ChildProcess | null} */
-        let child = null;
         let canceled = false;
         let output = "";
         let exitCode = 1;
 
         const abort = () => {
             canceled = true;
-            try {
-                child?.kill();
-            } catch {
-                // The process may have exited between cancellation and kill.
-            }
         };
         abortController.signal.addEventListener("abort", abort, { once: true });
         session.addActiveInteraction(interactionId, { abortController });
@@ -1350,15 +1344,15 @@ export class SessionRuntime {
         });
 
         try {
-            const executable = Deno.build.os === "windows" ? "cmd" : "sh";
-            const commandFlag = Deno.build.os === "windows" ? "/c" : "-c";
-            child = new Deno.Command(executable, {
-                args: [commandFlag, command],
+            // The foreground-process module owns the wrapper shell's process
+            // group, so cancellation terminates the whole descendant tree, not
+            // only `sh -c`.
+            const shell = spawnForegroundShell({
+                command,
                 cwd: session.cwd,
                 env: { PWD: session.cwd },
-                stdout: "piped",
-                stderr: "piped",
-            }).spawn();
+                signal: abortController.signal,
+            });
 
             /** @param {ReadableStream<Uint8Array>} stream */
             const readStream = async (stream) => {
@@ -1381,12 +1375,15 @@ export class SessionRuntime {
                 }
             };
 
-            const [status] = await Promise.all([
-                child.status,
-                readStream(child.stdout),
-                readStream(child.stderr),
+            // The streams settle when the process tree dies, so final output and
+            // active-interaction cleanup never race a still-running descendant.
+            const [outcome] = await Promise.all([
+                shell.done,
+                readStream(shell.stdout),
+                readStream(shell.stderr),
             ]);
-            exitCode = canceled ? 130 : status.success ? 0 : status.code || 1;
+            if (outcome.terminatedBy) canceled = true;
+            exitCode = canceled ? 130 : outcome.exitCode ?? 1;
         } catch (error) {
             if (!canceled) {
                 output += `Error starting process: ${error instanceof Error ? error.message : String(error)}\n`;
