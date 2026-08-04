@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan } from "../../plan-store.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
@@ -16,41 +18,13 @@ function makeValidationUi(cwd = Deno.cwd()) {
  * @param {import("../session/hosted-session.js").HostedSession} hostedSession
  * @param {"engineer" | "frontend-engineer"} agentName
  * @param {string} cwd
- * @returns {Promise<{ prompts: string[] }>}
  */
 async function primeRepairAgentRoot(hostedSession, agentName, cwd) {
-    const prompts = /** @type {string[]} */ ([]);
-    const session = /** @type {any} */ ({
-        model: "test/fake",
-        agent: { state: { messages: [] }, waitForIdle: () => Promise.resolve() },
-        prompt: (/** @type {string} */ request) => {
-            prompts.push(String(request));
-            return Promise.resolve();
-        },
-        dispose: () => {},
-    });
-    const turnState = {
-        resetTurn: () => {},
-        endThinking: () => {},
-        drainInvokedToolNames: () => [],
-        unsubscribe: () => {},
-    };
     await ensureRootAgentSession({
         hostedSession,
         agentName,
         cwd,
-        _buildAgentSession: () =>
-            Promise.resolve({
-                session,
-                agentDef: { name: agentName, displayName: agentName },
-                promptState: { text: "fake system prompt" },
-                tools: [],
-                finalCustomTools: [],
-                resolvedModel: { provider: "test", id: "fake" },
-            }),
-        _attachSessionEventSubscribers: () => turnState,
     });
-    return { prompts };
 }
 
 /**
@@ -64,7 +38,7 @@ async function makeImplementedRun(attrs = {}) {
     });
     const { hostedSession, uiAPI } = makeValidationUi(projectRoot);
     const executionAgent = attrs.executionAgent || "engineer";
-    const repairRoot = await primeRepairAgentRoot(hostedSession, executionAgent, projectRoot);
+    await primeRepairAgentRoot(hostedSession, executionAgent, projectRoot);
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", ...attrs },
@@ -73,102 +47,131 @@ async function makeImplementedRun(attrs = {}) {
         executionCwd: projectRoot,
         nonGitInPlace: true,
     });
-    return { projectRoot, hostedSession, uiAPI, repairRoot };
+    return { projectRoot, hostedSession, uiAPI };
+}
+
+/**
+ * @typedef {Awaited<ReturnType<typeof makeImplementedRun>> & { prompts: string[] }} IncompleteRepairFixture
+ */
+
+/**
+ * @param {string} prefix
+ * @param {{ executionAgent?: "engineer" | "frontend-engineer" } & Record<string, unknown>} attrs
+ * @param {(fixture: IncompleteRepairFixture) => Promise<void>} run
+ */
+async function withIncompleteRepairModel(prefix, attrs, run) {
+    await withRuntimeCommandFixture(prefix, async ({ setModelResponseFactory }) => {
+        const prompts = /** @type {string[]} */ ([]);
+        setModelResponseFactory((context) => {
+            prompts.push(JSON.stringify(context));
+            return fauxAssistantMessage(fauxText("Repair remains incomplete."));
+        });
+        const fixture = await makeImplementedRun(attrs);
+        try {
+            await run({ ...fixture, prompts });
+        } finally {
+            fixture.hostedSession.dispose();
+        }
+    });
 }
 
 Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun();
+    await withIncompleteRepairModel("validation-repair-ci-", {}, async ({ projectRoot, hostedSession, prompts }) => {
+        const result = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+            localCI: {
+                run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
+            },
+        });
 
-    const result = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        localCI: {
-            run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
-        },
+        const plan = await loadPlan(projectRoot, "p");
+        assertEquals(result.kind, "paused");
+        assertEquals(prompts.length, 1);
+        assertEquals(hostedSession.getRootAgentName(), "engineer");
+        assertStringIncludes(prompts[0], "type error");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+        assertEquals(plan?.attrs.status, "implemented");
+        assertEquals(plan?.attrs.validationCiAttempts, 1);
     });
-
-    const plan = await loadPlan(projectRoot, "p");
-    assertEquals(result.kind, "paused");
-    assertEquals(repairRoot.prompts.length, 1);
-    assertEquals(hostedSession.getRootAgentName(), "engineer");
-    assertStringIncludes(repairRoot.prompts[0], "type error");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
-    assertEquals(plan?.attrs.status, "implemented");
-    assertEquals(plan?.attrs.validationCiAttempts, 1);
 });
 
 Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are unmet", async () => {
     const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
-        classification: "PLANNED_CHANGE",
-        objectiveChecks,
-    });
+    await withIncompleteRepairModel(
+        "validation-repair-objective-",
+        { classification: "PLANNED_CHANGE", objectiveChecks },
+        async ({ projectRoot, hostedSession, prompts }) => {
+            const result = await runValidationPhase({
+                hostedSession,
+                planName: "p",
+                planContent: "# p",
+                triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                localCI: {
+                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                },
+            });
 
-    const result = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-        localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            const plan = await loadPlan(projectRoot, "p");
+            assertEquals(result.kind, "paused");
+            assertEquals(prompts.length, 1);
+            assertStringIncludes(prompts[0], "Objective-Failing Checks");
+            assertStringIncludes(prompts[0], "OC1: unmet");
+            assertEquals(plan?.attrs.validationCiAttempts, 1);
         },
-    });
-
-    const plan = await loadPlan(projectRoot, "p");
-    assertEquals(result.kind, "paused");
-    assertEquals(repairRoot.prompts.length, 1);
-    assertStringIncludes(repairRoot.prompts[0], "Objective-Failing Checks");
-    assertStringIncludes(repairRoot.prompts[0], "OC1: unmet");
-    assertEquals(plan?.attrs.validationCiAttempts, 1);
+    );
 });
 
 Deno.test("runValidationLoop stops without repair when an Objective-Failing Check is broken", async () => {
     const objectiveChecks = [{ id: "OC1", command: "not-a-real-runwield-command" }];
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
-        classification: "PLANNED_CHANGE",
-        objectiveChecks,
-    });
+    await withIncompleteRepairModel(
+        "validation-repair-broken-objective-",
+        { classification: "PLANNED_CHANGE", objectiveChecks },
+        async ({ projectRoot, hostedSession, prompts }) => {
+            const result = await runValidationPhase({
+                hostedSession,
+                planName: "p",
+                planContent: "# p",
+                triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                localCI: {
+                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                },
+            });
 
-    const result = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-        localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            const plan = await loadPlan(projectRoot, "p");
+            assertEquals(result.kind, "failed");
+            assertStringIncludes(result.reason || "", "Objective-Failing Check defect");
+            assertEquals(prompts.length, 0);
+            assertEquals(plan?.attrs.validationCiAttempts, 0);
         },
-    });
-
-    const plan = await loadPlan(projectRoot, "p");
-    assertEquals(result.kind, "failed");
-    assertStringIncludes(result.reason || "", "Objective-Failing Check defect");
-    assertEquals(repairRoot.prompts.length, 0);
-    assertEquals(plan?.attrs.validationCiAttempts, 0);
+    );
 });
 
 Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pauses", async () => {
-    const { projectRoot, hostedSession, repairRoot } = await makeImplementedRun({
-        executionAgent: "frontend-engineer",
-    });
+    await withIncompleteRepairModel(
+        "validation-repair-frontend-",
+        { executionAgent: "frontend-engineer" },
+        async ({ projectRoot, hostedSession, prompts }) => {
+            const result = await runValidationPhase({
+                hostedSession,
+                planName: "p",
+                planContent: "# p",
+                triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+                localCI: {
+                    run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
+                },
+            });
 
-    const result = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        localCI: {
-            run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
+            const plan = await loadPlan(projectRoot, "p");
+            assertEquals(result.kind, "paused");
+            assertEquals(hostedSession.getRootAgentName(), "frontend-engineer");
+            assertStringIncludes(prompts[0], "css failed");
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+            assertEquals(plan?.attrs.validationCiAttempts, 1);
         },
-    });
-
-    const plan = await loadPlan(projectRoot, "p");
-    assertEquals(result.kind, "paused");
-    assertEquals(hostedSession.getRootAgentName(), "frontend-engineer");
-    assertStringIncludes(repairRoot.prompts[0], "css failed");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
-    assertEquals(plan?.attrs.validationCiAttempts, 1);
+    );
 });
 
 Deno.test("runValidationLoop offers a way out when the repair rounds for CI are spent", async () => {
@@ -285,49 +288,53 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
 });
 
 Deno.test("runValidationPhase re-runs CI after a repair even when the Plan status jumped ahead", async () => {
-    const { projectRoot, hostedSession } = await makeImplementedRun();
+    await withIncompleteRepairModel("validation-repair-rerun-", {}, async ({ projectRoot, hostedSession }) => {
+        /** @type {number[]} */
+        const ciExitCodes = [];
+        const localCI = {
+            run: () => {
+                ciExitCodes.push(1);
+                return Promise.resolve({ exitCode: 1, output: "type error", canceled: false });
+            },
+        };
 
-    /** @type {number[]} */
-    const ciExitCodes = [];
-    const localCI = {
-        run: () => {
-            ciExitCodes.push(1);
-            return Promise.resolve({ exitCode: 1, output: "type error", canceled: false });
-        },
-    };
+        const first = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+            localCI,
+        });
+        assertEquals(first.kind, "paused");
+        assertEquals(ciExitCodes.length, 1);
 
-    const first = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-        localCI,
+        // The repair Agent reports `task_completed` into the root transcript, which is
+        // also what marks a Plan implemented, so the status can arrive at the next phase
+        // already advanced past the CI that never passed. Simulate exactly that.
+        await recordPlanEvent({
+            cwd: projectRoot,
+            planName: "p",
+            event: "mechanical_validation_passed",
+            currentStatus: "implemented",
+            details: { triageMeta: { classification: "QUICK_FIX", status: "implemented" } },
+        });
+        assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+
+        // Status now says Semantic Review is next. The loop knows better: it dispatched a
+        // CI repair and never saw CI pass, so it goes back to CI.
+        const second = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+            localCI,
+        });
+
+        assertEquals(second.kind, "paused");
+        assertEquals(
+            ciExitCodes.length,
+            2,
+            "Expected CI to run again rather than being skipped by the advanced status.",
+        );
     });
-    assertEquals(first.kind, "paused");
-    assertEquals(ciExitCodes.length, 1);
-
-    // The repair Agent reports `task_completed` into the root transcript, which is
-    // also what marks a Plan implemented, so the status can arrive at the next phase
-    // already advanced past the CI that never passed. Simulate exactly that.
-    await recordPlanEvent({
-        cwd: projectRoot,
-        planName: "p",
-        event: "mechanical_validation_passed",
-        currentStatus: "implemented",
-        details: { triageMeta: { classification: "QUICK_FIX", status: "implemented" } },
-    });
-    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
-
-    // Status now says Semantic Review is next. The loop knows better: it dispatched a
-    // CI repair and never saw CI pass, so it goes back to CI.
-    const second = await runValidationPhase({
-        hostedSession,
-        planName: "p",
-        planContent: "# p",
-        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
-        localCI,
-    });
-
-    assertEquals(second.kind, "paused");
-    assertEquals(ciExitCodes.length, 2, "Expected CI to run again rather than being skipped by the advanced status.");
 });

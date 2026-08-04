@@ -15,33 +15,27 @@ export const DEFAULT_REMOTE_PORT = 8080;
 export const DEFAULT_REMOTE_DB_PATH = "/data/runwield-shared-spaces.sqlite";
 export const REMOTE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
-/**
- * @typedef {Object} RemoteServerConfig
- * @property {string} host
- * @property {number} port
- * @property {string} dbPath
- * @property {number} maxRequestBytes
- * @property {number | undefined} retentionDays
- */
+export interface RemoteServerConfig {
+    host: string;
+    port: number;
+    dbPath: string;
+    maxRequestBytes: number;
+    retentionDays: number | undefined;
+}
 
-/** @typedef {ReturnType<typeof setInterval>} RemoteCleanupTimer */
+export interface RemoteServerClock {
+    setInterval(callback: () => void, delay: number): number;
+    clearInterval(timer: number): void;
+}
 
-/**
- * @typedef {Object} RemoteServerMainOptions
- * @property {Deno.Env} [env]
- * @property {typeof startWorkspaceServer} [startWorkspaceServer]
- * @property {typeof createRemoteWorkspaceAdapter} [createRemoteWorkspaceAdapter]
- * @property {(...args: unknown[]) => void} [log]
- * @property {typeof setInterval} [setInterval]
- * @property {typeof clearInterval} [clearInterval]
- */
+export type RemoteServerLogger = (...messages: string[]) => void;
 
-/**
- * @param {string | undefined} value
- * @param {number} fallback
- * @returns {number}
- */
-export function parsePort(value, fallback = DEFAULT_REMOTE_PORT) {
+export const SYSTEM_REMOTE_SERVER_CLOCK: RemoteServerClock = Object.freeze({
+    setInterval: globalThis.setInterval.bind(globalThis),
+    clearInterval: globalThis.clearInterval.bind(globalThis),
+});
+
+export function parsePort(value: string | undefined, fallback = DEFAULT_REMOTE_PORT): number {
     if (value === undefined || value.trim() === "") return fallback;
     const port = Number(value);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) {
@@ -50,12 +44,10 @@ export function parsePort(value, fallback = DEFAULT_REMOTE_PORT) {
     return port;
 }
 
-/**
- * @param {string | undefined} value
- * @param {number} [fallback]
- * @returns {number}
- */
-export function parseMaxRequestBytes(value, fallback = DEFAULT_REMOTE_MAX_REQUEST_BYTES) {
+export function parseMaxRequestBytes(
+    value: string | undefined,
+    fallback = DEFAULT_REMOTE_MAX_REQUEST_BYTES,
+): number {
     if (value === undefined || value.trim() === "") return fallback;
     const bytes = Number(value);
     if (!Number.isSafeInteger(bytes) || bytes < 1024 || bytes > 100 * 1024 * 1024) {
@@ -64,11 +56,7 @@ export function parseMaxRequestBytes(value, fallback = DEFAULT_REMOTE_MAX_REQUES
     return bytes;
 }
 
-/**
- * @param {string | undefined} value
- * @returns {number | undefined}
- */
-export function parseRetentionDays(value) {
+export function parseRetentionDays(value: string | undefined): number | undefined {
     if (value === undefined || value.trim() === "" || value.trim() === "0") return undefined;
     const days = Number(value);
     if (!Number.isSafeInteger(days) || days < 1 || days > 3650) {
@@ -77,11 +65,7 @@ export function parseRetentionDays(value) {
     return days;
 }
 
-/**
- * @param {Deno.Env} [env]
- * @returns {RemoteServerConfig}
- */
-export function readRemoteServerConfig(env = Deno.env) {
+export function readRemoteServerConfig(env: Deno.Env): RemoteServerConfig {
     return {
         host: env.get("RUNWIELD_REMOTE_HOST") || env.get("HOST") || DEFAULT_REMOTE_HOST,
         port: parsePort(env.get("RUNWIELD_REMOTE_PORT") || env.get("PORT"), DEFAULT_REMOTE_PORT),
@@ -92,45 +76,39 @@ export function readRemoteServerConfig(env = Deno.env) {
     };
 }
 
-/**
- * @param {AbortController} controller
- * @returns {() => void}
- */
-function installShutdownHandlers(controller) {
+function installShutdownHandlers(controller: AbortController): () => void {
     const handler = () => controller.abort();
-    /** @type {Deno.Signal[]} */
-    const signals = ["SIGINT", "SIGTERM"];
+    const signals: Deno.Signal[] = ["SIGINT", "SIGTERM"];
     for (const signal of signals) Deno.addSignalListener(signal, handler);
     return () => {
         for (const signal of signals) Deno.removeSignalListener(signal, handler);
     };
 }
 
-/** @param {RemoteServerMainOptions} [options] */
-export async function main(options = {}) {
-    const config = readRemoteServerConfig(options.env || Deno.env);
-    const controller = new AbortController();
-    const removeShutdownHandlers = installShutdownHandlers(controller);
-    const start = options.startWorkspaceServer || startWorkspaceServer;
-    const createAdapter = options.createRemoteWorkspaceAdapter || createRemoteWorkspaceAdapter;
-    const log = options.log || console.log;
-    const setCleanupInterval = options.setInterval || setInterval;
-    const clearCleanupInterval = options.clearInterval || clearInterval;
-    /** @type {RemoteCleanupTimer | undefined} */
-    let cleanupTimer;
-    /** @type {import("./server/remote-adapter.js").RemoteWorkspaceAdapter | undefined} */
-    let adapter;
+/**
+ * Run the complete remote Workspace stack until the supplied process signal
+ * aborts it. The adapter and HTTP server are RunWield machinery; only the
+ * process clock and log sink are supplied capabilities.
+ */
+export async function runRemoteWorkspaceServer(
+    config: RemoteServerConfig,
+    signal: AbortSignal,
+    clock: RemoteServerClock,
+    log: RemoteServerLogger,
+): Promise<void> {
+    let cleanupTimer: number | undefined;
+    let adapter: ReturnType<typeof createRemoteWorkspaceAdapter> | undefined;
 
     try {
         await Deno.mkdir(dirname(config.dbPath), { recursive: true });
-        adapter = createAdapter({ dbPath: config.dbPath, retention: { days: config.retentionDays } });
+        adapter = createRemoteWorkspaceAdapter({ dbPath: config.dbPath, retention: { days: config.retentionDays } });
         adapter.reconcileRetentionPolicy();
         const deleted = adapter.cleanupExpiredSharedSpaces();
         if (deleted > 0) log(`[RunWield] Removed ${deleted} expired Shared Space(s) at startup.`);
         if (config.retentionDays) {
-            cleanupTimer = setCleanupInterval(() => {
+            cleanupTimer = clock.setInterval(() => {
                 try {
-                    const count = adapter?.cleanupExpiredSharedSpaces?.() ?? 0;
+                    const count = adapter?.cleanupExpiredSharedSpaces() ?? 0;
                     if (count > 0) log(`[RunWield] Removed ${count} expired Shared Space(s).`);
                 } catch (error) {
                     console.error(
@@ -141,25 +119,39 @@ export async function main(options = {}) {
                 }
             }, REMOTE_CLEANUP_INTERVAL_MS);
         }
-        const server = await start({
+        const server = startWorkspaceServer({
             mode: "remote",
             host: config.host,
             port: config.port,
             dbPath: config.dbPath,
-            signal: controller.signal,
+            signal,
             adapter,
             maxRequestBytes: config.maxRequestBytes,
         });
-        const actualPort = server?.addr?.port || config.port;
+        const actualPort = server.addr.port;
         log(`[RunWield] Remote Workspace Plan Server listening on http://${config.host}:${actualPort}`);
         log(`[RunWield] SQLite database: ${config.dbPath}`);
         log(`[RunWield] Request body limit: ${config.maxRequestBytes} bytes`);
         log(`[RunWield] Inactivity retention: ${config.retentionDays ? `${config.retentionDays} day(s)` : "disabled"}`);
-        log(`[RunWield] Configure planServerUrl or pass --plan-server with the externally reachable Plan Server URL.`);
-        if (server?.finished) await server.finished;
+        log("[RunWield] Configure planServerUrl or pass --plan-server with the externally reachable Plan Server URL.");
+        await server.finished;
     } finally {
-        if (cleanupTimer) clearCleanupInterval(cleanupTimer);
-        adapter?.close?.();
+        if (cleanupTimer !== undefined) clock.clearInterval(cleanupTimer);
+        adapter?.close();
+    }
+}
+
+export async function main(): Promise<void> {
+    const controller = new AbortController();
+    const removeShutdownHandlers = installShutdownHandlers(controller);
+    try {
+        await runRemoteWorkspaceServer(
+            readRemoteServerConfig(Deno.env),
+            controller.signal,
+            SYSTEM_REMOTE_SERVER_CLOCK,
+            console.log,
+        );
+    } finally {
         removeShutdownHandlers();
     }
 }

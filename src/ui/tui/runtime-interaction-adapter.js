@@ -12,9 +12,8 @@ import { runCodeReview } from "../review/code-review.ts";
 import { submitPlanForReview } from "../review/plan-review.ts";
 
 /**
- * @typedef {Object} TuiInteractionDependencies
- * @property {typeof submitPlanForReview} [submitPlanForReview]
- * @property {typeof runCodeReview} [runCodeReview]
+ * @typedef {Object} TuiInteractionPorts
+ * @property {import('../../shared/browser-port.ts').BrowserPort} browser
  */
 
 const MAX_PAIR_PROMPT_VALUE_LENGTH = 500;
@@ -33,12 +32,10 @@ function formatPairPromptValue(value) {
 
 /**
  * @param {import('./types.js').UiAPI} uiAPI
- * @param {TuiInteractionDependencies} [dependencies]
+ * @param {TuiInteractionPorts} ports
  * @returns {import('../../shared/session/session-runtime-interactions.js').RuntimeInteractionAdapter}
  */
-export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
-    const submitPlanReview = dependencies.submitPlanForReview || submitPlanForReview;
-    const submitCodeReview = dependencies.runCodeReview || runCodeReview;
+export function createTuiInteractionAdapter(uiAPI, ports) {
     return {
         supportsInteraction(type) {
             return type === RuntimeInteractionTypes.PAIR_CHECKPOINT;
@@ -142,7 +139,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
             if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});
                 uiAPI.setBusy?.(false);
-                const result = await submitPlanReview({
+                const result = await submitPlanForReview({
                     cwd: meta.cwd,
                     planName: meta.planName,
                     planPath: meta.planPath,
@@ -150,6 +147,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                     onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
                     onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
                     signal,
+                    browser: ports.browser,
                 });
                 if (result.approved && result.approvalAction === "run") uiAPI.setBusy?.(true);
                 return {
@@ -163,7 +161,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
             }
             if (request.type === RuntimeInteractionTypes.CODE_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});
-                const result = await submitCodeReview({
+                const result = await runCodeReview({
                     planName: meta.planName,
                     diffText: meta.diffText,
                     planContent: meta.planContent,
@@ -171,6 +169,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                     executionCwd: meta.executionCwd,
                     guidedReview: meta.guidedReview,
                     signal,
+                    browser: ports.browser,
                 });
                 return {
                     outcome: result.canceled || result.exit

@@ -2,7 +2,7 @@
 
 import { getCwd, getHomeDir } from "../../constants.js";
 import { recordSnipMissingWarningShown, shouldShowSnipMissingWarning } from "../../cmd/init/init-state.ts";
-import { hasSnipBinary } from "../../shared/runtime-preflight.js";
+import { hasSnipBinary } from "../../shared/runtime-preflight.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getSettingsManager } from "../../shared/settings.js";
 

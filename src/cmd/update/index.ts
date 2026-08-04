@@ -82,7 +82,7 @@ export async function runUpdateCommand(argv: string[] = [], options: UpdateComma
     /** @type {number | null} */
     let exitCode = null;
     try {
-        const release = await fetchLatestRunWieldRelease({ fetch: network.fetch });
+        const release = await fetchLatestRunWieldRelease(network);
         if (!isNewerRunWieldVersion(release.version, VERSION)) {
             console.log(`RunWield is already up to date (${VERSION}).`);
             return;

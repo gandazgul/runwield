@@ -8,7 +8,7 @@
 
 import { basename, dirname, join } from "@std/path";
 
-const DEFAULT_REMOTE_ENTRY = "src/ui/workspace/remote-server.js";
+const DEFAULT_REMOTE_ENTRY = "src/ui/workspace/remote-server.ts";
 const DEFAULT_WORKSPACE_RUNTIME_DIR = "dist/workspace-runtime";
 const DEFAULT_PLAN_SERVER_RUNTIME_DIR = "dist/plan-server";
 const DEFAULT_BUNDLE_PATH = "remote-server.js";

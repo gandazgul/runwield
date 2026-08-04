@@ -115,7 +115,6 @@ interface PresentManualQaChecklistOptions {
     classification: "QUICK_FIX" | "PLANNED_CHANGE" | "FEATURE";
     context: string;
     cwd: string;
-    runPrompt: typeof runManualQaChecklistPrompt;
 }
 
 /**
@@ -128,14 +127,13 @@ interface PresentManualQaChecklistOptions {
  * @param {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"} args.classification
  * @param {string} args.context
  * @param {string} args.cwd
- * @param {typeof runManualQaChecklistPrompt} args.runPrompt
  * @returns {Promise<void>}
  */
 async function presentManualQaChecklist(
-    { hostedSession, name, classification, context, cwd, runPrompt }: PresentManualQaChecklistOptions,
+    { hostedSession, name, classification, context, cwd }: PresentManualQaChecklistOptions,
 ) {
     try {
-        await runPrompt({ hostedSession, name, classification, context, cwd });
+        await runManualQaChecklistPrompt({ hostedSession, name, classification, context, cwd });
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         emitRunWieldSystemStatus(
@@ -151,7 +149,6 @@ interface RunFeaturePostVerificationHandoffsOptions {
     planName: string;
     planContent: string;
     projectRoot: string;
-    runManualQaChecklistPrompt: typeof runManualQaChecklistPrompt;
     mnemosynePort?: WorkRecordMnemosynePort;
 }
 
@@ -161,7 +158,6 @@ interface RunFeaturePostVerificationHandoffsOptions {
  * @param {string} args.planName
  * @param {string} args.planContent
  * @param {string} args.projectRoot
- * @param {typeof runManualQaChecklistPrompt} args.runManualQaChecklistPrompt
  * @param {WorkRecordMnemosynePort} [args.mnemosynePort]
  */
 export async function runFeaturePostVerificationHandoffs({
@@ -169,7 +165,6 @@ export async function runFeaturePostVerificationHandoffs({
     planName,
     planContent,
     projectRoot,
-    runManualQaChecklistPrompt,
     mnemosynePort,
 }: RunFeaturePostVerificationHandoffsOptions) {
     emitRunWieldSystemStatus(
@@ -182,7 +177,6 @@ export async function runFeaturePostVerificationHandoffs({
         classification: "PLANNED_CHANGE",
         context: planContent,
         cwd: projectRoot,
-        runPrompt: runManualQaChecklistPrompt,
     });
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
         cwd: projectRoot,
@@ -506,7 +500,6 @@ export async function runMechanicalValidation({
                 classification: "QUICK_FIX",
                 context: manualQaContext,
                 cwd: validationCwd,
-                runPrompt: runManualQaChecklistPrompt,
             });
             progress = completeValidationProgress(progress, true, "QUICK_FIX Mechanical Validation passed.");
             emitRunWieldSystemStatus(

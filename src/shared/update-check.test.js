@@ -13,6 +13,16 @@ import {
     writeUpdateCheckCache,
 } from "./update-check.js";
 
+/** @param {number} value */
+function fixedClock(value) {
+    return { now: () => value };
+}
+
+/** @param {typeof globalThis.fetch} fetch */
+function updatePorts(fetch, now = 10) {
+    return { network: { fetch }, clock: fixedClock(now) };
+}
+
 Deno.test("normalizes RunWield release versions", () => {
     assertEquals(normalizeRunWieldVersion("1.2.3"), "v1.2.3");
     assertEquals(normalizeRunWieldVersion("v1.2.3-rc.4"), "v1.2.3-rc.4");
@@ -45,17 +55,17 @@ Deno.test("cache reads fresh valid metadata and rejects stale or malformed data"
     try {
         const cachePath = `${dir}/update-check.json`;
         await writeUpdateCheckCache({ latestVersion: "1.2.3", checkedAt: 1000, cachePath });
-        assertEquals(await readUpdateCheckCache({ now: 2000, ttlMs: 5000, cachePath }), {
+        assertEquals(await readUpdateCheckCache(fixedClock(2000), { ttlMs: 5000, cachePath }), {
             latestVersion: "v1.2.3",
             checkedAt: 1000,
         });
-        assertEquals(await readUpdateCheckCache({ now: 7000, ttlMs: 5000, cachePath }), null);
+        assertEquals(await readUpdateCheckCache(fixedClock(7000), { ttlMs: 5000, cachePath }), null);
 
         await Deno.writeTextFile(cachePath, "not json");
-        assertEquals(await readUpdateCheckCache({ now: 2000, ttlMs: 5000, cachePath }), null);
+        assertEquals(await readUpdateCheckCache(fixedClock(2000), { ttlMs: 5000, cachePath }), null);
 
         await Deno.writeTextFile(cachePath, JSON.stringify({ latestVersion: "bad", checkedAt: 1000 }));
-        assertEquals(await readUpdateCheckCache({ now: 2000, ttlMs: 5000, cachePath }), null);
+        assertEquals(await readUpdateCheckCache(fixedClock(2000), { ttlMs: 5000, cachePath }), null);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -66,12 +76,12 @@ Deno.test("cached availability recomputes against current version", async () => 
     try {
         const cachePath = `${dir}/update-check.json`;
         await writeUpdateCheckCache({ latestVersion: "v2.0.0", checkedAt: 1000, cachePath });
-        assertEquals(await getCachedUpdateAvailability({ currentVersion: "v1.0.0", now: 2000, cachePath }), {
+        assertEquals(await getCachedUpdateAvailability(fixedClock(2000), { currentVersion: "v1.0.0", cachePath }), {
             latestVersion: "v2.0.0",
             available: true,
             checkedAt: 1000,
         });
-        assertEquals(await getCachedUpdateAvailability({ currentVersion: "v2.0.0", now: 2000, cachePath }), {
+        assertEquals(await getCachedUpdateAvailability(fixedClock(2000), { currentVersion: "v2.0.0", cachePath }), {
             latestVersion: "v2.0.0",
             available: false,
             checkedAt: 1000,
@@ -89,21 +99,24 @@ Deno.test("refresh fetches GitHub latest and ignores cache write failures", asyn
         calls.push(String(url));
         return Promise.resolve(new Response(JSON.stringify({ tag_name: "v3.0.0" }), { status: 200 }));
     };
-    const result = await refreshUpdateCheckCache({
-        currentVersion: "v2.0.0",
-        now: 10,
-        cachePath: "/dev/null/update-check.json",
-        fetch: fetchImpl,
-    });
+    const result = await refreshUpdateCheckCache(
+        { currentVersion: "v2.0.0", cachePath: "/dev/null/update-check.json" },
+        updatePorts(/** @type {typeof globalThis.fetch} */ (fetchImpl)),
+    );
     assertEquals(calls, [LATEST_RELEASE_API_URL]);
     assertEquals(result.available, true);
     assertEquals(result.latestVersion, "v3.0.0");
+    assertEquals(result.checkedAt, 10);
 });
 
 Deno.test("latest API rejects malformed release data", async () => {
     const fetchImpl = () => Promise.resolve(new Response(JSON.stringify({ name: "RunWield" }), { status: 200 }));
     await assertRejects(
-        () => refreshUpdateCheckCache({ currentVersion: "v1.0.0", fetch: fetchImpl }),
+        () =>
+            refreshUpdateCheckCache(
+                { currentVersion: "v1.0.0" },
+                updatePorts(/** @type {typeof globalThis.fetch} */ (fetchImpl)),
+            ),
         Error,
         "tag_name",
     );
@@ -124,7 +137,7 @@ Deno.test("latest release lookup falls back to GitHub web redirect after API 403
         );
     };
 
-    assertEquals(await fetchLatestRunWieldRelease({ fetch: fetchImpl }), {
+    assertEquals(await fetchLatestRunWieldRelease({ fetch: /** @type {typeof globalThis.fetch} */ (fetchImpl) }), {
         tagName: "v4.5.6",
         version: "v4.5.6",
     });

@@ -6,7 +6,7 @@
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
-import { setTerminalTitleForName } from "./terminal-title.js";
+import { setTerminalTitleForName } from "./terminal-title.ts";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
@@ -62,7 +62,7 @@ const activeAdapters = new WeakMap();
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
  * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
- * @property {import('./runtime-interaction-adapter.js').TuiInteractionDependencies} [interactionDependencies]
+ * @property {import('../../shared/browser-port.ts').BrowserPort} browser
  * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  */
@@ -86,7 +86,7 @@ export function attachTuiRuntimeAdapter({
     runtime,
     sessionId,
     uiAPI,
-    interactionDependencies,
+    browser,
     notifyRunWieldEvent = notifyRunWieldEventQuietly,
     onSessionReplaced,
 }) {
@@ -103,7 +103,7 @@ export function attachTuiRuntimeAdapter({
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
     const thinkingMessages = new Map();
-    const interactionAdapter = createTuiInteractionAdapter(uiAPI, interactionDependencies);
+    const interactionAdapter = createTuiInteractionAdapter(uiAPI, { browser });
     runtime.setInteractionAdapter(sessionId, interactionAdapter);
 
     const initialSnapshot = runtime.getSessionSnapshot(sessionId);

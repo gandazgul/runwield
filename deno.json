@@ -129,7 +129,7 @@
         "githooks:uninstall": "git config --unset core.hooksPath",
         "check": "deno run -A scripts/write-version.js && snip run -- deno run -A scripts/check-types.js",
         "workspace:dev": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173",
-        "workspace:remote": "deno run -A src/ui/workspace/remote-server.js",
+        "workspace:remote": "deno run -A src/ui/workspace/remote-server.ts",
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",

@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
-import { loadExternalThemes } from "./theme-discovery.js";
+import { loadExternalThemeJsons } from "./theme-discovery.ts";
 
-Deno.test("loadExternalThemes merges partial themes and skips built-in name overrides", async () => {
+Deno.test("external theme discovery merges partial themes and skips built-in name overrides", async () => {
     const baseThemeJson = {
         name: "catppuccin-mocha",
         vars: { base: "#111111", accent: "#222222" },
@@ -18,7 +18,7 @@ Deno.test("loadExternalThemes merges partial themes and skips built-in name over
             colors: { accent: "#000000" },
         }),
     };
-    const themes = /** @type {any[]} */ (await loadExternalThemes({
+    const themes = await loadExternalThemeJsons({
         packageManager: {
             resolve: () =>
                 Promise.resolve({
@@ -28,11 +28,10 @@ Deno.test("loadExternalThemes merges partial themes and skips built-in name over
                     ],
                 }),
         },
-        readTextFile: (path) => files[/** @type {keyof typeof files} */ (path)],
+        readTextFile: (path) => files[path as keyof typeof files],
         defaultThemeName: "catppuccin-mocha",
         baseThemeJson,
-        createTheme: (themeJson) => /** @type {any} */ (themeJson),
-    }));
+    });
 
     assertEquals(themes, [{
         name: "custom",

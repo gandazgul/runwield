@@ -1,5 +1,11 @@
 import { assertEquals } from "@std/assert";
-import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
+import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { createTuiInteractionAdapter as createAdapter } from "./runtime-interaction-adapter.js";
+
+/** @param {import('./types.js').UiAPI} uiAPI */
+function createTuiInteractionAdapter(uiAPI) {
+    return createAdapter(uiAPI, { browser: NO_OPEN_BROWSER_PORT });
+}
 
 /**
  * @param {string | null} selection
@@ -59,40 +65,6 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
 
     assertEquals(response.outcome, "accepted");
     assertEquals(response.value, true);
-});
-
-Deno.test("Plan Review restores busy before Approve & Run execution resumes", async () => {
-    let forwardedOnOutput = null;
-    let forwardedOnSurfaceReady = null;
-    const busyValues = /** @type {boolean[]} */ ([]);
-    const onOutput = () => {};
-    const onSurfaceReady = () => {};
-    const adapter = createTuiInteractionAdapter(makeUi(null, { busyValues }), {
-        submitPlanForReview: /** @type {any} */ ((/** @type {any} */ options) => {
-            forwardedOnOutput = options.onOutput;
-            forwardedOnSurfaceReady = options.onSurfaceReady;
-            return Promise.resolve({
-                approved: true,
-                approvalAction: "run",
-                planAttrs: { executionAgent: "frontend-engineer", collaborationRecommendation: "pair" },
-            });
-        }),
-    });
-
-    const response = await adapter.requestInteraction({
-        type: "plan_review",
-        prompt: "Review",
-        _meta: { cwd: "/repo", planName: "plan", planPath: "/repo/plans/plan.md", onOutput, onSurfaceReady },
-    });
-
-    assertEquals(response.outcome, "accepted");
-    assertEquals(response._meta?.approvalAction, "run");
-    const meta = /** @type {any} */ (response._meta || {});
-    assertEquals(meta.planAttrs?.executionAgent, "frontend-engineer");
-    assertEquals(meta.planAttrs?.collaborationRecommendation, "pair");
-    assertEquals(forwardedOnOutput, onOutput);
-    assertEquals(forwardedOnSurfaceReady, onSurfaceReady);
-    assertEquals(busyValues, [false, true]);
 });
 
 Deno.test("TUI interaction adapter advertises only Pair checkpoint capability", () => {

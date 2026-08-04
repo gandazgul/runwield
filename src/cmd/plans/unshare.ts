@@ -7,7 +7,11 @@ import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import { clearPlanCollaborationMetadata, listPlanResources } from "../../plan-store.js";
 import { redactSecrets } from "../../shared/collaboration/capabilities.js";
-import { CollaborationApiError, createCollaborationClient } from "../../shared/collaboration/client.js";
+import {
+    CollaborationApiError,
+    createCollaborationClient,
+    SYSTEM_COLLABORATION_FETCH,
+} from "../../shared/collaboration/client.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
@@ -201,6 +205,7 @@ export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<U
     const client = createCollaborationClient({
         serverUrl,
         bearerCapability: secretRecord.maintainerCapability,
+        fetch: SYSTEM_COLLABORATION_FETCH,
     });
 
     let space: ReturnType<typeof normalizeSharedSpaceMetadata> | null = null;

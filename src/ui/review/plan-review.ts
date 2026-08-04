@@ -29,7 +29,7 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
-import { startPlanReviewSurface } from "./review-launcher.js";
+import { startPlanReviewSurface } from "./review-launcher.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { BrowserPort } from "../../shared/browser-port.ts";
@@ -96,7 +96,7 @@ interface SubmitPlanForReviewOptions {
     onOutput?(output: ReviewServerOutput): void;
     onSurfaceReady?(surface: ReviewSurfaceReady): void;
     signal?: AbortSignal;
-    browser?: BrowserPort;
+    browser: BrowserPort;
 }
 
 const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -223,11 +223,11 @@ export async function submitPlanForReview({
     const planWithFm = injectFrontMatter(body, fmOverrides);
 
     // 4. Start the real review surface; only browser opening crosses the port.
-    const server = await startPlanReviewSurface({
+    const server = await startPlanReviewSurface<PlanReviewDecision>({
         cwd,
         plan: planWithFm,
         planPath,
-        openInDefaultBrowser: browser ? (url: string) => browser.open(url) : undefined,
+        browser,
         onOutput,
         onSurfaceReady,
     });

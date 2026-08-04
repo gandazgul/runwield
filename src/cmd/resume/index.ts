@@ -7,7 +7,7 @@ import type { SelectListLayoutOptions } from "@earendil-works/pi-tui";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 
 const DEFAULT_COMPACT_ON_RESUME_PCT = 50;
 const DEFAULT_CONTEXT_WINDOW = 128000;

@@ -32,6 +32,9 @@ Deno.test("machinery seam patterns match wildcards in the middle of transaction 
     assertEquals(isMachinerySeam("runImplementationCheckpointTransition"), true);
     assertEquals(isMachinerySeam("runTransition"), true);
     assertEquals(isMachinerySeam("runImplementationCheckpoint"), false);
+    assertEquals(isMachinerySeam("_buildAgentSession"), true);
+    assertEquals(isMachinerySeam("_attachSessionEventSubscribers"), true);
+    assertEquals(isMachinerySeam("_runPrompt"), true);
 });
 
 // One line of indirection used to hide an entire bag, machinery included.
@@ -308,7 +311,8 @@ Deno.test("collectSeamNames detects fallbacks hidden in ordinary options and nes
         export function createRuntime(options = {}) {
             const switchAgent = options.switchActiveAgent || switchActiveAgent;
             const build = options._buildAgentSession || buildAgentSession;
-            return { switchAgent, build };
+            const buildExecution = options._buildAgentSession || buildExecutionSession;
+            return { switchAgent, build, buildExecution };
         }
         export function review(args) {
             const run = args.semanticReviewPort?.runIsolatedAgentSession || runIsolatedAgentSession;
@@ -329,6 +333,16 @@ Deno.test("collectSeamNames detects fallbacks hidden in ordinary options and nes
         "runIsolatedAgentSession",
         "switchActiveAgent",
     ]);
+});
+
+Deno.test("collectSeamNames detects a buildAgentSession override masking buildExecutionSession", () => {
+    const names = collectSeamNames(`
+        export function build(options) {
+            return options._buildAgentSession || buildExecutionSession;
+        }
+    `);
+
+    assertEquals(names, ["_buildAgentSession"]);
 });
 
 Deno.test("collectSeamNames detects mutable dependency registries and individual test override hooks", () => {
@@ -392,6 +406,20 @@ Deno.test("collectSeamNames ignores data overrides and required external ports w
         interface BrowserPort { open(url: string): Promise<void>; }
         export function show(port: BrowserPort, url: string) {
             return port.open(url);
+        }
+    `);
+
+    assertEquals(names, []);
+});
+
+Deno.test("collectSeamNames leaves a required imported singular capability port alone", () => {
+    const names = collectSeamNames(`
+        import type { BrowserPort } from "./browser-port.ts";
+        interface ReviewOptions {
+            browser: BrowserPort;
+        }
+        export function show({ browser }: ReviewOptions, url: string) {
+            return browser.open(url);
         }
     `);
 

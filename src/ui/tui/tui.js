@@ -4,7 +4,7 @@
  */
 
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
-import { createTuiCrashGuards } from "./tui-crash-guards.js";
+import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 import { createTuiManager } from "./tui-manager.ts";
 
 const tuiManager = createTuiManager({
@@ -16,6 +16,10 @@ const tuiManager = createTuiManager({
 
 const crashGuards = createTuiCrashGuards({
     stop: () => tuiManager.stopTUI(),
+    eventTarget: globalThis,
+    signalRuntime: Deno,
+    os: Deno.build.os,
+    exit: Deno.exit,
 });
 
 /**

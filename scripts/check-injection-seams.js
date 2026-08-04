@@ -146,6 +146,7 @@ const MACHINERY_SEAMS = [
     "getRootSessionSwitchState",
     "switchActiveAgent",
     "runRootTurn",
+    "runPrompt",
     "buildAgentSession",
     "attachSessionEventSubscribers",
     "getWorkflowDiff",
@@ -170,15 +171,18 @@ function isProductionSourcePath(relativePath) {
 
 /** @param {string} name */
 export function isMachinerySeam(name) {
+    const normalizedName = /^_(?:buildAgentSession|attachSessionEventSubscribers|runPrompt)$/.test(name)
+        ? normalizeCollaboratorName(name)
+        : name;
     return MACHINERY_SEAMS.some((pattern) => {
         // `*` stands for any run of characters, wherever it appears. The previous
         // version only understood a trailing `*`, so `run*Transition` fell through to
         // an equality test and matched nothing — the rule meant to forbid injecting a
         // transaction never once fired, and `runImplementationCheckpointTransition`
         // sat behind a seam under a green ratchet.
-        if (!pattern.includes("*")) return name === pattern;
+        if (!pattern.includes("*")) return normalizedName === pattern;
         const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
-        return new RegExp(`^${escaped}$`).test(name);
+        return new RegExp(`^${escaped}$`).test(normalizedName);
     });
 }
 
@@ -191,6 +195,21 @@ export function isMachinerySeam(name) {
  */
 function normalizeCollaboratorName(name) {
     return name.replace(/^_+/, "").replace(/(?:Fn|Impl|Override)$/g, "");
+}
+
+/**
+ * Collaborators whose production implementation has a deliberately broader name.
+ * The public override still replaces the whole collaborator and is therefore the
+ * same seam even though a strict same-name comparison cannot see it.
+ *
+ * @param {string} member
+ * @param {string} implementation
+ */
+function namesSameCollaborator(member, implementation) {
+    const normalizedMember = normalizeCollaboratorName(member);
+    const normalizedImplementation = normalizeCollaboratorName(implementation);
+    if (normalizedMember === normalizedImplementation) return true;
+    return normalizedMember === "buildAgentSession" && normalizedImplementation === "buildExecutionSession";
 }
 
 /**
@@ -372,7 +391,7 @@ export function collectSeamNames(text) {
         const member = finalMemberName(fallback[1]);
         const implementation = finalMemberName(fallback[2]);
         if (
-            normalizeCollaboratorName(member) === normalizeCollaboratorName(implementation) &&
+            namesSameCollaborator(member, implementation) &&
             isBehavioralCollaborator(member)
         ) names.add(member);
     }
@@ -459,7 +478,13 @@ export function collectSeamNames(text) {
     // constructor injection.
     const declaresBag = /__(?:test)?[Dd]eps/.test(scannedText);
     for (const param of scannedText.matchAll(new RegExp(DEPS_PARAMETER_SOURCE, "g"))) {
-        if (declaresBag || isOverrideBagType(scannedText, param[2])) collectFromBag(param[1]);
+        const typeName = param[2];
+        const hasLocalDeclaration = new RegExp(`(?:interface|type)\\s+${typeName}\\b`).test(scannedText);
+        const requiredImportedSingularPort = typeName.endsWith("Port") && !param[0].includes("?") &&
+            !hasLocalDeclaration;
+        if (declaresBag || (!requiredImportedSingularPort && isOverrideBagType(scannedText, typeName))) {
+            collectFromBag(param[1]);
+        }
     }
     return [...names].sort();
 }

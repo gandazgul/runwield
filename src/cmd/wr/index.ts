@@ -21,7 +21,8 @@ import {
     SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
     type WorkRecordMnemosynePort,
 } from "../../shared/work-records/mnemosyne-port.ts";
-import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
+import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 import { printCommandHelp } from "../help/index.js";
 
 export interface WorkRecordCommandOptions {
@@ -46,7 +47,7 @@ async function openWorkRecordReadSurface(
         title: record.title,
         path: record.path,
         notices: record.notices,
-        openInDefaultBrowser: noOpen ? () => Promise.resolve(false) : undefined,
+        browser: noOpen ? NO_OPEN_BROWSER_PORT : SYSTEM_BROWSER_PORT,
     });
     console.log(`[RunWield] Work Record read-only view: ${server.url}`);
     if (!server.opened && !noOpen) {

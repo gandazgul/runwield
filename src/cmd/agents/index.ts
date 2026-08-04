@@ -8,7 +8,7 @@ import { listAvailableAgents } from "../../shared/session/agents.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { AGENTS, getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 
 export { getAgentCompletions } from "./getArgumentCompletions.js";
 

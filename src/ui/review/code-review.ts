@@ -3,7 +3,7 @@
  * Launches the browser code-review surface for a completed workflow diff.
  */
 
-import { startCodeReviewSurface } from "./review-launcher.js";
+import { type ReviewDecisionValue, startCodeReviewSurface } from "./review-launcher.ts";
 import { isAbsolute, resolve } from "node:path";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import type { GuidedReviewPolicy } from "../../shared/workflow/guided-review.js";
@@ -11,7 +11,7 @@ import type { BrowserPort } from "../../shared/browser-port.ts";
 
 const MAX_CODE_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 
-type ReviewData = string | number | boolean | null | undefined | ReviewData[] | ReviewDataRecord;
+type ReviewData = ReviewDecisionValue;
 
 interface ReviewDataRecord {
     [key: string]: ReviewData;
@@ -55,7 +55,7 @@ interface RunCodeReviewOptions {
     executionCwd: string;
     guidedReview?: GuidedReviewPolicy;
     signal?: AbortSignal;
-    browser?: BrowserPort;
+    browser: BrowserPort;
 }
 
 function isReviewDataRecord(value: ReviewData): value is ReviewDataRecord {
@@ -162,14 +162,14 @@ export async function runCodeReview({
     signal,
     browser,
 }: RunCodeReviewOptions): Promise<CodeReviewDecision> {
-    const server = await startCodeReviewSurface({
+    const server = await startCodeReviewSurface<ReviewData>({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
         agentCwd: executionCwd,
         planContent,
         planAttrs,
         guidedReview,
-        openInDefaultBrowser: browser ? (url: string) => browser.open(url) : undefined,
+        browser,
     });
 
     try {

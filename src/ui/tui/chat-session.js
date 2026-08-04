@@ -16,7 +16,7 @@ import {
     visibleWidth,
 } from "@earendil-works/pi-tui";
 import { getTUI, initTUI, initTUIWithPair, stopTUI } from "./tui.js";
-import { setTerminalTitleForName } from "./terminal-title.js";
+import { setTerminalTitleForName } from "./terminal-title.ts";
 import {
     applyPersistedTheme,
     getEditorTheme,
@@ -26,13 +26,18 @@ import {
     theme,
 } from "../theme/theme.js";
 import { VERSION } from "../../shared/version.js";
-import { getCachedUpdateAvailabilitySync, refreshUpdateCheckCache } from "../../shared/update-check.js";
+import {
+    getCachedUpdateAvailabilitySync,
+    refreshUpdateCheckCache,
+    SYSTEM_UPDATE_CHECK_PORTS,
+} from "../../shared/update-check.js";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { createManagedSessionSyncController } from "./managed-session-sync.js";
 import { SpinnerBlock } from "./blocks.js";
-import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
+import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS, RUNWIELD_DIR_NAME } from "../../constants.js";
 import {
@@ -63,7 +68,7 @@ import { getHomeDir } from "../../constants.js";
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from "./slash-dispatch.ts";
 import { installKeybindings } from "./keybindings.js";
-import { hasClipboardImage } from "./clipboard.js";
+import { hasClipboardImage, readClipboardImage } from "./clipboard.ts";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
 /** @type {(projectRoot?: string) => ReturnType<typeof getSettingsManager>} */
@@ -502,7 +507,7 @@ export function getActiveModel(runtime, sessionId) {
 export async function runScopedSubmitHandoffLoop(
     { runtime, sessionId, uiAPI, initialRequest, initialImages },
 ) {
-    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI, browser: SYSTEM_BROWSER_PORT });
     try {
         await runtime.promptUserTurn(sessionId, { initialRequest, initialImages });
     } finally {
@@ -519,7 +524,7 @@ export async function runScopedSubmitHandoffLoop(
  *   initialAgentModel?: string,
  *   onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
  *   onSessionReplaced?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
- *   interactionDependencies?: import('./runtime-interaction-adapter.js').TuiInteractionDependencies,
+ *   browser?: import('../../shared/browser-port.ts').BrowserPort,
  *   terminal?: any,
  *   skipModelWelcome?: boolean,
  *   configureUiAPI?: (uiAPI: import('./types.js').UiAPI) => void,
@@ -590,21 +595,25 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     const updateNoticeText = new Text("", 0, 0);
 
     if (!suppressStartupHeader) {
-        const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });
+        const cachedUpdateAvailability = getCachedUpdateAvailabilitySync(SYSTEM_UPDATE_CHECK_PORTS.clock, {
+            currentVersion: VERSION,
+        });
         if (cachedUpdateAvailability) {
             if (cachedUpdateAvailability.available) {
                 updateNoticeText.setText(renderUpdateNoticeLine(cachedUpdateAvailability.latestVersion));
             }
         } else {
-            void refreshUpdateCheckCache({ currentVersion: VERSION }).then((availability) => {
-                if (!availability.available) {
-                    updateNoticeText.setText("");
+            void refreshUpdateCheckCache({ currentVersion: VERSION }, SYSTEM_UPDATE_CHECK_PORTS).then(
+                (availability) => {
+                    if (!availability.available) {
+                        updateNoticeText.setText("");
+                        tui.requestRender();
+                        return;
+                    }
+                    updateNoticeText.setText(renderUpdateNoticeLine(availability.latestVersion));
                     tui.requestRender();
-                    return;
-                }
-                updateNoticeText.setText(renderUpdateNoticeLine(availability.latestVersion));
-                tui.requestRender();
-            }).catch(() => {});
+                },
+            ).catch(() => {});
         }
 
         // Render the logo first
@@ -902,7 +911,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         runtime: sessionRuntime,
         sessionId: sessionId,
         uiAPI,
-        interactionDependencies: options.interactionDependencies,
+        browser: options.browser || SYSTEM_BROWSER_PORT,
         onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
     });
     const managedSyncController = createManagedSessionSyncController({
@@ -959,7 +968,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             runtime: sessionRuntime,
             sessionId: sessionId,
             uiAPI,
-            interactionDependencies: options.interactionDependencies,
+            browser: options.browser || SYSTEM_BROWSER_PORT,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
         pastedImages.length = 0;
@@ -1531,6 +1540,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         hideKeyboardHelp: () => uiAPI.hideKeyboardHelp?.(),
         cycleThinkingLevel,
         handleImagePaste,
+        readClipboardImage,
         cancelRuntimeSession: () => sessionRuntime.cancelSession(sessionId).aborted,
     });
 

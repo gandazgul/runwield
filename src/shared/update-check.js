@@ -16,6 +16,15 @@ export const TAG_PINNED_INSTALLER_URL_TEMPLATE =
 export const TAG_PINNED_INSTALLER_WEB_URL_TEMPLATE =
     "https://github.com/gandazgul/runwield/raw/refs/tags/{tag}/install.sh";
 
+/** @typedef {{ fetch: typeof globalThis.fetch }} UpdateCheckNetworkPort */
+/** @typedef {{ now: () => number }} UpdateCheckClockPort */
+/** @typedef {{ network: UpdateCheckNetworkPort, clock: UpdateCheckClockPort }} UpdateCheckPorts */
+
+export const SYSTEM_UPDATE_CHECK_PORTS = Object.freeze({
+    network: { fetch: globalThis.fetch.bind(globalThis) },
+    clock: { now: Date.now },
+});
+
 /**
  * @typedef {Object} UpdateCheckCache
  * @property {string} latestVersion
@@ -123,11 +132,12 @@ function parseFreshCacheText(text, now, ttlMs) {
 }
 
 /**
- * @param {{ now?: number, ttlMs?: number, cachePath?: string }} [options]
+ * @param {UpdateCheckClockPort} clock
+ * @param {{ ttlMs?: number, cachePath?: string }} [options]
  * @returns {UpdateCheckCache | null}
  */
-export function readUpdateCheckCacheSync(options = {}) {
-    const now = options.now ?? Date.now();
+export function readUpdateCheckCacheSync(clock, options = {}) {
+    const now = clock.now();
     const ttlMs = options.ttlMs ?? UPDATE_CHECK_CACHE_TTL_MS;
     const cachePath = options.cachePath || getUpdateCheckCachePath();
     try {
@@ -138,11 +148,12 @@ export function readUpdateCheckCacheSync(options = {}) {
 }
 
 /**
- * @param {{ now?: number, ttlMs?: number, cachePath?: string }} [options]
+ * @param {UpdateCheckClockPort} clock
+ * @param {{ ttlMs?: number, cachePath?: string }} [options]
  * @returns {Promise<UpdateCheckCache | null>}
  */
-export async function readUpdateCheckCache(options = {}) {
-    const now = options.now ?? Date.now();
+export async function readUpdateCheckCache(clock, options = {}) {
+    const now = clock.now();
     const ttlMs = options.ttlMs ?? UPDATE_CHECK_CACHE_TTL_MS;
     const cachePath = options.cachePath || getUpdateCheckCachePath();
     try {
@@ -153,7 +164,7 @@ export async function readUpdateCheckCache(options = {}) {
 }
 
 /**
- * @param {{ latestVersion: string, checkedAt?: number, cachePath?: string }} options
+ * @param {{ latestVersion: string, checkedAt: number, cachePath?: string }} options
  */
 export async function writeUpdateCheckCache(options) {
     const cachePath = options.cachePath || getUpdateCheckCachePath();
@@ -161,13 +172,13 @@ export async function writeUpdateCheckCache(options) {
     if (!parseRunWieldReleaseVersion(latestVersion)) {
         throw new Error(`Invalid RunWield release version: ${options.latestVersion}`);
     }
-    const checkedAt = options.checkedAt ?? Date.now();
+    const checkedAt = options.checkedAt;
     await Deno.mkdir(dirname(cachePath), { recursive: true });
     await Deno.writeTextFile(cachePath, `${JSON.stringify({ latestVersion, checkedAt }, null, 2)}\n`);
 }
 
 /**
- * @param {{ currentVersion: string, now?: number, ttlMs?: number, cachePath?: string }} options
+ * @param {{ currentVersion: string, ttlMs?: number, cachePath?: string }} options
  * @param {UpdateCheckCache | null} cache
  */
 function updateAvailabilityFromCache(options, cache) {
@@ -180,17 +191,19 @@ function updateAvailabilityFromCache(options, cache) {
 }
 
 /**
- * @param {{ currentVersion: string, now?: number, ttlMs?: number, cachePath?: string }} options
+ * @param {UpdateCheckClockPort} clock
+ * @param {{ currentVersion: string, ttlMs?: number, cachePath?: string }} options
  */
-export function getCachedUpdateAvailabilitySync(options) {
-    return updateAvailabilityFromCache(options, readUpdateCheckCacheSync(options));
+export function getCachedUpdateAvailabilitySync(clock, options) {
+    return updateAvailabilityFromCache(options, readUpdateCheckCacheSync(clock, options));
 }
 
 /**
- * @param {{ currentVersion: string, now?: number, ttlMs?: number, cachePath?: string }} options
+ * @param {UpdateCheckClockPort} clock
+ * @param {{ currentVersion: string, ttlMs?: number, cachePath?: string }} options
  */
-export async function getCachedUpdateAvailability(options) {
-    return updateAvailabilityFromCache(options, await readUpdateCheckCache(options));
+export async function getCachedUpdateAvailability(clock, options) {
+    return updateAvailabilityFromCache(options, await readUpdateCheckCache(clock, options));
 }
 
 /** @param {string} url */
@@ -238,11 +251,11 @@ async function releaseMetadataFromLatestWebResponse(response) {
 }
 
 /**
- * @param {{ fetch?: typeof globalThis.fetch }} [options]
+ * @param {UpdateCheckNetworkPort} network
  * @returns {Promise<RunWieldReleaseMetadata>}
  */
-export async function fetchLatestRunWieldRelease(options = {}) {
-    const fetchImpl = options.fetch || globalThis.fetch;
+export async function fetchLatestRunWieldRelease(network) {
+    const fetchImpl = network.fetch;
     const response = await fetchImpl(LATEST_RELEASE_API_URL);
     if (response.ok) {
         const data = await response.json();
@@ -267,11 +280,12 @@ export async function fetchLatestRunWieldRelease(options = {}) {
 }
 
 /**
- * @param {{ currentVersion: string, fetch?: typeof globalThis.fetch, now?: number, cachePath?: string }} options
+ * @param {{ currentVersion: string, cachePath?: string }} options
+ * @param {UpdateCheckPorts} ports
  */
-export async function refreshUpdateCheckCache(options) {
-    const release = await fetchLatestRunWieldRelease({ fetch: options.fetch });
-    const checkedAt = options.now ?? Date.now();
+export async function refreshUpdateCheckCache(options, ports) {
+    const release = await fetchLatestRunWieldRelease(ports.network);
+    const checkedAt = ports.clock.now();
     try {
         await writeUpdateCheckCache({ latestVersion: release.version, checkedAt, cachePath: options.cachePath });
     } catch (_error) {

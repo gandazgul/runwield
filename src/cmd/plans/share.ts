@@ -19,7 +19,7 @@ import {
     redactSecrets,
     REVIEWER_SCOPE,
 } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, exportContentKey, generateContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
@@ -173,7 +173,11 @@ async function cleanupRemoteSpace(
     spaceId: string,
     maintainerCapability: string,
 ): Promise<void> {
-    const client = createCollaborationClient({ serverUrl, bearerCapability: maintainerCapability });
+    const client = createCollaborationClient({
+        serverUrl,
+        bearerCapability: maintainerCapability,
+        fetch: SYSTEM_COLLABORATION_FETCH,
+    });
     await client.updateSharedSpaceLifecycle(spaceId, { action: "delete" });
 }
 
@@ -285,7 +289,11 @@ export async function sharePlanForReview(
         ],
     };
 
-    const unauthenticatedClient = createCollaborationClient({ serverUrl, bearerCapability: "" });
+    const unauthenticatedClient = createCollaborationClient({
+        serverUrl,
+        bearerCapability: "",
+        fetch: SYSTEM_COLLABORATION_FETCH,
+    });
     let created;
     let reviewerUrl = "";
     let maintainerUrl = "";

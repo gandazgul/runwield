@@ -5,7 +5,8 @@
 
 import { CLI_BIN, getCwd, PLANS_DIR_NAME } from "../../constants.js";
 import { findPlanById, listArchivedPlans, loadArchivedPlan, loadPlan } from "../../plan-store.js";
-import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
+import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 
 interface ResolvedPlanReadArtifact {
     title: string;
@@ -24,7 +25,7 @@ async function openPlanReadSurface(
         artifactKind: "plan",
         title: artifact.title,
         path: artifact.path,
-        openInDefaultBrowser: noOpen ? () => Promise.resolve(false) : undefined,
+        browser: noOpen ? NO_OPEN_BROWSER_PORT : SYSTEM_BROWSER_PORT,
     });
     console.log(`[RunWield] Plan read-only view: ${server.url}`);
     if (!server.opened && !noOpen) {

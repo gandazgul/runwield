@@ -1,5 +1,5 @@
 import { assertEquals, assertStrictEquals } from "@std/assert";
-import { createTuiCrashGuards } from "./tui-crash-guards.js";
+import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 
 function createFakeEventTarget() {
     /** @type {Array<{ type: string, handler: () => void }>} */

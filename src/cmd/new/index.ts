@@ -5,7 +5,7 @@
 
 import { AGENTS, getCwd } from "../../constants.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 
 interface NewCommandUi {
     clearMessages?(): void;

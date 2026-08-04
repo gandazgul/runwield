@@ -100,7 +100,9 @@ Deno.test("startup update notice placeholder sits directly under the title line"
 
 Deno.test("startup update refresh is not awaited before model welcome", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
-    const refreshIndex = source.indexOf("void refreshUpdateCheckCache({ currentVersion: VERSION }).then");
+    const refreshIndex = source.indexOf(
+        "void refreshUpdateCheckCache({ currentVersion: VERSION }, SYSTEM_UPDATE_CHECK_PORTS).then",
+    );
     const awaitedRefreshIndex = source.indexOf("await refreshUpdateCheckCache");
     const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
 
@@ -112,11 +114,11 @@ Deno.test("startup update refresh is not awaited before model welcome", async ()
 Deno.test("startup update refresh runs only when no fresh cache is available", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
     const cacheReadIndex = source.indexOf(
-        "const cachedUpdateAvailability = getCachedUpdateAvailabilitySync({ currentVersion: VERSION });",
+        "const cachedUpdateAvailability = getCachedUpdateAvailabilitySync(SYSTEM_UPDATE_CHECK_PORTS.clock, {",
     );
     const cachedBranchIndex = source.indexOf("if (cachedUpdateAvailability) {", cacheReadIndex);
     const refreshElseIndex = source.indexOf(
-        "} else {\n            void refreshUpdateCheckCache({ currentVersion: VERSION }).then",
+        "} else {\n            void refreshUpdateCheckCache({ currentVersion: VERSION }, SYSTEM_UPDATE_CHECK_PORTS).then",
         cachedBranchIndex,
     );
 

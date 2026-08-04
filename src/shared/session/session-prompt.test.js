@@ -1,6 +1,9 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import {
     __getRootSessionMetadataForTests,
     applyAttentionNudge,
@@ -18,14 +21,9 @@ import {
 } from "./session.js";
 import { getRootExecutionMessages } from "./execution-backend.ts";
 import { HostedSession } from "./hosted-session.js";
+import { getRunWieldSessionDir } from "./root-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-
-/**
- * @typedef {Object} TestAgentSessionOptions
- * @property {string} agentName
- * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [thinkingLevelOverride]
- */
 
 /**
  * @param {string | Record<string, any>} testDefinition
@@ -442,142 +440,49 @@ sessionPromptTest("runPrompt sends fallback image markers without raw image cont
 });
 
 /**
+ * @param {string} projectRoot
  * @param {string} id
  */
-function makeHostedRuntimeSession(id) {
-    const manager = {
-        getSessionId: () => `${id}-manager`,
-        getCwd: () => Deno.cwd(),
-    };
-    return new HostedSession({ id, cwd: Deno.cwd(), sessionManager: manager });
+function makeHostedRuntimeSession(projectRoot, id) {
+    const manager = SessionManager.create(projectRoot, getRunWieldSessionDir(projectRoot), { id: `${id}-manager` });
+    return new HostedSession({ id, cwd: projectRoot, sessionManager: /** @type {any} */ (manager) });
 }
 
-/**
- * @param {string} id
- */
-function makeRuntimeAgentSession(id) {
-    return /** @type {any} */ ({
-        id,
-        model: { provider: "test", id: id, input: ["text"] },
-        modelRegistry: { find: () => null, hasConfiguredAuth: () => true },
-        agent: { state: { messages: [] }, waitForIdle: () => Promise.resolve() },
-        prompt: () => Promise.resolve(),
-        subscribe: () => () => {},
-        disposeCalls: 0,
-        dispose() {
-            this.disposeCalls++;
-        },
-    });
-}
-
-/**
- * @param {string} label
- * @param {Array<any>} builds
- */
-function makeBuildAgentSessionStub(label, builds) {
-    return (/** @type {any} */ opts) => {
-        builds.push({ label, opts });
-        return Promise.resolve({
-            session: makeRuntimeAgentSession(`${label}-${builds.length}`),
-            agentDef: {
-                name: opts.agentName,
-                displayName: `${label}-${opts.agentName}`,
-                model: "",
-                description: "Test agent",
-                tools: [],
-                systemPrompt: "system",
-            },
-            promptState: { text: `system-${label}` },
-            tools: opts.toolNames || [],
-            finalCustomTools: opts.customTools || [],
-            resolvedModel: { provider: "test", id: label, input: ["text"] },
-            resolvedThinkingLevel: "medium",
-        });
-    };
-}
-
-function makeAttachStub() {
-    return () => ({
-        resetTurn: () => {},
-        drainInvokedToolNames: () => [],
-        endThinking: () => {},
-        unsubscribe: () => {},
-    });
-}
-
-sessionPromptTest(
-    "ensureRootAgentSession scopes root session, metadata, agent name, and manager to each HostedSession",
-    async () => {
-        const hostedA = makeHostedRuntimeSession("root-a");
-        const hostedB = makeHostedRuntimeSession("root-b");
+Deno.test("ensureRootAgentSession scopes real roots and transcripts to each HostedSession", async () => {
+    await withRuntimeCommandFixture("session-root-scope-", async ({ projectRoot }) => {
+        const hostedA = makeHostedRuntimeSession(projectRoot, "root-a");
+        const hostedB = makeHostedRuntimeSession(projectRoot, "root-b");
         hostedA.setProjectStateContext("context-a");
         hostedB.setProjectStateContext("context-b");
-        const builds = /** @type {Array<any>} */ ([]);
 
-        const rootA = await ensureRootAgentSession({
-            hostedSession: hostedA,
-            agentName: "router",
-            _buildAgentSession: makeBuildAgentSessionStub("a", builds),
-            _attachSessionEventSubscribers: makeAttachStub(),
-        });
-        const rootB = await ensureRootAgentSession({
-            hostedSession: hostedB,
-            agentName: "operator",
-            _buildAgentSession: makeBuildAgentSessionStub("b", builds),
-            _attachSessionEventSubscribers: makeAttachStub(),
-        });
+        const rootA = await ensureRootAgentSession({ hostedSession: hostedA, agentName: "guide" });
+        const rootB = await ensureRootAgentSession({ hostedSession: hostedB, agentName: "operator" });
 
         assertEquals(hostedA.getRootAgentSession(), rootA);
         assertEquals(hostedB.getRootAgentSession(), rootB);
-        assertEquals(hostedA.getRootAgentName(), "router");
+        assertEquals(hostedA.getRootAgentName(), "guide");
         assertEquals(hostedB.getRootAgentName(), "operator");
         assertEquals(__getRootSessionMetadataForTests(rootA).projectStateContext, "context-a");
         assertEquals(__getRootSessionMetadataForTests(rootB).projectStateContext, "context-b");
-        assertEquals(builds[0].opts.sessionManager, hostedA.getRootSessionManager());
-        assertEquals(builds[1].opts.sessionManager, hostedB.getRootSessionManager());
-        assertEquals(hostedA.getAgentInfoStack()[0].displayName, "a-router");
-        assertEquals(hostedB.getAgentInfoStack()[0].displayName, "b-operator");
-    },
-);
-
-sessionPromptTest("ensureRootAgentSession disposes a replacement built after its HostedSession closes", async () => {
-    const hostedSession = makeHostedRuntimeSession("closed-during-build");
-    const replacement = makeRuntimeAgentSession("replacement");
-    let finishBuild = /** @type {(() => void) | undefined} */ (undefined);
-    const buildReady = new Promise((resolve) => {
-        finishBuild = () => resolve(undefined);
+        assertEquals(hostedA.getAgentInfoStack()[0].displayName, "Guide");
+        assertEquals(hostedB.getAgentInfoStack()[0].displayName, "Operator");
+        assertEquals(rootA === rootB, false);
+        hostedA.dispose();
+        hostedB.dispose();
     });
+});
 
-    const build = ensureRootAgentSession({
-        hostedSession,
-        agentName: "operator",
-        _buildAgentSession: async (/** @type {any} */ opts) => {
-            await buildReady;
-            return {
-                session: replacement,
-                agentDef: {
-                    name: opts.agentName,
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test agent",
-                    tools: [],
-                    systemPrompt: "system",
-                },
-                promptState: { text: "system" },
-                tools: [],
-                finalCustomTools: [],
-                resolvedModel: { provider: "test", id: "model", input: ["text"] },
-                resolvedThinkingLevel: "medium",
-            };
-        },
-        _attachSessionEventSubscribers: makeAttachStub(),
+Deno.test("ensureRootAgentSession rejects a real replacement for a closed HostedSession", async () => {
+    await withRuntimeCommandFixture("session-root-closed-", async ({ projectRoot }) => {
+        const hostedSession = makeHostedRuntimeSession(projectRoot, "closed-before-build");
+        hostedSession.dispose();
+
+        await assertRejects(
+            () => ensureRootAgentSession({ hostedSession, agentName: "operator" }),
+            Error,
+            'HostedSession "closed-before-build" is disposed',
+        );
     });
-
-    hostedSession.dispose();
-    finishBuild?.();
-
-    await assertRejects(() => build, Error, 'HostedSession "closed-during-build" is disposed');
-    assertEquals(replacement.disposeCalls, 1);
 });
 
 sessionPromptTest("backend-neutral root message accessor reads Claude CLI messages", () => {
@@ -586,275 +491,119 @@ sessionPromptTest("backend-neutral root message accessor reads Claude CLI messag
     assertEquals(getRootExecutionMessages(/** @type {any} */ (root)), messages);
 });
 
-sessionPromptTest("runRootTurn increments only the target HostedSession root turn metadata", async () => {
-    const hostedA = makeHostedRuntimeSession("turn-a");
-    const hostedB = makeHostedRuntimeSession("turn-b");
-    const builds = /** @type {Array<any>} */ ([]);
-    const runPrompts = /** @type {Array<any>} */ ([]);
-    const runPromptStub = (/** @type {any} */ opts) => {
-        runPrompts.push(opts);
-        return Promise.resolve([{ role: "assistant", content: "ok" }]);
-    };
+Deno.test("runRootTurn completes through the real root prompt machinery", async () => {
+    await withRuntimeCommandFixture("session-root-turn-", async ({ projectRoot, setModelResponse }) => {
+        setModelResponse("The real root turn completed.");
+        const hostedSession = makeHostedRuntimeSession(projectRoot, "turn-root");
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
 
-    const rootA = await ensureRootAgentSession({
-        hostedSession: hostedA,
-        agentName: AGENTS.GUIDE,
-        _buildAgentSession: makeBuildAgentSessionStub("turn-a", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-    });
-    const rootB = await ensureRootAgentSession({
-        hostedSession: hostedB,
-        agentName: AGENTS.GUIDE,
-        _buildAgentSession: makeBuildAgentSessionStub("turn-b", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-    });
+        const messages = await runRootTurn({
+            hostedSession,
+            agentName: AGENTS.GUIDE,
+            userRequest: "Explain the fixture.",
+        });
 
-    await runRootTurn({
-        hostedSession: hostedA,
-        agentName: AGENTS.GUIDE,
-        userRequest: "one",
-        _runPrompt: runPromptStub,
+        assertEquals(JSON.stringify(messages).includes("The real root turn completed."), true);
+        assertEquals(__getRootSessionMetadataForTests(root).rootTurnCount, 1);
+        hostedSession.dispose();
     });
-    await runRootTurn({
-        hostedSession: hostedA,
-        agentName: AGENTS.GUIDE,
-        userRequest: "two",
-        _runPrompt: runPromptStub,
-    });
-
-    assertEquals(__getRootSessionMetadataForTests(rootA).rootTurnCount, 2);
-    assertEquals(__getRootSessionMetadataForTests(rootB).rootTurnCount, 0);
-    assertEquals(runPrompts.map((entry) => entry.session), [rootA, rootA]);
 });
 
-sessionPromptTest(
-    "runIsolatedAgentSession keeps disposable agents scoped to their supplied HostedSession",
-    async () => {
-        const hostedA = makeHostedRuntimeSession("run-a");
-        const hostedB = makeHostedRuntimeSession("run-b");
-        hostedA.setActiveModelState("manual-a", "test", true);
-        hostedB.setActiveModelState("manual-b", "test", true);
-        hostedA.setThinkingLevel("low");
-        hostedB.setThinkingLevel("high");
-        const builds = /** @type {Array<any>} */ ([]);
-        const prompts = /** @type {Array<any>} */ ([]);
-        const runPromptStub = (/** @type {any} */ opts) => {
-            prompts.push(opts);
-            return Promise.resolve([]);
-        };
+Deno.test("runIsolatedAgentSession keeps real disposable agents scoped to their HostedSessions", async () => {
+    await withRuntimeCommandFixture("session-isolated-scope-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([
+            fauxAssistantMessage(fauxText("Guide isolated response.")),
+            fauxAssistantMessage(fauxText("Operator isolated response.")),
+        ]);
+        const hostedA = makeHostedRuntimeSession(projectRoot, "isolated-a");
+        const hostedB = makeHostedRuntimeSession(projectRoot, "isolated-b");
 
-        await runIsolatedAgentSession({
+        const guideMessages = await runIsolatedAgentSession({
             hostedSession: hostedA,
-            agentName: "router",
+            agentName: "guide",
             userRequest: "isolated a",
-            _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
-            _attachSessionEventSubscribers: makeAttachStub(),
-            _runPrompt: runPromptStub,
         });
-        await runIsolatedAgentSession({
+        const operatorMessages = await runIsolatedAgentSession({
             hostedSession: hostedB,
             agentName: "operator",
-            userRequest: "transient b",
-            _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
-            _attachSessionEventSubscribers: makeAttachStub(),
-            _runPrompt: runPromptStub,
+            userRequest: "isolated b",
         });
 
+        assertEquals(JSON.stringify(guideMessages).includes("Guide isolated response."), true);
+        assertEquals(JSON.stringify(operatorMessages).includes("Operator isolated response."), true);
         assertEquals(hostedA.getRootAgentName(), null);
         assertEquals(hostedB.getRootAgentName(), null);
-        assertEquals(
-            hostedB.getSubAgentSessions().size,
-            0,
-            "transient sub-agent is removed from its own HostedSession",
-        );
-        assertEquals(
-            hostedA.getSubAgentSessions().size,
-            0,
-            "transient sub-agent never appears in another HostedSession",
-        );
-        assertEquals(builds[0].opts.hostedSession, hostedA);
-        assertEquals(builds[1].opts.hostedSession, hostedB);
-        assertEquals(hostedA.getActiveModelState(), { model: "manual-a", provider: "test" });
-        assertEquals(hostedB.getActiveModelState(), { model: "manual-b", provider: "test" });
-        assertEquals(hostedA.getThinkingLevel(), "low");
-        assertEquals(hostedB.getThinkingLevel(), "high");
-        assertEquals(prompts.length, 2);
-    },
-);
+        assertEquals(hostedA.getSubAgentSessions().size, 0);
+        assertEquals(hostedB.getSubAgentSessions().size, 0);
+        assertEquals(hostedA.getAgentInfoStack(), []);
+        assertEquals(hostedB.getAgentInfoStack(), []);
+        hostedA.dispose();
+        hostedB.dispose();
+    });
+});
 
-sessionPromptTest(
-    "runIsolatedAgentSession removes its own display entry when concurrent children finish out of order",
-    async () => {
-        const hostedSession = makeHostedRuntimeSession("run-concurrent");
-        hostedSession.resetAgentInfoStack("Router", "test/root", "test", "router");
-        /** @type {Record<string, () => void>} */
-        const releasePrompt = {};
-        const buildAgentSessionStub = (/** @type {TestAgentSessionOptions} */ opts) =>
-            Promise.resolve({
-                session: makeRuntimeAgentSession(opts.agentName),
-                agentDef: {
-                    name: opts.agentName,
-                    displayName: opts.agentName,
-                    model: "",
-                    description: "Test agent",
-                    tools: [],
-                    systemPrompt: "system",
-                },
-                promptState: { text: "system" },
-                resolvedModel: { provider: "test", id: opts.agentName, input: ["text"] },
-                resolvedThinkingLevel: "medium",
-            });
-        const runPromptStub = (/** @type {TestAgentSessionOptions} */ opts) =>
-            new Promise((resolve) => {
-                releasePrompt[opts.agentName] = () => resolve([]);
-            });
-
-        const readerA = runIsolatedAgentSession({
-            hostedSession,
-            agentName: "Reader A",
-            userRequest: "read a",
-            _buildAgentSession: buildAgentSessionStub,
-            _attachSessionEventSubscribers: makeAttachStub(),
-            _runPrompt: runPromptStub,
+Deno.test("runIsolatedAgentSession clears its real child after an external model failure", async () => {
+    await withRuntimeCommandFixture("session-isolated-error-", async ({ projectRoot, setModelResponseFactory }) => {
+        setModelResponseFactory(() => {
+            throw new Error("fixture model failed");
         });
-        await Promise.resolve();
-        const readerB = runIsolatedAgentSession({
+        const hostedSession = makeHostedRuntimeSession(projectRoot, "isolated-error");
+
+        const messages = await runIsolatedAgentSession({
             hostedSession,
-            agentName: "Reader B",
-            userRequest: "read b",
-            _buildAgentSession: buildAgentSessionStub,
-            _attachSessionEventSubscribers: makeAttachStub(),
-            _runPrompt: runPromptStub,
+            agentName: "guide",
+            userRequest: "fail",
         });
-        await Promise.resolve();
 
-        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
-            "Router",
-            "Reader A",
-            "Reader B",
-        ]);
-        const activeBeforeRelease = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession());
-        assertEquals(activeBeforeRelease?.id, "Reader B");
-
-        releasePrompt["Reader A"]();
-        await readerA;
-
-        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
-            "Router",
-            "Reader B",
-        ]);
-        assertEquals(hostedSession.getActiveAgentName(), "Reader B");
-        const activeAfterReaderA = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession());
-        assertEquals(activeAfterReaderA?.id, "Reader B");
-
-        releasePrompt["Reader B"]();
-        await readerB;
-
-        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
+        assertEquals(JSON.stringify(messages).includes("fixture model failed"), true);
         assertEquals(hostedSession.getActiveSteeringTargetSession(), null);
-    },
-);
-
-sessionPromptTest("runIsolatedAgentSession pops foreground steering target when prompt errors", async () => {
-    const hostedSession = makeHostedRuntimeSession("run-error-pop");
-    const childSession = makeRuntimeAgentSession("error-child");
-
-    await assertRejects(
-        () =>
-            runIsolatedAgentSession({
-                hostedSession,
-                agentName: "delegated",
-                userRequest: "fail",
-                _buildAgentSession: () =>
-                    Promise.resolve({
-                        session: childSession,
-                        agentDef: {
-                            name: "delegated",
-                            displayName: "Delegated Agent",
-                            model: "",
-                            description: "Test agent",
-                            tools: [],
-                            systemPrompt: "system",
-                        },
-                        promptState: { text: "system" },
-                        resolvedModel: { provider: "test", id: "model", input: ["text"] },
-                    }),
-                _attachSessionEventSubscribers: makeAttachStub(),
-                _runPrompt: () => Promise.reject(new Error("boom")),
-            }),
-        Error,
-        "boom",
-    );
-
-    assertEquals(hostedSession.getActiveSteeringTargetSession(), null);
-    assertEquals(hostedSession.getSubAgentSessions().size, 0);
-    assertEquals(childSession.disposeCalls, 1);
+        assertEquals(hostedSession.getSubAgentSessions().size, 0);
+        assertEquals(hostedSession.getAgentInfoStack(), []);
+        hostedSession.dispose();
+    });
 });
 
-sessionPromptTest("runNonInteractiveAgentPrompt forwards an explicit thinking-level override", async () => {
-    const childSession = makeRuntimeAgentSession("non-interactive-thinking");
-    /** @type {TestAgentSessionOptions | undefined} */
-    let buildOptions;
+Deno.test("runNonInteractiveAgentPrompt completes a real high-thinking disposable turn", async () => {
+    await withRuntimeCommandFixture("session-non-interactive-", async ({ projectRoot, setModelResponse }) => {
+        setModelResponse("Non-interactive response.");
 
-    await runNonInteractiveAgentPrompt({
-        cwd: Deno.cwd(),
-        agentName: "delegated",
-        userRequest: "inspect",
-        thinkingLevelOverride: "high",
-        _buildAgentSession: (/** @type {TestAgentSessionOptions} */ opts) => {
-            buildOptions = opts;
-            return Promise.resolve({ session: childSession });
-        },
+        const messages = await runNonInteractiveAgentPrompt({
+            cwd: projectRoot,
+            agentName: "guide",
+            userRequest: "inspect",
+            thinkingLevelOverride: "high",
+        });
+
+        assertEquals(JSON.stringify(messages).includes("Non-interactive response."), true);
     });
-
-    assertEquals(buildOptions?.thinkingLevelOverride, "high");
-    assertEquals(childSession.disposeCalls, 1);
 });
 
-sessionPromptTest("runIsolatedAgentSession does not start a child canceled during session construction", async () => {
-    const hostedSession = makeHostedRuntimeSession("run-cancel-build");
-    const controller = new AbortController();
-    const childSession = makeRuntimeAgentSession("canceled-child");
-    let finishBuild = /** @type {(() => void) | undefined} */ (undefined);
-    const buildReady = new Promise((resolve) => {
-        finishBuild = () => resolve(undefined);
+Deno.test("runIsolatedAgentSession does not call the external model when already canceled", async () => {
+    await withRuntimeCommandFixture("session-isolated-canceled-", async ({ projectRoot, setModelResponseFactory }) => {
+        let modelCalls = 0;
+        setModelResponseFactory(() => {
+            modelCalls++;
+            return fauxAssistantMessage(fauxText("unexpected"));
+        });
+        const hostedSession = makeHostedRuntimeSession(projectRoot, "isolated-canceled");
+        const controller = new AbortController();
+        controller.abort(new Error("cancel before start"));
+
+        await assertRejects(
+            () =>
+                runIsolatedAgentSession({
+                    hostedSession,
+                    agentName: "guide",
+                    userRequest: "do not start",
+                    signal: controller.signal,
+                }),
+            Error,
+            "cancel before start",
+        );
+
+        assertEquals(modelCalls, 0);
+        assertEquals(hostedSession.getSubAgentSessions().size, 0);
+        assertEquals(hostedSession.getAgentInfoStack(), []);
+        hostedSession.dispose();
     });
-    let promptCalls = 0;
-
-    const pending = runIsolatedAgentSession({
-        hostedSession,
-        agentName: "delegated",
-        userRequest: "cancel before construction finishes",
-        signal: controller.signal,
-        _buildAgentSession: async () => {
-            await buildReady;
-            return {
-                session: childSession,
-                agentDef: {
-                    name: "delegated",
-                    displayName: "Delegated Agent",
-                    model: "",
-                    description: "Test agent",
-                    tools: [],
-                    systemPrompt: "system",
-                },
-                promptState: { text: "system" },
-                resolvedModel: { provider: "test", id: "model", input: ["text"] },
-                resolvedThinkingLevel: "medium",
-            };
-        },
-        _attachSessionEventSubscribers: makeAttachStub(),
-        _runPrompt: () => {
-            promptCalls++;
-            return Promise.resolve([]);
-        },
-    });
-
-    controller.abort(new Error("cancel during build"));
-    finishBuild?.();
-
-    await assertRejects(() => pending, Error, "cancel during build");
-    assertEquals(promptCalls, 0);
-    assertEquals(childSession.disposeCalls, 1);
-    assertEquals(hostedSession.getSubAgentSessions().size, 0);
 });

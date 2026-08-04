@@ -5,18 +5,17 @@ import { RUNWIELD_ROOT } from "../../../runtime-root.js";
 import { workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.js";
 
 import {
-    main as runRemoteServerMain,
     parseMaxRequestBytes,
     parsePort,
     parseRetentionDays,
     readRemoteServerConfig,
-} from "./remote-server.js";
+    REMOTE_CLEANUP_INTERVAL_MS,
+    runRemoteWorkspaceServer,
+} from "./remote-server.ts";
 import { handleRemoteSpaceApi } from "./server/remote-dev-api.js";
 import { isRemoteDevelopmentModeEnabled } from "./server/remote-mode.js";
 
 import { createWorkspaceApp } from "./server.js";
-
-import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 
 import { createTestApiContext, createTestEnv } from "./workspace-test-helpers.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -110,38 +109,56 @@ Deno.test("remote server entry reads env defaults and validates ports", () => {
     assertEquals(parseRetentionDays("0"), undefined);
 });
 
-Deno.test("remote server entry closes the owned adapter after server completion", async () => {
-    let closed = 0;
-    let startedWithAdapter = false;
+Deno.test("remote server entry runs the real adapter, HTTP server, and cleanup lifecycle", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-remote-server-main-" });
+    const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+    const port = listener.addr.port;
+    listener.close();
+    const controller = new AbortController();
+    /** @type {(() => void) | undefined} */
+    let cleanupCallback;
+    let clearedTimer;
     try {
-        const env = createTestEnv({
-            RUNWIELD_REMOTE_HOST: "127.0.0.1",
-            RUNWIELD_REMOTE_PORT: "9002",
-            RUNWIELD_REMOTE_DB_PATH: `${cwd}/test-remote-server.sqlite`,
-        });
-        await runRemoteServerMain({
-            env,
-            createRemoteWorkspaceAdapter: (options) => {
-                const adapter = createRemoteWorkspaceAdapter(options);
-                const close = adapter.close.bind(adapter);
-                adapter.close = () => {
-                    closed += 1;
-                    close();
-                };
-                return adapter;
+        const dbPath = `${cwd}/test-remote-server.sqlite`;
+        const run = runRemoteWorkspaceServer(
+            {
+                host: "127.0.0.1",
+                port,
+                dbPath,
+                maxRequestBytes: 2048,
+                retentionDays: 7,
             },
-            startWorkspaceServer: (options) => {
-                startedWithAdapter = Boolean(options.adapter);
-                const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => new Response("ok"));
-                queueMicrotask(() => server.shutdown());
-                return server;
+            controller.signal,
+            {
+                setInterval(callback, delay) {
+                    assertEquals(delay, REMOTE_CLEANUP_INTERVAL_MS);
+                    cleanupCallback = callback;
+                    return 73;
+                },
+                clearInterval(timer) {
+                    clearedTimer = timer;
+                },
             },
-            log: () => {},
-        });
-        assertEquals(startedWithAdapter, true);
-        assertEquals(closed, 1);
+            () => {},
+        );
+
+        let healthResponse;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+            healthResponse = await fetch(`http://127.0.0.1:${port}/healthz`).catch(() => undefined);
+            if (healthResponse) break;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assertEquals(await healthResponse?.json(), { ok: true, mode: "remote" });
+        assertEquals(typeof cleanupCallback, "function");
+        if (!cleanupCallback) throw new Error("Cleanup interval was not scheduled.");
+        cleanupCallback();
+        assertEquals((await Deno.stat(dbPath)).isFile, true);
+
+        controller.abort();
+        await run;
+        assertEquals(clearedTimer, 73);
     } finally {
+        controller.abort();
         await Deno.remove(cwd, { recursive: true });
     }
 });

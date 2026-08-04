@@ -17,7 +17,6 @@
 
 import { Image, Key, matchesKey } from "@earendil-works/pi-tui";
 import { stopTUI } from "./tui.js";
-import { readClipboardImage } from "./clipboard.js";
 import { imageTheme } from "../theme/theme.js";
 
 /**
@@ -66,6 +65,7 @@ function createPastedImagePreview(image) {
  * @property {() => unknown | Promise<unknown>} [requestKeyboardHelp]
  * @property {() => void} [hideKeyboardHelp]
  * @property {() => void} cycleThinkingLevel
+ * @property {() => Promise<{ base64: string, mimeType: string } | null>} readClipboardImage
  * @property {(image: import('../../shared/session/types.js').ImageAttachment) => Promise<import('../../shared/session/types.js').ImageAttachment | null>} [handleImagePaste]
  * @property {() => boolean} cancelRuntimeSession
  */
@@ -94,6 +94,7 @@ export function installKeybindings(ctx) {
         hideKeyboardHelp,
         cycleThinkingLevel,
         handleImagePaste,
+        readClipboardImage,
     } = ctx;
     function cancelEverything() {
         generationGuard.invalidateAll();

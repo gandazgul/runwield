@@ -81,13 +81,6 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/collaboration/client.js": {
-            "seams": [
-                "fetch"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
         "src/shared/models/model-registry.ts": {
             "seams": [
                 "fetchFn"
@@ -95,32 +88,9 @@
             "machinery": [],
             "conditional": []
         },
-        "src/shared/runtime-preflight.js": {
-            "seams": [
-                "binaryProbeOverride"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/shared/session/session.js": {
-            "seams": [
-                "_attachSessionEventSubscribers",
-                "_runPrompt"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
         "src/shared/session/subagent-definitions.ts": {
             "seams": [
                 "readTextFile"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/shared/update-check.js": {
-            "seams": [
-                "fetch",
-                "now"
             ],
             "machinery": [],
             "conditional": []
@@ -139,101 +109,10 @@
             ],
             "conditional": []
         },
-        "src/ui/review/code-review.ts": {
-            "seams": [
-                "open"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/review/plan-review.ts": {
-            "seams": [
-                "open"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/review/review-launcher.js": {
-            "seams": [
-                "openInDefaultBrowser"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/theme/theme-discovery.js": {
-            "seams": [
-                "warn"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/theme/theme.js": {
-            "seams": [
-                "warn"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/clipboard.js": {
-            "seams": [
-                "Command",
-                "makeTempFile",
-                "os",
-                "remove"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
         "src/ui/tui/model-welcome.js": {
             "seams": [
                 "getModelRegistry",
                 "getSettingsManager"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/prompts.js": {
-            "seams": [
-                "Container",
-                "Input",
-                "SelectList",
-                "Text",
-                "getSelectListTheme",
-                "getTUI",
-                "readUserInput",
-                "theme"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/runtime-interaction-adapter.js": {
-            "seams": [
-                "runCodeReview",
-                "submitPlanForReview"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/terminal-title.js": {
-            "seams": [
-                "getTUI"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/tui/tui-crash-guards.js": {
-            "seams": [
-                "exit"
-            ],
-            "machinery": [],
-            "conditional": []
-        },
-        "src/ui/workspace/remote-server.js": {
-            "seams": [
-                "clearInterval",
-                "createRemoteWorkspaceAdapter",
-                "setInterval",
-                "startWorkspaceServer"
             ],
             "machinery": [],
             "conditional": []

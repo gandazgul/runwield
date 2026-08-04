@@ -23,6 +23,7 @@
     "exclude": [
         "./node_modules",
         "./.astro",
+        "./remote-server.ts",
         "../../../third_party/plannotator/**/*.test.ts",
         "../../../third_party/plannotator/**/*.test.tsx",
         "../../../third_party/plannotator/apps/**/*"

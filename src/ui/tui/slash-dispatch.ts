@@ -8,7 +8,7 @@ import type { ImageAttachment } from "../../shared/session/types.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { GenerationGuard } from "./generation-guard.js";
 import { basename } from "@std/path";
-import { setTerminalTitleForName } from "./terminal-title.js";
+import { setTerminalTitleForName } from "./terminal-title.ts";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const OPERATOR_AGENT = "operator";

@@ -13,6 +13,7 @@ export interface RuntimeCommandFixture {
     setModelMessages(messages: RuntimeModelMessage[]): void;
     setModelResponse(text: string): void;
     setModelResponseFactory(response: FauxResponseFactory): void;
+    setModelResponseFactories(responses: FauxResponseFactory[]): void;
 }
 
 export type RuntimeModelMessage = ReturnType<typeof fauxAssistantMessage>;
@@ -21,11 +22,11 @@ const TEST_PROVIDER = "runtime-command-fixture";
 const TEST_MODEL = "fixture-model";
 const TEST_API = "runtime-command-faux";
 
-export async function withRuntimeCommandFixture(
+export async function withRuntimeCommandFixture<T>(
     prefix: string,
-    run: (fixture: RuntimeCommandFixture) => Promise<void>,
-): Promise<void> {
-    await withProcessGlobalTestLock(async () => {
+    run: (fixture: RuntimeCommandFixture) => Promise<T>,
+): Promise<T> {
+    return await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
         const previousMnemosyneDbPath = Deno.env.get("MNEMOSYNE_DB_PATH");
@@ -92,7 +93,7 @@ export async function withRuntimeCommandFixture(
             Deno.exitCode = 0;
             __resetSettingsForTests();
             initRunWieldTheme();
-            await run({
+            return await run({
                 alternateRoot: canonicalAlternateRoot,
                 homeDir,
                 projectRoot: canonicalProjectRoot,
@@ -105,6 +106,9 @@ export async function withRuntimeCommandFixture(
                 },
                 setModelResponseFactory: (response) => {
                     fauxProvider.setResponses([response]);
+                },
+                setModelResponseFactories: (responses) => {
+                    fauxProvider.setResponses(responses);
                 },
             });
         } finally {

@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
-import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import {
     getGlobalSecretStorePath,
@@ -131,6 +131,7 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                 const reviewerClient = createCollaborationClient({
                     serverUrl,
                     bearerCapability: reviewer.bearerCapability,
+                    fetch: SYSTEM_COLLABORATION_FETCH,
                 });
                 const commentKey = await importContentKey(reviewer.contentKey);
                 const commentCiphertext = await encryptJsonPayload({
@@ -179,6 +180,7 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                 const deletedClient = createCollaborationClient({
                     serverUrl,
                     bearerCapability: maintainer.bearerCapability,
+                    fetch: SYSTEM_COLLABORATION_FETCH,
                 });
                 await assertRejects(
                     () => deletedClient.getSharedSpace(maintainer.spaceId),
@@ -279,10 +281,12 @@ Deno.test("push observes real remote revision and lifecycle conflicts", async ()
             const staleClient = createCollaborationClient({
                 serverUrl,
                 bearerCapability: staleMaintainer.bearerCapability,
+                fetch: SYSTEM_COLLABORATION_FETCH,
             });
             const closedClient = createCollaborationClient({
                 serverUrl,
                 bearerCapability: closedMaintainer.bearerCapability,
+                fetch: SYSTEM_COLLABORATION_FETCH,
             });
             await staleClient.appendRevision(stale.spaceId, {
                 payloadCiphertext: "opaque-fixture-revision",
@@ -313,7 +317,11 @@ Deno.test("declining the real unshare prompt preserves remote and local state", 
             await seedPlan(projectRoot, "keep-shared");
             const shared = await sharePlanForReview({ target: "keep-shared", cwd: projectRoot, planServer: serverUrl });
             const maintainer = parseCollaborationUrl(shared.maintainerUrl);
-            const client = createCollaborationClient({ serverUrl, bearerCapability: maintainer.bearerCapability });
+            const client = createCollaborationClient({
+                serverUrl,
+                bearerCapability: maintainer.bearerCapability,
+                fetch: SYSTEM_COLLABORATION_FETCH,
+            });
             const previousPrompt = globalThis.prompt;
             globalThis.prompt = () => "no";
             try {
@@ -347,6 +355,7 @@ Deno.test("unshare recovers real local state when the remote Space is already de
             const client = createCollaborationClient({
                 serverUrl,
                 bearerCapability: maintainer.bearerCapability,
+                fetch: SYSTEM_COLLABORATION_FETCH,
             });
             await client.deleteSharedSpace(shared.spaceId);
 

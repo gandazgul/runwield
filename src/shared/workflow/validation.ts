@@ -54,7 +54,6 @@ import {
     loadReviewerPrompt,
     runFeaturePostVerificationHandoffs,
     runLocalCI,
-    runManualQaChecklistPrompt,
     runMechanicalValidation as runQuickFixMechanicalValidation,
     shouldContinueParentEpicAfterValidation,
     unaccountedOpenItems,
@@ -2158,7 +2157,6 @@ async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot
         planName: args.planName,
         planContent: args.planContent,
         projectRoot,
-        runManualQaChecklistPrompt,
         mnemosynePort: args.workRecordMnemosynePort,
     });
 }

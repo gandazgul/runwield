@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { basename, dirname, join, resolve } from "@std/path";
 import { AGENTS } from "../../constants.js";
-import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
+import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
 import { startInteractiveSession } from "../../ui/tui/chat-session.js";
 import { printCommandHelp } from "../help/index.ts";
 import { COMMAND_NAMES } from "../registry.js";

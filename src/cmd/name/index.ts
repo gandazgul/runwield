@@ -3,7 +3,7 @@
  * Command to set or show the current session name.
  */
 
-import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { theme } from "../../ui/theme/theme.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 

@@ -56,7 +56,7 @@ import cymbalExtension, {
 } from "../../extensions/cymbal/index.js";
 import snipExtension from "../../extensions/snip/index.js";
 import reAnchorExtension from "../../extensions/re-anchor/index.ts";
-import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.js";
+import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.ts";
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
@@ -2880,8 +2880,6 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
  * @param {import('./types.js').AgentMessageHandler} [opts.activeHandler]
- * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {string} [opts.debugLogPath]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
@@ -2891,9 +2889,7 @@ export async function ensureRootAgentSession(opts) {
     const existing = /** @type {any} */ (hostedSession.getRootAgentSession());
     const existingMeta = existing ? rootSessionMetadata.get(existing) : undefined;
     const rootProjectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
-    const buildSessionFn = opts._buildAgentSession || buildExecutionSession;
-    const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
-    const built = await buildSessionFn({
+    const built = await buildExecutionSession({
         ...opts,
         hostedSession,
         cwd: opts.cwd || hostedSession.cwd,
@@ -2931,7 +2927,7 @@ export async function ensureRootAgentSession(opts) {
             endThinking: () => {},
             unsubscribe: () => {},
         }
-        : attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
+        : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
 
     if (existing) {
         try {
@@ -2992,8 +2988,6 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {Function} [opts._runPrompt]
- *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runRootTurn({
@@ -3002,7 +2996,6 @@ export async function runRootTurn({
     userRequest,
     images,
     customTools,
-    _runPrompt,
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
     const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
@@ -3035,9 +3028,7 @@ export async function runRootTurn({
     if (isExecutionSession(session) && session.kind === "claude-cli") {
         return await session.session.runTurn({ userRequest: finalRequest, images });
     }
-    const runPromptFn = _runPrompt || runPrompt;
-
-    return await runPromptFn({
+    return await runPrompt({
         session: isExecutionSession(session) ? session.session : session,
         agentDef: meta.agentDef,
         agentName,
@@ -3081,7 +3072,6 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} [opts.debugLogPath]
  * @param {string} [opts.projectStateContext]
- * @param {Function} [opts._buildAgentSession]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runNonInteractiveAgentPrompt({
@@ -3092,10 +3082,8 @@ export async function runNonInteractiveAgentPrompt({
     thinkingLevelOverride,
     debugLogPath,
     projectStateContext,
-    _buildAgentSession,
 }) {
-    const buildAgentSessionFn = _buildAgentSession || buildAgentSession;
-    const { session } = await buildAgentSessionFn({
+    const { session } = await buildAgentSession({
         cwd,
         agentName,
         modelOverride,
@@ -3139,19 +3127,13 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
- * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachSessionEventSubscribers]
- * @param {Function} [opts._runPrompt]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runIsolatedAgentSession(opts) {
     const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
     const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
 
-    const buildSessionFn = opts._buildAgentSession || buildExecutionSession;
-    const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
-    const runPromptFn = opts._runPrompt || runPrompt;
-    const built = await buildSessionFn({
+    const built = await buildExecutionSession({
         ...opts,
         hostedSession,
         cwd: opts.cwd || hostedSession.cwd,
@@ -3181,7 +3163,7 @@ export async function runIsolatedAgentSession(opts) {
                 endThinking: () => {},
                 unsubscribe: () => {},
             }
-            : attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
+            : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
         hostedSession.addSubAgentSession(steeringTarget);
         registeredSubAgent = true;
 
@@ -3202,7 +3184,7 @@ export async function runIsolatedAgentSession(opts) {
                 signal: opts.signal,
             });
         }
-        return await runPromptFn({
+        return await runPrompt({
             session,
             agentDef,
             agentName: opts.agentName,

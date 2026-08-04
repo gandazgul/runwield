@@ -8,7 +8,7 @@ import { SessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { findPlansByParent, loadPlan, parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../../plan-store.js";
+import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { submitPlanForReview } from "../../review/plan-review.ts";
 import { createScriptedReviewBrowser } from "../../review/review-test-fixture.ts";
@@ -37,39 +37,61 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * @param {ScriptedReviewSurface} reviewSurface
  * @param {Record<string, unknown>} request
  * @param {unknown} reviewedPlan
+ * @param {(response: ReturnType<ScriptedReviewSurface['submit']>) => void} [onDecision]
  */
-function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan) {
-    const response = reviewSurface.submit(request);
-    const editedPlan = typeof reviewedPlan === "string"
-        ? reviewedPlan
-        : typeof response.plan === "string"
-        ? response.plan
-        : undefined;
-    const triageMeta = request.triageMeta && typeof request.triageMeta === "object"
-        ? /** @type {Record<string, unknown>} */ (request.triageMeta)
-        : {};
-    const policy = resolvePlanExecutionPolicy({
-        ...(editedPlan ? parsePlanFrontMatter(editedPlan).attrs : {}),
-        ...triageMeta,
-    });
-    /** @type {"run" | "decompose" | "later" | undefined} */
-    const approvalAction = response.approvalAction === "run" || response.approvalAction === "decompose" ||
-            response.approvalAction === "later"
-        ? response.approvalAction
-        : undefined;
-    const body = {
-        approved: response.approved,
-        feedback: response.feedback,
-        approvalAction,
-        ...(editedPlan ? { plan: editedPlan } : {}),
-        ...(response.approved && policy.ok
-            ? {
-                executionAgent: policy.policy.executionAgent,
-                collaborationRecommendation: policy.policy.collaborationRecommendation,
-            }
-            : {}),
+function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan, onDecision) {
+    return {
+        /** @param {string} url */
+        async open(url) {
+            const response = reviewSurface.submit(request);
+            const editedPlan = typeof reviewedPlan === "string"
+                ? reviewedPlan
+                : typeof response.plan === "string"
+                ? response.plan
+                : undefined;
+            /** @type {"run" | "decompose" | "later" | undefined} */
+            const approvalAction = response.approvalAction === "run" || response.approvalAction === "decompose" ||
+                    response.approvalAction === "later"
+                ? response.approvalAction
+                : undefined;
+            const body = {
+                approved: response.approved,
+                feedback: response.feedback,
+                approvalAction,
+                ...(editedPlan ? { plan: editedPlan } : {}),
+            };
+            const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "deny", body).browser
+                .open(url);
+            onDecision?.(response);
+            return opened;
+        },
     };
-    return createScriptedReviewBrowser(response.approved ? "decision" : "deny", body).browser;
+}
+
+/**
+ * Read the lifecycle state synchronously from isolated fixture Plans at the
+ * interaction-resolved boundary, before the workflow can advance it again.
+ *
+ * @param {string} directory
+ * @param {string} expectedStatus
+ * @returns {{ status?: unknown, updatedAt?: unknown }}
+ */
+function findFixturePlanLifecycle(directory, expectedStatus) {
+    try {
+        for (const entry of Deno.readDirSync(directory)) {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory) {
+                const nested = findFixturePlanLifecycle(path, expectedStatus);
+                if (nested.status === expectedStatus) return nested;
+            } else if (entry.isFile && entry.name.endsWith(".md")) {
+                const attrs = parsePlanFrontMatter(Deno.readTextFileSync(path)).attrs;
+                if (attrs.status === expectedStatus) return { status: attrs.status, updatedAt: attrs.updatedAt };
+            }
+        }
+    } catch {
+        // A missing fixture directory is represented as no observed lifecycle.
+    }
+    return {};
 }
 
 /**
@@ -583,6 +605,15 @@ async function runComposedTuiScenario(scenario, options) {
         const reviewSurface = scenario.reviewDecisions
             ? new ScriptedReviewSurface(/** @type {any[]} */ (scenario.reviewDecisions))
             : null;
+        /** @type {Array<ReturnType<ScriptedReviewSurface['submit']>>} */
+        const pendingReviewLifecycleObservations = [];
+        /** @param {ReturnType<ScriptedReviewSurface['submit']>} response */
+        const observeReviewDecision = (response) => {
+            const event = response.approved ? "review_approved" : "review_feedback";
+            events.push(`interaction:PLAN_REVIEW:${response.approved ? "approved" : "feedback"}`);
+            events.push(event);
+            pendingReviewLifecycleObservations.push(response);
+        };
         const interactionSurface = scenario.scriptedInteractions
             ? new ScriptedInteractionSurface(/** @type {any[]} */ (scenario.scriptedInteractions))
             : null;
@@ -728,29 +759,8 @@ async function runComposedTuiScenario(scenario, options) {
                         };
                     }
                     : undefined,
-                interactionDependencies: reviewSurface
-                    ? {
-                        submitPlanForReview: async (request) => {
-                            const result = await submitPlanForReview({
-                                ...request,
-                                browser: createGoldenReviewBrowser(
-                                    reviewSurface,
-                                    { ...request },
-                                    scenario.reviewedPlan,
-                                ),
-                            });
-                            const persistedPlan = await Deno.readTextFile(request.planPath);
-                            const persistedAttrs = parsePlanFrontMatter(persistedPlan).attrs;
-                            persistedLifecycleEvents.push({
-                                event: result.approved ? "review_approved" : "review_feedback",
-                                status: persistedAttrs.status,
-                                updatedAt: persistedAttrs.updatedAt,
-                            });
-                            events.push(`interaction:PLAN_REVIEW:${result.approved ? "approved" : "feedback"}`);
-                            events.push(result.approved ? "review_approved" : "review_feedback");
-                            return result;
-                        },
-                    }
+                browser: reviewSurface
+                    ? createGoldenReviewBrowser(reviewSurface, {}, scenario.reviewedPlan, observeReviewDecision)
                     : undefined,
             });
             await writeHeartbeat();
@@ -779,7 +789,9 @@ async function runComposedTuiScenario(scenario, options) {
                     throw new Error("Runtime interaction scripting requires TUI prompt methods.");
                 }
             }
-            unsubscribe = composition.runtime.subscribeSessionEvents(composition.sessionId, (event) => {
+            const runtime = composition.runtime;
+            /** @param {import('../../../shared/session/session-runtime-events.js').SessionRuntimeEvent} event */
+            const handleRuntimeEvent = (event) => {
                 events.push(`runtime:${event.type}`);
                 if (event.type === "agent_changed") {
                     const name = /** @type {{ agentName?: string }} */ (event).agentName || "";
@@ -801,6 +813,22 @@ async function runComposedTuiScenario(scenario, options) {
                 if (event.type === "assistant_text_delta") events.push("runtime:assistant:text");
                 if (event.type === "assistant_thinking_delta") events.push("runtime:assistant:thinking");
                 if (event.type === "queued_message_changed") events.push("runtime:queue");
+                if (event.type === "interaction_resolved") {
+                    const interaction = /** @type {{ interactionType?: string }} */ (event);
+                    if (interaction.interactionType === "plan_review") {
+                        const response = pendingReviewLifecycleObservations.shift();
+                        if (response) {
+                            const eventName = response.approved ? "review_approved" : "review_feedback";
+                            const expectedStatus = response.approved ? "approved" : "feedback";
+                            const lifecycle = findFixturePlanLifecycle(join(Deno.cwd(), "plans"), expectedStatus);
+                            persistedLifecycleEvents.push({
+                                event: eventName,
+                                status: lifecycle.status,
+                                updatedAt: lifecycle.updatedAt,
+                            });
+                        }
+                    }
+                }
                 if (event.type === "session_replaced") {
                     const replaced =
                         /** @type {{ oldSessionId?: string, newSessionId?: string, reason?: string, childPlanName?: string, action?: string }} */ (event);
@@ -812,8 +840,20 @@ async function runComposedTuiScenario(scenario, options) {
                         action: replaced.action,
                     };
                     events.push(`runtime:session-replaced:${replaced.reason || "unknown"}`);
+                    if (replaced.newSessionId) {
+                        const unsubscribePreviousSessions = unsubscribe;
+                        const unsubscribeReplacement = runtime.subscribeSessionEvents(
+                            replaced.newSessionId,
+                            handleRuntimeEvent,
+                        );
+                        unsubscribe = () => {
+                            unsubscribePreviousSessions();
+                            unsubscribeReplacement();
+                        };
+                    }
                 }
-            });
+            };
+            unsubscribe = runtime.subscribeSessionEvents(composition.sessionId, handleRuntimeEvent);
             for (const action of scenario.actions || []) {
                 if (!isObject(action)) continue;
                 const typed = /** @type {any} */ (action);
@@ -1492,6 +1532,10 @@ async function runComposedTuiScenario(scenario, options) {
                 state.scriptedInteractions = interactionSurface.consumed;
             }
             if (reviewSurface) {
+                assert(
+                    pendingReviewLifecycleObservations.length === 0,
+                    `Expected every real Plan Review decision to resolve; pending=${pendingReviewLifecycleObservations.length}`,
+                );
                 reviewSurface.assertComplete();
                 let parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"))
                     .catch(() => Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md"))).catch(() => "");

@@ -13,7 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { CATPPUCCIN_MOCHA_THEME_PATH } from "../../constants.js";
 import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
-import { loadExternalThemeJsons } from "./theme-discovery.js";
+import { loadExternalThemeJsons } from "./theme-discovery.ts";
 import { createThemeFromJson } from "./theme-json.js";
 import { createThemeRegistry } from "./theme-registry.js";
 
@@ -199,27 +199,19 @@ export async function discoverAndRegisterThemes() {
  * Resolve available theme JSON objects using the same package discovery and
  * partial-theme merge policy as the TUI theme registry.
  *
- * @param {{
- *   cwd?: string,
- *   settingsManager?: any,
- *   packageManager?: { resolve: () => Promise<{ themes: Array<{ path: string }> }> },
- *   readTextFile?: (path: string) => string | Promise<string>,
- *   warn?: (message: string) => void,
- * }} [options]
  * @returns {Promise<ThemeJson[]>}
  */
-export async function resolveAvailableThemeJsons(options = {}) {
-    const settings = options.settingsManager || getSettingsManager();
-    const packageManager = options.packageManager || new DefaultPackageManager({
-        cwd: options.cwd || Deno.cwd(),
+export async function resolveAvailableThemeJsons() {
+    const settings = getSettingsManager();
+    const packageManager = new DefaultPackageManager({
+        cwd: Deno.cwd(),
         agentDir: getSettingsDir("global"),
         settingsManager: settings,
     });
 
     const externalThemeJsons = await loadExternalThemeJsons({
         packageManager,
-        readTextFile: options.readTextFile || Deno.readTextFileSync,
-        warn: options.warn || console.warn,
+        readTextFile: Deno.readTextFileSync,
         defaultThemeName: DEFAULT_THEME_NAME,
         baseThemeJson: DEFAULT_THEME_JSON,
     });
@@ -231,17 +223,10 @@ export async function resolveAvailableThemeJsons(options = {}) {
  * Resolve the currently selected theme JSON using the same default and external
  * package merge semantics as the TUI theme registry.
  *
- * @param {{
- *   cwd?: string,
- *   settingsManager?: any,
- *   packageManager?: { resolve: () => Promise<{ themes: Array<{ path: string }> }> },
- *   readTextFile?: (path: string) => string | Promise<string>,
- *   warn?: (message: string) => void,
- * }} [options]
  * @returns {Promise<ThemeJson>}
  */
-export async function resolveSelectedThemeJson(options = {}) {
-    const settings = options.settingsManager || getSettingsManager();
+export async function resolveSelectedThemeJson() {
+    const settings = getSettingsManager();
     await settings.reload?.();
     const selectedThemeName = settings.getTheme() || DEFAULT_THEME_NAME;
 
@@ -249,13 +234,7 @@ export async function resolveSelectedThemeJson(options = {}) {
         return DEFAULT_THEME_JSON;
     }
 
-    const availableThemeJsons = await resolveAvailableThemeJsons({
-        cwd: options.cwd,
-        settingsManager: settings,
-        packageManager: options.packageManager,
-        readTextFile: options.readTextFile,
-        warn: options.warn,
-    });
+    const availableThemeJsons = await resolveAvailableThemeJsons();
 
     return availableThemeJsons.find((themeJson) => themeJson.name === selectedThemeName) || DEFAULT_THEME_JSON;
 }

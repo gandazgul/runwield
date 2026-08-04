@@ -7,7 +7,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import { hashPlanBody, listPlanResources, updatePlanCollaborationMetadata } from "../../plan-store.js";
 import { redactSecrets, REVIEWER_SCOPE } from "../../shared/collaboration/capabilities.js";
-import { createCollaborationClient } from "../../shared/collaboration/client.js";
+import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeRevisionMetadata, normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
@@ -173,6 +173,7 @@ export async function pushPlanRevision(
         const client = createCollaborationClient({
             serverUrl,
             bearerCapability: secretRecord.maintainerCapability,
+            fetch: SYSTEM_COLLABORATION_FETCH,
         });
         space = normalizeSpaceResponse(await client.getSharedSpace(spaceId) as WireValue);
     } catch (error) {
@@ -220,6 +221,7 @@ export async function pushPlanRevision(
         const client = createCollaborationClient({
             serverUrl,
             bearerCapability: secretRecord.maintainerCapability,
+            fetch: SYSTEM_COLLABORATION_FETCH,
         });
         appended = normalizeRevisionResponse(
             await client.appendRevision(spaceId, { payloadCiphertext, expectedRevision }) as WireValue,

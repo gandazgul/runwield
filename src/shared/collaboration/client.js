@@ -12,8 +12,10 @@ import { buildApiUrl, normalizeServerUrl } from "./urls.js";
  * @typedef {Object} CollaborationClientOptions
  * @property {string} serverUrl
  * @property {string} [bearerCapability]
- * @property {typeof fetch} [fetch]
+ * @property {typeof fetch} fetch
  */
+
+export const SYSTEM_COLLABORATION_FETCH = globalThis.fetch.bind(globalThis);
 
 export class CollaborationApiError extends Error {
     /**
@@ -33,8 +35,7 @@ export class CollaborationClient {
     constructor(options) {
         this.serverUrl = normalizeServerUrl(options.serverUrl);
         this.bearerCapability = options.bearerCapability;
-        const fetchFn = options.fetch ?? fetch;
-        this.fetch = fetchFn.bind(globalThis);
+        this.fetch = options.fetch;
     }
 
     /**

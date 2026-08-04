@@ -37,7 +37,7 @@ const AGENT_DEFINITION_ASSETS = [
 
 /** @param {string} root */
 async function writeRuntimeInputs(root) {
-    await writeFile(join(root, "src/ui/workspace/remote-server.js"), "console.log('remote');\n");
+    await writeFile(join(root, "src/ui/workspace/remote-server.ts"), "console.log('remote');\n");
     await writeFile(join(root, "dist/workspace-runtime/server.mjs"), "export default {};\n");
     await writeFile(join(root, "dist/workspace-runtime/client/_astro/app.js.asset"), "browser");
     await writeFile(join(root, "logo.svg"), "<svg></svg>\n");
@@ -68,7 +68,7 @@ Deno.test("buildPlanServerRuntime creates a minimal runtime root", async () => {
         /** @type {Array<{ command: string, args: string[] }>} */
         const commands = [];
         await buildPlanServerRuntime({
-            remoteEntry: join(root, "src/ui/workspace/remote-server.js"),
+            remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
             workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
             runtimeDir: join(root, "dist/plan-server"),
             run: async (command, args) => {
@@ -89,7 +89,7 @@ Deno.test("buildPlanServerRuntime creates a minimal runtime root", async () => {
                 "--minify",
                 "--output",
                 join(root, "dist/plan-server/remote-server.js"),
-                join(root, "src/ui/workspace/remote-server.js"),
+                join(root, "src/ui/workspace/remote-server.ts"),
             ],
         }]);
 
@@ -120,7 +120,7 @@ Deno.test("buildPlanServerRuntime removes stale output", async () => {
             "stale",
         );
         await buildPlanServerRuntime({
-            remoteEntry: join(root, "src/ui/workspace/remote-server.js"),
+            remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
             workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
             runtimeDir: join(root, "dist/plan-server"),
             run: async (_command, args) => {
@@ -142,7 +142,7 @@ Deno.test("buildPlanServerRuntime fails when required inputs are missing", async
         await assertRejects(
             () =>
                 buildPlanServerRuntime({
-                    remoteEntry: join(root, "src/ui/workspace/remote-server.js"),
+                    remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
                     workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
                     runtimeDir: join(root, "dist/plan-server"),
                     run: async () => {},
@@ -165,7 +165,7 @@ Deno.test("buildPlanServerRuntime fails clearly when Workspace runtime output la
         await assertRejects(
             () =>
                 buildPlanServerRuntime({
-                    remoteEntry: join(root, "src/ui/workspace/remote-server.js"),
+                    remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
                     workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
                     runtimeDir: join(root, "dist/plan-server"),
                     run: () => {
