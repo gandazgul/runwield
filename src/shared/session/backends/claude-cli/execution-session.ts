@@ -1,12 +1,18 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
 import { getRootSessionBranchEntries } from "../../root-session.js";
-import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
+import {
+    prepareClaudeCliCommand,
+    type PreparedClaudeCliCommand,
+    removeClaudeCliMcpConfigFile,
+    removeClaudeCliPromptFile,
+} from "./command.ts";
 import { DenoClaudeCliProcessPort } from "./process.ts";
 import { type ClaudeCliUsage, parseClaudeCliStream } from "./stream-parser.ts";
+import { startWorkflowMcpBridge, workflowMcpAliasFor, type WorkflowMcpBridgeHandle } from "./workflow-mcp-bridge.ts";
 
 interface TextBlock {
     type: "text";
@@ -37,6 +43,8 @@ export interface ClaudeCliExecutionSessionOptions {
     model: RunWieldModel;
     sessionManager: SessionManager;
     hostedSession?: HostedSession;
+    /** Eligible existing RunWield lifecycle Tool Definitions exposed over MCP this turn. */
+    workflowTools?: ToolDefinition[];
 }
 
 export interface ClaudeCliRunOptions {
@@ -54,6 +62,7 @@ export class ClaudeCliExecutionSession {
     readonly finalSystemPrompt: string;
     private readonly cwd: string;
     private readonly hostedSession?: HostedSession;
+    private readonly workflowTools: ToolDefinition[];
     private readonly messages: AgentMessage[] = [];
     isStreaming = false;
 
@@ -65,6 +74,7 @@ export class ClaudeCliExecutionSession {
         this.model = options.model;
         this.sessionManager = options.sessionManager;
         this.hostedSession = options.hostedSession;
+        this.workflowTools = [...(options.workflowTools || [])];
         this.messages = this.readMessages();
     }
 
@@ -86,23 +96,43 @@ export class ClaudeCliExecutionSession {
         this.messages.push(userMessage as AgentMessage);
         conversation.push({ role: "user", text: options.userRequest });
         const selector = this.model.id;
-        const command = await prepareClaudeCliCommand({
-            selector,
-            systemPrompt: this.finalSystemPrompt +
-                "\n\nRunWield Custom Tools are not exposed to Claude CLI in this tracer bullet. Responses are non-terminal ordinary assistant text.",
-        });
-        this.sessionManager.appendCustomEntry("runwield.execution_backend", {
-            version: 1,
-            backend: "claude-cli",
-            provider: this.model.provider,
-            model: selector,
-            outputFormat: "stream-json",
-        });
-        const stdinText = serializeConversation(conversation);
-        const processPort = new DenoClaudeCliProcessPort();
-        const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
+        let bridge: WorkflowMcpBridgeHandle | null = null;
+        let command: PreparedClaudeCliCommand | null = null;
         this.isStreaming = true;
         try {
+            const eligibleAliases = this.workflowTools
+                .map((tool) => workflowMcpAliasFor(tool.name))
+                .filter((alias): alias is string => typeof alias === "string");
+            if (eligibleAliases.length > 0) {
+                bridge = await startWorkflowMcpBridge({
+                    tools: this.workflowTools,
+                    cwd: this.cwd,
+                    sessionManager: this.sessionManager,
+                    onMessage: (message) => {
+                        this.messages.push(message);
+                    },
+                    assistantBase: {
+                        api: this.model.api,
+                        provider: this.model.provider,
+                        model: this.model.id,
+                    },
+                });
+            }
+            command = await prepareClaudeCliCommand({
+                selector,
+                systemPrompt: this.finalSystemPrompt + buildWorkflowPromptAppendix(eligibleAliases),
+                ...(bridge ? { mcpConfig: bridge.config } : {}),
+            });
+            this.sessionManager.appendCustomEntry("runwield.execution_backend", {
+                version: 1,
+                backend: "claude-cli",
+                provider: this.model.provider,
+                model: selector,
+                outputFormat: "stream-json",
+            });
+            const stdinText = serializeConversation(conversation);
+            const processPort = new DenoClaudeCliProcessPort();
+            const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
             const process = processPort.run(command, stdinText, this.cwd, options.signal);
             const parsed = await parseClaudeCliStream(process.stdout, {
                 onDelta: (delta) => {
@@ -139,7 +169,11 @@ export class ClaudeCliExecutionSession {
             return this.getMessages();
         } finally {
             this.isStreaming = false;
-            await removeClaudeCliPromptFile(command);
+            if (command) {
+                await removeClaudeCliPromptFile(command);
+                await removeClaudeCliMcpConfigFile(command);
+            }
+            if (bridge) await bridge.close();
         }
     }
 
@@ -222,4 +256,33 @@ function toPiUsage(usage: ClaudeCliUsage) {
 
 function serializeConversation(messages: ConversationMessage[]): string {
     return messages.map((message) => `${message.role.toUpperCase()}: ${message.text}`).join("\n\n");
+}
+
+/**
+ * Backend-specific prompt appendix. Names only the aliases eligible for this
+ * Agent and states that plain-text questions are non-terminal; for the
+ * Reviewer it points at Claude's native tools because RunWield's
+ * `review_diff` is intentionally not bridged.
+ */
+function buildWorkflowPromptAppendix(eligibleAliases: string[]): string {
+    if (eligibleAliases.length === 0) return "";
+    const lines = [
+        "",
+        "## RunWield Workflow Tools (MCP)",
+        "",
+        "This session exposes the following RunWield lifecycle tool(s) through the RunWield MCP server:",
+        ...eligibleAliases.map((alias) => `- ${alias}`),
+        "",
+        "Calling one of these tools is the only way to advance RunWield workflow state. Plain-text questions, " +
+        'statements such as "done", or text that resembles a tool call have no workflow effect.',
+    ];
+    if (eligibleAliases.includes("runwield_review_complete")) {
+        lines.push(
+            "",
+            "Before calling runwield_review_complete, inspect the implementation with your native " +
+                "read/grep/find/ls/Bash tools. RunWield's review_diff tool is intentionally not bridged for " +
+                "Claude CLI.",
+        );
+    }
+    return lines.join("\n");
 }

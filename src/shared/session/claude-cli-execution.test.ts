@@ -6,6 +6,8 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir, openPersistedRootSession } from "./root-session.js";
 import { ensureRootAgentSession, runIsolatedAgentSession, runRootTurn } from "./session.js";
+import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/workflow-mcp-bridge.ts";
+import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 
 async function removeTempDir(path: string): Promise<void> {
     await Deno.remove(path, { recursive: true }).catch(() => undefined);
@@ -13,8 +15,10 @@ async function removeTempDir(path: string): Promise<void> {
 
 async function installClaudeFixture(binDir: string, logPath: string): Promise<void> {
     await Deno.mkdir(binDir, { recursive: true });
-    const script =
-        `#!/usr/bin/env -S deno run -A\nconst stdin = await new Response(Deno.stdin.readable).text();\nconst promptIndex = Deno.args.indexOf("--append-system-prompt-file");\nconst promptPath = promptIndex >= 0 ? Deno.args[promptIndex + 1] : "";\nconst promptText = promptPath ? await Deno.readTextFile(promptPath) : "";\nawait Deno.writeTextFile(Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG"), JSON.stringify({ args: Deno.args, stdin, promptText }) + "\\n", { append: true });\nconst text = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT") || "fixture reply";\nconsole.log(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } }));\nconsole.log(JSON.stringify({ type: "result", result: text, session_id: "external-root", usage: { input_tokens: 5, output_tokens: 7 } }));\n`;
+    const fixturePath = new URL("./backends/claude-cli/testing/fake-claude-mcp-client.ts", import.meta.url).pathname;
+    // The fixture lives in the workspace so its npm imports (the real MCP SDK
+    // client) resolve through the repository deno.json/node_modules.
+    const script = `#!/bin/sh\nexec deno run -A ${JSON.stringify(fixturePath)} "$@"\n`;
     const path = join(binDir, "claude");
     await Deno.writeTextFile(path, script);
     await Deno.chmod(path, 0o755);
@@ -29,6 +33,7 @@ async function withClaudeExecutionFixture(
         const previousPath = Deno.env.get("PATH");
         const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
         const previousText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT");
+        const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
         const home = await Deno.makeTempDir({ prefix: "runwield-claude-exec-home-" });
         const cwd = join(home, "project");
         const binDir = join(home, "bin");
@@ -49,6 +54,8 @@ async function withClaudeExecutionFixture(
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", previousLog);
             if (previousText === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_TEXT");
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", previousText);
+            if (previousCalls === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
+            else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
             await removeTempDir(home);
         }
     });
@@ -145,5 +152,90 @@ Deno.test("Claude CLI image turns fail before subprocess start or transcript app
         );
         assertEquals(await Deno.readTextFile(logPath), "");
         assertEquals(manager.getBranch().filter((entry) => entry.type === "message").length, 0);
+    });
+});
+
+Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: cwd,
+        });
+        // The fake Claude first attempts an invalid call (rejected without
+        // advancement), then an accepted call through the real delegated tool.
+        const callsPath = join(cwd, "mcp-calls.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([
+                { name: "runwield_task_completed", arguments: {} },
+                { name: "runwield_task_completed", arguments: { message: "vertical accepted" } },
+            ]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "final text");
+
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "implement" });
+
+        // The old no-tools tracer bullet line is gone from the prompt appendix.
+        const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+        assertStringIncludes(lines[0].promptText, "runwield_task_completed");
+        assertEquals(lines[0].promptText.includes("Custom Tools are not exposed to Claude CLI"), false);
+        assertStringIncludes(lines[0].promptText, "only way to advance RunWield workflow state");
+
+        // The fake Claude listed only its Agent-eligible alias over real MCP.
+        const toolsLine = lines.find((line) => line.mcp?.tools);
+        assertEquals(toolsLine.mcp.tools, ["runwield_task_completed"]);
+        const callsLine = lines.find((line) => line.mcp?.calls);
+        assertEquals(callsLine.mcp.calls[0].isError, true);
+        assertEquals(callsLine.mcp.calls[1].isError, false);
+
+        // The canonical internal tool result is exposed to current workflow readers.
+        assertEquals(readLatestTaskCompletedOutcome(messages), true);
+        const toolResults = messages.filter((message) =>
+            message.role === "toolResult" && message.toolName === "task_completed"
+        );
+        assertEquals(toolResults.length, 2);
+        const accepted = toolResults.at(-1) as {
+            details?: { outcome?: string; message?: string; provenance?: string };
+        };
+        assertEquals(accepted.details?.outcome, "task_completed");
+        assertEquals(accepted.details?.message, "vertical accepted");
+        assertEquals(accepted.details?.provenance, CLAUDE_CLI_MCP_PROVENANCE);
+        const rejected = toolResults[0] as { isError?: boolean; details?: { outcome?: unknown } };
+        assertEquals(rejected.isError, true);
+        assertEquals("outcome" in (rejected.details || {}), false);
+
+        // The SessionManager transcript carries the same canonical exchange.
+        const branchMessages = manager.getBranch()
+            .filter((entry) => entry.type === "message")
+            .map((entry) => (entry as { message?: unknown }).message) as Array<Record<string, unknown>>;
+        assertEquals(
+            branchMessages.some((msg) =>
+                msg.role === "assistant" &&
+                Array.isArray(msg.content) &&
+                (msg.content as Array<{ type?: string; name?: string }>).some(
+                    (block) => block.type === "toolCall" && block.name === "task_completed",
+                )
+            ),
+            true,
+        );
+        assertEquals(
+            branchMessages.some((msg) => msg.role === "toolResult" && msg.toolName === "task_completed"),
+            true,
+        );
+
+        // The durable Task Completion outbox remains the execution authority.
+        assertEquals(
+            manager.getBranch().some(
+                (entry) => entry.type === "custom" && entry.customType === "runwield.task_completion",
+            ),
+            true,
+        );
     });
 });

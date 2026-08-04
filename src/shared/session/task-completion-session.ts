@@ -116,6 +116,23 @@ function matchesActiveWorkflow(event: AcceptedTaskCompletionEvent, activeWorkflo
 }
 
 /**
+ * Whether the owning steering-target session is the root's own session.
+ *
+ * Pi roots store the AgentSession directly as both steering target and root
+ * session, so a plain identity comparison holds. Claude CLI roots store the
+ * `{ kind: "claude-cli", session }` wrapper as the root session while the
+ * steering target is the inner execution session, so the wrapper must be
+ * unwrapped before comparing.
+ */
+function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSession): boolean {
+    if (owningSession === null || owningSession === rootSession) return true;
+    if (!owningSession || !rootSession) return false;
+    if (typeof owningSession !== "object" || typeof rootSession !== "object") return false;
+    const wrapper = rootSession as { kind?: unknown; session?: unknown };
+    return wrapper.kind === "claude-cli" && wrapper.session === owningSession;
+}
+
+/**
  * Record an accepted root completion before the tool reports success. Isolated
  * Agent sessions keep using their synchronously returned message stream and are
  * intentionally excluded from the root-session outbox.
@@ -124,7 +141,7 @@ export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): st
     const { hostedSession, agentName, report, timestampMs } = args;
     const owningSession = hostedSession.getActiveSteeringTargetSession();
     const rootSession = hostedSession.getRootAgentSession();
-    const rootOwned = owningSession === null || owningSession === rootSession;
+    const rootOwned = isRootOwnedSession(owningSession, rootSession);
     const workflow = hostedSession.getActiveExecutionWorkflow();
 
     let completionId: string | null = null;

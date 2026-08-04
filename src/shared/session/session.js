@@ -2005,6 +2005,51 @@ export async function buildAgentSession({
 }
 
 /**
+ * Compose the eligible RunWield lifecycle Tool Definitions for a Claude CLI
+ * execution session: the intersection of the Agent Definition's declared tools
+ * with plan_written / task_completed / review_complete, instantiated with the
+ * same factories Pi uses. Returned in `finalCustomTools` so existing root
+ * configuration checks remain valid while Pi wiring stays unchanged.
+ *
+ * @param {{
+ *   agentDef: import('./types.js').AgentDefinition,
+ *   agentName: string,
+ *   hostedSession: import('./hosted-session.js').HostedSession | null,
+ *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
+ * }} opts
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
+ */
+async function composeClaudeCliWorkflowTools({ agentDef, agentName, hostedSession, triageMeta }) {
+    /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
+    const finalCustomTools = [];
+    if (!hostedSession) return finalCustomTools;
+    const declared = new Set(Array.isArray(agentDef.tools) ? agentDef.tools : []);
+    if (declared.has("plan_written") && !finalCustomTools.find((t) => t.name === "plan_written")) {
+        const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
+        finalCustomTools.push(
+            createPlanWrittenTool({
+                triageMeta,
+                agentName,
+                hostedSession,
+            }),
+        );
+    }
+    if (declared.has("task_completed") && !finalCustomTools.find((t) => t.name === "task_completed")) {
+        const { createTaskCompletedTool } = await import("../../tools/task-completed.ts");
+        finalCustomTools.push(
+            createTaskCompletedTool({ hostedSession, agentName: agentDef.displayName }),
+        );
+    }
+    if (declared.has("review_complete") && !finalCustomTools.find((t) => t.name === "review_complete")) {
+        const { createReviewCompletedTool } = await import("../../tools/review-complete.ts");
+        finalCustomTools.push(
+            createReviewCompletedTool({ hostedSession, agentName: agentDef.displayName }),
+        );
+    }
+    return finalCustomTools;
+}
+
+/**
  * Build the model-selected execution session for root and HostedSession-backed isolated turns.
  * Pi models continue through buildAgentSession(); Claude CLI models bypass Pi entirely.
  *
@@ -2064,6 +2109,12 @@ export async function buildExecutionSession(opts) {
             opts.projectStateContext,
         );
     const promptState = { text: finalSystemPrompt };
+    const finalCustomTools = await composeClaudeCliWorkflowTools({
+        agentDef,
+        agentName: opts.agentName,
+        hostedSession: targetHostedSession,
+        triageMeta: opts.triageMeta,
+    });
     const session = new ClaudeCliExecutionSession({
         cwd: sessionCwd,
         agentName: opts.agentName,
@@ -2071,6 +2122,7 @@ export async function buildExecutionSession(opts) {
         model: resolvedModel,
         sessionManager: effectiveSessionManager,
         hostedSession: targetHostedSession || undefined,
+        workflowTools: finalCustomTools,
     });
     await recordWorkflowMetric({
         category: "model_selection",
@@ -2097,7 +2149,7 @@ export async function buildExecutionSession(opts) {
         agentDef,
         promptState,
         tools: [],
-        finalCustomTools: [],
+        finalCustomTools,
         resolvedModel,
         resolvedThinkingLevel: undefined,
         resolvedTemperature: undefined,

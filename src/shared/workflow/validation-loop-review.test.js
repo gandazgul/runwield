@@ -698,3 +698,130 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
     // back to implemented, so returning later resumes at the review.
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 });
+
+Deno.test("^Claude MCP review completion waives only review_diff inspection$", async () => {
+    // Accepted bridge-stamped review_complete: no review_diff transcript event
+    // is needed, and no inspection nudge is issued.
+    const { projectRoot, hostedSession } = await makeValidatedCiRun();
+    const reviewPrompts = /** @type {string[]} */ ([]);
+    let reviewCalls = 0;
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewPrompts.push(opts.userRequest);
+                reviewCalls += 1;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: "approved",
+                            approved: true,
+                            feedback: "",
+                            findings: [],
+                            advisories: [],
+                            provenance: "claude-cli-mcp",
+                        },
+                    }]),
+                );
+            },
+        }),
+    });
+
+    assertEquals(reviewCalls, 1);
+    assertEquals(reviewPrompts[0].includes("without inspecting the diff"), false);
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
+
+    // An otherwise identical result WITHOUT the trusted provenance is still
+    // nudged: the waiver belongs to the Claude opaque-inspection policy only.
+    const second = await makeValidatedCiRun();
+    let untrustedCalls = 0;
+    await runValidationPhase({
+        hostedSession: second.hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ _opts) => {
+                untrustedCalls += 1;
+                if (untrustedCalls === 1) {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: {
+                                outcome: "approved",
+                                approved: true,
+                                feedback: "",
+                                findings: [],
+                                advisories: [],
+                            },
+                        }]),
+                    );
+                }
+                return Promise.resolve(reviewerMessages());
+            },
+        }),
+    });
+    assertEquals(untrustedCalls, 2);
+    assertEquals((await loadPlan(second.projectRoot, "p"))?.attrs.status, "validated_reviewer");
+
+    // The ledger rules remain authoritative for bridge-stamped results too: an
+    // accepted verdict that leaves an open ledger identity unmentioned is nudged.
+    const ledger = {
+        sequence: 1,
+        items: [{
+            id: "R1-1",
+            openedInRound: 1,
+            resolvedInRound: null,
+            title: "Missing guard",
+            requirement: "Step 2",
+            evidence: "file.js",
+        }],
+    };
+    const third = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    third.hostedSession.setActiveExecutionWorkflow(
+        /** @type {any} */ ({ ...third.hostedSession.getActiveExecutionWorkflow(), reviewLedger: ledger }),
+    );
+    const ledgerPrompts = /** @type {string[]} */ ([]);
+    let ledgerCalls = 0;
+    await runValidationPhase({
+        hostedSession: third.hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                ledgerPrompts.push(opts.userRequest);
+                ledgerCalls += 1;
+                if (ledgerCalls === 1) {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: {
+                                outcome: "approved",
+                                approved: true,
+                                feedback: "",
+                                findings: [],
+                                advisories: [],
+                                provenance: "claude-cli-mcp",
+                            },
+                        }]),
+                    );
+                }
+                return Promise.resolve(reviewerMessages({
+                    findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
+                }));
+            },
+        }),
+    });
+    assertEquals(ledgerCalls, 2);
+    assertStringIncludes(ledgerPrompts[1], "does not mention this open finding: R1-1");
+    assertEquals((await loadPlan(third.projectRoot, "p"))?.attrs.status, "validated_reviewer");
+});
