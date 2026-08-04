@@ -16,22 +16,7 @@
 
 ## Followup for Claude
 
-All resolved (2026-08-04):
-
-- `handlePlanRecovery` split into typed action modules — `plans/split-plan-recovery-flow.md` verified 2026-08-03
-- load-plan modules moved out of the command module — `src/cmd/load-plan/` is now `index.ts` + `plan-*.ts` modules
-- 5-plans series complete: objective checks in mechanical validation, baseline checks, formalized subagent definitions,
-  delegated agent roles, re-anchor agents after compaction (all verified; re-anchor committed as
-  `extensions/re-anchor/index.ts`)
-- execution policy moved from plan templates into planner/architect prompts
-  (`executionAgent`/`collaborationRecommendation` are `plan_written` arguments; PROJECT Epics are non-executable
-  containers)
-- engineer prompt improved via `agent-prompt-architecture-notes.md`
-
 ## __deps refactor
-
-Checker gap closed (2026-08-04): default-parameter implementation injection (no bag at all) is now detected by
-`scripts/check-injection-seams.js`; the ratchet baseline is down to 2 seams in 1 module.
 
 Remaining: finish and validate the capability-port migration — see Bugs → P0 (seams refactor).
 
