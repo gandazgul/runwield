@@ -210,6 +210,7 @@ export class RunWieldCredentialStore {
     }
 
     read(providerId: string): Promise<Credential | undefined> {
+        if (providerId === CLAUDE_CLI_PROVIDER) return Promise.resolve(undefined);
         const credential = this.readData()[providerId];
         if (!credential) return Promise.resolve(undefined);
         if (credential.type !== "api_key" || credential.key === undefined) {
@@ -222,7 +223,8 @@ export class RunWieldCredentialStore {
         return Promise.resolve(
             Object.entries(this.readData())
                 .filter((entry): entry is [string, ConfiguredCredential] => {
-                    const credential = entry[1];
+                    const [providerId, credential] = entry;
+                    if (providerId === CLAUDE_CLI_PROVIDER) return false;
                     return credential?.type === "oauth" || credential?.type === "api_key";
                 })
                 .map(([providerId, credential]) => ({ providerId, type: credential.type as "oauth" | "api_key" })),
@@ -429,11 +431,13 @@ export class RunWieldModelRegistry {
     async listStoredCredentialProviders(): Promise<Array<{ id: string; name: string; authType: "oauth" | "api_key" }>> {
         const runtime = await this.getRuntime();
         const credentials = await runtime.listCredentials();
-        return credentials.map((credential) => ({
-            id: credential.providerId,
-            name: this.getProviderDisplayName(credential.providerId),
-            authType: credential.type,
-        }));
+        return credentials
+            .filter((credential) => credential.providerId !== CLAUDE_CLI_PROVIDER)
+            .map((credential) => ({
+                id: credential.providerId,
+                name: this.getProviderDisplayName(credential.providerId),
+                authType: credential.type,
+            }));
     }
 
     async getStoredCredentialType(providerId: string): Promise<"oauth" | "api_key" | undefined> {
@@ -472,8 +476,8 @@ export class RunWieldModelRegistry {
             ? Array.from(this.runtime.getModels()) as RunWieldModel[]
             : readBuiltinModels();
         return dedupeModels([
-            ...runtimeModels,
-            ...this.registeredModels.values(),
+            ...runtimeModels.filter((model) => model.provider !== CLAUDE_CLI_PROVIDER),
+            ...Array.from(this.registeredModels.values()).filter((model) => model.provider !== CLAUDE_CLI_PROVIDER),
             ...this.getConfiguredModels(),
             ...getClaudeCliAliasModels(),
         ]);
@@ -487,7 +491,9 @@ export class RunWieldModelRegistry {
         const models = this.runtime
             ? Array.from(this.runtime.getAvailableSnapshot()) as RunWieldModel[]
             : this.getAll().filter((model) => this.hasConfiguredAuth(model));
-        return dedupeModels(models.filter((model) => model.executionBackend !== "claude-cli"));
+        return dedupeModels(
+            models.filter((model) => model.provider !== CLAUDE_CLI_PROVIDER && model.executionBackend !== "claude-cli"),
+        );
     }
 
     find(provider: string, modelId: string): RunWieldModel | undefined {
@@ -518,6 +524,9 @@ export class RunWieldModelRegistry {
             error: string;
         }
     > {
+        if (model.provider === CLAUDE_CLI_PROVIDER || model.executionBackend === "claude-cli") {
+            return { ok: false, error: `No API auth for external CLI provider ${model.provider}` };
+        }
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
         const auth = await runtime.getAuth(model) as AuthResultValue | undefined;
@@ -558,12 +567,14 @@ export class RunWieldModelRegistry {
     }
 
     async getProviderAuth(provider: string): Promise<AuthResultValue | undefined> {
+        if (provider === CLAUDE_CLI_PROVIDER) return undefined;
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
         return await runtime.getAuth(provider) as AuthResultValue | undefined;
     }
 
     async getApiKeyForProvider(provider: string): Promise<string | undefined> {
+        if (provider === CLAUDE_CLI_PROVIDER) return undefined;
         const auth = await this.getProviderAuth(provider);
         return auth?.auth.apiKey || resolveLiteralConfigValue(this.getProviderConfig(provider)?.apiKey);
     }
@@ -576,7 +587,7 @@ export class RunWieldModelRegistry {
     registerProvider(provider: string | ConfiguredProviderInput, config?: ConfiguredProviderInput): void {
         const providerId = typeof provider === "string" ? provider : asString(provider.id, "");
         const providerConfig = typeof provider === "string" ? config : provider;
-        if (!providerId || !providerConfig) return;
+        if (!providerId || !providerConfig || providerId === CLAUDE_CLI_PROVIDER) return;
         this.runtime?.registerProvider(providerId, providerConfig as Parameters<ModelRuntime["registerProvider"]>[1]);
         if (this.runtimePromise && !this.runtime) {
             this.runtimePromise.then((runtime) =>
@@ -606,8 +617,12 @@ export class RunWieldModelRegistry {
 
     getRegisteredProviderIds(): readonly string[] {
         const providers = this.readModelsConfig().providers;
-        const configured = Object.keys(isJsonRecord(providers) ? providers : {});
-        const runtime = this.runtime?.getRegisteredProviderIds() || [];
+        const configured = Object.keys(isJsonRecord(providers) ? providers : {}).filter((provider) =>
+            provider !== CLAUDE_CLI_PROVIDER
+        );
+        const runtime = (this.runtime?.getRegisteredProviderIds() || []).filter((provider) =>
+            provider !== CLAUDE_CLI_PROVIDER
+        );
         return [...new Set([...runtime, ...configured])];
     }
 
@@ -625,7 +640,9 @@ export class RunWieldModelRegistry {
         const providers = this.readModelsConfig().providers;
         if (!isJsonRecord(providers)) return [];
         return Object.entries(providers).flatMap(([provider, config]) =>
-            isJsonRecord(config) ? readConfiguredModels(provider, config as ConfiguredProviderInput) : []
+            provider !== CLAUDE_CLI_PROVIDER && isJsonRecord(config)
+                ? readConfiguredModels(provider, config as ConfiguredProviderInput)
+                : []
         );
     }
 }

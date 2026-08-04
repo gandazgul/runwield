@@ -45,7 +45,7 @@ userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
 worktreeStatus: "abandoned"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Register Claude CLI Backend Models

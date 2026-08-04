@@ -62,13 +62,58 @@ Deno.test("Claude CLI remains outside API auth even when files contain a mislead
         await Deno.writeTextFile(
             join(tempDir, "models.json"),
             JSON.stringify({
-                providers: { "claude-cli": { apiKey: "fake", models: [{ id: "sonnet", name: "Wrong" }] } },
+                providers: {
+                    "claude-cli": {
+                        apiKey: "fake",
+                        models: [{ id: "sonnet", name: "Wrong" }, { id: "configured-only" }],
+                    },
+                },
             }),
         );
         const model = registry.find("claude-cli", "sonnet");
+        assert(model);
         assertEquals(registry.isSelectable(model), true);
         assertEquals(registry.hasConfiguredAuth(model), false);
         assertEquals(registry.getProviderAuthStatus("claude-cli").configured, false);
+        assertEquals(await registry.getProviderAuth("claude-cli"), undefined);
+        assertEquals(await registry.getApiKeyForProvider("claude-cli"), undefined);
+        assertEquals(await registry.getApiKeyAndHeaders(model), {
+            ok: false,
+            error: "No API auth for external CLI provider claude-cli",
+        });
+        assertObjectMatch(model, {
+            name: "Claude CLI Sonnet",
+            executionBackend: "claude-cli",
+            authenticationKind: "external-cli",
+            healthCheck: "execution-preflight",
+        });
+        assertEquals(
+            registry.getAll().filter((entry) => entry.provider === "claude-cli").map((entry) => entry.id),
+            ["sonnet", "opus", "haiku", "fable"],
+        );
+        assertEquals(
+            registry.getSelectable().filter((entry) => entry.provider === "claude-cli").map((entry) => entry.id),
+            ["sonnet", "opus", "haiku", "fable"],
+        );
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("Claude CLI stored credentials are hidden from credential provider listings", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-claude-cli-credentials-" });
+    try {
+        const store = new RunWieldCredentialStore(join(tempDir, "auth.json"));
+        await Deno.writeTextFile(
+            join(tempDir, "auth.json"),
+            JSON.stringify({
+                "claude-cli": { type: "api_key", key: "fake" },
+                openai: { type: "api_key", key: "real" },
+            }),
+        );
+
+        assertEquals(await store.read("claude-cli"), undefined);
+        assertEquals(await store.list(), [{ providerId: "openai", type: "api_key" }]);
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }
