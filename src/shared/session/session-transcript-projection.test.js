@@ -92,6 +92,52 @@ Deno.test("committed projection verifies exact prefix and ignores later tail", a
     });
 });
 
+Deno.test("committed projection replays Claude CLI final messages as ordinary transcript text", async () => {
+    await withHome(async (home) => {
+        const cwd = `${home}/project`;
+        await Deno.mkdir(cwd, { recursive: true });
+        const sessionDir = join(home, ".wld", "sessions", encodeCwdForSessionDir(cwd));
+        await Deno.mkdir(sessionDir, { recursive: true });
+        const sessionPath = join(sessionDir, "2026-01-01T00-00-00-000Z_claude.jsonl");
+        const committed = [
+            { type: "session", id: "claude", cwd, timestamp: "2026-01-01T00:00:00.000Z" },
+            {
+                type: "custom",
+                id: "backend",
+                customType: "runwield.execution_backend",
+                data: { backend: "claude-cli" },
+            },
+            { type: "message", id: "user", message: { role: "user", content: [{ type: "text", text: "hi claude" }] } },
+            { type: "model_change", id: "model", provider: "claude-cli", modelId: "sonnet" },
+            {
+                type: "message",
+                id: "assistant",
+                message: { role: "assistant", content: [{ type: "text", text: "stream complete" }] },
+            },
+        ].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+        await Deno.writeTextFile(sessionPath, committed);
+        const evidence = await captureTranscriptEvidence({
+            transcriptPath: sessionPath,
+            transcriptCwd: cwd,
+            byteLength: new TextEncoder().encode(committed).byteLength,
+        });
+        const projected = await projectCommittedTranscript({
+            cwd,
+            sessionDir,
+            sessionPath,
+            generation: 0,
+            byteLength: evidence.byteLength,
+            terminalEntryId: evidence.terminalEntryId,
+            digestHex: evidence.digestHex,
+        });
+        assertEquals(projected.events.map((event) => event.type), ["user_message", "assistant_text_delta"]);
+        assertEquals(
+            projected.events.map((event) => "text" in event ? event.text : "delta" in event ? event.delta : ""),
+            ["hi claude", "stream complete"],
+        );
+    });
+});
+
 Deno.test("committed projection rejects mismatched evidence", async () => {
     await withHome(async (home) => {
         const cwd = `${home}/project`;

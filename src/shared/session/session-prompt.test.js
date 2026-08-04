@@ -16,6 +16,7 @@ import {
     shouldBypassAutoCompactionForAssistantMessage,
     shouldReuseExistingRootSession,
 } from "./session.js";
+import { getRootExecutionMessages } from "./execution-backend.ts";
 import { HostedSession } from "./hosted-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -577,6 +578,12 @@ sessionPromptTest("ensureRootAgentSession disposes a replacement built after its
 
     await assertRejects(() => build, Error, 'HostedSession "closed-during-build" is disposed');
     assertEquals(replacement.disposeCalls, 1);
+});
+
+sessionPromptTest("backend-neutral root message accessor reads Claude CLI messages", () => {
+    const messages = /** @type {any[]} */ ([{ role: "assistant", content: "claude" }]);
+    const root = { kind: "claude-cli", session: { getMessages: () => messages } };
+    assertEquals(getRootExecutionMessages(/** @type {any} */ (root)), messages);
 });
 
 sessionPromptTest("runRootTurn increments only the target HostedSession root turn metadata", async () => {

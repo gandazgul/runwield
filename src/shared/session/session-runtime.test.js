@@ -191,6 +191,30 @@ async function attachExternalAgentSession(
     return created.sessionId;
 }
 
+Deno.test("SessionRuntime commits a Claude CLI model reconfiguration only after root rebuild succeeds", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({ id: "claude-model-commit", cwd: runtimeProjectRoot() });
+    const previousHandler = () => Promise.resolve({ kind: "complete" });
+    const previousAgentSession = { dispose() {} };
+    session.setRootAgentName("engineer");
+    session.setRootAgentSession(previousAgentSession);
+    session.setActiveOnMessage(previousHandler);
+    const runtime = makeRuntime({ sessionHost });
+    /** @type {import('./session-runtime-events.js').SessionRuntimeEvent[]} */
+    const events = [];
+    runtime.subscribeSessionEvents("claude-model-commit", (event) => {
+        events.push(event);
+    });
+
+    await runtime.reconfigureSessionModel("claude-model-commit", "sonnet", "claude-cli");
+
+    assertEquals(session.getActiveModelState(), { model: "sonnet", provider: "claude-cli" });
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.MODEL_CHANGED).length, 1);
+    const rebuiltRoot = /** @type {any} */ (session.getRootAgentSession());
+    assertEquals(rebuiltRoot?.kind, "claude-cli");
+    rebuiltRoot?.session?.dispose?.();
+});
+
 Deno.test("SessionRuntime restores the previous user model override when active root rebuild fails", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({ id: "model-rollback", cwd: runtimeProjectRoot() });
@@ -208,9 +232,9 @@ Deno.test("SessionRuntime restores the previous user model override when active 
     });
 
     await assertRejects(
-        () => runtime.reconfigureSessionModel("model-rollback", "opus", "claude-cli"),
+        () => runtime.reconfigureSessionModel("model-rollback", "opus", "unknown-provider"),
         Error,
-        "Claude CLI execution backend is not installed yet",
+        "Unknown manual /model override",
     );
 
     assertEquals(session.getActiveModelState(), { model: "sonnet", provider: "anthropic" });

@@ -4,6 +4,7 @@
  * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
+import { getRootExecutionMessages } from "./execution-backend.ts";
 import { runRootTurn } from "./session.js";
 import {
     executePlan,
@@ -181,7 +182,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         // approved_execute) would otherwise trigger duplicate executePlan calls on
         // follow-up questions.
         const rootAgentSession = hostedSession.getRootAgentSession() as RootAgentSessionState | null;
-        const preTurnCount = rootAgentSession?.agent?.state?.messages?.length ?? 0;
+        const preTurnCount = getRootExecutionMessages(hostedSession.getRootAgentSession() as never).length;
         let agentStoppedAttentionRequested = false;
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
