@@ -3,6 +3,9 @@ import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../../testing/process-global-lock.js";
 import { getModelRegistry } from "../../../models/model-registry.ts";
+import { createTaskCompletedTool } from "../../../../tools/task-completed.ts";
+import { HostedSession } from "../../hosted-session.js";
+import { readLatestTaskCompletedOutcome } from "../../../workflow/workflow-results.js";
 import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
 import { ClaudeCliExecutionSession } from "./execution-session.ts";
 import { parseClaudeCliStream } from "./stream-parser.ts";
@@ -18,8 +21,10 @@ async function withTempDir(callback: (dir: string) => Promise<void>): Promise<vo
 
 async function installClaudeFixture(binDir: string, logPath: string): Promise<void> {
     await Deno.mkdir(binDir, { recursive: true });
-    const script =
-        `#!/usr/bin/env -S deno run -A\nconst stdin = await new Response(Deno.stdin.readable).text();\nconst promptIndex = Deno.args.indexOf("--append-system-prompt-file");\nconst promptPath = promptIndex >= 0 ? Deno.args[promptIndex + 1] : "";\nconst promptText = promptPath ? await Deno.readTextFile(promptPath) : "";\nawait Deno.writeTextFile(Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG"), JSON.stringify({ args: Deno.args, stdin, promptText }) + "\\n", { append: true });\nconst output = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT") || "";\nconsole.log(output || JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "fixture" }] } }));\nconsole.log(JSON.stringify({ type: "result", result: output ? JSON.parse(output).result : "fixture", session_id: "external-1", usage: { input_tokens: 1, output_tokens: 2 } }));\n`;
+    const fixturePath = new URL("./testing/fake-claude-mcp-client.ts", import.meta.url).pathname;
+    // The fixture lives in the workspace so its npm imports (the real MCP SDK
+    // client) resolve through the repository deno.json/node_modules.
+    const script = `#!/bin/sh\nexec deno run -A ${JSON.stringify(fixturePath)} "$@"\n`;
     const path = join(binDir, "claude");
     await Deno.writeTextFile(path, script);
     await Deno.chmod(path, 0o755);
@@ -31,6 +36,7 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
         const previousPath = Deno.env.get("PATH");
         const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
         const previousOutput = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT");
+        const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
         await withTempDir(async (root) => {
             const binDir = join(root, "bin");
             const logPath = join(root, "fixture.jsonl");
@@ -46,6 +52,8 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", previousLog);
                 if (previousOutput === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_OUTPUT");
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_OUTPUT", previousOutput);
+                if (previousCalls === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
             }
         });
     });
@@ -198,5 +206,77 @@ Deno.test("Claude CLI execution metadata is sanitized", async () => {
         assertEquals(serialized.includes("append-system-prompt-file"), false);
         assertEquals(serialized.includes("RUNWIELD_CLAUDE_FIXTURE"), false);
         assertStringIncludes(serialized, "external-1");
+    });
+});
+
+Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", async () => {
+    await withClaudeFixture(async (root, logPath) => {
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: root,
+        });
+        const taskTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+        const callsPath = join(root, "mcp-calls.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([
+                { name: "runwield_task_completed", arguments: { message: "mcp accepted" } },
+            ]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "engineer",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+            hostedSession,
+            workflowTools: [taskTool],
+        });
+        const messages = await session.runTurn({ userRequest: "execute" });
+
+        const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+        const argvLine = lines[0];
+        assertEquals(argvLine.args.includes("--mcp-config"), true);
+        assertEquals(argvLine.args.includes("--strict-mcp-config"), false);
+        const configPath = argvLine.args[argvLine.args.indexOf("--mcp-config") + 1];
+
+        const configLine = lines.find((line) => line.mcp?.config);
+        assertEquals(configLine.mcp.config.url.startsWith("http://127.0.0.1:"), true);
+        assertEquals(configLine.mcp.config.authHeaderPresent, true);
+        if (configLine.mcp.config.configMode !== null) {
+            assertEquals(configLine.mcp.config.configMode & 0o777, 0o600);
+        }
+        const authLine = lines.find((line) => line.mcp?.unauthorizedStatus !== undefined);
+        assertEquals(authLine.mcp.unauthorizedStatus, 401);
+        assertEquals(authLine.mcp.wrongTokenStatus, 401);
+        const toolsLine = lines.find((line) => line.mcp?.tools);
+        assertEquals(toolsLine.mcp.tools, ["runwield_task_completed"]);
+        const callsLine = lines.find((line) => line.mcp?.calls);
+        assertEquals(callsLine.mcp.calls[0].name, "runwield_task_completed");
+        assertEquals(callsLine.mcp.calls[0].isError, false);
+
+        // The turn outcome is recorded canonically for existing workflow readers.
+        assertEquals(readLatestTaskCompletedOutcome(messages), true);
+        const branch = manager.getBranch();
+        assertEquals(
+            branch.some((entry) => entry.type === "custom" && entry.customType === "runwield.task_completion"),
+            true,
+        );
+
+        // Config file and loopback listener are gone after the turn.
+        await assertRejects(() => Deno.stat(configPath), Deno.errors.NotFound);
+        await assertRejects(() => fetch(configLine.mcp.config.url), TypeError);
     });
 });

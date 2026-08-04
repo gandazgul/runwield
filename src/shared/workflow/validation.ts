@@ -50,6 +50,7 @@ import {
 } from "./review-ledger.ts";
 import { readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
 import {
+    hasTrustedClaudeMcpReview,
     loadReviewerFeedbackEngineerDef,
     loadReviewerPrompt,
     runFeaturePostVerificationHandoffs,
@@ -77,6 +78,7 @@ import {
 } from "./validation-progress.ts";
 
 export {
+    hasTrustedClaudeMcpReview,
     loadManualQaPrompt,
     loadReviewerFeedbackEngineerDef,
     loadReviewerPrompt,
@@ -1502,11 +1504,12 @@ async function runReviewerRound(
                 sessionManager: reviewerSessionManager,
             });
             if (usedReviewDiffTool(sessionMessages)) inspectedDiff = true;
+            const trustedClaudeMcpReview = hasTrustedClaudeMcpReview(sessionMessages);
             const outcome = readLatestReviewOutcome(sessionMessages);
             const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
             if (!outcome) {
                 lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
-            } else if (!inspectedDiff) {
+            } else if (!inspectedDiff && !trustedClaudeMcpReview) {
                 lastReviewerFailure = "Semantic Reviewer decided without inspecting the diff.";
                 nudgeReason =
                     'You called review_complete without inspecting the diff. Read the changes with review_diff(command: "list") and then review_diff(command: "show", ...) before deciding, then call review_complete again with your decision.';

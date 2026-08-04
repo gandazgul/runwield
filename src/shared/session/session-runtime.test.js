@@ -1475,7 +1475,7 @@ Deno.test({
     ignore: Deno.build.os === "windows",
     fn: async () => {
         const runtime = makeRuntime();
-        const { sessionId } = await runtime.createInteractiveSession({ cwd: STABLE_TEST_CWD });
+        const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
         const pidFile = await Deno.makeTempFile({ prefix: "runwield-local-shell-descendant-" });
         let resolveStarted = () => {};
         const started = new Promise((resolve) => {

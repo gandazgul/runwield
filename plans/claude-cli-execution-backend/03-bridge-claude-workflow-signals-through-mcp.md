@@ -16,12 +16,12 @@ affectedPaths:
 executionAgent: "engineer"
 createdAt: "2026-08-03T18:20:03.232Z"
 updatedAt: "2026-08-03T18:20:03.232Z"
-status: "draft"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 3
 dependencies:
     - "02-add-claude-cli-backend-transcript-tracer-bullet"
+status: "ready_for_work"
 ---
 
 # Bridge Claude Workflow Signals Through MCP

@@ -308,6 +308,34 @@ interface ReviewDiffToolResult {
 }
 
 /**
+ * Whether the latest accepted `review_complete` result came from the trusted
+ * Claude CLI MCP bridge.
+ *
+ * Claude CLI owns its internal read/Bash tool loop and RunWield does not
+ * ingest that internal transcript, so a bridge-stamped accepted result waives
+ * only the Pi-specific `review_diff`-before-verdict prerequisite. The waiver
+ * says nothing about what Claude actually inspected; it is not proof of
+ * inspection and must not generalize to Pi, Attached Mode, arbitrary external
+ * results, or approval with incomplete/open findings.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @returns {boolean}
+ */
+export function hasTrustedClaudeMcpReview(messages: import("@earendil-works/pi-agent-core").AgentMessage[]) {
+    if (!Array.isArray(messages)) return false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") continue;
+        if (!("toolName" in msg) || msg.toolName !== "review_complete") continue;
+        const details = (msg as { details?: { outcome?: unknown; provenance?: unknown } }).details || {};
+        const outcome = details.outcome;
+        if (outcome !== "approved" && outcome !== "feedback") continue;
+        return details.provenance === "claude-cli-mcp";
+    }
+    return false;
+}
+
+/**
  * Open ledger identities a review result failed to mention.
  *
  * The ledger only converges if every round returns a verdict on every open item.
