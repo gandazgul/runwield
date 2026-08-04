@@ -20,6 +20,8 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { HostedSession } from "../session/hosted-session.js";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { WorkflowValidationResult } from "./validation.ts";
+import { createGitPort } from "../git-port.ts";
+import { systemLocalCIPort } from "./validation-local-ci.ts";
 
 const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
 
@@ -232,6 +234,8 @@ export async function runEpicChildContinuation(
         sessionManager,
         finalAgentName: AGENTS.ROUTER,
         executionContext: executionResult.executionContext,
+        git: createGitPort(),
+        localCI: systemLocalCIPort,
         semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
     }));
 }

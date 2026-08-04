@@ -13,7 +13,7 @@ import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 
 import { runIsolatedAgentSession } from "../session/session.js";
-import { type LocalCIPort, runLocalCI, systemLocalCIPort } from "./validation-local-ci.ts";
+import { type LocalCIPort, runLocalCI } from "./validation-local-ci.ts";
 import { verifyPostMergeCandidatePublished } from "./validation-merge-verification.ts";
 import { loadManualQaPrompt, loadReviewerFeedbackEngineerDef, loadReviewerPrompt } from "./validation-prompts.ts";
 import {
@@ -380,7 +380,9 @@ interface RunMechanicalValidationOptions {
  * @param {string} [args.cwd]
  * @param {string} [args.manualQaName]
  * @param {string} [args.manualQaContext]
- * @param {LocalCIPort} [localCI] External local-CI process boundary.
+ * @param {LocalCIPort} localCI External local-CI process boundary. Required on
+ *   purpose: a port with a production default is an override bag wearing a port's
+ *   name, because a caller that passes nothing gets the real thing silently.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
 export async function runMechanicalValidation({
@@ -389,7 +391,7 @@ export async function runMechanicalValidation({
     cwd,
     manualQaName = "quick-fix",
     manualQaContext = "The QUICK_FIX implementation completed and passed automated verification.",
-}: RunMechanicalValidationOptions, localCI: LocalCIPort = systemLocalCIPort): Promise<{
+}: RunMechanicalValidationOptions, localCI: LocalCIPort): Promise<{
     passed: boolean;
     attempts: number;
     reason?: string;

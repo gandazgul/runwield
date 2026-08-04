@@ -194,7 +194,6 @@ export async function startActiveExecutionWorkflow(
             planId: stablePlanId,
             worktreeId: attemptId,
             expectedRevision: canonicalPlan?.revision,
-            recordMetric: () => Promise.resolve(null),
             prepare: async ({ beforePlan, markEffect }) => {
                 const workflow = {
                     planName,
@@ -314,7 +313,6 @@ export async function startActiveExecutionWorkflow(
         worktreeId: attemptId,
         targetRef: resolvedTargetBranch || targetBranch || undefined,
         expectedRevision: canonicalPlanForRevision?.revision,
-        recordMetric: () => Promise.resolve(null),
         prepare: async ({ beforePlan, markEffect, registerRollback }) => {
             const canonicalPlanSource = await loadCanonicalPlanSource(projectRoot, planName);
             if (canonicalPlanSource.kind !== "loaded") {

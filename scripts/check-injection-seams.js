@@ -233,13 +233,138 @@ function isBehavioralCollaborator(name) {
     const normalized = normalizeCollaboratorName(name);
     if (isMachinerySeam(normalized)) return true;
     if (/^[A-Z][A-Za-z0-9_$]*(?:Ctor)?$/.test(normalized)) return true;
-    return /^(?:abort|append|attach|build|checkpoint|clear|complete|create|delete|emit|ensure|exit|fetch|finalize|get|install|list|load|make|mark|merge|now|open|parse|prepare|probe|prompt|read|record|remove|request|resolve|restore|run|save|set|settle|show|stage|start|steer|submit|switch|sync|update|validate|verify|warn|write)(?:$|[A-Z0-9_$])/
+    return /^(?:abort|append|apply|attach|build|check|checkpoint|clear|close|collect|complete|compute|connect|create|delete|detect|dispatch|dispose|emit|ensure|execute|exit|fetch|finalize|find|format|get|handle|install|invoke|list|load|make|mark|merge|notify|now|open|parse|prepare|probe|prompt|publish|query|read|record|refresh|reload|remove|render|report|request|reset|resolve|restore|resume|run|save|schedule|seal|send|set|settle|show|spawn|stage|start|steer|stop|store|submit|subscribe|switch|sync|teardown|track|update|validate|verify|wait|warn|watch|write)(?:$|[A-Z0-9_$])/
         .test(normalized);
+}
+
+/**
+ * Whether a default expression substitutes an implementation rather than supplying data.
+ *
+ * Only consulted once the parameter name already looks behavioral, so this is the
+ * second half of the evidence, not the whole of it. `SCREAMING_SNAKE` names are the
+ * project's spelling for constants (`runtimeTools = DEFAULT_RUNTIME_TOOLS` is a tool
+ * list, not an injected collaborator), and a literal cannot be an implementation at all.
+ *
+ * @param {string} expression
+ */
+function isImplementationDefault(expression) {
+    const name = finalMemberName(expression);
+    if (/^(?:true|false|null|undefined|NaN|Infinity)$/.test(name)) return false;
+    if (/^[A-Z0-9_$]+$/.test(name)) return false;
+    return /^[A-Za-z_$][\w$]*$/.test(name);
+}
+
+/**
+ * Whether a parameter default replaces behavior, by any of three signals.
+ *
+ * The same-name test (`probeGitRepository = probeGitRepositoryFn`) was the only one
+ * for a while, which made "give the implementation a different name" a working way to
+ * disappear from this scan without changing a line of behavior — `notifyRunWieldEvent =
+ * notifyRunWieldEventQuietly` sat unseen on exactly that technicality. So a behavioral
+ * name defaulting to any implementation counts now, and a machinery name counts however
+ * it is spelled.
+ *
+ * The broad rule is deliberately not applied to destructures of an already-required
+ * dependency parameter (`const { restoreTitle = defaultRestoreTitle } = deps`). That is
+ * constructor injection with a convenience default — the shape this check tells people
+ * to migrate *to* — and flagging it would punish the fix. Callers pass `broad: false`
+ * there.
+ *
+ * @param {string} property Declared member or parameter name.
+ * @param {string} local Local binding it lands in.
+ * @param {string} implementation Default expression.
+ * @param {boolean} broad Whether the different-name rule applies at this position.
+ */
+function substitutesImplementation(property, local, implementation, broad) {
+    if (isMachinerySeam(normalizeCollaboratorName(property))) return true;
+    if (!isBehavioralCollaborator(property)) return false;
+    if (normalizeCollaboratorName(local) === normalizeCollaboratorName(implementation)) return true;
+    return broad && isImplementationDefault(implementation);
 }
 
 /** @param {string} expression */
 function finalMemberName(expression) {
     return expression.trim().split(/\s*(?:\?\.|\.)\s*/).at(-1) || "";
+}
+
+/**
+ * A name that reads as the production implementation of a capability:
+ * `SYSTEM_BROWSER_PORT`, `systemLocalCIPort`, `defaultCommandRegistry`,
+ * `createGitPort`.
+ */
+const CAPABILITY_IMPLEMENTATION = /^(?:(?:SYSTEM|DEFAULT)_[A-Z0-9_]+|(?:system|default|create)[A-Z][\w$]*)$/;
+
+/**
+ * An implementation named as a capability rather than a value: `SYSTEM_BROWSER_PORT`,
+ * `DEFAULT_GITHUB_CLI`, `defaultCommandRegistry`, `createRemoteWorkspaceAdapter`.
+ *
+ * This is a list of nouns, which is usually the weak kind of rule — it is here only
+ * because it is checked against the *implementation's* name, where the project already
+ * spells out what the thing is. `DEFAULT_WAIT_TIMEOUT_MS` is a number and says so.
+ */
+const CAPABILITY_NAMED = /(?:PORT|Port|CLI|Cli|CLIENT|Client|REGISTRY|Registry|ADAPTER|Adapter)$/;
+
+/**
+ * Ports handed a production default through a fallback.
+ *
+ * Three spellings of one shape, all requiring the implementation to be passed *whole* —
+ * a bare identifier or a factory call, never a field read. `DEFAULT_FRONT_MATTER.summary`
+ * reaches into a constant for a value, which is data with a default; `SYSTEM_BROWSER_PORT`
+ * is a capability with a fallback. Without that distinction the front-matter defaults all
+ * over plan-store.js would land in the baseline as imaginary seams.
+ *
+ * @param {string} text Comment-free source.
+ * @returns {string[]}
+ */
+function collectCapabilityFallbacks(text) {
+    /** @type {string[]} */
+    const found = [];
+    /** @param {string} name Local binding the fallback lands in. */
+    const isInvoked = (name) =>
+        new RegExp(`\\b${name}\\s*(?:\\(|(?:\\?\\.|\\.)\\s*[A-Za-z_$][\\w$]*\\s*\\()`).test(text);
+
+    // Any position: `X.prop || SYSTEM_PROP_PORT`. Where the capability is used decides
+    // nothing — a port passed straight into a call (`run(argv, options.sessionPort ||
+    // DEFAULT_SESSION_PORT)`) is the same seam as one bound to a local first, and an
+    // earlier version that keyed on the surrounding syntax missed exactly those.
+    for (
+        const fallback of text.matchAll(
+            /[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*)\s*(?![.\w])/g,
+        )
+    ) {
+        const [, property, implementation] = fallback;
+        if (CAPABILITY_IMPLEMENTATION.test(implementation) && CAPABILITY_NAMED.test(implementation)) {
+            found.push(property);
+        }
+    }
+
+    // A capability whose implementation is not named like one still counts when the
+    // binding it lands in is invoked. `defaultCommandRegistry` happens to end in a noun
+    // this recognizes; the next one will not, and calling it is the durable evidence.
+    for (
+        const fallback of text.matchAll(
+            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*)\s*(?![.\w])/g,
+        )
+    ) {
+        const [, binding, property, implementation] = fallback;
+        if (CAPABILITY_IMPLEMENTATION.test(implementation) && isInvoked(binding)) found.push(property);
+    }
+
+    // `await (options.browser || SYSTEM_BROWSER).open(url)` — invoked in place, so the
+    // pattern itself carries the evidence and there is no binding to look up.
+    //
+    // The lookbehind is what makes it mean that. Without it, an argument list reads the
+    // same way: in `waitForIdle?.(scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS).catch(…)`
+    // the parens belong to the call and `.catch` chains off its result, so a timeout in
+    // milliseconds was recorded as an injected capability being invoked.
+    for (
+        const fallback of text.matchAll(
+            /(?<![\w$)\].])\(\s*[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*([A-Za-z_$][\w$]*)\s*\)\s*(?:\?\.|\.)\s*[A-Za-z_$][\w$]*\s*\(/g,
+        )
+    ) {
+        if (CAPABILITY_IMPLEMENTATION.test(fallback[2])) found.push(fallback[1]);
+    }
+    return found;
 }
 
 /**
@@ -387,6 +512,23 @@ export function collectSeamNames(text) {
         names.add(read[2]);
     }
 
+    // Capability fallbacks: `const browser = options.browser || SYSTEM_BROWSER_PORT`.
+    //
+    // A port property that is optional with a production default is an override bag
+    // wearing a port's name: a caller passing nothing silently gets the real thing, and
+    // nothing at the call site shows which one ran. The same-name rule above cannot see
+    // these because the two sides never share a name — `localCI` falls back to
+    // `systemLocalCIPort`, `browser` to `SYSTEM_BROWSER_PORT` — and the names are nouns,
+    // so the behavioral-verb test rejects them too. Being nouns is exactly how a whole
+    // class of them sat unrecorded.
+    //
+    // Evidence is deliberately usage-based rather than another list of noun spellings:
+    // the fallback counts when the result is *invoked*. `overrides.summary ??
+    // DEFAULT_FRONT_MATTER.summary` picks a value out of a constant and never calls it;
+    // `options.browser || SYSTEM_BROWSER_PORT` is opened. Reaching into a constant for a
+    // field is the other tell, so the implementation has to be handed over whole.
+    for (const capability of collectCapabilityFallbacks(scannedText)) names.add(capability);
+
     // Structural fallback: the member name and its production implementation are
     // the same after removing conventional `_`, `Fn`, and `Impl` affixes. This sees
     // `options._buildAgentSession || buildAgentSession` without needing to guess what
@@ -407,6 +549,26 @@ export function collectSeamNames(text) {
     // Destructuring defaults hide the same choice in a parameter declaration:
     // `{ recordMetric: recordMetricImpl = recordMetric }` or
     // `{ finalizePlanImplementation = finalizePlanImplementationFn }`.
+    //
+    // A default written into a parameter list is a seam the caller opts into. The same
+    // text inside a `const { … } = deps` statement is an already-required dependency
+    // being unpacked, with a convenience default — constructor injection, the shape this
+    // check tells people to migrate *to*. Both are scanned; only the former gets the
+    // broad different-name rule, and the distinction has to be positional rather than
+    // per-pattern or a trailing comma decides it.
+    const statementDestructureRanges = [...scannedText.matchAll(/(?:const|let|var)\s*\{/g)].map((match) => {
+        const open = (match.index || 0) + match[0].lastIndexOf("{");
+        let depth = 0;
+        for (let cursor = open; cursor < scannedText.length; cursor++) {
+            if (scannedText[cursor] === "{") depth++;
+            if (scannedText[cursor] === "}") depth--;
+            if (depth === 0) return [open, cursor];
+        }
+        return [open, scannedText.length];
+    });
+    /** @param {number} index */
+    const allowsBroadRule = (index) =>
+        !statementDestructureRanges.some(([open, close]) => index > open && index < close);
     for (
         const fallback of scannedText.matchAll(
             /(?:^|[{,]\s*)([A-Za-z_$][\w$]*)(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*=\s*([A-Za-z_$][\w$]*)(?=\s*[,}])/gm,
@@ -416,24 +578,25 @@ export function collectSeamNames(text) {
         const local = fallback[2] || property;
         const implementation = fallback[3];
         if (
-            normalizeCollaboratorName(local) === normalizeCollaboratorName(implementation) &&
-            isBehavioralCollaborator(property)
+            substitutesImplementation(property, local, implementation, allowsBroadRule(fallback.index || 0))
         ) names.add(property);
     }
 
     // Positional parameter defaults are another spelling of the same seam:
     // `getModelRegistry = getModelRegistryFn` and `readTextFile = Deno.readTextFile`.
+    //
+    // The optional annotation group matters: without it `log: CommandLog = console.log`
+    // parsed as the parameter being called `CommandLog`, which is capitalized and so
+    // looked behavioral. That reported a *type name* as the injected collaborator —
+    // a seam nobody could act on, in a module that had not done anything wrong.
     for (
         const fallback of scannedText.matchAll(
-            /\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*(?=[,)])/g,
+            /\b([A-Za-z_$][\w$]*)\s*(?::[^=,()<>!]*)?(?<![=!<>])=(?!=)\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*(?=[,)])/g,
         )
     ) {
         const local = fallback[1];
         const implementation = finalMemberName(fallback[2]);
-        if (
-            normalizeCollaboratorName(local) === normalizeCollaboratorName(implementation) &&
-            isBehavioralCollaborator(local)
-        ) {
+        if (substitutesImplementation(local, local, implementation, allowsBroadRule(fallback.index || 0))) {
             names.add(normalizeCollaboratorName(local));
         }
     }
@@ -1037,6 +1200,16 @@ if (import.meta.main) {
                 "argument, with no production fallback. Everything else is ours — import it and call it directly,\n" +
                 "and test it against a real fixture environment. Editing this script or hand-editing the baseline\n" +
                 "to accommodate a new seam is the same circumvention by another route.",
+        );
+        sections.push(
+            "Equally: do not over-correct. The baseline is a ratchet, not a refactor queue — nothing here asks\n" +
+                "you to go remove seams you did not introduce, and a module already in the baseline is allowed to\n" +
+                "stay exactly as it is. Parameter defaults are matched by a deliberately broad heuristic (a\n" +
+                "behavioural-looking name defaulting to any implementation), so it will occasionally name\n" +
+                "something that is really a data default or a genuine required port. If that happens, say so and\n" +
+                "leave the code alone — a false positive is a reason to narrow the heuristic here, with a test\n" +
+                "pinning the case, not a reason to restructure a module that was already right. Changing working\n" +
+                "code to satisfy a check that misread it is its own kind of damage.",
         );
         console.error(sections.join("\n\n"));
         Deno.exit(1);

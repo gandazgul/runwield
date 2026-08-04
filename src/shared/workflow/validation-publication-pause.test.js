@@ -10,10 +10,10 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { mergeExecutionWorktree, removeWorktreeGitArtifacts } from "../worktree.js";
+import { createGitPort } from "../git-port.ts";
 import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.js";
 import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
-import { runValidationLoop } from "./validation.ts";
-import { attachRecorder, makeUi } from "./validation-test-helpers.js";
+import { attachRecorder, makeUi, runValidationLoop } from "./validation-test-helpers.js";
 import { HostedSession } from "../session/hosted-session.js";
 
 const PLAN_NAME = "publication-pause";
@@ -107,6 +107,7 @@ function runPublication(projectRoot, hostedSession) {
             planContent: `# ${PLAN_NAME}`,
             projectRoot,
             triageMeta: TRIAGE,
+            git: createGitPort(),
         }),
     );
 }

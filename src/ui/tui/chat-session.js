@@ -35,6 +35,7 @@ import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
+import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 import { createManagedSessionSyncController } from "./managed-session-sync.js";
 import { SpinnerBlock } from "./blocks.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
@@ -507,7 +508,13 @@ export function getActiveModel(runtime, sessionId) {
 export async function runScopedSubmitHandoffLoop(
     { runtime, sessionId, uiAPI, initialRequest, initialImages },
 ) {
-    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI, browser: SYSTEM_BROWSER_PORT });
+    const adapter = attachTuiRuntimeAdapter({
+        runtime,
+        sessionId,
+        uiAPI,
+        browser: SYSTEM_BROWSER_PORT,
+        notifyRunWieldEvent: notifyRunWieldEventQuietly,
+    });
     try {
         await runtime.promptUserTurn(sessionId, { initialRequest, initialImages });
     } finally {
@@ -912,6 +919,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         sessionId: sessionId,
         uiAPI,
         browser: options.browser || SYSTEM_BROWSER_PORT,
+        notifyRunWieldEvent: notifyRunWieldEventQuietly,
         onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
     });
     const managedSyncController = createManagedSessionSyncController({
@@ -969,6 +977,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             sessionId: sessionId,
             uiAPI,
             browser: options.browser || SYSTEM_BROWSER_PORT,
+            notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
         pastedImages.length = 0;

@@ -4,9 +4,16 @@ import { createSessionRuntimeEvent, RuntimeEventTypes } from "../../shared/sessi
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { attachTuiRuntimeAdapter as attachRuntimeAdapter } from "./runtime-adapter.js";
 
-/** @param {Omit<Parameters<typeof attachRuntimeAdapter>[0], "browser">} options */
+/**
+ * @param {Omit<Parameters<typeof attachRuntimeAdapter>[0], "browser" | "notifyRunWieldEvent"> & { notifyRunWieldEvent?: Parameters<typeof attachRuntimeAdapter>[0]["notifyRunWieldEvent"] }} options
+ */
 function attachTuiRuntimeAdapter(options) {
-    return attachRuntimeAdapter({ ...options, browser: NO_OPEN_BROWSER_PORT });
+    const { notifyRunWieldEvent = () => {}, ...adapterOptions } = options;
+    return attachRuntimeAdapter({
+        ...adapterOptions,
+        browser: NO_OPEN_BROWSER_PORT,
+        notifyRunWieldEvent,
+    });
 }
 
 function makeUi() {

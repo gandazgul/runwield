@@ -1,12 +1,12 @@
 import { assertEquals } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop } from "./validation.ts";
 import {
     makeRecordedSession,
     makeUi,
     makeValidationProjectRoot,
     NO_ISOLATED_AGENT_PORT,
+    runValidationLoop,
 } from "./validation-test-helpers.js";
 
 function makeValidationUi() {

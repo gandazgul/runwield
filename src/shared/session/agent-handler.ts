@@ -16,6 +16,7 @@ import {
 import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
 import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
+import { createGitPort } from "../git-port.ts";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "../workflow/decisions.js";
 import { recordWorkflowMetric } from "../workflow/metrics.js";
 import {
@@ -380,6 +381,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     sessionManager,
                     executionContext: executionResult.executionContext,
                     finalAgentName: agentName,
+                    git: createGitPort(),
+                    localCI: systemLocalCIPort,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 if (validationResult?.epicContinuation) {
@@ -481,7 +484,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     cwd: workflow.executionCwd || projectRoot,
                     manualQaName: workflow.manualQaName,
                     manualQaContext: workflow.manualQaContext,
-                });
+                }, systemLocalCIPort);
                 acknowledgeCompletion();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
@@ -548,6 +551,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     triageMeta: workflow.triageMeta,
                     sessionManager,
                     finalAgentName: agentName,
+                    git: createGitPort(),
+                    localCI: systemLocalCIPort,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
                 if (validationResult?.epicContinuation) {

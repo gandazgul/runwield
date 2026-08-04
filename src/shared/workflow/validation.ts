@@ -16,7 +16,6 @@ import type { RuntimeValidationProgress } from "../session/session-runtime-event
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { getCodeReviewMode, getGuidedReviewMode, shouldCleanupMergedWorktrees } from "../settings.js";
-import { createGitPort } from "../git-port.ts";
 import {
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
@@ -60,7 +59,7 @@ import {
     usedReviewDiffTool,
     verifyPostMergeCandidatePublished,
 } from "./validation-helpers.ts";
-import { type LocalCIPort, systemLocalCIPort } from "./validation-local-ci.ts";
+import type { LocalCIPort } from "./validation-local-ci.ts";
 import { readRepairedMergeCandidate } from "./validation-merge-verification.ts";
 import {
     clearValidationPosition,
@@ -168,9 +167,9 @@ type ValidationLoopArgs = {
     hostedSession: HostedSession;
     finalAgentName?: string;
     executionContext?: ActiveExecutionWorkflow;
-    git?: GitPort;
+    git: GitPort;
     semanticReviewPort: SemanticReviewPort;
-    localCI?: LocalCIPort;
+    localCI: LocalCIPort;
     workRecordMnemosynePort?: WorkRecordMnemosynePort;
 };
 
@@ -223,7 +222,7 @@ const REVIEWER_TOOL_NAMES = ["read", "grep", "find", "ls", "review_diff", "revie
 
 export const runMechanicalValidation = runQuickFixMechanicalValidation as (
     args: MechanicalValidationArgs,
-    localCI?: LocalCIPort,
+    localCI: LocalCIPort,
 ) => Promise<{ passed: boolean; attempts: number; reason?: string }>;
 
 /**
@@ -438,7 +437,7 @@ async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<V
     const phase = await resolvePhaseContext(args);
     if (phase.kind === "blocked") return phase.result;
 
-    const localCI = args.localCI || systemLocalCIPort;
+    const localCI = args.localCI;
     // Counted here rather than re-read from `args` each pass, because a user Retry
     // buys a fresh set of rounds: the `validation_failed` recorded below resets the
     // durable counter, and this has to follow it or the very next run would report
@@ -855,7 +854,7 @@ async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<Validat
             // the dispatch above pinned it to.
             rememberValidationPosition(args.hostedSession, args.planName, { phase: "semantic" });
             emitStatus(args.hostedSession, `Running CI Validation in ${context.executionCwd}.`);
-            const ciResult = await (args.localCI || systemLocalCIPort).run({
+            const ciResult = await args.localCI.run({
                 hostedSession: args.hostedSession,
                 cwd: context.executionCwd,
             });
@@ -1128,7 +1127,7 @@ async function runPublicationPhase(
     }
 
     const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(context.projectRoot);
-    const gitPort = args.git || createGitPort();
+    const gitPort = args.git;
     const planPath = `plans/${args.planName}.md`;
     const storedRepairWorktree = await resolveStoredValidationMergeRepairWorktree(args, context);
     if (storedRepairWorktree.kind === "blocked") return storedRepairWorktree.outcome;

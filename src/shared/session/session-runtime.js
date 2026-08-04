@@ -1129,11 +1129,15 @@ export class SessionRuntime {
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
             const { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
+            const { createGitPort } = await import("../git-port.ts");
+            const { systemLocalCIPort } = await import("../workflow/validation-local-ci.ts");
             const { loadPlan } = await import("../../plan-store.js");
+            const validationPorts = { git: createGitPort(), localCI: systemLocalCIPort };
             let latestResult = await runValidationLoop(
                 /** @type {any} */ ({
                     ...options,
                     hostedSession: session,
+                    ...validationPorts,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 }),
             );
@@ -1149,6 +1153,7 @@ export class SessionRuntime {
                         hostedSession: session,
                         planContent: plan.markdown || plan.body || options.planContent,
                         triageMeta: { ...options.triageMeta, ...plan.attrs },
+                        ...validationPorts,
                         semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     }),
                 );

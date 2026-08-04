@@ -16,6 +16,7 @@ import {
     runValidationOutcomeTransition,
 } from "./state-transition.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
+import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 
 async function makeProject() {
     return await Deno.makeTempDir({ prefix: "runwield-state-transition-" });
@@ -384,6 +385,34 @@ Deno.test("Plan front matter transition commits and removes settled journal", as
     }
 });
 
+Deno.test("Plan front matter transition records its committed metric through the real recorder", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        await savePlan(projectRoot, "metric-demo", "# Metric demo", {
+            status: "draft",
+            classification: "FEATURE",
+        });
+
+        const result = await runPlanFrontMatterTransition({
+            projectRoot,
+            planName: "metric-demo",
+            operation: "metric_test_status",
+            updates: { status: "approved" },
+        });
+
+        assertEquals(result.status, "committed");
+        const metrics = await readMetrics();
+        assertEquals(
+            metrics.some((metric) =>
+                metric.category === "recovery" &&
+                metric.event === "plan_transition_committed" &&
+                metric.planName === "metric-demo" &&
+                metric.details?.operation === "metric_test_status"
+            ),
+            true,
+        );
+    });
+});
+
 Deno.test("stale transition preconditions block without leaving unresolved recovery journals", async () => {
     const cwd = await makeProject();
     try {
@@ -734,7 +763,6 @@ Deno.test("semantic transitions allow nested same-Plan lifecycle events they own
                 return attrs;
             },
             verifyPreparation: () => ({ planName: "nested" }),
-            recordMetric: () => Promise.resolve(null),
         });
         assertEquals(transition.status, "committed");
         assertEquals((await loadPlan(cwd, "nested"))?.attrs.status, "in_progress");
@@ -765,7 +793,6 @@ Deno.test("transitions block unresolved journals even when the Plan file is miss
             planName: "missing",
             worktreeId: "wt-missing",
             prepare: () => Promise.resolve({ ok: true }),
-            recordMetric: () => Promise.resolve(null),
         });
         assertEquals(semantic.status, "blocked");
         const planOnly = await runPlanFrontMatterTransition({

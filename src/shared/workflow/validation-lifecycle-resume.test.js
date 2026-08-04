@@ -1,6 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { runValidationPhase } from "./validation.ts";
-import { makeValidationProjectRoot, NO_ISOLATED_AGENT_PORT } from "./validation-test-helpers.js";
+import { makeValidationProjectRoot, NO_ISOLATED_AGENT_PORT, runValidationPhase } from "./validation-test-helpers.js";
 
 /** @param {string} projectRoot */
 function makeHostedSession(projectRoot) {

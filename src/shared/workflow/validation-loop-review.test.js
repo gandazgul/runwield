@@ -1,8 +1,13 @@
 import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationPhase } from "./validation.ts";
-import { git, makeRecordedSession, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import {
+    git,
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    runValidationPhase,
+} from "./validation-test-helpers.js";
 
 function makeValidationUi() {
     const uiAPI = makeUi();

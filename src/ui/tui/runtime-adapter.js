@@ -7,7 +7,6 @@ import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.j
 import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
-import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
 
@@ -63,7 +62,7 @@ const activeAdapters = new WeakMap();
  * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('../../shared/browser-port.ts').BrowserPort} browser
- * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
+ * @property {typeof import('./system-notifications.ts').notifyRunWieldEventQuietly} notifyRunWieldEvent
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  */
 
@@ -87,7 +86,7 @@ export function attachTuiRuntimeAdapter({
     sessionId,
     uiAPI,
     browser,
-    notifyRunWieldEvent = notifyRunWieldEventQuietly,
+    notifyRunWieldEvent,
     onSessionReplaced,
 }) {
     let registrations = activeAdapters.get(runtime);

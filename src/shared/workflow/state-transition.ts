@@ -96,7 +96,6 @@ interface TransitionOptionsBase {
     worktreeId?: string;
     targetRef?: string;
     expectedRevision?: string;
-    recordMetric?: typeof recordWorkflowMetric;
 }
 
 const activeSemanticTransitions = new AsyncLocalStorage<Set<string>>();
@@ -487,7 +486,6 @@ async function runSemanticTransition<T>(
         postconditions = {},
         expectedEffects = [],
         verify,
-        recordMetric = recordWorkflowMetric,
         irreversibleEffects = [],
         supersedesUnresolved = false,
     }: TransitionOptionsBase & {
@@ -715,7 +713,7 @@ async function runSemanticTransition<T>(
                         const supersededId = String(superseded.transitionId || "");
                         if (supersededId) await removeJournal(projectRoot, supersededId);
                     }
-                    await recordMetric({
+                    await recordWorkflowMetric({
                         category: "recovery",
                         event: "semantic_transition_committed",
                         planName,
@@ -819,7 +817,6 @@ export async function runExecutionPreparationTransition<T>(
         expectedRevision,
         prepare,
         verifyPreparation,
-        recordMetric,
     }: TransitionOptionsBase & {
         prepare: (ctx: RollbackTransitionContext) => Promise<T>;
         verifyPreparation?: (value: T, ctx: BaseTransitionContext) => Promise<unknown> | unknown;
@@ -844,7 +841,6 @@ export async function runExecutionPreparationTransition<T>(
             );
             return value;
         },
-        recordMetric,
         recoveryActions: [
             ...planAction(planName),
             {
@@ -862,7 +858,7 @@ export async function runExecutionPreparationTransition<T>(
  * unless it records its own external proof before mutating Git or registry state.
  */
 async function runPlanTransition<T>(
-    { projectRoot, planName, operation, apply, expectedRevision, recordMetric = recordWorkflowMetric }:
+    { projectRoot, planName, operation, apply, expectedRevision }:
         & TransitionOptionsBase
         & { operation: string; apply: (ctx: BaseTransitionContext) => Promise<T> },
 ): Promise<TransitionResult> {
@@ -963,7 +959,7 @@ async function runPlanTransition<T>(
                 committedAt: new Date().toISOString(),
             });
             await removeJournal(projectRoot, transitionId);
-            await recordMetric({
+            await recordWorkflowMetric({
                 category: "recovery",
                 event: "plan_transition_committed",
                 planName,

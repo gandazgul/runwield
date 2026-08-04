@@ -425,3 +425,110 @@ Deno.test("collectSeamNames leaves a required imported singular capability port 
 
     assertEquals(names, []);
 });
+
+Deno.test("collectSeamNames detects a parameter default bound to a differently-named implementation", () => {
+    // The same-name test was the whole rule for a while, which made "give the
+    // implementation another name" a working way to leave this scan without changing a
+    // line of behavior. Both of these were live in the tree under a green ratchet.
+    const names = collectSeamNames(`
+        export function attachTuiRuntimeAdapter({
+            runtime,
+            sessionId,
+            notifyRunWieldEvent = notifyRunWieldEventQuietly,
+        }) {
+            return notifyRunWieldEvent(runtime, sessionId);
+        }
+        export async function applyTransition(
+            { projectRoot, planName, recordMetric = recordWorkflowMetric }: TransitionOptions,
+        ) {
+            await recordMetric({ projectRoot, planName });
+        }
+    `);
+
+    assertEquals(names, ["notifyRunWieldEvent", "recordMetric"]);
+});
+
+Deno.test("collectSeamNames flags machinery behind a default however the implementation is named", () => {
+    // A machinery name is a seam whatever it defaults to: the different-name rule is a
+    // heuristic, but "RunWield transactions must not be replaceable" is not.
+    const names = collectSeamNames(`
+        export function repair(planName, finalizePlanImplementation = commitTheWholeThing) {
+            return finalizePlanImplementation(planName);
+        }
+    `);
+
+    assertEquals(names, ["finalizePlanImplementation"]);
+});
+
+Deno.test("collectSeamNames leaves a convenience default on an already-required dependency alone", () => {
+    // Unpacking a required deps parameter is constructor injection — the shape this
+    // check tells people to migrate *to*. Whether the destructure ends in a trailing
+    // comma must not decide it, which is why the rule is scoped by position rather than
+    // by which pattern happened to match first.
+    const names = collectSeamNames(`
+        interface TuiManagerDeps {
+            TerminalCtor: TerminalConstructor;
+            installCrashGuards(): void;
+            restoreTitle?: () => void;
+        }
+        export function createTuiManager(deps: TuiManagerDeps) {
+            const {
+                TerminalCtor,
+                installCrashGuards,
+                restoreTitle = defaultRestoreTitle,
+            } = deps;
+            return { TerminalCtor, installCrashGuards, restoreTitle };
+        }
+    `);
+
+    assertEquals(names, []);
+});
+
+Deno.test("collectSeamNames does not mistake a type annotation or a comparison for an injected default", () => {
+    // `log: CommandLog = console.log` once reported `CommandLog` — a type name, not
+    // anything injectable — because the annotation was parsed as the parameter name and
+    // capitalized names read as behavioral. `>=` split the same way once the annotation
+    // group could span it, inventing a seam out of an array-length check.
+    const names = collectSeamNames(`
+        type CommandLog = (message?: string) => void;
+        export function runInstall(
+            args: string[],
+            log: CommandLog = console.log,
+            localCI: LocalCIPort = systemLocalCIPort,
+        ) {
+            return { args, log, localCI };
+        }
+        export function projectWindow(events, startIndex, selected) {
+            return {
+                complete: startIndex + selected.length >= events.length,
+            };
+        }
+    `);
+
+    assertEquals(names, []);
+});
+
+Deno.test("collectSeamNames detects optional capability properties with production fallbacks", () => {
+    const names = collectSeamNames(`
+        const localCI = args.localCI || systemLocalCIPort;
+        await localCI.run({ cwd });
+        const gitPort = args.git || createGitPort();
+        await gitPort.captureTree(cwd);
+        await (options.browser || SYSTEM_BROWSER_PORT).open(url);
+        const registry = options.commandRegistry || defaultCommandRegistry;
+        registry.resolve(commandName);
+    `);
+
+    assertEquals(names, ["browser", "commandRegistry", "git", "localCI"]);
+});
+
+Deno.test("collectSeamNames leaves ordinary optional data fallbacks alone", () => {
+    const names = collectSeamNames(`
+        const interval = options.interval || DEFAULT_POLL_INTERVAL_MS;
+        const frontMatter = options.frontMatter || DEFAULT_FRONT_MATTER;
+        const title = options.title || defaultTitle;
+        const registry = options.registry || new Map();
+    `);
+
+    assertEquals(names, []);
+});

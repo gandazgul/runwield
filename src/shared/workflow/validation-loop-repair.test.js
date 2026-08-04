@@ -6,12 +6,13 @@ import { loadPlan } from "../../plan-store.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
-import { runValidationLoop, runValidationPhase } from "./validation.ts";
 import {
     attachRecorder,
     makeUi,
     makeValidationProjectRoot,
     NO_ISOLATED_AGENT_PORT,
+    runValidationLoop,
+    runValidationPhase,
 } from "./validation-test-helpers.js";
 
 function makeValidationUi(cwd = Deno.cwd()) {

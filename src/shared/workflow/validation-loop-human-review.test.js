@@ -1,7 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
-import { runValidationLoop, runValidationPhase } from "./validation.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import {
     attachRecorder,
@@ -10,6 +9,8 @@ import {
     makeUi,
     makeValidationProjectRoot,
     NO_ISOLATED_AGENT_PORT,
+    runValidationLoop,
+    runValidationPhase,
 } from "./validation-test-helpers.js";
 
 function makeValidationUi() {

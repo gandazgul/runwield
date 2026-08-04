@@ -1,5 +1,9 @@
 import { HostedSession } from "../session/hosted-session.js";
 import { createSessionRuntimeEvent } from "../session/session-runtime-events.js";
+import {
+    runValidationLoop as runValidationLoopImpl,
+    runValidationPhase as runValidationPhaseImpl,
+} from "./validation.ts";
 
 /**
  * @param {string} cwd
@@ -198,6 +202,33 @@ export function makeStubGitPort(overrides = {}) {
         diffAgainstTree: () => Promise.resolve(""),
         ...overrides,
     };
+}
+
+/**
+ * Required external boundaries for validation tests that do not exercise them.
+ *
+ * Git is a stable, stateless fake because it is an external subprocess boundary.
+ * CI fails loudly so a phase change cannot accidentally run a nested real test suite.
+ */
+export const UNEXPECTED_VALIDATION_PORTS = Object.freeze({
+    git: makeStubGitPort(),
+    localCI: Object.freeze({
+        run: () => Promise.reject(new Error("Unexpected Local CI run in validation test")),
+    }),
+});
+
+/**
+ * @typedef {Omit<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI"> & Partial<Pick<Parameters<typeof runValidationLoopImpl>[0], "git" | "localCI">>} ValidationTestArgs
+ */
+
+/** Run the public loop with explicit external-boundary fixtures. @param {ValidationTestArgs} args */
+export function runValidationLoop(args) {
+    return runValidationLoopImpl({ ...UNEXPECTED_VALIDATION_PORTS, ...args });
+}
+
+/** Run one public phase with explicit external-boundary fixtures. @param {ValidationTestArgs} args */
+export function runValidationPhase(args) {
+    return runValidationPhaseImpl({ ...UNEXPECTED_VALIDATION_PORTS, ...args });
 }
 
 /**

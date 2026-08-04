@@ -57,6 +57,7 @@ import {
     SYSTEM_SEMANTIC_REVIEW_PORT,
 } from "./validation.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
+import { createGitPort } from "../git-port.ts";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
 
@@ -626,6 +627,7 @@ export async function dispatchPostTriage({
                     sessionManager,
                     finalAgentName: agentName,
                     executionContext: executionResult.executionContext,
+                    git: createGitPort(),
                     localCI,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });

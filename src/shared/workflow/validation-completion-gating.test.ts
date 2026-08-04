@@ -6,12 +6,12 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
-import { runValidationLoop } from "./validation.ts";
 import {
     attachRecorder,
     makeUi,
     makeValidationProjectRoot,
     NO_ISOLATED_AGENT_PORT,
+    runValidationLoop,
 } from "./validation-test-helpers.js";
 
 type RepairRunOptions = {

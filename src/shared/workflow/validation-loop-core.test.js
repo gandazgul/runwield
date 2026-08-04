@@ -5,7 +5,7 @@ import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
 import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js";
-import { runValidationLoop, runValidationPhase, shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { createExecutionStartPorts } from "./execution-start.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
 import {
@@ -14,6 +14,8 @@ import {
     makeUi,
     makeValidationProjectRoot,
     NO_ISOLATED_AGENT_PORT,
+    runValidationLoop,
+    runValidationPhase,
 } from "./validation-test-helpers.js";
 
 const footerExecutionRepo = defineGitFixture(async (repoPath) => {
