@@ -48,7 +48,7 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T22:07:46-04:00"
-updatedAt: "2026-08-04T03:56:37.240Z"
+updatedAt: "2026-08-04T04:08:11.956Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -56,7 +56,7 @@ order: 2
 dependencies:
     - "01-register-claude-cli-backend-models"
 implementedAt: "2026-08-04T02:59:06.790Z"
-verifiedAt: "2026-08-04T03:56:37.240Z"
+verifiedAt: "2026-08-04T04:08:11.956Z"
 userVerifiedAt: null
 executionReport: "- Implemented the Claude CLI execution backend tracer bullet: added backend-neutral execution sessions, Claude CLI command/process/stream parsing/execution modules, model dispatch, root/isolated turn routing, transcript replay/persistence, live deltas, usage, and sanitized `runwield.execution_backend` metadata.\n- Preserved Pi behavior while routing only `claude-cli/*` models through the new subprocess backend; Pi root sessions remain plain `AgentSession` objects for existing runtime/test compatibility, and no new internal dependency seams were added.\n- Updated docs/tests for Execution Backend terminology, Claude CLI model selection, backend command/parser/session behavior, root/isolated vertical execution, transcript projection, runtime/prompt/session compatibility, and shared-practice assertion brittleness; tests were added/rewritten for the new backend behavior, none were removed.\n- Verification passed: `deno task ci` completed successfully (`242 files passed | 0 failed`), including `deno task seams:check` (`73 seam(s) across 28 module(s), baseline holds`)."
 humanReviewMode: "ask"
@@ -65,9 +65,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "d1e26f897c276854d51b81bb5345b47ca97cd050"
+    executionCommit: "aef450db8da6437775dbdf2d666398309c11b3e9"
     targetBranch: "main"
-    targetHeadBeforeMerge: "0976f4019c8b8cd6410ff8a06dfe9cf14abd6881"
+    targetHeadBeforeMerge: "3ddb9c651cc50e88a76465752b43e43a48d330a4"
 validationCiAttempts: 0
 validationSemanticRounds: 0
 ---
