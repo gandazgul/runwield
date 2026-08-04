@@ -20,7 +20,7 @@ parentPlan: "claude-cli-execution-backend"
 order: 2
 dependencies:
     - "01-register-claude-cli-backend-models"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Add Claude CLI Backend Transcript Tracer Bullet
