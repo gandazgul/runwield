@@ -67,25 +67,26 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-04T01:33:19.434Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-04T01:38:19.716Z"
+status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 1
 dependencies:
     []
 implementedAt: "2026-08-04T01:13:03.486Z"
+verifiedAt: "2026-08-04T01:38:19.716Z"
 userVerifiedAt: null
 executionReport: "- Implemented approved plan `claude-cli-execution-backend/01-register-claude-cli-backend-models`: migrated model registry/validation to TypeScript, removed the retired JS modules, updated imports and policy baselines, and preserved the existing model-runtime config refresh/state behavior.\n- Registered selectable Claude CLI references for exactly `sonnet`, `opus`, `haiku`, and `fable`, plus non-empty pass-through selectors, with external CLI metadata while excluding them from runnable availability and API/OAuth auth flows.\n- Added typed unsupported-backend execution rejection before Pi runtime/session creation, plus deferred `/model` persistence so Claude CLI selections save defaults without switching the current Session.\n- Made active model reconfiguration transactional: failed activation restores the previous user override/root Session state and emits no model-changed event.\n- Test coverage changed by +7 tests: added 4 Claude model registry/validation tests, added 2 Claude CLI selection/deferred persistence tests, and added 1 SessionRuntime rollback regression; no tests were removed or replaced.\n- Verification passed: focused behavior suite (82 passed), settings/selection/onboarding suite (84 passed), exact OC1/OC2/OC3 commands passed, `deno task check && deno task language-policy:check && deno task seams:check` passed, and full `deno task ci` passed."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "cfb557a9e9cc94799305f8d1beb248251f066866"
-worktreeId: "bae4a6ef"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-claude-cli-execution-backend-01-register-claude--bae4a6ef"
-worktreeBranch: "runwield/worktree/claude-cli-execution-backend-01-register-claude--bae4a6ef"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "59c398630754f7c6da5e120def175c4324724ff7"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "f43e61e33f33b2cdf21913cab817a6890fafd9f9"
 validationCiAttempts: 0
 validationSemanticRounds: 2
 ---

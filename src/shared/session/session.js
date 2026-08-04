@@ -59,8 +59,9 @@ import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../run
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
-import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.js";
-import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.js";
+import { discoverProviderModel, getModelRegistry, getModelRuntime } from "../models/model-registry.ts";
+import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
+import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -1131,7 +1132,11 @@ async function resolveModel(
             continue;
         }
 
-        if (!modelRegistry.hasConfiguredAuth(found)) {
+        const authConfigured = modelRegistry.hasConfiguredAuth(found);
+        const selectable = typeof modelRegistry.isSelectable === "function"
+            ? modelRegistry.isSelectable(found)
+            : authConfigured;
+        if (!selectable) {
             await recordModelMetric({
                 category: "model_selection",
                 event: "candidate_evaluated",
@@ -1144,7 +1149,8 @@ async function resolveModel(
                     parsed: true,
                     found: true,
                     discovered,
-                    authConfigured: false,
+                    authConfigured,
+                    selectable: false,
                     selected: false,
                     failedReason: "missing_auth",
                 },
@@ -1178,7 +1184,8 @@ async function resolveModel(
                 parsed: true,
                 found: true,
                 discovered,
-                authConfigured: true,
+                authConfigured,
+                selectable: true,
                 selected: true,
             },
         });
@@ -1681,6 +1688,7 @@ export async function buildAgentSession({
             sessionCwd,
         ),
     );
+    assertModelExecutionBackendSupported(resolvedModel);
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
     const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);

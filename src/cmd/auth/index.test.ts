@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getLoginProviderOptions, runLoginCommand, runLogoutCommand, runStatusCommand } from "./index.ts";
 
@@ -95,6 +95,35 @@ Deno.test("auth commands exercise the real model registry in one isolated fixtur
             assertStringIncludes(
                 statusUi.messages[0],
                 "Runtime Command Fixture Provider (runtime-command-fixture): API key stored",
+            );
+        });
+
+        await test.step("misleading Claude CLI credentials stay out of API auth status and logout choices", async () => {
+            await Deno.writeTextFile(
+                join(homeDir, ".wld", "auth.json"),
+                JSON.stringify({
+                    [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
+                    "claude-cli": { type: "api_key", key: "fake" },
+                }),
+            );
+
+            const statusUi = createUiHarness();
+            await runStatusCommand([], { uiAPI: statusUi.uiAPI });
+            assert(!statusUi.messages[0].includes("Claude CLI"));
+            assert(!statusUi.messages[0].includes("claude-cli"));
+
+            const logoutUi = createUiHarness();
+            logoutUi.selections.push("claude-cli");
+            await runLogoutCommand([], { uiAPI: logoutUi.uiAPI });
+            assertEquals(logoutUi.messages, []);
+            assertEquals(await readFixtureAuthFile(homeDir), {
+                [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" },
+                "claude-cli": { type: "api_key", key: "fake" },
+            });
+
+            await Deno.writeTextFile(
+                join(homeDir, ".wld", "auth.json"),
+                JSON.stringify({ [FIXTURE_PROVIDER]: { type: "api_key", key: "fixture-secret" } }),
             );
         });
 

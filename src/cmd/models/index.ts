@@ -3,8 +3,8 @@
  * Handler for the model listing and switching command.
  */
 
-import { getModelRegistry } from "../../shared/models/model-registry.js";
-import { parseProviderModel } from "../../shared/models/model-validation.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
+import { parseProviderModel } from "../../shared/models/model-validation.ts";
 import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp } from "../help/index.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
@@ -25,10 +25,18 @@ interface ModelsCommandEditor {
     setText(text: string): void;
 }
 
+interface ModelActivationResult {
+    status?: "active" | "deferred";
+    message?: string;
+}
+
 interface ModelsCommandOptions {
     uiAPI?: ModelsCommandUi;
     editor?: ModelsCommandEditor;
-    setActiveModel?(model: string, provider?: string): Promise<void> | void;
+    setActiveModel?(
+        model: string,
+        provider?: string,
+    ): Promise<ModelActivationResult | void> | ModelActivationResult | void;
 }
 
 export async function runModelsCommand(argv: string[], options: ModelsCommandOptions = {}): Promise<void> {
@@ -66,8 +74,13 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
                     if (parsed.ok) {
                         const found = modelRegistry.find(parsed.provider, parsed.id);
                         if (found) {
-                            await setActiveModel(found.id, found.provider);
-                            uiAPI.appendSystemMessage(`Switched model to ${found.provider}/${found.id}`);
+                            const activation = await setActiveModel(found.id, found.provider);
+                            uiAPI.appendSystemMessage(
+                                activation?.status === "deferred"
+                                    ? activation.message ||
+                                        `Saved ${found.provider}/${found.id} for later. The current Session was not switched.`
+                                    : `Switched model to ${found.provider}/${found.id}`,
+                            );
                         } else {
                             uiAPI.appendSystemMessage(`Unknown model: ${selection}. Use /model to switch.`);
                         }
@@ -94,7 +107,11 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
         return;
     }
 
-    await setActiveModel(targetModel.id, targetModel.provider);
-    if (uiAPI) uiAPI.appendSystemMessage(`Switched model to ${targetModel.provider}/${targetModel.id}`);
-    else console.log(`Switched model to ${targetModel.provider}/${targetModel.id}`);
+    const activation = await setActiveModel(targetModel.id, targetModel.provider);
+    const message = activation?.status === "deferred"
+        ? activation.message ||
+            `Saved ${targetModel.provider}/${targetModel.id} for later. The current Session was not switched.`
+        : `Switched model to ${targetModel.provider}/${targetModel.id}`;
+    if (uiAPI) uiAPI.appendSystemMessage(message);
+    else console.log(message);
 }

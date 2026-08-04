@@ -91,7 +91,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
- * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
+ * @property {(model: string, provider?: string) => Promise<void | { status?: "active" | "deferred", message?: string }> | { status?: "active" | "deferred", message?: string } | void} [setActiveModel]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {boolean} [skipPostLoginSetup]

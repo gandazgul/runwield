@@ -16,7 +16,7 @@ import {
     shouldReplaySessionHistory,
     shouldShowFooterThinkingLevel,
 } from "./chat-session.js";
-import { resolveTemplateModel } from "../../shared/models/model-validation.js";
+import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 
 Deno.test("chat session layout keeps transcript, validation panel, spinner, prompts, accessories, and editor in order", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));

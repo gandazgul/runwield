@@ -43,7 +43,7 @@ import {
 } from "../../shared/project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../../shared/session/agents.js";
-import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
@@ -53,7 +53,8 @@ import {
 } from "../../cmd/init/init-state.ts";
 import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { resolveTemplateModel } from "../../shared/models/model-validation.js";
+import { isUnsupportedModelExecutionBackendError } from "../../shared/models/model-execution.ts";
+import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 import { renderBootBanner } from "./boot-banner.ts";
@@ -430,11 +431,29 @@ function createPastedImagePreview(image) {
  * @param {string} sessionId
  * @param {string} model
  * @param {string} [provider]
+ * @returns {Promise<{ status: "active" | "deferred", message?: string }>}
  */
 export async function setActiveModel(runtime, sessionId, model, provider) {
     const snapshot = runtime.getSessionSnapshot(sessionId);
     if (!snapshot) throw new Error("Cannot set model for a missing runtime session.");
-    await runtime.reconfigureSessionModel(sessionId, model, provider || "");
+    try {
+        await runtime.reconfigureSessionModel(sessionId, model, provider || "");
+    } catch (error) {
+        if (!(error instanceof Error) || !isUnsupportedModelExecutionBackendError(error)) throw error;
+        try {
+            const settingsManager = getSettingsManagerForPersistence(snapshot.cwd);
+            await settingsManager.setDefaultModel(model);
+            await settingsManager.setDefaultProvider(provider || "");
+        } catch (e) {
+            console.error(`Failed to persist deferred model selection: ${e}`);
+        }
+        return {
+            status: "deferred",
+            message: `${error.message} Saved ${
+                provider ? `${provider}/${model}` : model
+            } for later. The current Session was not switched.`,
+        };
+    }
 
     try {
         const settingsManager = getSettingsManagerForPersistence(snapshot.cwd);
@@ -443,6 +462,7 @@ export async function setActiveModel(runtime, sessionId, model, provider) {
     } catch (e) {
         console.error(`Failed to persist model selection: ${e}`);
     }
+    return { status: "active" };
 }
 
 /**

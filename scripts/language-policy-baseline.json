@@ -35,8 +35,6 @@
     "src/shared/extensions/wld-extension-manifest.js",
     "src/shared/git.js",
     "src/shared/helpers.js",
-    "src/shared/models/model-registry.js",
-    "src/shared/models/model-validation.js",
     "src/shared/owner-coordination/activation-protocol.js",
     "src/shared/owner-coordination/crypto.js",
     "src/shared/owner-coordination/database.js",

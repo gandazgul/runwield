@@ -1,9 +1,9 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertObjectMatch, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { discoverProviderModel, migratePiModelConfigOnce, RunWieldModelRegistry } from "./model-registry.js";
+import { discoverProviderModel, migratePiModelConfigOnce, RunWieldModelRegistry } from "./model-registry.ts";
 
 Deno.test("RunWield model runtime registers statically bundled OAuth loaders before creation", async () => {
-    const source = await Deno.readTextFile(new URL("./model-registry.js", import.meta.url));
+    const source = await Deno.readTextFile(new URL("./model-registry.ts", import.meta.url));
 
     assertStringIncludes(source, 'import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth"');
     assertStringIncludes(source, "registerBundledOAuthFlowsOnce();\n    const agentDir = getRunWieldModelConfigDir();");
@@ -198,7 +198,8 @@ Deno.test("discoverProviderModel registers a model returned by OpenAI-compatible
 
         assertEquals(requestedUrl, "https://crof.ai/v1/models");
         assertEquals(authorization, "Bearer test-key");
-        assertEquals(result, { provider: "crofai", id: "deepseek-v4-pro" });
+        assert(result);
+        assertObjectMatch(result, { provider: "crofai", id: "deepseek-v4-pro" });
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }

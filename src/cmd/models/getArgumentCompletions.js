@@ -1,4 +1,4 @@
-import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.js";
+import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.ts";
 
 /**
  * @param {string} argumentPrefix
@@ -7,7 +7,9 @@ import { getModelRegistry, getModelRuntime } from "../../shared/models/model-reg
 export async function getModelCompletions(argumentPrefix) {
     await getModelRuntime();
     const modelRegistry = getModelRegistry();
-    const models = modelRegistry.getAvailable();
+    const models = typeof modelRegistry.getSelectable === "function"
+        ? modelRegistry.getSelectable()
+        : modelRegistry.getAvailable();
 
     await Promise.resolve();
 

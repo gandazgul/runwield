@@ -120,6 +120,37 @@ function makeRuntime(options = {}) {
     });
 }
 
+Deno.test("SessionRuntime restores the previous user model override when active root rebuild fails", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({ id: "model-rollback", cwd: STABLE_TEST_CWD });
+    const previousHandler = () => Promise.resolve({ kind: "complete" });
+    const previousAgentSession = { dispose() {} };
+    session.setRootAgentName("engineer");
+    session.setRootAgentSession(previousAgentSession);
+    session.setActiveOnMessage(previousHandler);
+    session.setActiveModelState("sonnet", "anthropic", true);
+    const runtime = makeRuntime({
+        sessionHost,
+        switchActiveAgent: () => Promise.reject(new Error("backend unavailable")),
+    });
+    /** @type {import('./session-runtime-events.js').SessionRuntimeEvent[]} */
+    const events = [];
+    runtime.subscribeSessionEvents("model-rollback", (event) => {
+        events.push(event);
+    });
+
+    await assertRejects(
+        () => runtime.reconfigureSessionModel("model-rollback", "opus", "claude-cli"),
+        Error,
+        "backend unavailable",
+    );
+
+    assertEquals(session.getActiveModelState(), { model: "sonnet", provider: "anthropic" });
+    assertStrictEquals(session.getRootAgentSession(), previousAgentSession);
+    assertStrictEquals(session.getActiveOnMessage(), previousHandler);
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.MODEL_CHANGED), []);
+});
+
 function makeSteeringAgentSession() {
     /** @type {Set<(event: any) => void>} */
     const listeners = new Set();

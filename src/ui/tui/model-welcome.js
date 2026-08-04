@@ -4,7 +4,7 @@
  */
 
 import { COMMAND_NAMES, commandRegistry as defaultCommandRegistry } from "../../cmd/registry.js";
-import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
+import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.ts";
 import { getSettingsManager as getSettingsManagerFn } from "../../shared/settings.js";
 import { theme } from "../theme/theme.js";
 
@@ -15,6 +15,10 @@ import { theme } from "../theme/theme.js";
  */
 
 /**
+ * @typedef {Object} ModelActivationResult
+ * @property {"active" | "deferred"} [status]
+ * @property {string} [message]
+ *
  * @typedef {Object} MaybeShowModelWelcomeOptions
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
@@ -23,7 +27,7 @@ import { theme } from "../theme/theme.js";
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} sessionRuntime
  * @property {string} initialAgentInternalName
  * @property {string} [initialAgentModel]
- * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
+ * @property {(model: string, provider?: string) => Promise<ModelActivationResult | void> | ModelActivationResult | void} [setActiveModel]
  * @property {Record<string, { execute: (argv: string[], options?: import('../../cmd/registry.js').CommandContext) => Promise<void> }>} [commandRegistry]
  * @property {() => { getAvailable?: () => Array<unknown>, find?: (provider: string, id: string) => unknown, getRegisteredProviderIds?: () => readonly string[] }} [getModelRegistry]
  * @property {() => { getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }} [getSettingsManager]
@@ -77,26 +81,57 @@ export function getConfiguredProviderAvailability(getModelRegistry = getModelReg
 }
 
 /**
- * @param {() => { find?: (provider: string, id: string) => unknown }} getModelRegistry
+ * @param {() => { find?: (provider: string, id: string) => unknown, getAvailable?: () => Array<unknown> }} getModelRegistry
  * @param {() => { getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }} getSettingsManager
  * @returns {ModelAvailability}
  */
+/**
+ * @param {unknown} value
+ * @returns {value is { provider?: string, id?: string, executionBackend?: string }}
+ */
+function isRegistryModelSummary(value) {
+    return Boolean(value && typeof value === "object");
+}
+
+/**
+ * @param {(() => { find?: (provider: string, id: string) => unknown, getAvailable?: () => Array<unknown> }) | undefined} getModelRegistry
+ * @param {(() => { getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }) | undefined} getSettingsManager
+ * @returns {ModelAvailability}
+ */
 export function getSelectedDefaultModelAvailability(
-    getModelRegistry = getModelRegistryFn,
-    getSettingsManager = getSettingsManagerFn,
+    getModelRegistry,
+    getSettingsManager,
 ) {
     try {
-        const settingsManager = getSettingsManager();
+        const resolveModelRegistry = getModelRegistry || getModelRegistryFn;
+        const resolveSettingsManager = getSettingsManager || getSettingsManagerFn;
+        const settingsManager = resolveSettingsManager();
         const defaultModel = settingsManager.getDefaultModel?.()?.trim();
         const defaultProvider = settingsManager.getDefaultProvider?.()?.trim();
         if (!defaultModel) {
             return { available: false, error: "No default model is selected." };
         }
 
-        const registry = getModelRegistry();
+        const registry = resolveModelRegistry();
         if (!registry.find) return { available: true, error: null };
         const found = registry.find(defaultProvider || "", defaultModel);
-        if (found) return { available: true, error: null };
+        const foundModel = isRegistryModelSummary(found) ? found : null;
+        /** @type {Array<unknown>} */
+        const availableModels = registry.getAvailable?.() || [];
+        const runnable = availableModels.some((model) => {
+            if (!isRegistryModelSummary(model)) return false;
+            return model.provider === (defaultProvider || foundModel?.provider) &&
+                model.id === (foundModel?.id || defaultModel);
+        });
+        if (foundModel && runnable) return { available: true, error: null };
+
+        if (foundModel?.executionBackend === "claude-cli" || defaultProvider === "claude-cli") {
+            return {
+                available: false,
+                error:
+                    `Selected default model is deferred until the Claude CLI execution backend is installed: claude-cli/${defaultModel}`,
+            };
+        }
 
         return {
             available: false,
