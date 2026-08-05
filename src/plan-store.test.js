@@ -2791,6 +2791,16 @@ Deno.test("legacy plans/ files are ignored, not migrated or accepted", async () 
         assertEquals(await listPlans(cwd), [], "legacy plans/ files are not listed");
         assertEquals(await loadPlan(cwd, "legacy"), null, "legacy plans/ files cannot be loaded by name");
         assertEquals(await resolvePlan(cwd, "legacy").catch(() => null), null, "legacy name resolves to nothing");
+        await assertRejects(
+            () => resolvePlan(cwd, "plans/legacy.md"),
+            Error,
+            "Legacy Plan path is not supported: plans/legacy.md",
+        );
+        await assertRejects(
+            () => resolvePlan(cwd, join(cwd, "plans", "legacy.md")),
+            Error,
+            "Legacy Plan path is not supported: plans/legacy.md",
+        );
         assertEquals(await listArchivedPlans(cwd), [], "plans/archived/ is not scanned either");
 
         // The same content under the canonical store is listed and loaded.

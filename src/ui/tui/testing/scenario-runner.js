@@ -8,7 +8,7 @@ import { createSessionRuntime } from "../../../shared/session/session-runtime.js
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
+import { findPlansByParent, getStoredPlanPath, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { submitPlanForReview } from "../../review/plan-review.ts";
 import { createScriptedReviewBrowser } from "../../review/review-test-fixture.ts";
@@ -1133,7 +1133,7 @@ async function runComposedTuiScenario(scenario, options) {
                     state.editorUsable = editorUsable;
                     // The Plan's own status, captured before cleanup. Without it a
                     // stalled workflow leaves no way to tell which phase it died in.
-                    const planStatus = await Deno.readTextFile(`${Deno.cwd()}/plans/plan.md`)
+                    const planStatus = await Deno.readTextFile(getStoredPlanPath(Deno.cwd(), "plan"))
                         .then((text) => (text.match(/^status:\s*"?([a-z_]+)"?/m) || [])[1] || "")
                         .catch(() => "");
                     state.workflowDurability = {

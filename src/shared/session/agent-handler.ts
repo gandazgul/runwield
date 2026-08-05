@@ -36,7 +36,7 @@ import {
     claimPendingTaskCompletion,
     type PendingTaskCompletionClaim,
 } from "./task-completion-session.ts";
-import { join } from "@std/path";
+import { getStoredPlanPath } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -337,7 +337,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
 
             let planContent = "";
             try {
-                planContent = await Deno.readTextFile(join(projectRoot, "plans", `${planName}.md`));
+                planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, planName));
             } catch {
                 // Ignore in tests or if the file doesn't exist
             }
@@ -540,7 +540,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 let planContent = "";
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
-                        planContent = await Deno.readTextFile(join(projectRoot, "plans", `${workflow.planName}.md`));
+                        planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, workflow.planName));
                     } catch {
                         // Ignore
                     }

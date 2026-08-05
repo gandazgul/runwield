@@ -31,13 +31,13 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T11:57:36-04:00"
-updatedAt: "2026-08-05T15:41:05.210Z"
+updatedAt: "2026-08-05T15:52:52.755Z"
+status: "validated_reviewer"
 origin: "internal"
-failureReason: "- [R1-1] Legacy tracked Plan file remains under plans/\n  Plan: Implementation step: “All tracked repository Plan Markdown previously under `plans/` is moved to `docs/plans/` with nested layout preserved, and no tracked files remain under `plans/`.\"\n  Evidence: The current worktree still has `plans/move-plans-to-docs-plans.md` (`find plans **/*.md` returns it, and `read plans/move-plans-to-docs-plans.md` succeeds). The full workflow diff also still lists `plans/move-plans-to-docs-plans.md` as modified.\n- Validation workflow still reads Plan content from legacy plans/\n  Plan: Implementation steps: `plans/` is not read, and workflow validation/Plan Workflow context must use `docs/plans/<planName>.md`.\n  Evidence: Current `src/shared/session/agent-handler.ts` lines around 339-343 and 542-544 still call `Deno.readTextFile(join(projectRoot, \"plans\", `${planName}.md`))` / `join(projectRoot, \"plans\", `${workflow.planName}.md`)` to populate `planContent` for post-execution and validation-loop handling.\n- Golden TUI scenario durability capture still checks legacy plans/\n  Plan: Implementation step: `src/ui/**` tests and fixtures are updated to `docs/plans/...`, and `plans/` is not described/used as current Plan storage.\n  Evidence: Current `src/ui/tui/testing/scenario-runner.js` around line 1136 still computes `planStatus` by reading `${Deno.cwd()}/plans/plan.md`, so the TUI harness does not inspect the canonical `docs/plans/plan.md` status."
 implementedAt: "2026-08-05T15:03:37.928Z"
 userVerifiedAt: null
 executionReport: "- Implemented clean-break Plan store move to `docs/plans/` across runtime code, tools, CLI flows, TUI/workflow surfaces, docs, release guidance, scripts, and tracked Plan files; no tracked `plans/**/*.md` remain.\n- Fixed discovered `plans doctor` root/path bug by passing the project root explicitly into recursive Plan issue collection, so active Plans under `docs/plans/` no longer false-report `plan_not_found`.\n- Added regression coverage: `src/plan-store.test.js` verifies legacy `plans/` files are ignored; `src/tools/__tests__/plan-written.test.js` verifies `plan_written` rejects legacy-only `plans/<name>.md` and accepts `docs/plans/<name>.md`.\n- Test changes: +2 automated tests total; no tests removed. Existing path/assertion tests were rewritten to the new `docs/plans/` store shape; legacy behavior coverage remains only where it proves old `plans/` is ignored or treated as implementation diff.\n- Verification passed: targeted `deno run -A scripts/run-tests.js ...` suite passed `293 passed | 0 failed`; `deno task test` passed `247 files passed | 0 failed`; `deno task ci` passed fully.\n- Objective checks passed: `getStoredPlanPath(\"/project\", \"demo\")` returned `/project/docs/plans/demo.md`; `git ls-files 'plans/*.md' 'plans/**/*.md'` returned empty; final grep left only intentional legacy regression text."
-humanReviewMode: null
+humanReviewMode: "always"
 humanReviewDecision: null
 executionMode: "worktree"
 executionBaselineTree: "bd4b729fffdc2deb74dec8b4124b6ae12d80ee47"
@@ -50,7 +50,6 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "docs plans relocation"
 validationCiAttempts: 0
 validationSemanticRounds: 2
-status: "validated_ci"
 ---
 
 # Move Plans to docs/plans

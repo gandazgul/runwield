@@ -3584,6 +3584,12 @@ export async function resolvePlan(cwd, arg) {
 
     if (isPath) {
         const absPath = resolve(cwd, arg);
+        const projectRelative = relative(cwd, absPath).replaceAll("\\", "/");
+        if (projectRelative === "plans" || projectRelative.startsWith("plans/")) {
+            throw new Error(
+                `Legacy Plan path is not supported: ${projectRelative}. RunWield reads Plans only from ${PLANS_DIR_NAME}/.`,
+            );
+        }
         const plan = await loadExternalPlan(absPath);
         const planName = basename(absPath, ".md");
         return { ...plan, planName };
