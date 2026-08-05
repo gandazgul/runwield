@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { createGenerationGuard } from "./generation-guard.js";
 import {
     handleSlashCommand,
@@ -67,7 +67,7 @@ async function withSlashFixture(
         async ({ projectRoot, setModelResponse }) => {
             await writeCatalogFixtures(projectRoot, options);
             setModelResponse("Fixture turn complete.");
-            const runtime = new SessionRuntime();
+            const runtime = createSessionRuntime();
             const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             runtime.renameSession(created.sessionId, "Slash fixture");
             const messages: string[] = [];

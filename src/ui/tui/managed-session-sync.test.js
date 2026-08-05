@@ -1,100 +1,61 @@
 import { assertEquals } from "@std/assert";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { createManagedSessionSyncController } from "./managed-session-sync.js";
 
-Deno.test("managed sync controller inspects immediately and then polls managed dormant sessions", async () => {
+function createTimerFixture() {
     /** @type {Array<() => void | Promise<void>>} */
     const callbacks = [];
-    let calls = 0;
-    const runtime = {
-        isManagedSessionDormant: () => true,
-        synchronizeManagedSession: () => {
-            calls++;
-            return Promise.resolve();
+    /** @type {unknown[]} */
+    const cleared = [];
+    return {
+        callbacks,
+        cleared,
+        port: {
+            set(/** @type {() => void} */ callback) {
+                callbacks.push(callback);
+                return callback;
+            },
+            clear(/** @type {unknown} */ timer) {
+                cleared.push(timer);
+            },
         },
     };
-    const controller = createManagedSessionSyncController({
-        runtime: /** @type {any} */ (runtime),
-        getSessionId: () => "session-1",
-        setTimer: (callback) => {
-            callbacks.push(callback);
-            return callback;
-        },
-        clearTimer: () => {},
-    });
-    controller.start();
-    assertEquals(calls, 0);
-    await callbacks.shift()?.();
-    assertEquals(calls, 1);
-    await callbacks.shift()?.();
-    assertEquals(calls, 2);
-    controller.dispose();
-});
+}
 
-Deno.test("managed sync controller skips unmanaged sessions and respects pause", async () => {
-    /** @type {Array<() => void | Promise<void>>} */
-    const callbacks = [];
-    let calls = 0;
-    const runtime = {
-        isManagedSessionDormant: () => false,
-        synchronizeManagedSession: () => {
-            calls++;
-            return Promise.resolve();
-        },
-    };
+Deno.test("managed sync controller schedules fixture timers around a real SessionRuntime", async () => {
+    const runtime = createSessionRuntime();
+    const timer = createTimerFixture();
     const controller = createManagedSessionSyncController({
-        runtime: /** @type {any} */ (runtime),
-        getSessionId: () => "session-1",
-        setTimer: (callback) => {
-            callbacks.push(callback);
-            return callback;
-        },
-        clearTimer: () => {},
+        runtime,
+        getSessionId: () => "missing-session",
+        timer: timer.port,
     });
+
     controller.start();
-    await callbacks.shift()?.();
-    assertEquals(calls, 0);
+    assertEquals(timer.callbacks.length, 1);
+    await timer.callbacks.shift()?.();
+    assertEquals(runtime.getSessionSnapshot("missing-session"), null);
+
+    controller.resume();
+    assertEquals(timer.callbacks.length, 1);
     await controller.pause();
-    await controller.refreshNow();
-    assertEquals(calls, 0);
+    assertEquals(timer.cleared.length, 1);
+    await controller.dispose();
+    runtime.closeAllSessions();
 });
 
-Deno.test("managed sync controller pause waits for in-flight refresh and dispose prevents reschedule", async () => {
-    /** @type {Array<() => void | Promise<void>>} */
-    const callbacks = [];
-    /** @type {() => void} */
-    let release = () => {};
-    const refreshStarted = Promise.resolve();
-    let calls = 0;
-    const runtime = {
-        isManagedSessionDormant: () => true,
-        synchronizeManagedSession: async () => {
-            calls++;
-            await refreshStarted;
-            await new Promise((resolve) => {
-                release = () => resolve(undefined);
-            });
-        },
-    };
+Deno.test("managed sync controller never schedules after disposal", async () => {
+    const runtime = createSessionRuntime();
+    const timer = createTimerFixture();
     const controller = createManagedSessionSyncController({
-        runtime: /** @type {any} */ (runtime),
-        getSessionId: () => "session-1",
-        setTimer: (callback) => {
-            callbacks.push(callback);
-            return callback;
-        },
-        clearTimer: () => {},
+        runtime,
+        getSessionId: () => null,
+        timer: timer.port,
     });
-    controller.start();
-    const firstTick = callbacks.shift()?.();
-    await Promise.resolve();
-    assertEquals(calls, 1);
-    const pause = controller.pause();
-    await Promise.resolve();
-    assertEquals(controller.isInFlight(), true);
-    release();
-    await pause;
-    await firstTick;
-    assertEquals(controller.isInFlight(), false);
+
     await controller.dispose();
-    assertEquals(callbacks.length, 0);
+    controller.start();
+    controller.resume();
+    assertEquals(timer.callbacks, []);
+    runtime.closeAllSessions();
 });

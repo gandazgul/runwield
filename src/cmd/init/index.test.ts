@@ -2,7 +2,7 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { __resetSettingsForTests } from "../../shared/settings.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { getCwdInitState } from "./init-state.ts";
 import { runInitCommand } from "./index.ts";
@@ -111,7 +111,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
                 await Deno.writeTextFile(join(projectRoot, "mod.ts"), "export const fixture = true;\n");
                 setModelResponse("Initialization inspection complete.");
                 const ui = createUi();
-                const runtime = new SessionRuntime();
+                const runtime = createSessionRuntime();
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
                 const assistantText: string[] = [];
                 const unsubscribe = runtime.subscribeSessionEvents(created.sessionId, (event) => {

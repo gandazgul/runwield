@@ -6,7 +6,7 @@
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
 import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
-import { SessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
@@ -18,13 +18,17 @@ const ACP_INVALID_STATE = -32002;
 
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
+/** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
 
 /**
  * @typedef {Object} RunWieldAcpServerOptions
  * @property {(message: string) => void | Promise<void>} [diagnostic]
- * @property {SessionRuntime} [runtime]
- * @property {import('../shared/owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
- * @property {AcpSessionMap} [sessionMap]
+ */
+
+/**
+ * @typedef {Object} AcpServerContext
+ * @property {SessionRuntime} runtime
+ * @property {AcpSessionMap} sessionMap
  */
 
 /**
@@ -235,17 +239,12 @@ async function closeAllMappedSessions(runtime, sessionMap) {
 /**
  * Create the RunWield ACP agent app.
  *
- * @param {RunWieldAcpServerOptions} [options]
+ * @param {AcpServerContext} context
  * @returns {AgentApp}
  */
-export function createRunWieldAcpServer(options = {}) {
+function createRunWieldAcpServer(context) {
     const app = agent({ name: "RunWield ACP MVP" });
-    const ownerCoordinationStore = options.ownerCoordinationStore || openOwnerCoordinationStore();
-    const runtime = options.runtime || new SessionRuntime({
-        ownerCoordinationStore,
-        ownerProcessKind: "acp",
-    });
-    const sessionMap = options.sessionMap || new AcpSessionMap();
+    const { runtime, sessionMap } = context;
     /** @type {unknown} */
     let clientCapabilities = null;
 
@@ -259,13 +258,17 @@ export function createRunWieldAcpServer(options = {}) {
         const runtimeSessionId = await runtime.createPromptReadySession({ cwd: request.cwd });
         const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (!snapshot) throwUnknownSession(runtimeSessionId);
-        const record = sessionMap.createRecord({ sessionId: runtimeSessionId, cwd: snapshot.cwd });
+        const persistedSessionId = snapshot.sessionManagerId || runtimeSessionId;
+        const record = sessionMap.createRecord(
+            { sessionId: runtimeSessionId, cwd: snapshot.cwd },
+            { persistedSessionId },
+        );
         return {
             sessionId: record.acpSessionId,
             _meta: {
                 runwield: {
                     runtimeSessionId,
-                    persistedSessionId: snapshot.sessionManagerId || runtimeSessionId,
+                    persistedSessionId,
                     cwd: snapshot.cwd,
                 },
             },
@@ -487,13 +490,18 @@ export function createRunWieldAcpServer(options = {}) {
  */
 export function startRunWieldAcpServer(input, output, options = {}) {
     const stream = ndJsonStream(output, input);
-    const runtime = options.runtime || new SessionRuntime();
-    const sessionMap = options.sessionMap || new AcpSessionMap();
-    const connection = createRunWieldAcpServer({ ...options, runtime, sessionMap }).connect(stream);
-    connection.closed.then(
-        () => void closeAllMappedSessions(runtime, sessionMap),
-        () => void closeAllMappedSessions(runtime, sessionMap),
-    );
+    const ownerCoordinationStore = openOwnerCoordinationStore();
+    const runtime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "acp" });
+    const sessionMap = new AcpSessionMap();
+    const connection = createRunWieldAcpServer({ runtime, sessionMap }).connect(stream);
+    const closeMachinery = async () => {
+        try {
+            await closeAllMappedSessions(runtime, sessionMap);
+        } finally {
+            ownerCoordinationStore.close();
+        }
+    };
+    connection.closed.then(closeMachinery, closeMachinery);
     const diagnostics = options.diagnostic;
     if (diagnostics) diagnostics("RunWield ACP stdio server started");
     return connection;

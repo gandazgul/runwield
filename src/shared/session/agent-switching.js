@@ -27,7 +27,7 @@ const handlerMetadata = new WeakMap();
  * @property {boolean} [forceRebuild]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
- * @property {import('./types.js').AgentDefinition} [agentDef]
+ * @property {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [subAgentDefinition]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {string[]} [toolNames]
  * @property {string} [projectStateContext]
@@ -67,7 +67,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
     const customRootConfigurationProvided = Boolean(
-        options.agentDef || options.customTools || options.toolNames || options.triageMeta ||
+        options.subAgentDefinition || options.customTools || options.toolNames || options.triageMeta ||
             options.projectStateContext !== undefined || options.includeEditFallback !== undefined ||
             options.debugLogPath,
     );
@@ -78,7 +78,7 @@ export async function switchActiveAgent(hostedSession, options) {
         cwd: cwdProvided ? options.cwd : effectiveCwd,
         sessionManager: options.sessionManager,
         triageMeta: options.triageMeta,
-        _agentDefOverride: options.agentDef,
+        subAgentDefinition: options.subAgentDefinition,
         customTools: options.customTools,
         toolNames: options.toolNames,
         projectStateContext: options.projectStateContext,
@@ -156,7 +156,7 @@ export async function switchActiveAgent(hostedSession, options) {
  * @property {boolean} [allowReturnToRouter]
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
- * @property {import('./types.js').AgentDefinition} [agentDef]
+ * @property {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [subAgentDefinition]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {string[]} [toolNames]
  * @property {string} [projectStateContext]
@@ -183,7 +183,7 @@ export async function runActiveAgentTurn(options) {
         allowReturnToRouter,
         cwd,
         forceRebuild,
-        agentDef,
+        subAgentDefinition,
         customTools,
         toolNames,
         projectStateContext,
@@ -199,7 +199,7 @@ export async function runActiveAgentTurn(options) {
         ...(forceRebuild ? { forceRebuild } : {}),
         ...(sessionManager ? { sessionManager } : {}),
         ...(triageMeta ? { triageMeta } : {}),
-        ...(agentDef ? { agentDef } : {}),
+        ...(subAgentDefinition ? { subAgentDefinition } : {}),
         ...(customTools ? { customTools } : {}),
         ...(toolNames ? { toolNames } : {}),
         ...(projectStateContext !== undefined ? { projectStateContext } : {}),

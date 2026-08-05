@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { dirname, fromFileUrl, join, relative, resolve } from "@std/path";
-import { SessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../../..");
 const SKIPPED_SOURCE_DIRECTORIES = new Set([".astro", "dist", "node_modules"]);
@@ -384,7 +384,7 @@ Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", 
     ].sort();
     assertEquals(methods, allowedMethods);
 
-    const runtime = new SessionRuntime();
+    const runtime = createSessionRuntime();
     for (
         const internal of [
             "sessionHost",

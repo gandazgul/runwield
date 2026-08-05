@@ -9,7 +9,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../src/constants.js";
-import { SessionRuntime } from "../src/shared/session/session-runtime.js";
+import { createSessionRuntime } from "../src/shared/session/session-runtime.js";
 import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.ts";
 import {
     parseCsv,
@@ -196,7 +196,7 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
     if (options.runAgentSession) {
         messagesPromise = options.runAgentSession({ ...agentOptions, cwd: options.cwd });
     } else {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const created = await runtime.createInteractiveSession({ cwd: options.cwd || Deno.cwd() });
         cancel = () => {
             runtime.cancelSession(created.sessionId);

@@ -36,7 +36,7 @@ import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
-import { createManagedSessionSyncController } from "./managed-session-sync.js";
+import { createManagedSessionSyncController, SYSTEM_MANAGED_SESSION_TIMER } from "./managed-session-sync.js";
 import { SpinnerBlock } from "./blocks.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
@@ -56,7 +56,7 @@ import {
     isInitOffered as isInitOfferedFn,
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.ts";
-import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
@@ -70,6 +70,7 @@ import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming } from
 import { installKeybindings } from "./keybindings.js";
 import { hasClipboardImage, readClipboardImage } from "./clipboard.ts";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
+/** @typedef {import('../../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
 
 /** @type {Set<string>} */
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
@@ -500,7 +501,7 @@ export async function startInteractiveSession(initialUserRequest, options) {
     );
 
     const ownerCoordinationStore = openOwnerCoordinationStore();
-    const sessionRuntime = new SessionRuntime({
+    const sessionRuntime = createSessionRuntime({
         ownerCoordinationStore,
         ownerProcessKind: "tui",
     });
@@ -882,6 +883,7 @@ export async function startInteractiveSession(initialUserRequest, options) {
     const managedSyncController = createManagedSessionSyncController({
         runtime: sessionRuntime,
         getSessionId: () => sessionId,
+        timer: SYSTEM_MANAGED_SESSION_TIMER,
         isPaused: () => isProcessingSubmission,
         onError: () => {},
     });

@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
 import { Container, Editor, TUI } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getEditorTheme } from "../../ui/theme/theme.js";
 import { createUiApi } from "../../ui/tui/api.js";
 import { SpinnerBlock } from "../../ui/tui/blocks.js";
@@ -164,7 +164,7 @@ Deno.test("agent chooser switches the real Runtime session to a fixture definiti
     await withRuntimeCommandFixture("agent-tui-switch-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await writeFixtureAgent(projectRoot);
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
         runtime.renameSession(sessionId, "Fixture session");
         const harness = makeTuiHarness();

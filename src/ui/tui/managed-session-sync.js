@@ -6,12 +6,16 @@
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const TRANSIENT_RETRY_MS = 250;
 
+export const SYSTEM_MANAGED_SESSION_TIMER = Object.freeze({
+    set: (/** @type {() => void} */ callback, /** @type {number} */ delayMs) => setTimeout(callback, delayMs),
+    clear: (/** @type {unknown} */ timer) => clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (timer)),
+});
+
 /**
  * @typedef {Object} ManagedSessionSyncControllerOptions
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
  * @property {() => string | null} getSessionId
- * @property {(callback: () => void, delayMs: number) => unknown} [setTimer]
- * @property {(timer: unknown) => void} [clearTimer]
+ * @property {{ set: (callback: () => void, delayMs: number) => unknown, clear: (timer: unknown) => void }} timer
  * @property {number} [pollIntervalMs]
  * @property {number} [retryDelayMs]
  * @property {() => boolean} [isPaused]
@@ -22,9 +26,7 @@ const TRANSIENT_RETRY_MS = 250;
  * @param {ManagedSessionSyncControllerOptions} options
  */
 export function createManagedSessionSyncController(options) {
-    const setTimer = options.setTimer || ((callback, delayMs) => setTimeout(callback, delayMs));
-    const clearTimer = options.clearTimer ||
-        ((timer) => clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (timer)));
+    const { timer: timerPort } = options;
     const pollIntervalMs = Math.max(100, options.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS);
     const retryDelayMs = Math.max(50, options.retryDelayMs || TRANSIENT_RETRY_MS);
     let disposed = false;
@@ -37,7 +39,7 @@ export function createManagedSessionSyncController(options) {
 
     function clearScheduled() {
         if (timer === null) return;
-        clearTimer(timer);
+        timerPort.clear(timer);
         timer = null;
     }
 
@@ -45,7 +47,7 @@ export function createManagedSessionSyncController(options) {
     function schedule(delayMs) {
         if (disposed || paused) return;
         clearScheduled();
-        timer = setTimer(() => {
+        timer = timerPort.set(() => {
             timer = null;
             void inspect();
         }, delayMs);

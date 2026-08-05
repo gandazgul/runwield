@@ -73,14 +73,34 @@ Deno.test("reviewer discovery and verify prompts load through one registry id", 
     assertStringIncludes(verify.systemPrompt, "verification round");
 });
 
-Deno.test("bare-prompt subagents are tool-free and do not receive the shared system prompt", async () => {
+Deno.test("bare-prompt subagents receive canonical tool ceilings without the shared system prompt", async () => {
     const delegated = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
     const manualQa = await loadSubAgentDefinition(SUBAGENTS.MANUAL_QA);
     const reviewer = await loadSubAgentDefinition(SUBAGENTS.REVIEWER);
 
-    assertEquals(delegated.tools, []);
+    assertEquals(delegated.tools, [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "code_search",
+        "code_show",
+        "code_outline",
+        "code_batch",
+        "code_refs",
+        "code_impact",
+        "code_trace",
+        "code_investigate",
+        "code_structure",
+        "code_impls",
+        "code_importers",
+        "bash",
+        "edit",
+        "write",
+        "multi_file_edit",
+    ]);
     assertEquals(manualQa.tools, []);
-    assertEquals(reviewer.tools, []);
+    assertEquals(reviewer.tools, ["read", "grep", "find", "ls", "review_diff", "review_complete"]);
     assertEquals(delegated.systemPrompt.includes("## Available tools"), false);
     assertEquals(manualQa.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(reviewer.systemPrompt.includes("{{AVAILABLE_TOOLS}}"), false);

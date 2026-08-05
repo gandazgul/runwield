@@ -8,7 +8,7 @@
  */
 
 import { dirname, fromFileUrl } from "@std/path";
-import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification, SUBAGENTS } from "../../constants.js";
 
 import { getAgentDisplayName } from "../session/agents.js";
 
@@ -77,7 +77,6 @@ export async function runManualQaChecklistPrompt({
     context,
     cwd,
 }: RunManualQaChecklistPromptOptions) {
-    const agentDef = await loadManualQaPrompt();
     const normalizedClassification = classification === "FEATURE" ? "PLANNED_CHANGE" : classification;
     const userRequest = [
         "Prepare the post-verification checklist from this source material.",
@@ -93,7 +92,7 @@ export async function runManualQaChecklistPrompt({
         agentName: AGENTS.OPERATOR,
         userRequest,
         cwd,
-        _agentDefOverride: agentDef,
+        subAgentDefinition: { id: SUBAGENTS.MANUAL_QA },
         includeEditFallback: false,
     });
     const checklistText = extractAssistantOutput(messages);

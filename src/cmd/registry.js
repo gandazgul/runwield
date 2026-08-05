@@ -588,7 +588,18 @@ export const commandRegistry = {
             "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
             "This command is also available as /init inside the interactive TUI.",
         ],
-        execute: (argv, options) => runInitCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
+        execute: (argv, options) =>
+            options?.sessionRuntime && options.sessionId
+                ? runInitCommand(argv, {
+                    uiAPI: options.uiAPI,
+                    sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
+                    sessionRuntime: options.sessionRuntime,
+                    sessionId: options.sessionId,
+                })
+                : runInitCommand(argv, {
+                    uiAPI: options?.uiAPI,
+                    sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
+                }),
         surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.THEME]: {
@@ -680,13 +691,13 @@ export const commandRegistry = {
         name: COMMAND_NAMES.SETTINGS,
         displayName: "Settings",
         description: "Open settings menu",
-        summary: "Open the interactive settings menu for compaction behavior.",
+        summary: "Open the interactive settings menu (compaction, model presets).",
         usage: [
             "/settings",
         ],
         notes: [
             "Slash command only (interactive session).",
-            "Currently exposes compaction settings: auto-compact, reserve tokens, and keep-recent tokens.",
+            "Exposes compaction settings (auto-compact, reserve tokens, keep-recent tokens) and model preset selection (activeModelPreset).",
         ],
         execute: runSettingsCommand,
         surfaces: ["slash"],

@@ -14,20 +14,29 @@ import { AGENTS, getCwd, SUBAGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY, isEmptyProjectDirectory } from "../../shared/project-state.js";
 import { extractBundledAgentDefs, extractBundledSkills } from "../../shared/session/agent-assets.js";
-import { loadSubAgentDefinition } from "../../shared/session/subagent-definitions.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { printCommandHelp } from "../help/index.ts";
 import { isInitDone, recordInitDone, recordInitOffered } from "./init-state.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
-interface InitCommandOptions {
+interface InitCommandBaseOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
-    sessionRuntime?: SessionRuntime;
-    sessionId?: string;
     sessionPort: InteractiveSessionPort;
 }
+
+interface AttachedInitCommandOptions extends InitCommandBaseOptions {
+    sessionRuntime: SessionRuntime;
+    sessionId: string;
+}
+
+interface StandaloneInitCommandOptions extends InitCommandBaseOptions {
+    sessionRuntime?: never;
+    sessionId?: never;
+}
+
+type InitCommandOptions = AttachedInitCommandOptions | StandaloneInitCommandOptions;
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
@@ -103,21 +112,20 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     // ── Load init subagent definition ──────
     // The registry maps this prompt to the canonical "init" runtime identifier
     // rather than the file's basename ("init-agent-prompt").
-    const agentDef = await loadSubAgentDefinition(SUBAGENTS.INIT);
-    const sessionRuntime = options.sessionRuntime || new SessionRuntime();
-    const ownsRuntimeSession = !options.sessionId;
-    const createdSessionId = options.sessionId ||
-        (await sessionRuntime.createInteractiveSession({ cwd: getCwd(), mode: "new" })).sessionId;
+    const attached = options.sessionRuntime !== undefined;
+    const sessionRuntime = attached ? options.sessionRuntime : createSessionRuntime();
+    const createdSessionId = attached
+        ? options.sessionId
+        : (await sessionRuntime.createInteractiveSession({ cwd: getCwd(), mode: "new" })).sessionId;
 
     await recordInitOffered();
 
-    // Run the init agent session using its own definition (model, tools, system prompt).
-    // We use a dedicated "init" agent name so it's distinct from the operator.
+    // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
         await sessionRuntime.runIsolatedAgent(createdSessionId, {
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
-            agentDef,
+            subAgentDefinition: { id: SUBAGENTS.INIT },
         });
 
         await recordInitDone();
@@ -139,6 +147,6 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         }
         throw err;
     } finally {
-        if (ownsRuntimeSession) sessionRuntime.closeSession(createdSessionId);
+        if (!attached) sessionRuntime.closeSession(createdSessionId);
     }
 }

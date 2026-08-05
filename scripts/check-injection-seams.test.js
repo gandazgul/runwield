@@ -36,6 +36,19 @@ Deno.test("machinery seam patterns match wildcards in the middle of transaction 
     assertEquals(isMachinerySeam("_buildAgentSession"), true);
     assertEquals(isMachinerySeam("_attachSessionEventSubscribers"), true);
     assertEquals(isMachinerySeam("_runPrompt"), true);
+    assertEquals(isMachinerySeam("_agentDefOverride"), true);
+});
+
+Deno.test("collectSeamNames catches arbitrary Agent Definition overrides", () => {
+    assertEquals(
+        collectSeamNames(`
+            async function build(opts) {
+                const agentDef = opts._agentDefOverride || await loadAgentDef(opts.agentName);
+                return agentDef;
+            }
+        `),
+        ["_agentDefOverride"],
+    );
 });
 
 // One line of indirection used to hide an entire bag, machinery included.
@@ -529,6 +542,7 @@ Deno.test("collectSeamNames leaves ordinary optional data fallbacks alone", () =
         const frontMatter = options.frontMatter || DEFAULT_FRONT_MATTER;
         const title = options.title || defaultTitle;
         const registry = options.registry || new Map();
+        registry.set("name", title);
     `);
 
     assertEquals(names, []);
@@ -541,6 +555,43 @@ Deno.test("collectSeamNames detects behavioral callbacks that fall back to an in
             const title = options.title || (() => {});
         `),
         ["setActiveModel"],
+    );
+});
+
+Deno.test("collectSeamNames detects invoked callback options with inline implementations", () => {
+    assertEquals(
+        collectSeamNames(`
+            const generateSections = options.generateSections ||
+                ((source) => generateRecorderSections(cwd, source, options));
+            const sections = await generateSections(source);
+        `),
+        ["generateSections"],
+    );
+});
+
+Deno.test("collectSeamNames detects invoked concrete collaborators with constructor fallbacks", () => {
+    assertEquals(
+        collectSeamNames(`
+            const runtime = options.runtime || new SessionRuntime();
+            const sessionMap = options.sessionMap || new AcpSessionMap();
+            await runtime.createPromptReadySession({ cwd });
+            sessionMap.createRecord({ sessionId, cwd });
+        `),
+        ["runtime", "sessionMap"],
+    );
+});
+
+Deno.test("collectSeamNames detects constructor fallbacks assigned to instance fields", () => {
+    assertEquals(
+        collectSeamNames(`
+            class Runtime {
+                constructor(options = {}) {
+                    this.#sessionHost = options.sessionHost || new SessionHost();
+                }
+                list() { return this.#sessionHost.listSessions(); }
+            }
+        `),
+        ["sessionHost"],
     );
 });
 

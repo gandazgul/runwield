@@ -188,8 +188,8 @@ async function runGuidedReviewCommand() {
         console.error("RunWield Guided Review requires a prompt on stdin.");
         Deno.exit(1);
     }
-    const { SessionRuntime } = await import("./shared/session/session-runtime.js");
-    const runtime = new SessionRuntime({ ownerProcessKind: "workspace" });
+    const { createSessionRuntime } = await import("./shared/session/session-runtime.js");
+    const runtime = createSessionRuntime({ ownerProcessKind: "workspace" });
     const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "guide" });
     try {
         const result = await runtime.promptSession(sessionId, {

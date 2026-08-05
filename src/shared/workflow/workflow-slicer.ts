@@ -17,7 +17,7 @@ import {
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
-import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
+import { SUBAGENT_DEFINITIONS } from "../session/subagent-definitions.ts";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
@@ -478,11 +478,6 @@ function summarizeChild(child) {
     };
 }
 
-/** @returns {Promise<import('../session/types.js').AgentDefinition>} */
-async function loadSlicerAgentDef() {
-    return await loadSubAgentDefinition(SUBAGENTS.SLICER);
-}
-
 /**
  * @param {string} planName
  * @param {string} cwd
@@ -515,9 +510,7 @@ export async function runSlicerAgent({
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
     const agentSwitching = await import("../session/agent-switching.js");
-    const slicerAgentDef = await loadSlicerAgentDef();
-
-    const slicerDisplay = slicerAgentDef.displayName;
+    const slicerDisplay = SUBAGENT_DEFINITIONS[SUBAGENTS.SLICER].displayNameFallback;
     const previousAgentName = hostedSession.getRootAgentName();
     let boundary = null;
 
@@ -547,7 +540,7 @@ export async function runSlicerAgent({
             userRequest: slicerRequest,
             images: reviewImages,
             sessionManager: slicerSessionManager,
-            agentDef: slicerAgentDef,
+            subAgentDefinition: { id: SUBAGENTS.SLICER },
             customTools: slicerCustomTools,
             allowReturnToRouter: false,
         });

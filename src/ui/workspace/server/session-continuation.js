@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
-import { SessionRuntime } from "../../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import {
     captureTranscriptEvidence,
@@ -49,7 +49,7 @@ export class WorkspaceSessionContinuationService {
     constructor(options) {
         this.store = options.store;
         this.ownerInstanceId = crypto.randomUUID();
-        this.runtime = new SessionRuntime({
+        this.runtime = createSessionRuntime({
             ownerCoordinationStore: this.store,
             ownerProcessKind: "workspace",
             ownerInstanceId: this.ownerInstanceId,

@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runNewCommand } from "./index.ts";
 
@@ -17,7 +17,7 @@ async function captureErrors(run: () => Promise<void>): Promise<string[]> {
 
 Deno.test("runNewCommand creates and names a real Router session in the active project", async () => {
     await withRuntimeCommandFixture("runwield-new-command-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         let replacementId = "";
         let cleared = false;
@@ -43,7 +43,7 @@ Deno.test("runNewCommand creates and names a real Router session in the active p
 
 Deno.test("runNewCommand uses the fixture cwd when there is no current session", async () => {
     await withRuntimeCommandFixture("runwield-new-command-", async ({ alternateRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         let replacementId = "";
         try {
             await runNewCommand([], {

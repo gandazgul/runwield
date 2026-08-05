@@ -238,11 +238,11 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
     assertEquals(result.details.mode, "read");
     assertStringIncludes(String(calls[0].userRequest || ""), "Delegated role: verification-adversary");
     assertStringIncludes(String(calls[0].userRequest || ""), "so this session runs as read");
-    // The composed prompt is the real base prompt plus the real role overlay.
-    const agentDef = /** @type {{ displayName: string, systemPrompt: string }} */ (calls[0]._agentDefOverride);
-    assertEquals(agentDef.displayName, "Verification Adversary");
-    assertStringIncludes(agentDef.systemPrompt, "Complete only the supplied brief.");
-    assertStringIncludes(agentDef.systemPrompt, "not-discriminating");
+    // Session machinery receives a canonical registry selection, not a replaceable definition.
+    assertEquals(calls[0].subAgentDefinition, {
+        id: "delegated",
+        options: { delegatedRole: "verification-adversary" },
+    });
     assertEquals(hostedSession.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
 });
 

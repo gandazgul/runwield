@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { __resetSettingsForTests } from "../../shared/settings.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import { runNameCommand } from "./index.ts";
@@ -43,7 +43,7 @@ async function withNameCommandFixture(run: (fixture: NameCommandFixture) => Prom
 }
 
 async function createRuntimeSession(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
-    const runtime = new SessionRuntime();
+    const runtime = createSessionRuntime();
     const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
     return { runtime, sessionId: created.sessionId };
 }

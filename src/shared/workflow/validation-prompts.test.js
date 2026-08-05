@@ -22,11 +22,11 @@ Deno.test("bundled Manual QA prompt requires the user checklist shape", async ()
     assertStringIncludes(prompt, "automated verification has already passed");
 });
 
-Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
+Deno.test("loadReviewerPrompt returns a bare prompt with canonical review tools", async () => {
     const reviewerDef = await loadReviewerPrompt("discovery");
     assertEquals(reviewerDef.name, "reviewer");
     assertEquals(reviewerDef.displayName, "Reviewer");
-    assertEquals(reviewerDef.tools, []);
+    assertEquals(reviewerDef.tools, ["read", "grep", "find", "ls", "review_diff", "review_complete"]);
     assertStringIncludes(reviewerDef.systemPrompt, "Your Default Is Approval");
     assertEquals(reviewerDef.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(reviewerDef.systemPrompt.includes("Available tools"), false);

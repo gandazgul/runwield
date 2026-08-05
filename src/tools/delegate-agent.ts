@@ -11,8 +11,10 @@ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core"
 import { AGENTS, SUBAGENTS } from "../constants.js";
 import { formatProviderModelReference } from "../shared/models/model-validation.ts";
 import {
+    DELEGATED_READ_TOOLS,
     DELEGATED_ROLE_GENERAL,
     DELEGATED_ROLE_IDS,
+    DELEGATED_WRITE_TOOLS,
     getDelegatedRole,
     loadSubAgentDefinition,
 } from "../shared/session/subagent-definitions.ts";
@@ -24,32 +26,6 @@ import type {
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import type { AgentDefinition } from "../shared/session/types.js";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
-
-const READ_TOOLS = Object.freeze([
-    "read",
-    "grep",
-    "find",
-    "ls",
-    "code_search",
-    "code_show",
-    "code_outline",
-    "code_batch",
-    "code_refs",
-    "code_impact",
-    "code_trace",
-    "code_investigate",
-    "code_structure",
-    "code_impls",
-    "code_importers",
-]);
-
-const WRITE_TOOLS = Object.freeze([
-    ...READ_TOOLS,
-    "bash",
-    "edit",
-    "write",
-    "multi_file_edit",
-]);
 
 type DelegationMode = "read" | "write";
 
@@ -75,7 +51,10 @@ export interface DelegatedAgentSessionOptions {
     agentName: string;
     userRequest: string;
     cwd: string;
-    _agentDefOverride: AgentDefinition;
+    subAgentDefinition: {
+        id: typeof SUBAGENTS.DELEGATED;
+        options: { delegatedRole: DelegatedRoleId };
+    };
     toolNames: string[];
     includeEditFallback: boolean;
     allowReturnToRouter: boolean;
@@ -140,7 +119,7 @@ function errorMessage(value: null | undefined | string | number | boolean | Erro
  * @returns {string[]}
  */
 export function resolveDelegatedToolNames(parentTools: string[], mode: DelegationMode): string[] {
-    const allowed = new Set(mode === "read" ? READ_TOOLS : WRITE_TOOLS);
+    const allowed = new Set(mode === "read" ? DELEGATED_READ_TOOLS : DELEGATED_WRITE_TOOLS);
     return [...new Set(parentTools)].filter((toolName) => allowed.has(toolName));
 }
 
@@ -404,8 +383,6 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                 release = opts.hostedSession.acquireDelegatedAgentLease(mode);
                 beforeSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 signal?.throwIfAborted?.();
-                const agentDef = await loadDelegatedAgentPrompt(role.id);
-                agentDef.tools = childTools;
                 const userRequest = [
                     `Delegation mode: ${mode}`,
                     ...roleRequestLines(role, requestedMode, mode),
@@ -425,7 +402,10 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     agentName: AGENTS.DELEGATED,
                     userRequest,
                     cwd: opts.cwd,
-                    _agentDefOverride: agentDef,
+                    subAgentDefinition: {
+                        id: SUBAGENTS.DELEGATED,
+                        options: { delegatedRole: role.id },
+                    },
                     toolNames: childTools,
                     includeEditFallback: mode === "write",
                     allowReturnToRouter: false,

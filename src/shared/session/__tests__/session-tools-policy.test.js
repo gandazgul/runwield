@@ -10,39 +10,6 @@ import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.
 // Anchored to this file, not Deno.cwd(): test realms share one process, so a
 // concurrent test file's chdir would otherwise point these at its temp dir.
 const REPO_ROOT = fromFileUrl(new URL("../../../..", import.meta.url));
-const localAgentsDir = join(REPO_ROOT, ".wld", "agents");
-const routerOverridePath = join(localAgentsDir, "router.md");
-
-/**
- * @param {string} path
- */
-async function readFileIfExists(path) {
-    try {
-        return await Deno.readTextFile(path);
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return null;
-        throw error;
-    }
-}
-
-/**
- * @param {string} path
- * @param {string | null} previous
- */
-async function restoreFile(path, previous) {
-    if (previous === null) {
-        try {
-            await Deno.remove(path);
-        } catch (error) {
-            if (error instanceof Deno.errors.NotFound) return;
-            throw error;
-        }
-        return;
-    }
-
-    await Deno.writeTextFile(path, previous);
-}
-
 /**
  * @param {number} ms
  * @returns {Promise<void>}
@@ -66,6 +33,9 @@ async function removeTempDir(path) {
 }
 
 Deno.test("loadAgentDef preserves per-agent protected tools when override narrows router to read", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-router-override-" });
+    const localAgentsDir = join(projectRoot, ".wld", "agents");
+    const routerOverridePath = join(localAgentsDir, "router.md");
     await Deno.mkdir(localAgentsDir, { recursive: true });
 
     const override = [
@@ -81,11 +51,10 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
         "",
     ].join("\n");
 
-    const previous = await readFileIfExists(routerOverridePath);
     await Deno.writeTextFile(routerOverridePath, override);
 
     try {
-        const def = await loadAgentDef("router", REPO_ROOT);
+        const def = await loadAgentDef("router", projectRoot);
 
         const expectedProtected = [
             "memory_recall",
@@ -107,7 +76,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
         assertEquals(def.tools, ["read", ...expectedProtected]);
         assert(!def.tools.includes("bash"), "non-protected bundled tool should be removable by override");
     } finally {
-        await restoreFile(routerOverridePath, previous);
+        await removeTempDir(projectRoot);
     }
 });
 
@@ -280,14 +249,6 @@ Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", a
                 hostedSession,
                 agentName: AGENTS.GUIDE,
                 modelOverride: "test/text",
-                _agentDefOverride: {
-                    name: AGENTS.GUIDE,
-                    displayName: "Guide",
-                    model: "",
-                    description: "Guide docs tools",
-                    tools: ["write_docs", "edit_docs"],
-                    systemPrompt: "Prompt.",
-                },
             });
             session = built.session;
 
@@ -329,14 +290,6 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
                 agentName: AGENTS.GUIDE,
                 modelOverride: "test/model",
                 allowReturnToRouter: true,
-                _agentDefOverride: {
-                    name: AGENTS.GUIDE,
-                    displayName: "Guide",
-                    model: "",
-                    description: "Test guide",
-                    tools: ["return_to_router"],
-                    systemPrompt: "Test guide prompt.",
-                },
             });
             session = built.session;
             const tool = built.finalCustomTools.find((candidate) => candidate.name === "return_to_router");
@@ -392,14 +345,6 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
                 agentName: "operator",
                 modelOverride: "test/model",
                 debugLogPath,
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["task_completed"],
-                    systemPrompt: "Test operator prompt.",
-                },
             });
             session = built.session;
             const { finalCustomTools } = built;
@@ -469,15 +414,7 @@ Deno.test("buildAgentSession applies invocation thinking override before setting
                 agentName: "delegated",
                 modelOverride: "test/text",
                 thinkingLevelOverride: "high",
-                _agentDefOverride: {
-                    name: "delegated",
-                    displayName: "Delegated Agent",
-                    model: "",
-                    description: "Test delegated agent",
-                    tools: ["read"],
-                    systemPrompt: "Prompt.",
-                    thinkingLevel: "minimal",
-                },
+                subAgentDefinition: { id: "delegated" },
             });
 
             assertEquals(built.resolvedThinkingLevel, "high");
@@ -526,14 +463,6 @@ Deno.test("buildAgentSession disables developer role for Kimi code models", asyn
                 cwd: tempHome,
                 agentName: "operator",
                 modelOverride: "kimi-code/k3-256k",
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["read"],
-                    systemPrompt: "Prompt.",
-                },
             });
 
             assertEquals(built.resolvedModel.compat?.supportsDeveloperRole, false);
@@ -566,14 +495,6 @@ Deno.test("buildAgentSession auto-wires delegate_agent only when retained by eff
                 cwd: tempHome,
                 agentName: AGENTS.GUIDE,
                 modelOverride: "test/vision",
-                _agentDefOverride: {
-                    name: AGENTS.GUIDE,
-                    displayName: "Guide",
-                    model: "",
-                    description: "Guide with delegation",
-                    tools: ["read", "delegate_agent"],
-                    systemPrompt: "Prompt.",
-                },
             });
             sessions.push(enabled.session);
             assert(enabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
@@ -581,16 +502,8 @@ Deno.test("buildAgentSession auto-wires delegate_agent only when retained by eff
             const disabled = await buildAgentSession({
                 hostedSession,
                 cwd: tempHome,
-                agentName: AGENTS.GUIDE,
+                agentName: AGENTS.ROUTER,
                 modelOverride: "test/vision",
-                _agentDefOverride: {
-                    name: AGENTS.GUIDE,
-                    displayName: "Guide",
-                    model: "",
-                    description: "Guide without delegation",
-                    tools: ["read"],
-                    systemPrompt: "Prompt.",
-                },
             });
             sessions.push(disabled.session);
             assertEquals(disabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"), false);
@@ -626,14 +539,6 @@ Deno.test("buildAgentSession injects see_image only for text-only model with vis
                 cwd: tempHome,
                 agentName: "operator",
                 modelOverride: "test/text",
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["read"],
-                    systemPrompt: "Test operator prompt.",
-                },
             });
             sessions.push(textBuilt.session);
             assertEquals(textBuilt.tools.includes("see_image"), true);
@@ -646,14 +551,6 @@ Deno.test("buildAgentSession injects see_image only for text-only model with vis
                 cwd: tempHome,
                 agentName: "operator",
                 modelOverride: "test/vision",
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["read"],
-                    systemPrompt: "Test operator prompt.",
-                },
             });
             sessions.push(visionBuilt.session);
             assertEquals(visionBuilt.tools.includes("see_image"), false);
@@ -684,14 +581,6 @@ Deno.test("buildAgentSession omits see_image for text-only model without fallbac
                 cwd: tempHome,
                 agentName: "operator",
                 modelOverride: "test/text",
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["read"],
-                    systemPrompt: "Test operator prompt.",
-                },
             });
             session = built.session;
             assertEquals(built.tools.includes("see_image"), false);
@@ -726,14 +615,6 @@ Deno.test("buildAgentSession fails clearly for invalid vision fallback", async (
                         cwd: tempHome,
                         agentName: "operator",
                         modelOverride: "test/text",
-                        _agentDefOverride: {
-                            name: "operator",
-                            displayName: "Operator",
-                            model: "",
-                            description: "Test operator",
-                            tools: ["read"],
-                            systemPrompt: "Test operator prompt.",
-                        },
                     }),
                 Error,
                 "Invalid visionFallback.model",
@@ -758,8 +639,9 @@ Deno.test("resolveModel candidate metrics include enum failed reasons for skippe
 });
 
 Deno.test("bundled Work Record tools are protected for planning roles and excluded from Engineer", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-planner-override-" });
+    const localAgentsDir = join(projectRoot, ".wld", "agents");
     const plannerOverridePath = join(localAgentsDir, "planner.md");
-    const previous = await readFileIfExists(plannerOverridePath);
     await Deno.mkdir(localAgentsDir, { recursive: true });
     await Deno.writeTextFile(
         plannerOverridePath,
@@ -773,7 +655,7 @@ Deno.test("bundled Work Record tools are protected for planning roles and exclud
         ].join("\n"),
     );
     try {
-        const planner = await loadAgentDef(AGENTS.PLANNER, REPO_ROOT);
+        const planner = await loadAgentDef(AGENTS.PLANNER, projectRoot);
         assert(planner.tools.includes("work_record_search"));
         assert(planner.tools.includes("work_record_read"));
         const guide = await loadAgentDef(AGENTS.GUIDE, REPO_ROOT);
@@ -788,7 +670,7 @@ Deno.test("bundled Work Record tools are protected for planning roles and exclud
         assertEquals(engineer.tools.includes("work_record_search"), false);
         assertEquals(engineer.tools.includes("work_record_read"), false);
     } finally {
-        await restoreFile(plannerOverridePath, previous);
+        await removeTempDir(projectRoot);
     }
 });
 
@@ -802,6 +684,19 @@ Deno.test("buildAgentSession auto-wires Work Record tools with role access modes
             Deno.env.set("HOME", tempHome);
             __resetSettingsForTests();
             await writeVisionModelConfig(tempHome);
+            await Deno.mkdir(join(tempHome, ".wld", "agents"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "agents", "custom-agent.md"),
+                [
+                    "---",
+                    "name: Custom Agent",
+                    "tools:",
+                    "  - work_record_search",
+                    "  - work_record_read",
+                    "---",
+                    "Fixture prompt.",
+                ].join("\n"),
+            );
 
             /** @param {string} agentName */
             const build = async (agentName) => {
@@ -809,14 +704,6 @@ Deno.test("buildAgentSession auto-wires Work Record tools with role access modes
                     cwd: tempHome,
                     agentName,
                     modelOverride: "test/model",
-                    _agentDefOverride: {
-                        name: agentName,
-                        displayName: agentName,
-                        model: "",
-                        description: "Test Work Record tools",
-                        tools: ["work_record_search", "work_record_read"],
-                        systemPrompt: "Test prompt.",
-                    },
                 });
                 sessions.push(built.session);
                 return built;

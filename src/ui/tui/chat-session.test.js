@@ -18,7 +18,7 @@ import {
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 
 Deno.test("chat session layout keeps transcript, validation panel, spinner, prompts, accessories, and editor in order", async () => {
     const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
@@ -362,7 +362,7 @@ Deno.test("resolveTemplateModel validates provider/id lookup and auth", () => {
 
 Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persists selection", async () => {
     await withRuntimeCommandFixture("chat-session-model-persistence-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             await setActiveModel(runtime, sessionId, "model-a", "provider-a");
@@ -380,7 +380,7 @@ Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persis
 
 Deno.test("setActiveModel rejects a missing real Runtime session", async () => {
     await withRuntimeCommandFixture("chat-session-missing-model-session-", async () => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         await assertRejects(
             () => setActiveModel(runtime, "missing-session", "model", "test"),
             Error,
@@ -391,7 +391,7 @@ Deno.test("setActiveModel rejects a missing real Runtime session", async () => {
 
 Deno.test("getActiveModel reads the real Runtime snapshot", async () => {
     await withRuntimeCommandFixture("chat-session-active-model-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             runtime.setSessionModel(sessionId, "model-a", "provider-a");

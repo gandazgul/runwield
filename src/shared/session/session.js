@@ -94,6 +94,7 @@ import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } f
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 import { installEarlySteeringInterruption } from "./early-steering.js";
+import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -1654,7 +1655,7 @@ export async function assembleFinalSystemPrompt(
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
- * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
+ * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations. Defaults to primary project root.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
@@ -1684,7 +1685,7 @@ export async function buildAgentSession({
     thinkingLevelOverride,
     sessionManager,
     triageMeta,
-    _agentDefOverride,
+    subAgentDefinition,
     allowReturnToRouter,
     cwd,
     debugLogPath,
@@ -1696,7 +1697,9 @@ export async function buildAgentSession({
     if (!sessionCwd) throw new Error("buildAgentSession: cwd or hostedSession cwd is required");
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
-    const agentDef = _agentDefOverride || await loadAgentDef(agentName, sessionCwd);
+    const agentDef = subAgentDefinition
+        ? await loadSubAgentDefinition(subAgentDefinition.id, subAgentDefinition.options)
+        : await loadAgentDef(agentName, sessionCwd);
 
     const modelRuntime = await getModelRuntime();
     const modelRegistry = getModelRegistry();
@@ -2080,7 +2083,9 @@ export async function buildExecutionSession(opts) {
         : null;
     const sessionCwd = opts.cwd || targetHostedSession?.cwd;
     if (!sessionCwd) throw new Error("buildExecutionSession: cwd or hostedSession cwd is required");
-    const agentDef = opts._agentDefOverride || await loadAgentDef(opts.agentName, sessionCwd);
+    const agentDef = opts.subAgentDefinition
+        ? await loadSubAgentDefinition(opts.subAgentDefinition.id, opts.subAgentDefinition.options)
+        : await loadAgentDef(opts.agentName, sessionCwd);
     const modelRegistry = getModelRegistry();
     const resolvedModel = withModelCompatibility(
         await resolveModel(
@@ -2833,7 +2838,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -2874,7 +2879,7 @@ export function getRootSessionRebuildOptions(hostedSession) {
     return {
         allowReturnToRouter: meta.allowReturnToRouter,
         cwd: meta.cwd,
-        agentDef: meta.agentDef,
+        subAgentDefinition: meta.subAgentDefinition,
         customTools: meta.finalCustomTools,
         toolNames: meta.tools,
         projectStateContext: meta.projectStateContext,
@@ -2946,7 +2951,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
- * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
+ * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition]
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
@@ -3030,6 +3035,7 @@ export async function ensureRootAgentSession(opts) {
     );
     rootSessionMetadata.set(rootSession, {
         agentDef,
+        subAgentDefinition: opts.subAgentDefinition,
         promptState,
         subscriberState,
         agentName: opts.agentName,
@@ -3123,7 +3129,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
         "customTools",
         "modelOverride",
         "triageMeta",
-        "_agentDefOverride",
+        "subAgentDefinition",
         "allowReturnToRouter",
         "cwd",
         "debugLogPath",
@@ -3188,7 +3194,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
- * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
+ * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition] - Select a definition from RunWield's canonical hidden-subagent registry.
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager] - Optional manager to carry
  *   context across successive isolated invocations (e.g. nudging a Reviewer that omitted its terminal tool call).
  *   Defaults to a fresh in-memory manager, which keeps the invocation isolated from the workflow transcript.

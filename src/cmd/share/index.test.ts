@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { type GitHubCliPort, runShareCommand } from "./index.ts";
 
 interface GitHubInvocation {
@@ -55,7 +55,7 @@ async function assertRemoved(path: string): Promise<void> {
 
 Deno.test("share exports a real persisted Runtime session for the external GitHub CLI", async () => {
     await withRuntimeCommandFixture("share-command-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const github = createGitHubFixture();
         const ui = createUi();
@@ -85,7 +85,7 @@ Deno.test("share exports a real persisted Runtime session for the external GitHu
 
 Deno.test("share reports GitHub CLI preflight failures before exporting the real session", async () => {
     await withRuntimeCommandFixture("share-preflight-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         try {
             const missing = createGitHubFixture({ failAt: "version" });
@@ -117,7 +117,7 @@ Deno.test("share reports GitHub CLI preflight failures before exporting the real
 
 Deno.test("share cleans the real exported fixture when gist creation fails", async () => {
     await withRuntimeCommandFixture("share-gist-failure-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const github = createGitHubFixture({ failAt: "gist" });
         const ui = createUi();
@@ -149,7 +149,7 @@ Deno.test("share requires UI and a real active Runtime session", async () => {
     const github = createGitHubFixture();
     await runShareCommand([], {
         uiAPI: ui.uiAPI,
-        sessionRuntime: new SessionRuntime(),
+        sessionRuntime: createSessionRuntime(),
         sessionId: "missing",
         githubCli: github.port,
     });

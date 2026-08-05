@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { Container, TUI } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getCwdInitState } from "../../cmd/init/init-state.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { createUiApi } from "./api.js";
 import { SpinnerBlock } from "./blocks.js";
@@ -47,7 +47,7 @@ function renderMessages(messageList: Container): string {
 }
 
 async function createRuntimeSession(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
-    const runtime = new SessionRuntime();
+    const runtime = createSessionRuntime();
     const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
     return { runtime, sessionId: created.sessionId };
 }

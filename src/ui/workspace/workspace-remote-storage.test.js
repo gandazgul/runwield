@@ -218,7 +218,7 @@ Deno.test("remote requests over configured JSON body limit are rejected before w
 Deno.test("remote retention refreshes on writes and cleanup hard-deletes expired Shared Spaces", async () => {
     let now = new Date("2026-01-01T00:00:00.000Z");
     const database = openRemoteDatabase();
-    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, clock: { now: () => now } });
     try {
         const reviewerCapability = "reviewer-retention";
         const maintainerCapability = "maintainer-retention";
@@ -278,7 +278,7 @@ Deno.test("remote retention refreshes on writes and cleanup hard-deletes expired
 Deno.test("remote retention cleanup removes expired Shared Spaces across bounded batches", () => {
     const now = new Date("2026-01-10T00:00:00.000Z");
     const database = openRemoteDatabase();
-    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, clock: { now: () => now } });
     try {
         const insertSpace = database.handle.prepare(
             "INSERT INTO shared_spaces(id, plan_id, status, latest_revision, created_at, updated_at, expires_at) VALUES (?, ?, 'open', 1, ?, ?, ?)",
@@ -320,7 +320,7 @@ Deno.test("remote retention cleanup removes expired Shared Spaces across bounded
 Deno.test("remote retention reconciliation grants grace and disabling clears expiry", async () => {
     const now = new Date("2026-02-01T00:00:00.000Z");
     const database = openRemoteDatabase();
-    const noRetention = createRemoteWorkspaceAdapter({ database, now: () => now });
+    const noRetention = createRemoteWorkspaceAdapter({ database, clock: { now: () => now } });
     const created = noRetention.createSharedSpace({
         planId: "grace-plan",
         payloadCiphertext: "cipher:plan",
@@ -331,11 +331,11 @@ Deno.test("remote retention reconciliation grants grace and disabling clears exp
     });
     assertEquals(created.expiresAt, undefined);
 
-    const enabled = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    const enabled = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, clock: { now: () => now } });
     enabled.reconcileRetentionPolicy();
     assertEquals(enabled.getSharedSpace(created.spaceId).expiresAt, "2026-02-08T00:00:00.000Z");
 
-    const disabled = createRemoteWorkspaceAdapter({ database });
+    const disabled = createRemoteWorkspaceAdapter({ database, clock: { now: () => now } });
     disabled.reconcileRetentionPolicy();
     assertEquals(disabled.getSharedSpace(created.spaceId).expiresAt, undefined);
     disabled.close();

@@ -2,7 +2,7 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { AGENTS } from "../../constants.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { __resetSettingsForTests } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
@@ -115,7 +115,7 @@ async function writeResumeThreshold(settingsPath: string, threshold: number): Pr
 Deno.test("runResumeCommand loads, replaces, and replays a real persisted session", async () => {
     await withRuntimeCommandFixture("runwield-resume-command-", async ({ projectRoot }) => {
         const seeded = seedPersistedSession(projectRoot);
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const ui = makeUi([seeded.path]);
         let replacementId = "";
@@ -142,7 +142,7 @@ Deno.test("runResumeCommand offers full session names with date-only description
     await withRuntimeCommandFixture("runwield-resume-command-", async ({ projectRoot }) => {
         const longMessage = "inspect the workspace sidebar rendering path ".repeat(4).trim();
         const seeded = seedPersistedSession(projectRoot, longMessage);
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const ui = makeUi([]);
         try {
@@ -176,7 +176,7 @@ Deno.test("runResumeCommand offers compaction from real transcript size and fixt
         async ({ projectRoot, settingsPath }) => {
             await writeResumeThreshold(settingsPath, 1);
             const seeded = seedPersistedSession(projectRoot, "large fixture context ".repeat(2000));
-            const runtime = new SessionRuntime();
+            const runtime = createSessionRuntime();
             const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const ui = makeUi([seeded.path, "cancel"]);
             let replacementId = "";
@@ -209,7 +209,7 @@ Deno.test("runResumeCommand compacts a real loaded session through the faux mode
             await writeResumeThreshold(settingsPath, 1);
             setModelResponse("Summary of the fixture session.");
             const seeded = seedPersistedSession(projectRoot, "compaction fixture context ".repeat(24000));
-            const runtime = new SessionRuntime();
+            const runtime = createSessionRuntime();
             const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const ui = makeUi([seeded.path, "compact"]);
             let replacementId = "";

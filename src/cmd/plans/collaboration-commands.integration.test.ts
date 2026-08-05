@@ -9,7 +9,7 @@ import {
     readSecretStore,
 } from "../../shared/collaboration/secrets.js";
 import { parseCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { withCollaborationServer } from "./collaboration-command-test-fixture.ts";
 import { parsePlansPullArgs, pullPlanForRevision, runPlansPullCommand } from "./pull.ts";
@@ -144,7 +144,7 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                 await reviewerClient.appendComment(reviewer.spaceId, 2, { ciphertext: commentCiphertext });
 
                 Deno.chdir(alternateRoot);
-                const runtime = new SessionRuntime();
+                const runtime = createSessionRuntime();
                 try {
                     const sessionId = await runtime.createPromptReadySession({
                         cwd: alternateRoot,

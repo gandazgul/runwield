@@ -66,9 +66,16 @@ export const HANDOFF_LIMIT_MESSAGE =
     "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
 
 /**
- * @typedef {Object} SessionRuntimeOptions
- * @property {SessionHost} [sessionHost]
- * @property {import('../owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
+ * @typedef {Object} SessionRuntimeComposition
+ * @property {SessionHost} sessionHost
+ * @property {import('../owner-coordination/index.js').OwnerCoordinationStore | null} ownerCoordinationStore
+ * @property {'workspace' | 'tui' | 'acp' | 'test'} ownerProcessKind
+ * @property {string} ownerInstanceId
+ */
+
+/**
+ * @typedef {Object} CreateSessionRuntimeOptions
+ * @property {import('../owner-coordination/index.js').OwnerCoordinationStore | null} [ownerCoordinationStore]
  * @property {'workspace' | 'tui' | 'acp' | 'test'} [ownerProcessKind]
  * @property {string} [ownerInstanceId]
  */
@@ -286,9 +293,9 @@ export class SessionRuntime {
     /** @type {string} */
     #ownerInstanceId;
 
-    /** @param {SessionRuntimeOptions} [options] */
-    constructor(options = {}) {
-        this.#sessionHost = options.sessionHost || new SessionHost();
+    /** @param {SessionRuntimeComposition} composition */
+    constructor(composition) {
+        this.#sessionHost = composition.sessionHost;
         this.#eventListeners = new Map();
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
@@ -297,9 +304,9 @@ export class SessionRuntime {
         this.#pendingManagedCreations = new Map();
         this.#pendingManagedCreationProjects = new Map();
         this.#observedAttentionEventIds = new Map();
-        this.#ownerCoordinationStore = options.ownerCoordinationStore || null;
-        this.#ownerProcessKind = options.ownerProcessKind || "test";
-        this.#ownerInstanceId = options.ownerInstanceId || crypto.randomUUID();
+        this.#ownerCoordinationStore = composition.ownerCoordinationStore;
+        this.#ownerProcessKind = composition.ownerProcessKind;
+        this.#ownerInstanceId = composition.ownerInstanceId;
     }
 
     listSessions() {
@@ -914,7 +921,7 @@ export class SessionRuntime {
      * @param {{
      *   agentName: string,
      *   userRequest: string,
-     *   agentDef?: any,
+     *   subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions },
      *   images?: import('./types.js').ImageAttachment[],
      *   toolNames?: string[],
      *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
@@ -937,7 +944,7 @@ export class SessionRuntime {
                 customTools: options.customTools,
                 modelOverride: options.modelOverride,
                 allowReturnToRouter: options.allowReturnToRouter,
-                _agentDefOverride: options.agentDef,
+                subAgentDefinition: options.subAgentDefinition,
             }));
     }
 
@@ -2934,4 +2941,20 @@ export class SessionRuntime {
             }
         }
     }
+}
+
+/**
+ * Compose a SessionRuntime with RunWield's real in-process session machinery.
+ * Callers select only whether managed owner coordination is available.
+ *
+ * @param {CreateSessionRuntimeOptions} [options]
+ * @returns {SessionRuntime}
+ */
+export function createSessionRuntime(options = {}) {
+    return new SessionRuntime({
+        sessionHost: new SessionHost(),
+        ownerCoordinationStore: options.ownerCoordinationStore ?? null,
+        ownerProcessKind: options.ownerProcessKind ?? "test",
+        ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
+    });
 }

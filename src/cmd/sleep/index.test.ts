@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import {
     exportMnemosyneCollection,
@@ -150,7 +150,7 @@ Deno.test("Mnemosyne export rejects subprocess failure and false success", async
 Deno.test("sleep backs up fixture memory before a real Runtime switches and runs Engineer", async () => {
     await withRuntimeCommandFixture("sleep-command-", async ({ homeDir, projectRoot, setModelResponse }) => {
         setModelResponse("Memory maintenance complete.");
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
         const messages: string[] = [];
         const requests: string[] = [];
@@ -191,7 +191,7 @@ Deno.test("sleep backs up fixture memory before a real Runtime switches and runs
 
 Deno.test("sleep leaves a real Runtime on its current Agent when external backup fails", async () => {
     await withRuntimeCommandFixture("sleep-command-failure-", async ({ projectRoot }) => {
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
         const mnemosyne = createMnemosyneFixture({ exitCode: 7 });
         const messages: string[] = [];
@@ -222,7 +222,7 @@ Deno.test("sleep rejects missing persisted Runtime state before touching Mnemosy
         () =>
             runSleepCommand([], {
                 sessionId: "missing",
-                sessionRuntime: new SessionRuntime(),
+                sessionRuntime: createSessionRuntime(),
                 uiAPI: { appendSystemMessage: () => {} },
                 mnemosynePort: mnemosyne.port,
                 sessionPort: UNEXPECTED_SESSION_PORT,

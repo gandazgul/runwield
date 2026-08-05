@@ -4,7 +4,7 @@
  */
 
 import { join, relative } from "@std/path";
-import { SessionRuntime } from "../../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
@@ -461,7 +461,7 @@ export async function runGoldenScenario(scenario, options = {}) {
 async function seedGoldenPriorSession(priorSession, fauxProvider) {
     if (!priorSession) return null;
     const ownerCoordinationStore = openOwnerCoordinationStore();
-    const runtime = new SessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
+    const runtime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
     try {
         fauxProvider.setResponses([() =>
             createFauxMessageForTurn({

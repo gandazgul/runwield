@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runModelsCommand } from "./index.ts";
@@ -59,7 +59,7 @@ async function captureLogs(run: () => Promise<void>): Promise<string[]> {
 Deno.test("runModelsCommand switches an explicit configured model through the real registry", async () => {
     await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
         const ui = makeUi();
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
 
@@ -85,7 +85,7 @@ Deno.test("runModelsCommand switches an explicit configured model through the re
 Deno.test("runModelsCommand fallback selector lists and switches real configured models", async () => {
     await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
         const ui = makeUi(FIXTURE_MODEL);
-        const runtime = new SessionRuntime();
+        const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
 

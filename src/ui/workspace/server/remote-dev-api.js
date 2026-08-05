@@ -1,6 +1,6 @@
 // @ts-nocheck: tiny Astro-dev-only router mirrors the server wrapper route shape.
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES, registerRemoteApiRoutes } from "../routes/remote-api.js";
-import { createRemoteWorkspaceAdapter } from "./remote-adapter.js";
+import { openRemoteWorkspaceAdapter } from "./remote-adapter.js";
 import { isRemoteDevelopmentModeEnabled } from "./remote-mode.js";
 
 const REMOTE_DEV_APP_KEY = Symbol.for("runwield.workspace.remote-dev-app");
@@ -33,7 +33,7 @@ function getRemoteDevApp() {
         runtime[REMOTE_DEV_CONFIG_KEY] !== configKey
     ) {
         runtime[REMOTE_DEV_APP_KEY]?.adapter?.close?.();
-        const adapter = createRemoteWorkspaceAdapter({ dbPath, retention: { days: retentionDays } });
+        const adapter = openRemoteWorkspaceAdapter({ dbPath, retention: { days: retentionDays } });
         adapter.reconcileRetentionPolicy();
         adapter.cleanupExpiredSharedSpaces();
         const router = createRemoteDevRouter(adapter, { maxRequestBytes });

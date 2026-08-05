@@ -160,6 +160,7 @@ const MACHINERY_SEAMS = [
     "getWorkflowDiff",
     "loadReviewerPrompt",
     "loadReviewerFeedbackEngineerDef",
+    "_agentDefOverride",
 ];
 
 /** @param {string} path */
@@ -215,10 +216,11 @@ function normalizeCollaboratorName(name) {
  * @param {string} name
  */
 function isBehavioralCollaborator(name) {
+    if (isMachinerySeam(name)) return true;
     const normalized = normalizeCollaboratorName(name);
     if (isMachinerySeam(normalized)) return true;
     if (/^[A-Z][A-Za-z0-9_$]*(?:Ctor)?$/.test(normalized)) return true;
-    return /^(?:abort|append|apply|attach|build|check|checkpoint|clear|close|collect|complete|compute|connect|create|delete|detect|dispatch|dispose|emit|ensure|execute|exit|fetch|finalize|find|format|get|handle|install|invoke|list|load|make|mark|merge|notify|now|open|parse|prepare|probe|prompt|publish|query|read|record|refresh|reload|remove|render|report|request|reset|resolve|restore|resume|run|save|schedule|seal|send|set|settle|show|spawn|stage|start|steer|stop|store|submit|subscribe|switch|sync|teardown|track|update|validate|verify|wait|warn|watch|write)(?:$|[A-Z0-9_$])/
+    return /^(?:abort|append|apply|attach|build|check|checkpoint|clear|close|collect|complete|compute|connect|create|delete|detect|dispatch|dispose|emit|ensure|execute|exit|fetch|finalize|find|format|generate|get|handle|install|invoke|list|load|make|mark|merge|notify|now|open|parse|prepare|probe|prompt|publish|query|read|record|refresh|reload|remove|render|report|request|reset|resolve|restore|resume|run|save|schedule|seal|send|set|settle|show|spawn|stage|start|steer|stop|store|submit|subscribe|switch|sync|teardown|track|update|validate|verify|wait|warn|watch|write)(?:$|[A-Z0-9_$])/
         .test(normalized);
 }
 
@@ -304,6 +306,7 @@ const CAPABILITY_NAMED = /(?:PORT|Port|CLI|Cli|CLIENT|Client|REGISTRY|Registry|A
 function collectCapabilityFallbacks(text) {
     /** @type {string[]} */
     const found = [];
+    for (const override of text.matchAll(/\.\s*(_agentDefOverride)\b/g)) found.push(override[1]);
     /** @param {string} name Local binding the fallback lands in. */
     const isInvoked = (name) =>
         new RegExp(`\\b${name}\\s*(?:\\(|(?:\\?\\.|\\.)\\s*[A-Za-z_$][\\w$]*\\s*\\()`).test(text);
@@ -348,6 +351,48 @@ function collectCapabilityFallbacks(text) {
         )
     ) {
         if (CAPABILITY_IMPLEMENTATION.test(fallback[2])) found.push(fallback[1]);
+    }
+
+    // Callable options also hide behind inline implementations. Invocation of the
+    // resulting binding proves this is behavior, while the behavioral property name
+    // keeps ordinary data transforms out of the scan.
+    for (
+        const fallback of text.matchAll(
+            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*\(+\s*(?:async\s*)?\(?[^=;\n]*\)?\s*=>/g,
+        )
+    ) {
+        const [, binding, property] = fallback;
+        if (isBehavioralCollaborator(property) && isInvoked(binding)) found.push(property);
+    }
+
+    // An optional concrete collaborator is still replaceable when its fallback is
+    // constructed inline. Native containers remain ordinary data defaults.
+    const nativeDataConstructors = new Set([
+        "Array",
+        "Date",
+        "Map",
+        "Object",
+        "RegExp",
+        "Set",
+        "URL",
+        "WeakMap",
+        "WeakSet",
+    ]);
+    for (
+        const fallback of text.matchAll(
+            /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*new\s+([A-Za-z_$][\w$]*)\s*\(/g,
+        )
+    ) {
+        const [, binding, property, constructorName] = fallback;
+        if (!nativeDataConstructors.has(constructorName) && isInvoked(binding)) found.push(property);
+    }
+    for (
+        const fallback of text.matchAll(
+            /this\s*\.\s*#?([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*new\s+([A-Za-z_$][\w$]*)\s*\(/g,
+        )
+    ) {
+        const [, binding, property, constructorName] = fallback;
+        if (!nativeDataConstructors.has(constructorName) && isInvoked(binding)) found.push(property);
     }
     return found;
 }

@@ -58,7 +58,6 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @typedef {Object} GenerationOptions
  * @property {() => string} [idGenerator]
  * @property {() => Date} [now]
- * @property {(source: WorkRecordSource) => Promise<GeneratedWorkRecordSections>|GeneratedWorkRecordSections} [generateSections]
  * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
  * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
  */
@@ -600,9 +599,7 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
                 ...(indexWarning ? { indexWarning } : {}),
             };
         }
-        const generateSections = options.generateSections ||
-            ((eligibleSource) => generateRecorderSections(cwd, eligibleSource, options));
-        const sections = await generateSections(source);
+        const sections = await generateRecorderSections(cwd, source, options);
         /** @type {import('./schema.js').WorkRecordFrontMatter} */
         const attrs = {
             kind: "work_record",

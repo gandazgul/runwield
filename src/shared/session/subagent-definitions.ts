@@ -45,6 +45,7 @@ export interface SubAgentDefinition {
     loadMode: SubAgentDefinitionLoadMode;
     file: string;
     verifyFile?: string;
+    allowedTools?: readonly string[];
 }
 
 export interface DelegatedRoleDefinition {
@@ -59,6 +60,41 @@ export interface LoadSubAgentDefinitionOptions {
     delegatedRole?: DelegatedRoleId;
 }
 
+export const DELEGATED_READ_TOOLS = Object.freeze([
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "code_search",
+    "code_show",
+    "code_outline",
+    "code_batch",
+    "code_refs",
+    "code_impact",
+    "code_trace",
+    "code_investigate",
+    "code_structure",
+    "code_impls",
+    "code_importers",
+]);
+
+export const DELEGATED_WRITE_TOOLS = Object.freeze([
+    ...DELEGATED_READ_TOOLS,
+    "bash",
+    "edit",
+    "write",
+    "multi_file_edit",
+]);
+
+export const REVIEWER_SUBAGENT_TOOLS = Object.freeze([
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "review_diff",
+    "review_complete",
+]);
+
 export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgentDefinition>> = Object.freeze({
     [SUBAGENTS.DELEGATED]: Object.freeze({
         id: SUBAGENTS.DELEGATED,
@@ -66,6 +102,7 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         displayNameFallback: "Delegated Agent",
         loadMode: "barePrompt",
         file: DELEGATED_PROMPT_FILE,
+        allowedTools: DELEGATED_WRITE_TOOLS,
     }),
     [SUBAGENTS.INIT]: Object.freeze({
         id: SUBAGENTS.INIT,
@@ -88,6 +125,7 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         loadMode: "barePrompt",
         file: REVIEWER_PROMPT_FILE,
         verifyFile: REVIEWER_VERIFY_PROMPT_FILE,
+        allowedTools: REVIEWER_SUBAGENT_TOOLS,
     }),
     [SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER]: Object.freeze({
         id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER,
@@ -199,7 +237,7 @@ async function loadBarePromptDefinition(
         displayName,
         model: "",
         description,
-        tools: [],
+        tools: [...(definition.allowedTools || [])],
         systemPrompt: body.trim(),
     };
 }

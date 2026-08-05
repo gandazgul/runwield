@@ -27,7 +27,7 @@ import {
     reviewExitApi,
     reviewFeedbackApi,
 } from "./routes/api/review-handlers.js";
-import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
@@ -153,7 +153,7 @@ export function createWorkspaceApp(options) {
 /** @param {RemoteWorkspaceAppOptions} options @returns {RemoteWorkspaceApp} */
 export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
     const app = createWorkspaceRouter();
-    const adapter = createRemoteWorkspaceAdapter({
+    const adapter = openRemoteWorkspaceAdapter({
         dbPath: options.dbPath,
         retention: { days: options.retentionDays },
     });

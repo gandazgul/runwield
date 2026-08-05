@@ -10,6 +10,10 @@ import { openRemoteDatabase } from "./remote-db.js";
 
 const EXPIRED_SPACE_CLEANUP_BATCH_SIZE = 100;
 
+export const SYSTEM_REMOTE_WORKSPACE_CLOCK = Object.freeze({
+    now: () => new Date(),
+});
+
 export class RemoteWorkspaceError extends Error {
     /** @param {string} code @param {string} message @param {number} status */
     constructor(code, message, status) {
@@ -46,19 +50,18 @@ export class RemoteWorkspaceError extends Error {
  */
 
 /**
- * @param {{ dbPath?: string, database?: import("./remote-db.js").RemoteDatabase, retention?: RemoteRetentionPolicy, now?: () => Date }} [options]
+ * @param {{ database: import("./remote-db.js").RemoteDatabase, retention?: RemoteRetentionPolicy, clock: { now: () => Date } }} options
  * @returns {RemoteWorkspaceAdapter}
  */
-export function createRemoteWorkspaceAdapter(options = {}) {
-    const database = options.database ?? openRemoteDatabase({ dbPath: options.dbPath });
+export function createRemoteWorkspaceAdapter(options) {
+    const { database, clock } = options;
     const db = database.handle;
     const retentionDays = options.retention?.days;
-    const now = options.now ?? (() => new Date());
     let closed = false;
 
     /** @param {string} timestamp */
     const expiryFor = (timestamp) => retentionDays ? addDaysIso(new Date(timestamp), retentionDays) : null;
-    const currentIso = () => now().toISOString();
+    const currentIso = () => clock.now().toISOString();
 
     return {
         database,
@@ -233,6 +236,20 @@ export function createRemoteWorkspaceAdapter(options = {}) {
             if (Number(result.changes) === 0) throw notFound("Shared Space not found or deleted.");
         },
     };
+}
+
+/**
+ * Production composition for the remote Workspace adapter.
+ *
+ * @param {{ dbPath?: string, retention?: RemoteRetentionPolicy }} [options]
+ * @returns {RemoteWorkspaceAdapter}
+ */
+export function openRemoteWorkspaceAdapter(options = {}) {
+    return createRemoteWorkspaceAdapter({
+        database: openRemoteDatabase({ dbPath: options.dbPath }),
+        retention: options.retention,
+        clock: SYSTEM_REMOTE_WORKSPACE_CLOCK,
+    });
 }
 
 /** @param {import("node:sqlite").DatabaseSync} db @param {string} spaceId @param {string} capability @param {"reviewer" | "maintainer"} requiredScope */

@@ -5,13 +5,14 @@
 
 import { extractYaml } from "@std/front-matter";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification, SUBAGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
 import { preparePrimaryPlanPathForMerge, restorePrimaryPlanPathAfterMergeFailure } from "../worktree.js";
 import { runIsolatedAgentSession } from "../session/session.js";
+import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
 import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
@@ -50,8 +51,6 @@ import {
 import { readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
 import {
     hasTrustedClaudeMcpReview,
-    loadReviewerFeedbackEngineerDef,
-    loadReviewerPrompt,
     runFeaturePostVerificationHandoffs,
     runLocalCI,
     runMechanicalValidation as runQuickFixMechanicalValidation,
@@ -106,7 +105,6 @@ type TriageMeta = import("../../tools/plan-written.ts").TriageMeta & Partial<Pla
 type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExecutionWorkflow;
 type HostedSession = import("../session/hosted-session.js").HostedSession;
 type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
-type AgentDefinition = import("../session/types.js").AgentDefinition;
 type GitPort = import("../git-port.ts").GitPort;
 type LocalCIResult = Awaited<ReturnType<typeof runLocalCI>>;
 type ObjectiveCheckResult = Awaited<ReturnType<typeof runObjectiveChecks>>[number];
@@ -131,7 +129,11 @@ type IsolatedAgentSessionOptions = {
     userRequest: string;
     images?: Array<{ base64: string; mimeType: string }>;
     cwd: string;
-    _agentDefOverride?: AgentDefinition;
+    subAgentDefinition?: {
+        id: import("../session/subagent-definitions.ts").SubAgentDefinitionId;
+        options?: import("../session/subagent-definitions.ts").LoadSubAgentDefinitionOptions;
+    };
+    toolNames?: string[];
     customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
     includeEditFallback?: boolean;
     sessionManager?: SessionManager;
@@ -220,7 +222,7 @@ type ReviewFeedbackRepairPacket = {
 
 const DISCOVERY_ROUNDS = 2;
 const AUTOMATIC_ROUNDS = 3;
-const REVIEWER_TOOL_NAMES = ["read", "grep", "find", "ls", "review_diff", "review_complete"];
+const REVIEWER_TOOL_NAMES = [...REVIEWER_SUBAGENT_TOOLS];
 
 export const runMechanicalValidation = runQuickFixMechanicalValidation as (
     args: MechanicalValidationArgs,
@@ -1486,8 +1488,7 @@ async function runReviewerRound(
                 "info",
             );
         }
-        const reviewerAgentDef = await loadReviewerPrompt(reviewMode);
-        const config = buildSemanticReviewAttempt(reviewerAgentDef, attempt, nudgeReason, state, reviewMode, diffText);
+        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText);
         nudgeReason = undefined;
         try {
             const sessionMessages = await args.semanticReviewPort.runIsolatedAgentSession({
@@ -1495,7 +1496,11 @@ async function runReviewerRound(
                 agentName: AGENTS.REVIEWER,
                 userRequest: config.prompt,
                 cwd: context.executionCwd,
-                _agentDefOverride: config.agentDef,
+                subAgentDefinition: {
+                    id: SUBAGENTS.REVIEWER,
+                    options: { reviewerMode: reviewMode },
+                },
+                toolNames: REVIEWER_TOOL_NAMES,
                 customTools: config.customTools,
                 includeEditFallback: false,
                 sessionManager: reviewerSessionManager,
@@ -1558,7 +1563,6 @@ async function runReviewerRound(
 }
 
 function buildSemanticReviewAttempt(
-    reviewerAgentDef: AgentDefinition,
     attempt: number,
     nudgeReason: string | undefined,
     state: SemanticRoundState,
@@ -1566,7 +1570,6 @@ function buildSemanticReviewAttempt(
     diffText: string,
 ): {
     prompt: string;
-    agentDef: AgentDefinition;
     customTools: import("@earendil-works/pi-coding-agent").ToolDefinition[];
 } {
     const customTools = [createReviewDiffTool({ full: diffText })];
@@ -1574,7 +1577,6 @@ function buildSemanticReviewAttempt(
         return {
             prompt: nudgeReason ||
                 "You have not called review_complete yet. Finish this review now by calling review_complete with your decision. Do not restart the review — use what you have already inspected.",
-            agentDef: { ...reviewerAgentDef, tools: REVIEWER_TOOL_NAMES },
             customTools,
         };
     }
@@ -1622,7 +1624,6 @@ function buildSemanticReviewAttempt(
     );
     return {
         prompt: sections.join("\n"),
-        agentDef: { ...reviewerAgentDef, tools: REVIEWER_TOOL_NAMES },
         customTools,
     };
 }
@@ -1636,7 +1637,6 @@ async function dispatchReviewFeedbackRepair(
     try {
         const workflowState = { ...context.workflowBase, ...packet.activeWorkflow };
         args.hostedSession.setActiveExecutionWorkflow?.(workflowState);
-        const agentDef = await loadReviewerFeedbackEngineerDef();
         const sessionMessages = await args.semanticReviewPort.runIsolatedAgentSession({
             hostedSession: args.hostedSession,
             agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
@@ -1659,7 +1659,7 @@ async function dispatchReviewFeedbackRepair(
             ].join("\n"),
             images: packet.images,
             cwd: context.executionCwd,
-            _agentDefOverride: agentDef,
+            subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
             customTools: [createReviewDiffTool({ full: packet.diffText })],
         });
         const report: TaskCompletedReport = readLatestTaskCompletedReport(sessionMessages);

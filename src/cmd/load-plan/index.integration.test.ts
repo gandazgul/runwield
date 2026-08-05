@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { loadArchivedPlan, loadPlan, resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
@@ -46,7 +46,7 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
 }
 
 async function createRuntime(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
-    const runtime = new SessionRuntime();
+    const runtime = createSessionRuntime();
     const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
     return { runtime, sessionId };
 }

@@ -209,7 +209,11 @@ Deno.test("runValidationPhase configures Semantic Reviewer with diff tools and i
     });
 
     assertEquals(Object.hasOwn(sessionOpts[0], "uiAPI"), false);
-    assertEquals(sessionOpts[0]._agentDefOverride.tools, [
+    assertEquals(sessionOpts[0].subAgentDefinition, {
+        id: "reviewer",
+        options: { reviewerMode: "discovery" },
+    });
+    assertEquals(sessionOpts[0].toolNames, [
         "read",
         "grep",
         "find",
