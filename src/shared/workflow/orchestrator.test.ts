@@ -417,7 +417,6 @@ Deno.test("Router-to-Planner dispatch sends Planner system instructions despite 
                         classification: "PLANNED_CHANGE",
                         complexity: "MEDIUM",
                         summary: "plan a feature",
-                        affectedPaths: ["src/feature.ts"],
                     },
                     userRequest: "Build the feature.",
                     images: [],

@@ -24,14 +24,14 @@
 
 ## __deps refactor
 
-Remaining: finish and validate the capability-port migration — see Bugs → P0 (seams refactor).
-
-00f890486fbe7211d211289e00b6cf53ddab7719 811b32db23359562bafb23ae47f64f72abec0cfd
-plans/split-claude-md-into-agents-md.md
+This is done, but we need to do some better detection and guard against the pattern re-emerging. And apply this to the
+repos that RunWield works on so they dont fall into this pattern either.
 
 ## Bugs
 
 ### P0
+
+- [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 
 - [ ] Session-independent validation-engine refactor: `src/shared/workflow/validation.ts` is 2,479 lines with Pi/session
       turn machinery coupling. Hard prerequisite for Attached Mode — `plans/attached-mode-claude-feature-preview.md`
@@ -53,6 +53,12 @@ plans/split-claude-md-into-agents-md.md
 
 ### Others
 
+- [ ] Need to ensure that all agents and sub agents have their entire tool declaration in the prompt front-matter. We
+      need having this issue where tools go missing. 1 single source of truth and user editable. Still retain the tools
+      that can't be taken away like the workflow tools, so for those missing from the front matter doesnt matter, but
+      then in that case a lint rule should complain.
+- [ ] wld update/upgrade should allow optionally to upgrade to an RC and to downgrade.
+- [ ] Up arrow should cycle through !, !! and / commands.
 - [ ] Detect model repetition or overthinking and cancel the call and send a new message with the nudge.
 - [ ] when resuming the session name (tab title on the terminal) should be set to the session's name which is in the
       file not the UUID — resume currently falls back to the UUID (`src/cmd/resume/index.ts` uses
