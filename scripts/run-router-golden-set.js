@@ -283,7 +283,8 @@ export async function runRouterGoldenSetWithSelection(rows, options = {}) {
                 ...row,
                 routerDecision: triage.routingIntent,
                 routerSummary: triage.summary || "",
-                routerAffectedPaths: (triage.affectedPaths || []).join("; "),
+                // Triage no longer collects affected paths, so the benchmark column stays empty.
+                routerAffectedPaths: "",
             });
         } catch (error) {
             normalized[index] = withRouterJudgementMetrics({

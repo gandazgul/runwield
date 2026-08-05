@@ -50,7 +50,6 @@ Deno.test("runRouterForGoldenRequest returns latest triage_report outcome", asyn
                         routingIntent: "INQUIRY",
                         complexity: "LOW",
                         summary: "answer",
-                        affectedPaths: [],
                     },
                 }]),
             );
@@ -93,7 +92,6 @@ Deno.test("runRouterForGoldenRequest accepts injected triage outcome", async () 
                         routingIntent: "INQUIRY",
                         complexity: "LOW",
                         summary: "answer",
-                        affectedPaths: [],
                     },
                 }]),
             ),
@@ -117,7 +115,6 @@ Deno.test("runRouterGoldenSet updates labelled rows and honors limit", async () 
                         routingIntent: "INQUIRY",
                         complexity: "LOW",
                         summary: "greeting",
-                        affectedPaths: ["README.md"],
                     },
                 }]),
             ),
@@ -125,7 +122,7 @@ Deno.test("runRouterGoldenSet updates labelled rows and honors limit", async () 
 
     assertEquals(rows[0].routerDecision, "INQUIRY");
     assertEquals(rows[0].routerSummary, "greeting");
-    assertEquals(rows[0].routerAffectedPaths, "README.md");
+    assertEquals(rows[0].routerAffectedPaths, "");
     assertEquals(rows[0].routerAgreesWithHuman, "TRUE");
     assertEquals(rows[1].routerDecision, "");
 });
@@ -145,7 +142,6 @@ Deno.test("runRouterGoldenSetWithSelection returns selected indexes for limited 
                         routingIntent: "INQUIRY",
                         complexity: "LOW",
                         summary: "greeting",
-                        affectedPaths: [],
                     },
                 }]),
             ),

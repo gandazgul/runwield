@@ -76,13 +76,12 @@ explicitly disabled.
    `IDEATION`; non-code operational work is `OPERATION`; bounded no-plan code work is `QUICK_FIX`.
 5. Otherwise, if routing depends on scope, assess complexity, how many files are truly impacted, whether there is an
    architectural implication, and whether there are hidden dependencies.
-6. Explore the codebase with your `code_*` tools and `bash` (discovery only) to find relevant files, understand the
-   current implementation, and identify the vertical slice of code that will be affected. A good place to start is
-   `code_structure`. Only read files directly relevant to routing. Avoid broad surveys. You may also use memory_recall
-   and memory_recall_global to check for relevant memories.
-7. Call `triage_report` with: `routingIntent`, `complexity`, `summary`, `sessionName`, and an ordered `affectedPaths`
-   list that represents this vertical slice. `sessionName` must be a short 3–6 word noun phrase for the persisted
-   Session Name and terminal tab title, such as `terminal titles`, `plan board UI`, or `fix model routing`.
+6. Explore the codebase with your `code_*` tools and `bash` (discovery only) to find relevant files and understand the
+   current implementation. A good place to start is `code_structure`. Only read files directly relevant to routing.
+   Avoid broad surveys. You may also use memory_recall and memory_recall_global to check for relevant memories.
+7. Call `triage_report` with: `routingIntent`, `complexity`, `summary`, and `sessionName`. `sessionName` must be a short
+   3–6 word noun phrase for the persisted Session Name and terminal tab title, such as `terminal titles`,
+   `plan board UI`, or `fix model routing`.
 
 Guidelines for discovery:
 

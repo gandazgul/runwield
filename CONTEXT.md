@@ -83,8 +83,8 @@ query
 **Triage**: Structured classification of a User Request by workflow type and complexity, usually performed by the
 Router.
 
-**Triage Report**: The structured output of Triage containing routing intent, complexity, summary, affected paths, and
-an optional auto-generated Session Name. _Avoid_: Triage result, classification result
+**Triage Report**: The structured output of Triage containing routing intent, complexity, summary, and an optional
+auto-generated Session Name. _Avoid_: Triage result, classification result
 
 **Diagnostic Triage**: Read-only Triage for user-reported broken behavior that gathers enough evidence to estimate
 likely blast radius without reproducing, instrumenting, or fixing the issue. _Avoid_: Diagnosis, debugging,
@@ -130,7 +130,7 @@ Slicer decomposes into child PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
-**Affected Paths**: The ordered set of files identified during Triage as the likely vertical slice for a User Request.
+**Affected Paths**: The ordered set of files a Plan's front matter lists as expected to change for that Plan.
 
 **Vertical Slice**: A narrow, end-to-end trace through the codebase from entry point to boundary for one request.
 _Avoid_: Cross-section, code path
@@ -547,9 +547,9 @@ command definition, prompt command
   **Workflow Validation**.
 - **Dual Review** adds **Local Human Code Review** to Forge review without replacing **Semantic Code Review**.
 - One **User Request** produces exactly one **Triage Report**.
-- A **Triage Report** contains one **Routing Intent**, one **Complexity**, one summary, and zero or more **Affected
-  Paths**.
-- **Affected Paths** identify existing project paths; an **Empty Project Directory** therefore produces none.
+- A **Triage Report** contains one **Routing Intent**, one **Complexity**, and one summary.
+- A **Plan** lists zero or more **Affected Paths** in its front matter; an **Empty Project Directory** therefore
+  produces none.
 - **Diagnostic Triage** remains read-only and produces a normal **Routing Intent**.
 - An **OPERATION** belongs to the **Operator** and creates no **Plan**.
 - A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through a **Review Loop**, and executed by the

@@ -94,7 +94,6 @@ Parameters:
 - `complexity`: `LOW | MEDIUM | HIGH`
 - `summary`: concise summary and rationale
 - `sessionName`: short human label for unnamed sessions
-- `affectedPaths`: ordered vertical-slice paths when relevant
 
 Behavior:
 

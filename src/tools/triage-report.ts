@@ -33,10 +33,6 @@ const PARAMETERS = Type.Object({
         description:
             "Short 3-6 word Session Name suitable for /session display and the terminal tab title. Use concise noun phrases, not a sentence.",
     }),
-    affectedPaths: Type.Array(Type.String(), {
-        description:
-            "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION/OPERATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 implementation/test paths, PLANNED_CHANGE/PROJECT: 3-8 paths.",
-    }),
     workKind: Type.Optional(StringEnum(WORK_KINDS, {
         description:
             "Optional Work Kind for PLANNED_CHANGE. BUG_FIX for planned bug fixes, FEATURE for new/enhanced functionality, REFACTOR for structural changes, MAINTENANCE for upkeep, DOCUMENTATION for documentation creation or substantial documentation updates.",
@@ -56,7 +52,6 @@ export interface TriageReportDetails {
     complexity: TriageComplexity;
     summary: string;
     sessionName: string;
-    affectedPaths: string[];
     workKind?: TriageWorkKind;
 }
 
@@ -86,7 +81,6 @@ function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
         complexity: normalizeTriageComplexity(params.complexity),
         summary: params.summary,
         sessionName: normalizeSessionName(params),
-        affectedPaths: params.affectedPaths,
     };
 
     if (routingIntent === "PLANNED_CHANGE") {
@@ -141,8 +135,6 @@ export function createTriageReportTool(
                         complexity,
                         classification: details.classification,
                         workKind: details.workKind,
-                        affectedPaths: details.affectedPaths,
-                        affectedPathCount: Array.isArray(details.affectedPaths) ? details.affectedPaths.length : 0,
                         hasSessionName: Boolean(details.sessionName),
                     },
                 }, hostedSession.cwd);

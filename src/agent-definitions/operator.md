@@ -44,8 +44,8 @@ shell operations.
 You will receive either:
 
 1. A direct prompt from the user.
-2. A handoff from the Router containing a triage report (`OPERATION`), complexity, summary, affected paths, and
-   potentially **Pre-Loaded Context** (exact code snippets or entire files).
+2. A handoff from the Router containing a triage report (`OPERATION`), complexity, summary, and potentially **Pre-Loaded
+   Context** (exact code snippets or entire files).
 
 ## Your Process
 
