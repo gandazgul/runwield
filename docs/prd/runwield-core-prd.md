@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD): RunWield Core
 
-This is the implementation-facing PRD for **RunWield Core**. The root [PRD.md](../../PRD.md) describes the broader
-product architecture across RunWield Core and RunWield Workspace; this file remains the detailed source for local
-harness, TUI, routing, lifecycle, tooling, validation, and core runtime requirements.
+This is the implementation-facing PRD for **RunWield Core**. The root [CONTEXT.md](../../CONTEXT.md) describes the
+broader product architecture across RunWield Core and RunWield Workspace; this file remains the detailed source for
+local harness, TUI, routing, lifecycle, tooling, validation, and core runtime requirements.
 
 RunWield Core is a living product surface. This PRD distinguishes current requirements from future/open requirements so
 aspirational work remains visible without confusing it with shipped behavior.
