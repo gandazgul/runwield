@@ -1,10 +1,26 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
+    buildAgentHandoffRequest,
     buildEngineerRequest,
     buildReAnchorMessage,
     buildSlicerRequest,
     buildTriageReport,
 } from "./workflow-prompts.js";
+
+Deno.test("buildAgentHandoffRequest explicitly re-anchors the active specialist", () => {
+    const request = buildAgentHandoffRequest("Planner", "Continue the requested refactor.", {
+        routingIntent: "PLANNED_CHANGE",
+        classification: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        summary: "Plan the refactor.",
+    });
+
+    assertStringIncludes(request, "## Active RunWield Agent");
+    assertStringIncludes(request, "You are now Planner.");
+    assertStringIncludes(request, "previous RunWield Agent");
+    assertStringIncludes(request, "## User Request\nContinue the requested refactor.");
+    assertStringIncludes(request, "## Triage Report");
+});
 
 Deno.test("buildSlicerRequest includes existing child order and dependencies", () => {
     const request = buildSlicerRequest({

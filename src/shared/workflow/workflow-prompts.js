@@ -59,6 +59,30 @@ export function buildTriageReport(triage, options = {}) {
 }
 
 /**
+ * Build the first user message after Router dispatch. A single persisted
+ * transcript can contain assistant reasoning from several RunWield Agents, so
+ * name the newly active Agent explicitly instead of asking the model to infer
+ * its role from the conversation history.
+ *
+ * @param {string} agentDisplayName
+ * @param {string} userRequest
+ * @param {TriageReportContext} triage
+ * @returns {string}
+ */
+export function buildAgentHandoffRequest(agentDisplayName, userRequest, triage) {
+    return [
+        "## Active RunWield Agent",
+        `You are now ${agentDisplayName}. Follow the ${agentDisplayName} instructions in the system prompt.`,
+        "Earlier assistant messages and tool results may belong to a previous RunWield Agent; they are context, not your current role.",
+        "",
+        "## User Request",
+        userRequest,
+        "",
+        buildTriageReport(triage),
+    ].join("\n");
+}
+
+/**
  * Build the user-request text handed to the interactive Epic Slicer.
  *
  * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.ts').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string } | string} input

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -369,6 +369,65 @@ Deno.test("planned work with no Plan declaration stays with the real Planner", a
         assertEquals(ci.calls, []);
         fixture.hostedSession.dispose();
     });
+});
+
+Deno.test("Router-to-Planner dispatch sends Planner system instructions despite Router transcript history", async () => {
+    await withRuntimeCommandFixture(
+        "orchestrator-planner-prompt-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            let systemPrompt = "";
+            let modelMessages = "";
+            setModelResponseFactory((context) => {
+                systemPrompt = context.systemPrompt || "";
+                modelMessages = JSON.stringify(context.messages);
+                return fauxAssistantMessage(fauxText("I need more requirements before writing the Plan."));
+            });
+            const fixture = createSessionFixture(projectRoot);
+            fixture.sessionManager.appendMessage({
+                role: "assistant",
+                content: [{ type: "text", text: "I am the Router. My only job is routing." }],
+                api: "runtime-command-faux",
+                provider: "runtime-command-fixture",
+                model: "fixture-model",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: "stop",
+                timestamp: Date.now(),
+            });
+
+            try {
+                await dispatchPostTriage({
+                    hostedSession: fixture.hostedSession,
+                    triage: {
+                        routingIntent: "PLANNED_CHANGE",
+                        classification: "PLANNED_CHANGE",
+                        complexity: "MEDIUM",
+                        summary: "plan a feature",
+                        affectedPaths: ["src/feature.ts"],
+                    },
+                    userRequest: "Build the feature.",
+                    images: [],
+                    sessionManager: fixture.sessionManager,
+                    localCI: defineLocalCIFixture().port,
+                });
+
+                assertStringIncludes(systemPrompt, "You are the Planner");
+                assertEquals(systemPrompt.includes("Your ONLY job is to identify the Routing Intent"), false);
+                assertStringIncludes(modelMessages, "I am the Router. My only job is routing.");
+                assertStringIncludes(modelMessages, "You are now Planner.");
+                assertStringIncludes(modelMessages, "previous RunWield Agent");
+                assertStringIncludes(modelMessages, "## Triage Report");
+            } finally {
+                fixture.hostedSession.dispose();
+            }
+        },
+    );
 });
 
 Deno.test("PROJECT approval runs the real readiness transition and Slicer", async () => {

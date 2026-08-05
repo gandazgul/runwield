@@ -40,7 +40,7 @@ import {
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { buildTriageReport } from "./workflow-prompts.js";
+import { buildAgentHandoffRequest } from "./workflow-prompts.js";
 import {
     executePlan,
     extractAssistantOutput,
@@ -309,8 +309,6 @@ export async function dispatchPostTriage({
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
 
-    const triageBlock = buildTriageReport(normalizedTriage);
-    const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
     const activateAgent = async (agentName: string): Promise<void> => {
         await switchActiveAgent(hostedSession, { agentName });
     };
@@ -332,6 +330,11 @@ export async function dispatchPostTriage({
         : isPlannedChangeClassification(normalizedTriage.routingIntent)
         ? AGENTS.PLANNER
         : AGENTS.ARCHITECT;
+    const decoratedRequest = buildAgentHandoffRequest(
+        getAgentDisplayName(dispatchTarget, projectRoot),
+        userRequest,
+        normalizedTriage,
+    );
     await recordMetric({
         category: "routing",
         event: "dispatch_selected",
