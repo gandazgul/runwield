@@ -31,8 +31,6 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { recordWorkflowMetric } from "./metrics.js";
 
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
-
-import { openItems } from "./review-ledger.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
@@ -346,15 +344,7 @@ export function hasTrustedClaudeMcpReview(messages: import("@earendil-works/pi-a
  * @param {import('../../tools/review-complete.ts').ReviewFinding[] | undefined} findings
  * @returns {string[]}
  */
-export function unaccountedOpenItems(
-    ledger: import("./review-ledger.ts").ReviewLedger,
-    findings: import("../../tools/review-complete.ts").ReviewFinding[] | undefined,
-) {
-    const mentioned = new Set(
-        (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),
-    );
-    return openItems(ledger).map((item) => item.id).filter((id) => !mentioned.has(id));
-}
+export { unaccountedOpenItems } from "./review-ledger.ts";
 
 /**
  * HumanReviewDecision is declared below as a TypeScript union.

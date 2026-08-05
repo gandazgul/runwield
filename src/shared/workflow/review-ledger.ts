@@ -73,6 +73,28 @@ export function hasOpenItems(ledger: ReviewLedger): boolean {
 }
 
 /**
+ * Open ledger identities a review result failed to mention.
+ *
+ * The ledger only converges if every round returns a verdict on every open item.
+ * An omission is not neutral: it would let an approval merge over a finding
+ * nobody addressed, and it makes a re-reported issue arrive as a new identity
+ * beside the original, so one defect becomes two and the count grows each round.
+ *
+ * @param {ReviewLedger} ledger
+ * @param {ReviewFinding[] | undefined} findings
+ * @returns {string[]}
+ */
+export function unaccountedOpenItems(
+    ledger: ReviewLedger,
+    findings: ReviewFinding[] | undefined,
+): string[] {
+    const mentioned = new Set(
+        (findings || []).map((finding) => finding?.id).filter((id) => typeof id === "string" && id),
+    );
+    return openItems(ledger).map((item) => item.id).filter((id) => !mentioned.has(id));
+}
+
+/**
  * Apply one round's Reviewer result to the ledger.
  *
  * A finding carrying a known id updates that item; `resolved: true` closes it.

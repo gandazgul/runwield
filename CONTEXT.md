@@ -445,6 +445,12 @@ return to Router with context before continuing. _Avoid_: Surprise return, silen
 **Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. _Avoid_: Agent
 self-check, final summary
 
+**Session-Independent Validation Engine**: The Workflow Validation sequencing, convergence policy, and gate predicates
+run on a session-independent engine (`src/shared/workflow/validation-engine.ts` and its phase modules) that consumes
+Pi/session turn machinery only through a narrow `ValidationSessionPort`. The Core Session runtime's `validation.ts`
+builds that port over the HostedSession machinery; other runtimes can drive the same engine by implementing the port.
+_Avoid_: Second validation implementation, session-coupled engine
+
 **Mechanical Validation**: RunWield's automated command validation loop. In no-plan QUICK_FIX work it runs local CI only
 without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs local CI
 plus that Plan's Objective-Failing Checks before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent
