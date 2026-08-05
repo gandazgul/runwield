@@ -59,7 +59,7 @@ export type ValidationLoopArgs = {
     finalAgentName?: string;
     executionContext?: ActiveExecutionWorkflow;
     git: GitPort;
-    semanticReviewPort: SemanticReviewPort;
+    semanticReviewPort?: SemanticReviewPort;
     localCI: LocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
 };
