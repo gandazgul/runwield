@@ -22,7 +22,9 @@ function extractFunctionSource(source, marker) {
 }
 
 Deno.test("runValidationLoop is a single-phase dispatcher", async () => {
-    const source = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
+    // The dispatcher lives in the engine after the session-independent split; the
+    // public entry in validation.ts only builds the port and delegates.
+    const source = await Deno.readTextFile(new URL("./validation-engine.ts", import.meta.url));
     const functionSource = extractFunctionSource(source, "async function runValidationPhase");
 
     assert(functionSource.split("\n").length < 200, "the phase dispatcher should stay under 200 lines");
@@ -44,7 +46,9 @@ Deno.test("legacy validation drivers are not reachable", async () => {
 });
 
 Deno.test("the irreversible merge runs inside the publication transaction", async () => {
-    const source = await Deno.readTextFile(new URL("./validation.ts", import.meta.url));
+    // The publication phase moved to validation-publication.ts in the
+    // session-independent split; the transaction shape is unchanged.
+    const source = await Deno.readTextFile(new URL("./validation-publication.ts", import.meta.url));
     const publication = extractFunctionSource(source, "async function runPublicationPhase");
 
     // The merge is the only act RunWield cannot undo. It must run inside the

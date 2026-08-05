@@ -1,0 +1,544 @@
+/**
+ * @module shared/workflow/validation-semantic
+ * The Semantic Code Review phase: reviewer rounds with ledger convergence, repair
+ * dispatch, and the round-limit decision when the automatic rounds are spent.
+ */
+
+import { AGENTS } from "../../constants.js";
+import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
+import {
+    applyRoundFindings,
+    hasOpenItems,
+    openItems,
+    renderOpenItems,
+    renderResolvedItems,
+    unaccountedOpenItems,
+} from "./review-ledger.ts";
+import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
+import type { OpaqueToolDefinition, ValidationReviewOutcome, ValidationWorkflowState } from "./validation-ports.ts";
+import type {
+    PhaseContext,
+    ReviewFeedbackRepairPacket,
+    SemanticRoundState,
+    ValidationLoopArgs,
+    ValidationPhaseResult,
+} from "./validation-types.ts";
+import {
+    getDiffText,
+    hasFinalHumanReviewDecision,
+    readHumanReviewMetadata,
+    readSemanticRoundState,
+    recordLifecycleEvent,
+    recordMetric,
+    resolvePhaseContext,
+} from "./validation-context.ts";
+import { AUTOMATIC_ROUNDS, DISCOVERY_ROUNDS } from "./validation-types.ts";
+import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
+import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
+import { ValidationInteractionTypes } from "./validation-ports.ts";
+import { runHumanReviewPhase } from "./validation-human-review.ts";
+import { persistHumanReviewMetadata } from "./validation-human-review.ts";
+import { runPublicationPhase } from "./validation-publication.ts";
+import { UserActionPause } from "./validation-types.ts";
+
+export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
+    const phase = await resolvePhaseContext(args);
+    if (phase.kind === "blocked") return phase.result;
+    const context = phase.context;
+    if (context.nonGitInPlace) {
+        await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Semantic Code Review skipped for non-Git execution.",
+        };
+    }
+    // The user asked for these changes themselves, so they are the reviewer now — they
+    // took over either because the Semantic Code Reviewer found nothing or because it
+    // kept finding things round after round. Sweeping the diff again would hand back
+    // objections the user has already moved past, and cost a full review cycle for
+    // every note they write. Run the tests, then give them the diff back.
+    if (args.triageMeta.humanReviewDecision === "changes_requested") {
+        await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Reopening your code review with the repair.",
+        };
+    }
+
+    const state = readSemanticRoundState(args, context);
+    let round = state.semanticRound;
+    let ledger = state.reviewLedger;
+    let diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
+        const reason = diffText.trim()
+            ? "No implementation changes detected in workflow diff; only plan document changes were found."
+            : "No implementation changes detected in workflow diff.";
+        await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
+        return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+    }
+    if (!diffText.trim()) {
+        await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Semantic Code Review skipped because the diff is empty.",
+        };
+    }
+
+    // Rounds one and two sweep the whole Plan; from three on the reviewer only
+    // verifies what is still open. Each round below the limit ends by handing the
+    // Plan back to `implemented`, so the tests run over the repair before the next
+    // review. At the limit the user takes the wheel, and their "look again" re-enters
+    // right here — another focused round on the repaired diff, no detour.
+    for (;;) {
+        const nextRound = round + 1;
+        const reviewMode = nextRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
+        // The reviewer runs in its own session, so without this the whole round is
+        // silent: the user sees the Engineer finish, then nothing, and the verdict
+        // lands only in the Plan's failure reason. Say a round is starting, and say
+        // which kind it is — a verify round reads very differently from a sweep.
+        emitProgress(
+            args,
+            `Semantic Code Review round ${nextRound}/${AUTOMATIC_ROUNDS} (${reviewMode}) in progress...`,
+            "info",
+            {
+                outcome: "running",
+                stage: "semantic_review",
+                cycle: clampCycle(nextRound),
+                maxCycles: AUTOMATIC_ROUNDS,
+                checks: { semanticReview: "running" },
+            },
+        );
+        const review = await runReviewerRound(
+            args,
+            context,
+            { ...state, semanticRound: nextRound, reviewLedger: ledger },
+            reviewMode,
+            diffText,
+        );
+        if (review.kind === "paused") return review.result;
+        if (review.kind === "failed") {
+            await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", review.reason);
+            return {
+                kind: "failed",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: review.reason,
+            };
+        }
+
+        if (review.outcome.approved) {
+            await recordMetric(args, context.projectRoot, {
+                category: "validation",
+                event: "semantic_review_result",
+                planName: args.planName,
+                details: {
+                    semanticRound: nextRound,
+                    reviewMode,
+                    approved: true,
+                    hasDiff: true,
+                    approvedByRoundTwo: nextRound <= 2,
+                    resolvedThisRound: review.resolvedCount,
+                    advisoryCount: review.outcome.advisories.length,
+                },
+            });
+            emitProgress(args, `Semantic Code Review Approved (round ${nextRound}).`, "success", {
+                stage: "semantic_review",
+                cycle: clampCycle(nextRound),
+                maxCycles: AUTOMATIC_ROUNDS,
+                checks: { semanticReview: "passed" },
+            });
+            await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: "Semantic Code Review passed.",
+            };
+        }
+
+        const openCount = openItems(review.ledger).length;
+        await recordMetric(args, context.projectRoot, {
+            category: "validation",
+            event: "semantic_review_result",
+            planName: args.planName,
+            details: {
+                semanticRound: nextRound,
+                reviewMode,
+                approved: false,
+                hasReviewerOutput: Boolean(review.outcome.feedback),
+                openFindingCount: openCount,
+                resolvedThisRound: review.resolvedCount,
+                appendedThisRound: review.appendedCount,
+                advisoryCount: review.outcome.advisories.length,
+            },
+        });
+
+        const repair = await dispatchReviewFeedbackRepair(args, context, {
+            diffText,
+            findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
+            repairKind: "semantic",
+            reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+            activeWorkflow: {
+                semanticRound: nextRound,
+                reviewLedger: review.ledger,
+                repairBaselineTree: state.repairBaselineTree || context.baselineTree || "",
+            },
+        });
+        if (!repair.completed) {
+            const reason = repair.reason ||
+                "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
+            await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
+            return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+        }
+
+        // Asked after the repair and after the tests run over it, not before: the
+        // choice is about the repaired code, and the user needs to know whether it
+        // still builds before deciding to ship it or look at it themselves. Running
+        // the tests here is also what keeps a repair from reaching publication
+        // unbuilt, now that a Retry re-enters at the reviewer rather than going back
+        // around through the mechanical phase.
+        if (nextRound >= AUTOMATIC_ROUNDS) {
+            // At the limit the repair is tested right here instead of going back
+            // around, so the loop stays in this phase rather than the mechanical one
+            // the dispatch above pinned it to.
+            args.session.rememberPosition(args.planName, { phase: "semantic" });
+            emitStatus(args, `Running CI Validation in ${context.executionCwd}.`);
+            const ciResult = await args.localCI.run({ cwd: context.executionCwd });
+            const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
+            emitStatus(
+                args,
+                testsPass ? "Build and tests passed." : "Build and tests are failing after the repair.",
+                testsPass ? "success" : "warning",
+            );
+            const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
+            if (action === "code_review") {
+                await persistHumanReviewMetadata(args, context.projectRoot, {
+                    humanReviewMode: "always",
+                    humanReviewDecision: null,
+                    humanReviewedAt: null,
+                });
+                await recordLifecycleEvent(
+                    args,
+                    context.projectRoot,
+                    "semantic_review_passed",
+                    "validated_ci",
+                    undefined,
+                    { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+                );
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                };
+            }
+            if (action === "stop") {
+                // Nothing is recorded, so the Plan stays at `validated_ci` with its
+                // passing tests and its open findings intact. Running it again reopens
+                // the review exactly here rather than starting the pipeline over.
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ${
+                        testsPass ? "The tests still pass and the findings are saved." : "The tests are failing too."
+                    } Run this Plan again when you want to pick it back up.`,
+                };
+            }
+            round = nextRound;
+            ledger = review.ledger;
+            diffText = await getDiffText(context.baselineTree, context.executionCwd);
+            continue;
+        }
+
+        await recordLifecycleEvent(
+            args,
+            context.projectRoot,
+            "semantic_review_feedback",
+            "validated_ci",
+            review.outcome.feedback || "Semantic Code Review requested changes.",
+        );
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Semantic Code Review requested changes; repair dispatched.",
+        };
+    }
+}
+
+export async function runValidatedReviewerPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
+    const phase = await resolvePhaseContext(args);
+    if (phase.kind === "blocked") return phase.result;
+    if (!hasFinalHumanReviewDecision(args.triageMeta)) {
+        return await runHumanReviewPhase(args, phase.context);
+    }
+    const publication = await runPublicationPhase(args, phase.context, readHumanReviewMetadata(args.triageMeta));
+    return publication.result;
+}
+
+export async function runReviewerRound(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    state: SemanticRoundState,
+    reviewMode: "discovery" | "verify",
+    diffText: string,
+): Promise<
+    | {
+        kind: "complete";
+        outcome: ValidationReviewOutcome;
+        ledger: SemanticRoundState["reviewLedger"];
+        resolvedCount: number;
+        appendedCount: number;
+    }
+    | { kind: "paused"; result: ValidationPhaseResult }
+    | { kind: "failed"; reason: string }
+> {
+    // One in-memory session manager per round, shared across every nudge attempt:
+    // the reviewer's accumulated context is what makes a nudge "continue this
+    // review" instead of "start over".
+    const reviewerSessionManager = args.session.createInMemorySessionManager(context.executionCwd);
+    let lastReviewerFailure = "Semantic Reviewer did not complete.";
+    let nudgeReason: string | undefined;
+    let inspectedDiff = false;
+    let latestOutcome: ValidationReviewOutcome | null = null;
+
+    for (let attempt = 1; !latestOutcome; attempt++) {
+        if (attempt > 3) {
+            // Out of nudges. The round is recoverable — the findings are preserved and
+            // the reviewer starts fresh — so offer that rather than ending here.
+            const pause: UserActionPause = {
+                whatHappened: `The reviewer could not finish looking at "${args.planName}". ${lastReviewerFailure}`,
+                doThis:
+                    "Pick Retry to have it try again from the same findings, or Stop to come back to this later. If its context is full, run /compact first.",
+            };
+            if (await pauseForUserAction(args, pause) === "stop") break;
+            attempt = 1;
+            nudgeReason = undefined;
+        }
+        if (attempt > 1) {
+            emitStatus(
+                args,
+                `Nudging Semantic Reviewer to finish round ${state.semanticRound} (${attempt}/3)...`,
+                "info",
+            );
+        }
+        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText);
+        nudgeReason = undefined;
+        try {
+            const sessionOutcome = await args.session.runIsolatedAgentSession({
+                kind: "reviewer",
+                agentName: AGENTS.REVIEWER,
+                userRequest: config.prompt,
+                cwd: context.executionCwd,
+                reviewerMode: reviewMode,
+                customTools: config.customTools,
+                sessionManager: reviewerSessionManager,
+            });
+            if (sessionOutcome.usedDiffTool) inspectedDiff = true;
+            const trustedClaudeMcpReview = sessionOutcome.trustedClaudeMcpReview;
+            const outcome = sessionOutcome.reviewOutcome;
+            const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
+            if (!outcome) {
+                lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
+            } else if (!inspectedDiff && !trustedClaudeMcpReview) {
+                lastReviewerFailure = "Semantic Reviewer decided without inspecting the diff.";
+                nudgeReason =
+                    'You called review_complete without inspecting the diff. Read the changes with review_diff(command: "list") and then review_diff(command: "show", ...) before deciding, then call review_complete again with your decision.';
+            } else if (unaccounted.length > 0) {
+                lastReviewerFailure = `Semantic Reviewer did not account for open finding(s): ${
+                    unaccounted.join(", ")
+                }.`;
+                nudgeReason = `Your result does not mention ${
+                    unaccounted.length === 1 ? "this open finding" : "these open findings"
+                }: ${
+                    unaccounted.join(", ")
+                }. Every open finding must appear in your \`findings\` array — with \`resolved: true\` if you have verified the fix in the code, or with \`resolved: false\` and what is still missing. Reuse the existing identities exactly; do not renumber them or report the same issue as a new finding. Call review_complete again with the complete set.`;
+            } else {
+                latestOutcome = outcome;
+            }
+        } catch (error) {
+            lastReviewerFailure = `Semantic Reviewer execution failed: ${
+                error instanceof Error ? error.message : String(error)
+            }`;
+        }
+    }
+
+    if (!latestOutcome) {
+        const reason =
+            `The reviewer could not finish looking at "${args.planName}". ${lastReviewerFailure} Run this Plan again when you are ready — it picks up at this same round, with the findings so far kept.`;
+        args.session.setActiveWorkflow({
+            ...context.workflowBase,
+            ...(args.session.getActiveWorkflow() || {}),
+            semanticRound: state.semanticRound - 1,
+            reviewLedger: state.reviewLedger,
+            repairBaselineTree: state.repairBaselineTree,
+            lastRepairReport: state.lastRepairReport,
+        });
+        emitStatus(args, reason, "warning");
+        return {
+            kind: "paused",
+            result: { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason },
+        };
+    }
+
+    const applied = applyRoundFindings(state.reviewLedger, latestOutcome.findings, state.semanticRound);
+    return {
+        kind: "complete",
+        outcome: latestOutcome,
+        ledger: applied.ledger,
+        resolvedCount: applied.resolvedCount,
+        appendedCount: applied.appendedCount,
+    };
+}
+
+export function buildSemanticReviewAttempt(
+    attempt: number,
+    nudgeReason: string | undefined,
+    state: SemanticRoundState,
+    reviewMode: "discovery" | "verify",
+    diffText: string,
+): {
+    prompt: string;
+    customTools: OpaqueToolDefinition[];
+} {
+    // `createReviewDiffTool` returns a Pi ToolDefinition; the engine brands it opaque
+    // here so the adapter can un-brand it once at the port boundary.
+    const customTools = [createReviewDiffTool({ full: diffText }) as unknown as OpaqueToolDefinition];
+    if (attempt > 1) {
+        return {
+            prompt: nudgeReason ||
+                "You have not called review_complete yet. Finish this review now by calling review_complete with your decision. Do not restart the review — use what you have already inspected.",
+            customTools,
+        };
+    }
+
+    const sections = [`You are reviewing ${state.semanticRound}. This is review round ${state.semanticRound}.`, ""];
+    if (reviewMode === "discovery" && hasOpenItems(state.reviewLedger)) {
+        sections.push(
+            "A previous round opened the findings below and a repair has been attempted since. Sweep the Plan as usual **and** independently verify each open finding against the code.",
+            "",
+            "### Open Findings",
+            "",
+            renderOpenItems(state.reviewLedger),
+            "",
+        );
+    } else if (reviewMode === "verify") {
+        sections.push(
+            `Rounds 1-${DISCOVERY_ROUNDS} already reviewed this implementation against the whole Plan. Verify the open findings below and check the repair for regressions. Do not sweep the Plan again.`,
+            "",
+            "### Open Findings",
+            "",
+            renderOpenItems(state.reviewLedger),
+            "",
+            "### Already Resolved",
+            "",
+            renderResolvedItems(state.reviewLedger),
+            "",
+        );
+    }
+    if (state.lastRepairReport) {
+        sections.push(
+            "### Repair Agent's Report",
+            "",
+            "These are claims to verify, not proof. Check each one against the code yourself.",
+            "",
+            state.lastRepairReport,
+            "",
+        );
+    }
+    sections.push(
+        buildDiffInspectionSection(diffText),
+        "",
+        "### Approved Plan",
+        "",
+        "Plan content is supplied by the validation request.",
+    );
+    return {
+        prompt: sections.join("\n"),
+        customTools,
+    };
+}
+
+export async function dispatchReviewFeedbackRepair(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    packet: ReviewFeedbackRepairPacket,
+): Promise<{ completed: boolean; report: string; reason?: string }> {
+    emitStatus(args, packet.reason, "warning");
+    try {
+        const workflowState: ValidationWorkflowState = { ...context.workflowBase, ...packet.activeWorkflow };
+        args.session.setActiveWorkflow(workflowState);
+        const sessionOutcome = await args.session.runIsolatedAgentSession({
+            kind: "feedback_engineer",
+            agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+            userRequest: [
+                packet.repairKind === "human_feedback"
+                    ? "A human reviewed this change and asked for the following. Their feedback is authoritative."
+                    : "A code reviewer found the following issues with this implementation. Fix every one of them.",
+                "",
+                "### Findings",
+                "",
+                packet.findingsSection || "(no findings text supplied)",
+                "",
+                buildDiffInspectionSection(packet.diffText),
+                "",
+                "### Approved Plan",
+                "",
+                args.planContent,
+                "",
+                "Report a disposition for every finding in your task_completed message.",
+            ].join("\n"),
+            images: packet.images,
+            cwd: context.executionCwd,
+            customTools: [createReviewDiffTool({ full: packet.diffText }) as unknown as OpaqueToolDefinition],
+        });
+        const taskReport = sessionOutcome.taskReport;
+        args.session.setActiveWorkflow({
+            ...workflowState,
+            lastRepairReport: taskReport.report,
+        });
+        return { completed: taskReport.completed, report: taskReport.report };
+    } catch (error) {
+        return { completed: false, report: "", reason: error instanceof Error ? error.message : String(error) };
+    }
+}
+
+/**
+ * The decision when the automatic review rounds are spent.
+ *
+ * Three ways forward, and every one of them is a way forward: another focused round,
+ * hand it to a person, or stop somewhere it can be picked up again. Stop used to be
+ * missing here on the grounds that stopping strands the work — but the Plan keeps its
+ * passing tests and its review findings, so returning resumes at the review rather
+ * than the beginning. A menu with no exit is not the same thing as never stranding
+ * someone.
+ */
+export async function promptForSemanticRoundLimit(
+    args: ValidationLoopArgs,
+    semanticRound: number,
+    openFindingCount: number,
+    testsPass: boolean,
+): Promise<"continue" | "code_review" | "stop"> {
+    const response = await requestInteraction(args, {
+        type: ValidationInteractionTypes.SELECT,
+        prompt:
+            `The reviewer has looked at "${args.planName}" ${semanticRound} times and still is not happy with it. ${openFindingCount} thing(s) are still open, and the latest fix ${
+                testsPass ? "builds and passes the tests" : "does not pass the tests"
+            }.\n\nYou can have the reviewer take another look at just those, read the changes yourself, or leave it here for now — nothing is lost either way.`,
+        options: [
+            { value: "continue", label: "Have the reviewer look again" },
+            { value: "code_review", label: "Let me read the changes" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    if (response.outcome !== "selected") return "stop";
+    if (response.value === "code_review") return "code_review";
+    return response.value === "continue" ? "continue" : "stop";
+}

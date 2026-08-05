@@ -1,0 +1,418 @@
+/**
+ * @module shared/workflow/validation-publication
+ * The publication phase: merging the validated worktree into the target branch
+ * inside the Direct Delivery transaction, settling the worktree registry, running
+ * post-verification handoffs, and building the verified result.
+ */
+
+import { isPlannedChangeClassification } from "../../constants.js";
+import { loadPlan } from "../../plan-store.js";
+import { shouldCleanupMergedWorktrees } from "../settings.js";
+import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
+import {
+    checkpointExecutionWorktree,
+    deleteMergedWorktreeBranch,
+    mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    removeWorktreeGitArtifacts,
+    restorePrimaryPlanPathAfterMergeFailure,
+} from "../worktree.js";
+import {
+    pruneEntry as pruneWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../worktree-registry.js";
+import { stageValidationPassedInExecutionWorktree, VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
+import { runDirectDeliveryPublicationTransition } from "./state-transition.ts";
+import { readRepairedMergeCandidate, verifyPostMergeCandidatePublished } from "./validation-merge-verification.ts";
+import { shouldContinueParentEpicAfterValidation } from "./validation-scope.ts";
+import type {
+    HumanReviewMetadata,
+    PhaseContext,
+    PlanEventStatus,
+    PublicationOutcome,
+    RecordPlanEventArgs,
+    ValidationLoopArgs,
+    ValidationPhaseResult,
+} from "./validation-types.ts";
+import { MAX_AGENT_MERGE_REPAIRS } from "./validation-types.ts";
+import {
+    describeMergePause,
+    dispatchMergeRepair,
+    getMergeFailureKind,
+    getMergeWorktreePath,
+    persistValidationMergeRepairWorktree,
+    resolveStoredValidationMergeRepairWorktree,
+} from "./validation-merge-repair.ts";
+import { recordLifecycleEvent } from "./validation-context.ts";
+import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
+import { pauseForUserAction } from "./validation-interactions.ts";
+
+type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
+type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
+
+export async function runPublicationPhase(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    humanReviewMetadata: HumanReviewMetadata,
+): Promise<PublicationOutcome> {
+    if (context.nonGitInPlace || !context.worktreeBranch) {
+        const deliveryEvidence: DeliveryEvidence = context.nonGitInPlace
+            ? { version: 1, mode: "non_git_in_place" }
+            : null;
+        await recordLifecycleEvent(args, context.projectRoot, "validation_passed", "validated_reviewer", undefined, {
+            executionMode: context.nonGitInPlace ? "non_git_in_place" : undefined,
+            deliveryEvidence,
+            ...humanReviewMetadata,
+        });
+        await runPostVerificationHandoffs(args, context.projectRoot);
+        return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
+    }
+
+    const worktreeBaseBranch = context.worktreeBaseBranch;
+    if (!worktreeBaseBranch) {
+        const reason =
+            `Target branch metadata is missing for worktree branch ${context.worktreeBranch}; Workflow Validation cannot publish Delivery Evidence without a concrete target branch.`;
+        await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_reviewer", reason);
+        return {
+            recorded: true,
+            result: { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason },
+        };
+    }
+
+    const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(context.projectRoot);
+    const gitPort = args.git;
+    const planPath = `plans/${args.planName}.md`;
+    const storedRepairWorktree = await resolveStoredValidationMergeRepairWorktree(args, context);
+    if (storedRepairWorktree.kind === "blocked") return storedRepairWorktree.outcome;
+    let repairMergeWorktreePath = storedRepairWorktree.path;
+    let agentRepairs = 0;
+    // Captured once, as plain strings: the guards above narrowed both, but TypeScript
+    // drops that narrowing inside the hoisted helpers below.
+    const targetBranch: string = worktreeBaseBranch;
+    const executionBranch: string = context.worktreeBranch;
+
+    for (;;) {
+        const attempt = await attemptPublication();
+        if (attempt.kind === "published") return attempt.outcome;
+
+        const { error, reason } = attempt;
+        // Publication may have already succeeded. The merge is irreversible, so an
+        // error after the target ref moved is bookkeeping noise over finished work —
+        // finish rather than dispatching an Agent to repair a conflict that is gone.
+        if (await isPlanAlreadyPublished(context.projectRoot, args.planName)) {
+            await runPostVerificationHandoffs(args, context.projectRoot);
+            return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
+        }
+        const nextRepairMergeWorktreePath = getMergeWorktreePath(error);
+        if (nextRepairMergeWorktreePath) {
+            const persisted = await persistValidationMergeRepairWorktree(args, context, nextRepairMergeWorktreePath);
+            if (persisted.kind === "blocked") return persisted.outcome;
+            repairMergeWorktreePath = nextRepairMergeWorktreePath;
+        }
+        const failureKind = getMergeFailureKind(error);
+
+        // A merge conflict is normal and fixable, so try the Agent first and retry
+        // publication in the same call — the user should not be asked about something
+        // RunWield can resolve. Uncommitted work in the project folder is the
+        // exception: only the user can decide what happens to it.
+        if (failureKind !== "primary_checkout_dirty" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
+            agentRepairs += 1;
+            if (await dispatchMergeRepair(args, context, reason, error)) continue;
+        }
+
+        const pause = describeMergePause(args.planName, worktreeBaseBranch, error, reason, context);
+        if (await pauseForUserAction(args, pause) === "retry") continue;
+        return {
+            recorded: false,
+            result: {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                // The Plan stays at `validated_reviewer`: tests passed and the review
+                // approved, so publication is all that is left. Recording a merge
+                // failure would reset it to `implemented` and make the user sit through
+                // the whole pipeline again for a merge they can finish in a minute.
+                reason:
+                    `${pause.whatHappened} ${pause.doThis} Run this Plan again when you are ready and RunWield will pick up at the merge.`,
+            },
+        };
+    }
+
+    async function attemptPublication(): Promise<
+        { kind: "published"; outcome: PublicationOutcome } | { kind: "failed"; error: unknown; reason: string }
+    > {
+        try {
+            return { kind: "published", outcome: await publishOnce() };
+        } catch (error) {
+            return { kind: "failed", error, reason: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    async function publishOnce(): Promise<PublicationOutcome> {
+        const repairedCandidate = repairMergeWorktreePath
+            ? await readRepairedMergeCandidate(repairMergeWorktreePath)
+            : null;
+        const checkpoint = repairedCandidate || await checkpointExecutionWorktree({
+            worktreePath: context.executionCwd,
+            branch: executionBranch,
+            planName: args.planName,
+            planDescription: args.triageMeta?.summary,
+        });
+        const targetHeadBeforeMerge = repairedCandidate?.targetHeadBeforeMerge ||
+            await gitPort.branchHead(context.projectRoot, targetBranch);
+        const deliveryEvidence: WorktreeDeliveryEvidence = {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: checkpoint.executionCommit,
+            targetBranch,
+            targetHeadBeforeMerge,
+        };
+        const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
+            .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
+        const repairedPlanPaths = new Set([planPath]);
+        if (hierarchy.parentPlan) repairedPlanPaths.add(`plans/${hierarchy.parentPlan}.md`);
+        for (const sibling of hierarchy.siblingPlans) repairedPlanPaths.add(`plans/${sibling.name}.md`);
+        const staging = repairedCandidate
+            ? { planPaths: [...repairedPlanPaths] }
+            : await stageValidationPassedInExecutionWorktree({
+                projectRoot: context.projectRoot,
+                executionCwd: context.executionCwd,
+                planName: args.planName,
+                details: {
+                    triageMeta: args.triageMeta,
+                    executionMode: "worktree",
+                    deliveryEvidence,
+                    worktreeStatus: "merged",
+                    cleanupMergedWorktrees,
+                    ...humanReviewMetadata,
+                },
+            });
+        // The merge is the only irreversible act in the system: a commit that reaches
+        // the target branch cannot be taken back. It therefore runs inside the
+        // publication transaction, which locks the attempt and the target ref, holds
+        // the Plan revision it decided on, and — the part that matters most — journals
+        // `direct_delivery_target_ref_moved` the moment the branch moves. Without that
+        // journal an interrupted publication leaves no evidence the merge happened, so
+        // recovery cannot tell "never merged" from "merged, bookkeeping behind", and
+        // the failure path below would report a merge failure for work already on the
+        // target branch.
+        const publication = await runDirectDeliveryPublicationTransition({
+            projectRoot: context.projectRoot,
+            planName: args.planName,
+            expectedRevision: hierarchy.revision,
+            worktreeId: context.worktreeId,
+            targetRef: worktreeBaseBranch,
+            parentPlan: hierarchy.parentPlan,
+            siblingPlanNames: hierarchy.siblingPlans.map((sibling) => sibling.name),
+            publicationProof: { deliveryEvidence, cleanupMergedWorktrees, phase: "stage_merge_settle" },
+            publish: async ({ markEffect, registerRollback }) => {
+                // Git refuses to merge over untracked or modified files in the primary
+                // checkout, and the Plan file is always one of those: the planner wrote
+                // it here, and the worktree is about to bring its own copy. Snapshot
+                // and lift each preserved Plan path out of the way first, then let the
+                // merge deliver the staged version. Without this every publication ends
+                // in "please move or remove them before you merge".
+                const primaryPlanSnapshots: Awaited<ReturnType<typeof preparePrimaryPlanPathForMerge>>[] = [];
+                for (const relativePath of staging.planPaths) {
+                    primaryPlanSnapshots.push(
+                        await preparePrimaryPlanPathForMerge({
+                            projectRoot: context.projectRoot,
+                            relativePath,
+                        }),
+                    );
+                }
+                if (primaryPlanSnapshots.length > 0) {
+                    registerRollback("restore_primary_plan_snapshots", async () => {
+                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                        }
+                    });
+                }
+                await markEffect("direct_delivery_publication_started", {
+                    planName: args.planName,
+                    worktreeId: context.worktreeId,
+                    worktreeBranch: executionBranch,
+                    targetBranch: worktreeBaseBranch,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    preservedPlanPaths: staging.planPaths,
+                });
+                // Say what is about to happen to the user's branch. The merge is the
+                // one irreversible act in the system, and publication had gone silent
+                // about it: the branch moved with nothing in the transcript saying so.
+                emitProgress(
+                    args,
+                    `Merging validated worktree branch ${executionBranch} into target branch ${targetBranch}.`,
+                    "info",
+                    { outcome: "running", stage: "merge", checks: { merge: "running" } },
+                );
+                const mergeResult = await mergeExecutionWorktree({
+                    projectRoot: context.projectRoot,
+                    branch: executionBranch,
+                    targetBranch,
+                    worktreePath: context.executionCwd,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                    planName: args.planName,
+                    planDescription: args.triageMeta?.summary,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    allowedDirtyPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
+                    preservePlanPaths: staging.planPaths,
+                    // Set only after a conflict was repaired in a detached merge
+                    // worktree. Publishing that tree is what finishes the repair;
+                    // merging again from scratch would recreate the same conflict.
+                    repairMergeWorktreePath,
+                });
+                await markEffect("direct_delivery_target_ref_moved", {
+                    planName: args.planName,
+                    worktreeId: context.worktreeId,
+                    worktreeBranch: executionBranch,
+                    targetBranch: worktreeBaseBranch,
+                    updatedPrimaryCheckout: mergeResult?.updatedPrimaryCheckout,
+                    executionMetadataCommit: mergeResult?.executionMetadataCommit,
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                });
+                const mergeVerification = await verifyPostMergeCandidatePublished({
+                    projectRoot: context.projectRoot,
+                    worktreeBranch: executionBranch,
+                    worktreeBaseBranch,
+                    git: gitPort,
+                    executionCommit: deliveryEvidence.executionCommit,
+                    targetBranch: deliveryEvidence.targetBranch,
+                    metadataCommit: mergeResult?.executionMetadataCommit,
+                });
+                if (!mergeVerification.merged) {
+                    throw new Error(
+                        `Direct Delivery publication requires reconciliation: ${mergeVerification.message}`,
+                    );
+                }
+                await settlePublishedWorktree(args, context, cleanupMergedWorktrees);
+                if (context.worktreeId) {
+                    await markEffect("worktree_registry_updated", { worktreeId: context.worktreeId, status: "merged" });
+                }
+                return { mergeResult };
+            },
+        });
+        if (publication.status !== "committed") {
+            // Rethrow the original failure rather than a summary of it: callers
+            // classify typed merge failures to pick the right repair worktree, and
+            // flattening to `message` silently downgrades that to a generic repair.
+            if (publication.cause !== undefined) throw publication.cause;
+            throw new Error(publication.message || `Direct Delivery publication did not commit for ${args.planName}.`);
+        }
+        // `validation_passed` was already recorded — in the execution worktree, by
+        // `stageValidationPassedInExecutionWorktree`, before the merge ran. The merge
+        // is what delivers it, along with the parent Epic and sibling Plans that the
+        // same staging advanced. Recording it a second time here fails its own
+        // compare-and-set ("caller saw validated_reviewer, canonical status is
+        // verified") and the failure path then reported a merge conflict for a merge
+        // that had just succeeded. Confirm the merge landed instead of re-recording.
+        await confirmPublishedPlanVerified(args, context, {
+            executionMode: "worktree",
+            deliveryEvidence,
+            worktreeStatus: "merged",
+            cleanupMergedWorktrees,
+            ...humanReviewMetadata,
+        });
+        await runPostVerificationHandoffs(args, context.projectRoot);
+        return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
+    }
+}
+
+/**
+ * Confirm the merge delivered the verified Plan, and finish the job if it did not.
+ *
+ * Publication stages `validation_passed` in the execution worktree and lets the merge
+ * carry it into the primary checkout, so by the time the merge commits the canonical
+ * Plan should already read `verified`. If it does not — the Plan file was excluded
+ * from the merge, or an older attempt left the checkout behind — record the event
+ * here rather than returning a "verified" result over a Plan still sitting in
+ * validation. Publication succeeded either way; this only settles the bookkeeping.
+ */
+export async function confirmPublishedPlanVerified(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    details: Partial<RecordPlanEventArgs["details"]>,
+): Promise<void> {
+    const status = (await loadPlan(context.projectRoot, args.planName))?.attrs.status;
+    if (status === "verified" || status === "user_verified") return;
+    if (!status || !VALIDATION_PLAN_STATUSES.includes(status as PlanEventStatus)) return;
+    await recordLifecycleEvent(
+        args,
+        context.projectRoot,
+        "validation_passed",
+        status as PlanEventStatus,
+        undefined,
+        details,
+    );
+}
+
+/**
+ * True when the Plan is already published, whatever the error says.
+ *
+ * A merge that moved the target branch cannot be un-moved, so an error raised after
+ * that point describes bookkeeping, not lost work. Dispatching a conflict repair for
+ * it sends an Agent to fix a conflict that does not exist and leaves the user
+ * watching a finished Plan get re-run.
+ */
+export async function isPlanAlreadyPublished(projectRoot: string, planName: string): Promise<boolean> {
+    const status = await loadPlan(projectRoot, planName).then((plan) => plan?.attrs.status).catch(() => undefined);
+    return status === "verified" || status === "user_verified";
+}
+
+export async function settlePublishedWorktree(
+    _args: ValidationLoopArgs,
+    context: PhaseContext,
+    cleanupMergedWorktrees: boolean,
+): Promise<void> {
+    if (context.worktreeId) {
+        await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, { status: "merged" });
+    }
+    if (context.worktreeId) {
+        await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
+    }
+    if (cleanupMergedWorktrees && context.executionCwd) {
+        await removeWorktreeGitArtifacts({ projectRoot: context.projectRoot, path: context.executionCwd, force: false })
+            .catch(() => {});
+        if (context.worktreeBranch) {
+            await deleteMergedWorktreeBranch({ projectRoot: context.projectRoot, branch: context.worktreeBranch })
+                .catch(() => {});
+        }
+    }
+}
+
+export async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot: string): Promise<void> {
+    if (!isPlannedChangeClassification(args.triageMeta?.classification)) return;
+    await args.session.runPostVerificationHandoffs({
+        planName: args.planName,
+        planContent: args.planContent,
+        projectRoot,
+        mnemosynePort: args.workRecordMnemosynePort,
+    });
+}
+
+export function buildVerifiedResult(args: ValidationLoopArgs, projectRoot: string): ValidationPhaseResult {
+    // The run is over, so its position must not outlive it — a Plan reopened later
+    // has to start from what the Plan durably says, not from where this one ended.
+    args.session.clearPosition(args.planName);
+    // Close the panel out on the way past. Without this the last thing the user
+    // sees is a merge still "running", on a run that finished successfully.
+    const current = args.session.getCurrentProgress();
+    if (current) {
+        emitStatus(
+            args,
+            `${args.planName} is verified and published.`,
+            "success",
+            completeProgressRecord(current, true, `${args.planName} is verified and published.`),
+        );
+    }
+    return {
+        kind: "verified",
+        planName: args.planName,
+        projectRoot,
+        classification: args.triageMeta?.classification,
+        ...(shouldContinueParentEpicAfterValidation(args.triageMeta)
+            ? { epicContinuation: { completedPlanName: args.planName, projectRoot } }
+            : {}),
+    };
+}

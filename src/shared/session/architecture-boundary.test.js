@@ -235,6 +235,38 @@ Deno.test("stable RunWield Session IDs are not confused with Hosted or Pi sessio
     assertEquals(violations, []);
 });
 
+Deno.test("session/Pi coupling in workflow validation stays at the adapter boundary", async () => {
+    // The session-independent validation engine must not creep back toward the
+    // session runtime: any production `validation*.ts` module in shared/workflow
+    // that imports Pi packages or ../session/ modules must be one of the whitelisted
+    // entry/adapter/sibling files. Green both before and after the engine split, so
+    // it guards the future: a renamed monolith or a new session-coupled engine
+    // module fails it.
+    const validationAdapterWhitelist = new Set([
+        "src/shared/workflow/validation.ts",
+        "src/shared/workflow/validation-session-adapter.ts",
+        "src/shared/workflow/validation-helpers.ts",
+        "src/shared/workflow/validation-local-ci.ts",
+        "src/shared/workflow/validation-position.ts",
+        "src/shared/workflow/validation-progress.ts",
+        "src/shared/workflow/validation-prompts.ts",
+    ]);
+    const violations = [];
+    for (const file of await productionSourceFiles(join(REPO_ROOT, "src/shared/workflow"))) {
+        const path = relative(REPO_ROOT, file);
+        if (!/validation[^/]*\.ts$/.test(path)) continue;
+        if (validationAdapterWhitelist.has(path)) continue;
+        const source = await Deno.readTextFile(file);
+        if (
+            /(?:from|import\()\s*["'][^"']*@earendil-works[^"']*["']/.test(source) ||
+            /(?:from|import\()\s*["'][^"']*\.\.\/session\/[^"']*["']/.test(source)
+        ) {
+            violations.push(`${path}: session/Pi import outside the validation adapter boundary`);
+        }
+    }
+    assertEquals(violations, []);
+});
+
 Deno.test("active and isolated Agents have exactly one production lifecycle boundary each", async () => {
     const files = await productionJavaScriptFiles(join(REPO_ROOT, "src"));
     const activeMutationModules = new Set([

@@ -97,6 +97,20 @@ export function getCurrentValidationProgress(
     return hostedSession ? CURRENT_VALIDATION_PROGRESS.get(hostedSession) : undefined;
 }
 
+/**
+ * Remember a progress record for a session without emitting a status line.
+ *
+ * Used by the validation session adapter to implement the port's
+ * `setCurrentProgress`; records written this way came from the engine's own
+ * update chain and were validated at the emit boundary on their way in.
+ */
+export function setCurrentValidationProgress(
+    hostedSession: HostedSession | undefined,
+    progress: RuntimeValidationProgress | undefined,
+): void {
+    if (hostedSession && progress) CURRENT_VALIDATION_PROGRESS.set(hostedSession, progress);
+}
+
 export function emitRunWieldSystemStatus(
     hostedSession: HostedSession | undefined,
     text: string,
