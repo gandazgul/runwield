@@ -51,6 +51,8 @@ that matter. You are looking for:
 - A fix that breaks behavior elsewhere.
 - A fix that satisfies the letter of a finding while violating a different Plan requirement.
 - Changes well outside the scope of the findings that were dispatched.
+- A new injection seam in a touched production hunk. Replacing product-owned machinery through a required or optional
+  collaborator is a regression; only required ports for genuine external capabilities are legitimate.
 
 New blocking problems the repair introduced are new findings — append them without an `id`.
 

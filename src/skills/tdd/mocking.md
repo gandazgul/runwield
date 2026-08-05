@@ -2,35 +2,36 @@
 
 Mock at **system boundaries** only:
 
-- External APIs (payment, email, etc.)
-- Databases (sometimes - prefer test DB)
-- Time/randomness
-- File system (sometimes)
+- External APIs and services you do not control (payment, email, hosted CI, model calls)
+- Subprocesses or hardware that cannot be exercised cheaply and deterministically in a fixture
+- Time and randomness
 
 Don't mock:
 
 - Your own classes/modules
 - Internal collaborators
 - Anything you control
+- Databases, file systems, repositories, and persistence machinery when a temporary real fixture is practical
 
 ## Designing for Mockability
 
-At system boundaries, design interfaces that are easy to mock:
+At genuine external boundaries, define a required, declared capability port. Dependency injection is not a general
+testability technique: it is an ownership statement, and product-owned machinery must remain composed and real.
 
-**1. Use dependency injection**
+**1. Inject only the declared external capability**
 
-Pass external dependencies in rather than creating them internally:
+Pass the external client in explicitly at the composition root. Do not add an optional fallback, override bag, or
+test-only branch, and do not inject an internal wrapper around the client.
 
 ```typescript
-// Easy to mock
+// GOOD: a required port for a genuine external payment provider
 function processPayment(order, paymentClient) {
     return paymentClient.charge(order.total);
 }
 
-// Hard to mock
-function processPayment(order) {
-    const client = new StripeClient(process.env.STRIPE_KEY);
-    return client.charge(order.total);
+// BAD: an optional fallback makes the implementation replaceable by convention
+function processPayment(order, paymentClient = new StripeClient(process.env.STRIPE_KEY)) {
+    return paymentClient.charge(order.total);
 }
 ```
 

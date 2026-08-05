@@ -28,9 +28,9 @@ Two rules keep it that way:
 
 ## Test Seams and Dependency Injection
 
-RunWield is migrating off the `__deps`/`__testDeps` dependency bag to capability ports. See
-`plans/replace-deps-bag-with-capability-ports.md` for the plan and `src/skills/write-tests/SKILL.md` for the reasoning.
-Until that finishes, `deno task seams:check` guards the ground already taken, and it runs in `deno task ci`.
+RunWield has eliminated the `__deps`/`__testDeps` dependency-bag pattern and forbids its return under a different name.
+See `plans/replace-deps-bag-with-capability-ports.md` for the migration history and load the bundled `write-tests` skill
+before changing tests. `deno task seams:check` enforces the zero-seam baseline and runs in `deno task ci`.
 
 An injection seam is a public claim that something is **not ours**. Treat it as an architectural decision, not a testing
 convenience:
@@ -42,20 +42,14 @@ convenience:
 - **Never write a conditional seam.** `__deps ? fake : real` makes a module's behaviour depend on whether anything at
   all was injected, so injecting a clock can silently disable a transaction. This has caused real defects here and is
   rejected with no exceptions.
-- **Do not add seams to a module that has none**, and do not add a new name to a module that has some. Fake the
-  _environment_ instead: `defineGitFixture` (`src/shared/git-test-fixture.ts`) gives a real Git repository for ~5ms, and
-  `makeValidationProjectRoot` gives a real Plan project. A real fixture is cheaper than authoring a fake.
+- **Do not add injection seams.** Fake the _environment_ instead: `defineGitFixture` (`src/shared/git-test-fixture.ts`)
+  gives a real Git repository for ~5ms, and `makeValidationProjectRoot` gives a real Plan project. A real fixture is
+  cheaper than authoring a fake.
 - **Seams are for genuine boundaries only**: things that leave the process (subprocess, network), or are slow and
   nondeterministic (agent turns, CI runs, clocks). Everything else is ours.
 
-When you legitimately _remove_ seams, tighten the ratchet in the same change:
-
-```
-deno task seams:update
-```
-
-It only ever tightens — an update that would add a seam or raise a count is rejected, so re-baselining is not a way to
-make a failure go away. If `seams:check` fails, fix the code; do not update the baseline to match it.
+The baseline is zero. If `seams:check` fails, fix the code; do not adopt or re-baseline the new seam. A required
+capability port is acceptable only when it represents a declared external boundary and has no production fallback.
 
 ## Frontend UX Work
 

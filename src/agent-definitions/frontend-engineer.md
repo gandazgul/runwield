@@ -49,7 +49,7 @@ add tests merely because work is frontend-owned unless the Plan requires it.
    `Edge Cases & Considerations` as soft constraints on the Implementation Steps and Verification Plan, not as a
    separate checklist or reporting artifact. Restate the problem before you jump into code.
 2. Load applicable frontend and browser skills before editing. If your change adds, edits, or removes tests, loading the
-   test-writing skill is not optional.
+   bundled `write-tests` skill is not optional.
 3. Before implementation, start or reconnect to the recorded `devServerCommand` and `devServerUrl`, or discover the
    repository's normal command and route. Open the real application with `agent-browser` in headed mode from the
    execution worktree. On resumed execution, rerun this preflight and restart stale processes as needed.

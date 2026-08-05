@@ -71,6 +71,15 @@ Deno.test("bundled discovery reviewer prompt keeps code smells non-blocking", as
     );
 });
 
+Deno.test("bundled discovery reviewer blocks new seams over product-owned machinery", async () => {
+    const prompt = (await readBundledPrompt("reviewer-prompt.md")).replace(/\s+/g, " ");
+
+    assertStringIncludes(prompt, "A new injection seam that lets tests or callers replace product-owned machinery");
+    assertStringIncludes(prompt, "Required ports are legitimate only for genuine external capabilities");
+    assertStringIncludes(prompt, "renaming an override bag or making an internal collaborator required");
+    assertStringIncludes(prompt, "Scan production changes for new injection seams");
+});
+
 Deno.test("bundled discovery reviewer prompt requires reading the diff before deciding", async () => {
     const prompt = await readBundledPrompt("reviewer-prompt.md");
 
@@ -111,6 +120,8 @@ Deno.test("bundled verification reviewer prompt refuses to re-derive the Plan", 
     assertStringIncludes(prompt, "open code-smell findings at all");
     assertStringIncludes(prompt, "Is each open ledger item actually fixed?");
     assertStringIncludes(prompt, "Did the repair introduce a new Plan divergence or regression?");
+    assertStringIncludes(prompt, "A new injection seam in a touched production hunk");
+    assertStringIncludes(prompt, "only required ports for genuine external capabilities are legitimate");
 });
 
 Deno.test("bundled verification reviewer prompt treats repair claims as evidence, not resolution", async () => {
@@ -143,6 +154,7 @@ Deno.test("reviewer-feedback engineer composes the shared engineering practice",
 
     assertStringIncludes(systemPrompt, "The Zero-Trust Implementation Protocol");
     assertStringIncludes(systemPrompt, "No Rogue Commits");
+    assertStringIncludes(systemPrompt, "bundled `write-tests` skill");
     assertStringIncludes(systemPrompt, 'Do **NOT** dismiss errors as "pre-existing"');
     // Reached the repair agent for the first time via the shared layer.
     assertStringIncludes(systemPrompt, "report the test-count delta");

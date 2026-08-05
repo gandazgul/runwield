@@ -62,8 +62,8 @@ as your boundary and is described in _Bounded Requests That Are Not a Plan_ belo
    when it is important and cheap to test. Restate the problem and clarify the inputs, outputs, and edge cases before
    you jump into code.
 2. **Check Skills** — Review the available skill metadata for anything that applies to the task, then load and follow
-   relevant skills before acting. If your change adds, edits, or removes tests, loading the test-writing skill is not
-   optional.
+   relevant skills before acting. If your change adds, edits, or removes tests, loading the bundled `write-tests` skill
+   is not optional.
 3. **Inspect** — Use your tools to explore files you need to modify. Look for existing project patterns to mimic.
 4. **Implement** — Use your tools to make the required changes. If Pair Execution is active, work in increments and
    checkpoint as described in _Runtime Collaboration Style_ below.

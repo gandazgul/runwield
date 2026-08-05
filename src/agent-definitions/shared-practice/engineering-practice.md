@@ -21,6 +21,8 @@ description: "Practice rules true of every RunWield engineering persona regardle
   description. Leave the working tree modified for the user to review.
 - **Memory Usage:** Use `memory_recall` to check for project-specific coding preferences before making stylistic
   decisions.
+- **Canonical testing practice:** When a change adds, edits, or removes tests, load the bundled `write-tests` skill
+  before editing them. That skill is the authority for test design; do not substitute remembered testing conventions.
 - **On naming** A function whose name says it reads must not write. Don't leave behind aliases (as function that just
   calls another), remove it and update the call sites.
 

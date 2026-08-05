@@ -9,6 +9,10 @@ TDD is the red → green loop. This skill is the reference that makes that loop 
 test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle — consult
 them before and during the loop, not after.
 
+Load and follow the bundled `write-tests` skill first. It is the canonical authority for fixture design, external
+boundaries, fakes, contract tests, and mutation proof; this skill adds the red → green workflow without weakening those
+rules.
+
 ## Philosophy
 
 **Core principle**: Tests should verify behavior through public interfaces, not implementation details. Code can change
@@ -25,16 +29,20 @@ testing implementation, not behavior.
 
 See [tests.md](tests.md) for examples and [mocking.md](mocking.md) for mocking guidelines.
 
-## Seams — Where Tests Go
+## Public Observation Boundaries — Where Tests Go
 
-A **seam** is the public boundary you test at: the interface where you observe behavior without reaching inside. Tests
-live at seams, never against internals.
+A **public observation boundary** is the interface where a caller observes behavior without reaching inside. Tests use
+public observation boundaries, never private helpers or internal state.
 
-**Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the
-user. No test is written at an unconfirmed seam. You can't test everything — agreeing the seams up front is how testing
-effort lands on critical paths and complex logic instead of every edge case.
+Do not confuse an observation boundary with an **injection seam**. An injection seam makes a collaborator replaceable
+and is an architectural claim that the collaborator is external. Never introduce one for product-owned machinery merely
+to make a test convenient.
 
-Ask: "What's the public interface, and which seams should we test?"
+**Test only at pre-agreed public observation boundaries.** Before writing any test, write down the boundaries under test
+and confirm them with the user. You can't test everything — agreeing them up front keeps effort on critical paths and
+complex logic instead of every edge case.
+
+Ask: "What's the public interface, and which observable behaviors should we test?"
 
 ## Anti-Pattern: Horizontal Slices
 
@@ -82,7 +90,7 @@ project's language, and respect ADRs in the area you're touching.
 Before writing any code:
 
 - [ ] Confirm with user what public interface changes are needed
-- [ ] Confirm the seams where tests will be written
+- [ ] Confirm the public observation boundaries where tests will be written
 - [ ] Confirm with user which behaviors to test (prioritize)
 - [ ] Identify opportunities for [deep modules](deep-modules.md) (small interface, deep implementation)
 - [ ] Design interfaces for [testability](interface-design.md)
