@@ -4,7 +4,7 @@
  */
 
 import { basename, dirname, join } from "@std/path";
-import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
+import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
@@ -581,7 +581,7 @@ export async function createWorktreeGitArtifacts(
     const branch = `${WORKTREE_BRANCH_PREFIX}${slug}-${id}`;
     const repoName = basename(projectRoot);
     const parent = resolveWorktreeParent(projectRoot, worktreeRoot);
-    const path = join(parent, `${repoName}-${WORKTREE_PATH_PREFIX}${slug}-${id}`);
+    const path = join(parent, `${repoName}-${slug}-${id}`);
     const now = new Date().toISOString();
     const resolvedBaseBranch = baseBranch || await resolveCurrentCheckoutBranch(projectRoot) || "HEAD";
     const baseCommit = (await runGit(projectRoot, ["rev-parse", baseRef])).trim();
@@ -1014,7 +1014,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
         }
         await alignPlanFilesWithMergeTarget(projectRoot, oldTargetCommit, branch, worktreePath, preservePlanPaths);
         const tempId = crypto.randomUUID().slice(0, 8);
-        const mergeWorktreePath = join(parent, `${repoName}-runwield-merge-${slugify(targetBranch)}-${tempId}`);
+        const mergeWorktreePath = join(parent, `${repoName}-merge-${slugify(targetBranch)}-${tempId}`);
         let preserveMergeWorktree = false;
         await Deno.mkdir(parent, { recursive: true });
         try {

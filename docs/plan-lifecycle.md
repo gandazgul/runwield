@@ -376,7 +376,7 @@ ancestry can prove the delivered implementation and metadata reached the target.
 
 `worktreePath`: Filesystem path to the linked execution worktree.
 
-`worktreeBranch`: Git branch checked out in the execution worktree, usually under `runwield/worktree/`.
+`worktreeBranch`: Git branch checked out in the execution worktree, usually under `worktree/`.
 
 `worktreeStatus`: Worktree lifecycle state. See [Worktree Statuses](#worktree-statuses).
 
@@ -423,7 +423,7 @@ match an existing Epic are shown as orphaned child plans.
 `wld plans` also shows concise worktree state for plans with worktree metadata:
 
 ```text
-Worktree: validation_failed (runwield/worktree/example-plan-1234abcd)
+Worktree: validation_failed (worktree/example-plan-1234abcd)
 ```
 
 The parenthesized value is the recorded worktree branch when available, otherwise the path.

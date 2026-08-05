@@ -31,12 +31,11 @@ avoids per-task worktree complexity while allowing concurrent plan executions to
 
 ### Worktree Lifecycle
 
-1. **Creation** — Before `execution_started`, RunWield creates or reuses a worktree branch with the prefix
-   `runwield/worktree/` from the selected base ref. FEATURE plans may set `worktreeBaseBranch` before execution to
-   choose a target branch independent of the primary checkout. RunWield resolves that target to a local branch, creating
-   a local tracking branch from `origin/<branch>` or a new branch from `main` when needed. The worktree path is created
-   adjacent to the primary repo and includes a sanitized plan slug plus a short id, e.g.
-   `../<repo>-runwield-<plan-slug>-<id>`.
+1. **Creation** — Before `execution_started`, RunWield creates or reuses a worktree branch with the prefix `worktree/`
+   from the selected base ref. FEATURE plans may set `worktreeBaseBranch` before execution to choose a target branch
+   independent of the primary checkout. RunWield resolves that target to a local branch, creating a local tracking
+   branch from `origin/<branch>` or a new branch from `main` when needed. The worktree path is created adjacent to the
+   primary repo and includes a sanitized plan slug plus a short id, e.g. `../<repo>-<plan-slug>-<id>`.
 2. **Execution** — Implementation runs in the worktree cwd. RunWield records the execution baseline tree from that
    worktree. Agent sessions and file-writing tools receive the worktree cwd explicitly; RunWield does not mutate the
    process cwd with `Deno.chdir()`.
@@ -85,8 +84,8 @@ runtime state, not source state, and should stay ignored by Git alongside `.wld/
             "baseBranch": "main",
             "baseRef": "HEAD",
             "baseCommit": "abc123def...",
-            "branch": "runwield/worktree/add-dark-mode-toggle-5fe73e21",
-            "path": "/absolute/path/to/repo-runwield-add-dark-mode-toggle-5fe73e21",
+            "branch": "worktree/add-dark-mode-toggle-5fe73e21",
+            "path": "/absolute/path/to/repo-add-dark-mode-toggle-5fe73e21",
             "status": "active",
             "createdAt": "2026-06-15T12:00:00.000Z",
             "updatedAt": "2026-06-15T12:00:00.000Z"
@@ -150,7 +149,7 @@ with a destructive warning.
 `wld plans` displays concise worktree state when a plan has worktree metadata, for example:
 
 ```text
-Worktree: merge_conflict (runwield/worktree/add-dark-mode-toggle-5fe73e21)
+Worktree: merge_conflict (worktree/add-dark-mode-toggle-5fe73e21)
 ```
 
 ## Consequences
@@ -167,7 +166,7 @@ Worktree: merge_conflict (runwield/worktree/add-dark-mode-toggle-5fe73e21)
 
 - Worktree creation and deletion add latency to execution start/recovery.
 - Disk usage increases while worktrees remain active.
-- Branch namespace `runwield/worktree/*` needs periodic cleanup when worktrees are abandoned.
+- Branch namespace `worktree/*` needs periodic cleanup when worktrees are abandoned.
 - The `.wld/worktrees.json` registry and lockfile must be kept consistent after crashes or interrupted sessions.
 - Merge-back can be blocked by dirty primary-checkout files or conflicts even after validation passes in the worktree.
 

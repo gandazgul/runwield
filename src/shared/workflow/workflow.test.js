@@ -373,7 +373,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
     // rather than a fake that was told to refuse.
     assertEquals(await listWorktreeRegistryEntries(projectRoot), []);
     assertStringIncludes(await git(projectRoot, ["worktree", "list", "--porcelain"]), projectRoot);
-    assertEquals((await git(projectRoot, ["worktree", "list", "--porcelain"])).includes("runwield/worktree"), false);
+    assertEquals((await git(projectRoot, ["worktree", "list", "--porcelain"])).includes("refs/heads/worktree/"), false);
 });
 
 Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan preparation blocks", async () => {

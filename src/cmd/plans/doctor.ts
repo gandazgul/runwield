@@ -11,6 +11,7 @@ import {
     getRunWieldRuntimeDir,
     PLAN_LOCKS_DIR_NAME,
     RUNWIELD_DIR_NAME,
+    WORKTREE_BRANCH_PREFIX,
     WORKTREE_REGISTRY_FILE,
 } from "../../constants.js";
 import {
@@ -712,7 +713,7 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
         const branch of await runGitLines(projectRoot, [
             "for-each-ref",
             "--format=%(refname:short)",
-            "refs/heads/runwield/worktree",
+            `refs/heads/${WORKTREE_BRANCH_PREFIX}`,
         ])
     ) {
         if (!registryBranches.has(branch)) {

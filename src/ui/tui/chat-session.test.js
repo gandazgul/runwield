@@ -287,15 +287,15 @@ Deno.test("footer location follows active worktree execution context", () => {
     const text = buildFooterLocationText({
         cwd: "/repo",
         activeExecutionWorkflow: {
-            executionCwd: "/repo-runwield-demo",
-            worktreeBranch: "runwield/worktree/demo",
+            executionCwd: "/repo-demo",
+            worktreeBranch: "worktree/demo",
         },
     }, {
         home: "/repo",
         resolveBranch: () => "main",
     });
 
-    assertEquals(text, "/repo-runwield-demo (runwield/worktree/demo)");
+    assertEquals(text, "/repo-demo (worktree/demo)");
 });
 
 Deno.test("footer location shortens RunWield-managed worktree paths", () => {
@@ -303,8 +303,8 @@ Deno.test("footer location shortens RunWield-managed worktree paths", () => {
         cwd: "/Users/gandazgul/Documents/web/runwield",
         activeExecutionWorkflow: {
             executionCwd:
-                "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-frontend-framework-design-skill-51003995",
-            worktreeBranch: "runwield/worktree/frontend-framework-design-skill-51003995",
+                "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-frontend-framework-design-skill-51003995",
+            worktreeBranch: "worktree/frontend-framework-design-skill-51003995",
         },
     }, {
         home: "/Users/gandazgul",
@@ -313,7 +313,7 @@ Deno.test("footer location shortens RunWield-managed worktree paths", () => {
 
     assertEquals(
         text,
-        "runwield/runwield-runwield-frontend-framework-design-skill-51003995 (runwield/worktree/frontend-framework-design-skill-51003995)",
+        "runwield/runwield-frontend-framework-design-skill-51003995 (worktree/frontend-framework-design-skill-51003995)",
     );
 });
 

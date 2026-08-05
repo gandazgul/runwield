@@ -211,10 +211,7 @@ export const PLAN_BACKUPS_DIR_NAME = "plan-backups";
 export const PLAN_STAGING_DIR_NAME = "plan-staging";
 
 /** Git branch prefix for isolated execution worktrees. */
-export const WORKTREE_BRANCH_PREFIX = "runwield/worktree/";
-
-/** Path infix for adjacent isolated execution worktree directories. */
-export const WORKTREE_PATH_PREFIX = "runwield-";
+export const WORKTREE_BRANCH_PREFIX = "worktree/";
 
 /**
  * Read an environment variable when permission is available.

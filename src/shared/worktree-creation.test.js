@@ -51,9 +51,9 @@ Deno.test("createTestWorktreeAttempt creates a unique branch/path and registry e
             planId: "plan-demo",
             worktreeRoot,
         });
-        assertMatch(worktree.branch, /^runwield\/worktree\/demo-plan-[a-f0-9]{8}$/);
+        assertMatch(worktree.branch, /^worktree\/demo-plan-[a-f0-9]{8}$/);
         assertEquals(dirname(worktree.path), worktreeRoot);
-        assertMatch(basename(worktree.path), /runwield-demo-plan-[a-f0-9]{8}$/);
+        assertMatch(basename(worktree.path), /demo-plan-[a-f0-9]{8}$/);
         assertEquals(await git(worktree.path, ["branch", "--show-current"]), worktree.branch);
         const registryEntry = await findByPlanId(projectRoot, "plan-demo");
         assertEquals(registryEntry?.id, worktree.id);
@@ -91,7 +91,7 @@ Deno.test("createTestWorktreeAttempt leaves created Git evidence when registry s
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
             baseTree: await git(projectRoot, ["rev-parse", "HEAD^{tree}"]),
-            branch: "runwield/worktree/settled-plan-existing",
+            branch: "worktree/settled-plan-existing",
             path: `${worktreeRoot}/existing`,
             status: "active",
             createdAt: "2026-01-01T00:00:00.000Z",
@@ -109,7 +109,7 @@ Deno.test("createTestWorktreeAttempt leaves created Git evidence when registry s
             Error,
             "registry settlement failed",
         );
-        assertMatch(error.message, /inspect .* on branch runwield\/worktree\/settled-plan-/);
+        assertMatch(error.message, /inspect .* on branch worktree\/settled-plan-/);
 
         const created = [];
         for await (const item of Deno.readDir(worktreeRoot)) {
@@ -118,7 +118,7 @@ Deno.test("createTestWorktreeAttempt leaves created Git evidence when registry s
         assertEquals(created.length, 1);
         createdPath = `${worktreeRoot}/${created[0]}`;
         createdBranch = await git(createdPath, ["branch", "--show-current"]);
-        assertMatch(createdBranch, /^runwield\/worktree\/settled-plan-[a-f0-9]{8}$/);
+        assertMatch(createdBranch, /^worktree\/settled-plan-[a-f0-9]{8}$/);
     } finally {
         if (createdPath) await git(projectRoot, ["worktree", "remove", "--force", createdPath]).catch(() => "");
         if (createdBranch) await git(projectRoot, ["branch", "-D", createdBranch]).catch(() => "");
@@ -322,7 +322,7 @@ Deno.test("prepareTargetBranchRef rejects invalid and reserved branch names", as
             "must not be a full ref",
         );
         await assertRejects(
-            () => prepareTargetBranchRef(projectRoot, "runwield/worktree/demo"),
+            () => prepareTargetBranchRef(projectRoot, "worktree/demo"),
             Error,
             "reserved execution prefix",
         );
