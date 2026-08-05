@@ -46,6 +46,12 @@ async function waitForProcessDeath(pid: number, timeoutMs = 5000): Promise<boole
 /**
  * Spawn a command whose descendant outlives a wrapper-only kill: the wrapper
  * records the descendant's pid, then waits on it.
+ *
+ * The wait is for *observed* aliveness, not just the pid file: a short
+ * command timeout can fire and kill the tree before the test ever confirms
+ * the descendant existed, flaking the pre-kill probe. If the wrapper settles
+ * before the descendant is observed, the tree is already gone — fail fast
+ * with a clear setup error instead of hanging or flaking.
  */
 async function spawnTreeWithDescendant(options: {
     signal?: AbortSignal;
@@ -57,19 +63,31 @@ async function spawnTreeWithDescendant(options: {
         cwd: Deno.cwd(),
         ...options,
     });
-    let descendantPid = 0;
-    while (!descendantPid) {
+    let settled = false;
+    shell.done.finally(() => {
+        settled = true;
+    }).catch(() => {});
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+        const pid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
+        if (pid && processAlive(pid)) {
+            return {
+                shell,
+                descendantPid: pid,
+                cleanup: async () => {
+                    if (processAlive(pid)) Deno.kill(pid, "SIGKILL");
+                    await Deno.remove(pidFile).catch(() => {});
+                },
+            };
+        }
+        if (settled) {
+            throw new Error(
+                "foreground-process test setup: the wrapper settled before its descendant was observed running",
+            );
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
-        descendantPid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
     }
-    return {
-        shell,
-        descendantPid,
-        cleanup: async () => {
-            if (processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
-            await Deno.remove(pidFile).catch(() => {});
-        },
-    };
+    throw new Error("foreground-process test setup: descendant process never appeared within 10s");
 }
 
 Deno.test({
@@ -139,7 +157,10 @@ Deno.test({
     name: "spawnForegroundShell timeout kills the whole descendant tree and stays distinguishable from abort",
     ignore: IS_WINDOWS,
     fn: async () => {
-        const { shell, descendantPid, cleanup } = await spawnTreeWithDescendant({ timeoutMs: 50 });
+        // The timeout must be long enough that the pre-kill probe can observe
+        // the descendant running before it fires: a 50ms budget raced spawn +
+        // pid-file write + read under parallel CI load, flaking the assertion.
+        const { shell, descendantPid, cleanup } = await spawnTreeWithDescendant({ timeoutMs: 2000 });
         try {
             assert(processAlive(descendantPid), "descendant should be running before the timeout");
             const outcome = await shell.done;

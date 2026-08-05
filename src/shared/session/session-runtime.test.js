@@ -134,6 +134,37 @@ function delay(ms) {
 }
 
 /**
+ * True while the OS still has a process with this pid.
+ * @param {number} pid
+ */
+function processAlive(pid) {
+    try {
+        Deno.kill(pid, "SIGCONT");
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Poll until the OS no longer reports a process with this pid. The wrapper
+ * shell's exit settles before its SIGKILLed descendants are reaped, so a
+ * single immediate probe can still observe them — and under CI load the
+ * window is wide enough to fail a one-shot check.
+ *
+ * @param {number} pid
+ * @param {number} [timeoutMs]
+ */
+async function waitForProcessDeath(pid, timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!processAlive(pid)) return true;
+        await delay(20);
+    }
+    return !processAlive(pid);
+}
+
+/**
  * macOS can briefly report recursive temp cleanup as ENOTEMPTY/EBUSY while
  * filesystem metadata settles after a test's last writes. Retry boundedly so
  * cleanup flakiness does not fail an otherwise successful test.
@@ -1490,20 +1521,15 @@ Deno.test({
         runtime.cancelSession(sessionId);
         const result = await command;
 
-        let descendantAlive = true;
-        try {
-            Deno.kill(descendantPid, "SIGCONT");
-        } catch {
-            descendantAlive = false;
-        }
-        if (descendantAlive) Deno.kill(descendantPid, "SIGKILL");
+        const descendantDead = await waitForProcessDeath(descendantPid);
+        if (!descendantDead) Deno.kill(descendantPid, "SIGKILL");
         await Deno.remove(pidFile).catch(() => {});
 
         assertEquals(result.canceled, true);
         assertEquals(result.exitCode, 130);
         assertEquals(
-            descendantAlive,
-            false,
+            descendantDead,
+            true,
             "cancellation must kill the wrapper shell's descendants, not only the wrapper",
         );
     },

@@ -188,6 +188,12 @@ async function waitForProcessDeath(pid: number, timeoutMs = 5000): Promise<boole
 /**
  * Run one check whose descendant outlives a wrapper-only kill, and hand back
  * the descendant's pid once it is definitely running.
+ *
+ * The wait is for *observed* aliveness, not just the pid file: a short check
+ * timeout can fire and kill the tree before the test ever confirms the
+ * descendant existed, flaking the pre-kill probe. If the check settles before
+ * the descendant is observed, the tree is already gone — fail fast with a
+ * clear setup error instead of hanging or flaking.
  */
 async function runCheckWithDescendant(options: {
     signal?: AbortSignal;
@@ -207,12 +213,24 @@ async function runCheckWithDescendant(options: {
         signal: options.signal,
         ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     });
-    let descendantPid = 0;
-    while (!descendantPid) {
+    let settled = false;
+    resultsPromise.finally(() => {
+        settled = true;
+    }).catch(() => {});
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+        const pid = Number(await Deno.readTextFile(pidFile).then((text) => text.trim(), () => "")) || 0;
+        if (pid && processAlive(pid)) {
+            return { resultsPromise, descendantPid: pid, cwd };
+        }
+        if (settled) {
+            throw new Error(
+                "objective-checks test setup: the check settled before its descendant was ever observed running",
+            );
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
-        descendantPid = Number(await Deno.readTextFile(pidFile).then((text) => text.trim(), () => "")) || 0;
     }
-    return { resultsPromise, descendantPid, cwd };
+    throw new Error("objective-checks test setup: descendant process never appeared within 10s");
 }
 
 Deno.test({
@@ -245,7 +263,10 @@ Deno.test({
     name: "runObjectiveChecks timeout kills descendant processes, not only the wrapper shell",
     ignore: IS_WINDOWS,
     fn: async () => {
-        const { resultsPromise, descendantPid, cwd } = await runCheckWithDescendant({ timeoutMs: 50 });
+        // The timeout must be long enough that the pre-kill probe can observe
+        // the descendant running before it fires: a 50ms budget raced spawn +
+        // pid-file write + read under parallel CI load, flaking the assertion.
+        const { resultsPromise, descendantPid, cwd } = await runCheckWithDescendant({ timeoutMs: 2000 });
         try {
             assertEquals(processAlive(descendantPid), true, "descendant should be running before the timeout");
             const [result] = await resultsPromise;
