@@ -59,6 +59,7 @@ import {
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
 
@@ -447,6 +448,10 @@ export async function dispatchPostTriage({
         }
 
         const manualQaContext = buildQuickFixManualQaContext(decoratedRequest, messages);
+        const acceptedCompletion = claimPendingTaskCompletion(
+            hostedSession,
+            hostedSession.getRootAgentSession() || null,
+        );
         hostedSession.clearActiveExecutionWorkflow();
         const mechanicalResult = await runMechanicalValidation({
             hostedSession,
@@ -454,6 +459,9 @@ export async function dispatchPostTriage({
             manualQaName,
             manualQaContext,
         }, localCI);
+        if (acceptedCompletion) {
+            acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
+        }
         await recordMetric({
             category: "execution",
             event: "quick_fix_completed_observed",

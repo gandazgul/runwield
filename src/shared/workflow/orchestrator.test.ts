@@ -6,6 +6,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
+import { listPendingTaskCompletions } from "../session/task-completion-session.ts";
 import { setCustomSetting } from "../settings.js";
 import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
@@ -285,6 +286,7 @@ Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI po
         assertEquals(ci.calls, [projectRoot]);
         assertEquals(fixture.hostedSession.getActiveExecutionWorkflow(), null);
         assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
+        assertEquals(listPendingTaskCompletions(fixture.hostedSession), []);
         assertEquals(
             fixture.sessionManager.getBranch().some((entry) =>
                 entry.type === "custom" && entry.customType === "runwield.manual_qa_checklist"
