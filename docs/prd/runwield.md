@@ -34,8 +34,8 @@ AI chat product. Agents are implementation partners inside the planning loop, no
 Core remains useful by itself. It should provide the full local loop for one project/repository without requiring the
 hosted product.
 
-The detailed implementation-facing Core requirements live in [runwield-core-prd.md](./docs/prd/runwield-core-prd.md).
-This root PRD summarizes Core only enough to place it inside the broader RunWield product architecture.
+The detailed implementation-facing Core requirements live in [runwield-core-prd.md](./runwield-core-prd.md). This root
+PRD summarizes Core only enough to place it inside the broader RunWield product architecture.
 
 ### 2.2 RunWield Workspace
 
@@ -54,9 +54,9 @@ Workspace focuses on:
 Workspace should not initially lead with hosted execution. Hosted AFK `wld` agents may become a later capability for
 executing ready Plans, but the first SaaS wedge is collaborative planning and records.
 
-The detailed Workspace product requirements live in [runwield-workspace-PRD.md](./docs/prd/runwield-workspace-PRD.md).
-That PRD marries the local Plan management UI and encrypted collaborative planning directions into the self-hostable and
-hosted Workspace story.
+The detailed Workspace product requirements live in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md). That PRD
+marries the local Plan management UI and encrypted collaborative planning directions into the self-hostable and hosted
+Workspace story.
 
 ### 2.3 RunWield Connect
 
@@ -69,8 +69,8 @@ authority and local operations on demand. A user explicitly activates Connect fo
 Connect plugin must not alter ordinary host behavior.
 
 Connect is a first-class way to use RunWield, not a deliberately weakened trial of Core or Workspace. Its detailed
-requirements live in [attached-mode-prd.md](./docs/prd/attached-mode-prd.md). That document retains **attached mode**
-and **Attached Workflow** as internal architectural terms while using RunWield Connect as the public product name.
+requirements live in [attached-mode-prd.md](./attached-mode-prd.md). That document retains **attached mode** and
+**Attached Workflow** as internal architectural terms while using RunWield Connect as the public product name.
 
 When RunWield Core owns the Session and invokes another harness non-interactively, such as Claude Code through
 `claude -p`, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core capabilities, not
@@ -157,8 +157,8 @@ too granular for durable planning memory.
 
 ## 5. RunWield Core Requirements
 
-This section is a product-level summary. See [runwield-core-prd.md](./docs/prd/runwield-core-prd.md) for the fuller Core
-PRD that preserves the detailed local harness, TUI, routing, lifecycle, tooling, and validation requirements.
+This section is a product-level summary. See [runwield-core-prd.md](./runwield-core-prd.md) for the fuller Core PRD that
+preserves the detailed local harness, TUI, routing, lifecycle, tooling, and validation requirements.
 
 ### 5.1 Session Host and Clients
 
