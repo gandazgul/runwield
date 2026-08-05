@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { getSettingsManager } from "../../shared/settings.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { getCustomSetting, getSettingsManager, setCustomSetting } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runSettingsCommand } from "./index.ts";
 
@@ -16,6 +16,11 @@ interface TextOptions {
     allowEmpty: boolean;
 }
 
+interface SettingsSelectRecord {
+    title: string;
+    options: SelectItem[];
+}
+
 interface SettingsUiHarness {
     editor: {
         disableSubmit: boolean;
@@ -23,6 +28,7 @@ interface SettingsUiHarness {
         setText(text: string): void;
     };
     messages: string[];
+    selects: SettingsSelectRecord[];
     uiAPI: {
         appendSystemMessage(message: string): void;
         promptSelect(title: string, options: SelectItem[]): Promise<string | null>;
@@ -38,6 +44,7 @@ function makeUiHarness(
     const pendingSelections = [...selections];
     const pendingTextInputs = [...textInputs];
     const messages: string[] = [];
+    const selects: SettingsSelectRecord[] = [];
     const editor = {
         disableSubmit: true,
         text: "draft",
@@ -48,9 +55,13 @@ function makeUiHarness(
     return {
         editor,
         messages,
+        selects,
         uiAPI: {
             appendSystemMessage: (message) => messages.push(message),
-            promptSelect: () => Promise.resolve(pendingSelections.shift() ?? null),
+            promptSelect: (title, options) => {
+                selects.push({ title, options });
+                return Promise.resolve(pendingSelections.shift() ?? null);
+            },
             promptText: () => Promise.resolve(pendingTextInputs.shift() ?? null),
             requestRender: () => {},
         },
@@ -58,7 +69,7 @@ function makeUiHarness(
 }
 
 async function createPromptReadyRuntime(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
-    const runtime = new SessionRuntime();
+    const runtime = createSessionRuntime();
     const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
     return { runtime, sessionId };
 }
@@ -204,6 +215,105 @@ Deno.test("runSettingsCommand rejects invalid numeric input without changing per
             assertEquals(harness.messages, ["Reserve tokens must be a positive integer."]);
             assertEquals(getSettingsManager(projectRoot).getCompactionSettings().reserveTokens, before);
             assertEquals(await Deno.readTextFile(settingsPath), persistedBefore);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runSettingsCommand selects a model preset and persists activeModelPreset globally", async () => {
+    await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot, settingsPath }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        await setCustomSetting(
+            "modelPresets",
+            {
+                fast: { agents: { router: { model: "openai/gpt-5-mini" } } },
+                quality: {
+                    agents: { router: { model: "anthropic/claude-opus-4-1" } },
+                    visionFallback: { model: "openai/gpt-5" },
+                },
+            },
+            "global",
+            projectRoot,
+        );
+        await setCustomSetting("activeModelPreset", "fast", "global", projectRoot);
+
+        const harness = makeUiHarness(["model-presets", "preset:quality", "back", "done"]);
+        try {
+            await runSettingsCommand([], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                sessionRuntime: runtime,
+                sessionId,
+            });
+
+            assertEquals(getCustomSetting("activeModelPreset", "global", projectRoot), "quality");
+            assert(harness.messages.includes("Active model preset set to quality."));
+
+            const settingsPrompt = harness.selects.find((record) => record.title === "Settings");
+            const presetsItem = settingsPrompt?.options.find((option) => option.value === "model-presets");
+            assertStringIncludes(presetsItem?.description ?? "", "Active: fast");
+
+            const presetsPrompts = harness.selects.filter((record) => record.title === "Model Presets");
+            assertEquals(presetsPrompts.length, 2);
+            const qualityOption = presetsPrompts[1]?.options.find((option) => option.value === "preset:quality");
+            assertEquals(qualityOption?.label, "quality (active)");
+            assertStringIncludes(
+                presetsPrompts[0]?.options.find((option) => option.value === "preset:fast")?.description ?? "",
+                "1 agent model override",
+            );
+
+            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as Record<string, unknown>;
+            assertEquals(persisted.activeModelPreset, "quality");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runSettingsCommand clears activeModelPreset via None", async () => {
+    await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot, settingsPath }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        await setCustomSetting(
+            "modelPresets",
+            { fast: { agents: { router: { model: "openai/gpt-5-mini" } } } },
+            "global",
+            projectRoot,
+        );
+        await setCustomSetting("activeModelPreset", "fast", "global", projectRoot);
+
+        const harness = makeUiHarness(["model-presets", "none", "back", "done"]);
+        try {
+            await runSettingsCommand([], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                sessionRuntime: runtime,
+                sessionId,
+            });
+
+            assertEquals(getCustomSetting("activeModelPreset", "global", projectRoot), null);
+            assert(harness.messages.includes("Active model preset cleared; base agents config is used."));
+            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as Record<string, unknown>;
+            assertEquals(persisted.activeModelPreset, null);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runSettingsCommand reports when no model presets are defined", async () => {
+    await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        const harness = makeUiHarness(["model-presets", "back", "done"]);
+        try {
+            await runSettingsCommand([], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                sessionRuntime: runtime,
+                sessionId,
+            });
+
+            assert(harness.messages.some((message) => message.includes("No model presets defined")));
         } finally {
             runtime.closeAllSessions();
         }

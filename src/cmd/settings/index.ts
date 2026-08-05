@@ -7,9 +7,11 @@ import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "../../constants.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import {
+    getMergedCustomSetting,
     getSettingsManager,
     setCompactionKeepRecentTokens,
     setCompactionReserveTokens,
+    setCustomSetting,
 } from "../../shared/settings.js";
 import { theme } from "../../ui/theme/theme.js";
 import { printCommandHelp } from "../help/index.js";
@@ -63,6 +65,21 @@ interface SettingsCommandOptions {
     sessionRuntime?: SessionRuntime;
     uiAPI?: SettingsCommandUi;
 }
+
+interface ModelPresetAgentOverride {
+    model?: string;
+    thinkingLevel?: string;
+    temperature?: number;
+}
+
+interface ModelPreset {
+    agents?: Record<string, ModelPresetAgentOverride>;
+    visionFallback?: { model?: string };
+}
+
+type ModelPresetsMap = Record<string, ModelPreset>;
+
+const MODEL_PRESET_PREFIX = "preset:";
 
 function formatMaybeTokens(value: number | null | undefined): string {
     return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "unknown";
@@ -163,6 +180,37 @@ async function editTokenSetting(
     uiAPI.appendSystemMessage(`${label} set to ${parsed.toLocaleString()}.`);
 }
 
+function getModelPresets(projectRoot: string): ModelPresetsMap {
+    return (getMergedCustomSetting("modelPresets", projectRoot) as ModelPresetsMap | undefined) ?? {};
+}
+
+function getActiveModelPreset(projectRoot: string): string | null | undefined {
+    return getMergedCustomSetting("activeModelPreset", projectRoot) as string | null | undefined;
+}
+
+function formatModelPresetsMenuDescription(projectRoot: string): string {
+    const names = Object.keys(getModelPresets(projectRoot));
+    if (names.length === 0) return "No presets defined";
+    const active = getActiveModelPreset(projectRoot);
+    if (!active) return `None active (${names.length} defined)`;
+    return names.includes(active) ? `Active: ${active}` : `${active} (missing); ${names.length} defined`;
+}
+
+function formatModelPresetDescription(preset: ModelPreset): string {
+    const parts: string[] = [];
+    const agentEntries = Object.entries(preset.agents ?? {});
+    if (agentEntries.length > 0) {
+        const modelCount = agentEntries.filter(([, cfg]) => typeof cfg.model === "string").length;
+        parts.push(
+            modelCount > 0
+                ? `${modelCount} agent model override${modelCount === 1 ? "" : "s"}`
+                : `${agentEntries.length} agent override${agentEntries.length === 1 ? "" : "s"}`,
+        );
+    }
+    if (typeof preset.visionFallback?.model === "string") parts.push("vision fallback");
+    return parts.length > 0 ? parts.join("; ") : "No overrides";
+}
+
 export async function runSettingsCommand(argv: string[], options: SettingsCommandOptions = {}): Promise<void> {
     const firstArg = argv[0]?.trim();
     if (firstArg === "help" || firstArg === "--help" || firstArg === "-h") {
@@ -198,10 +246,61 @@ export async function runSettingsCommand(argv: string[], options: SettingsComman
                 label: "Compaction",
                 description: formatCompactionMenuDescription(settings, session, settingsManager),
             },
+            {
+                value: "model-presets",
+                label: "Model presets",
+                description: formatModelPresetsMenuDescription(projectRoot),
+            },
             { value: "done", label: "Done" },
         ]);
 
         if (!selection || selection === "done") break;
+        if (selection === "model-presets") {
+            while (true) {
+                const presets = getModelPresets(projectRoot);
+                const presetNames = Object.keys(presets).sort((a, b) => a.localeCompare(b));
+                if (presetNames.length === 0) {
+                    uiAPI.appendSystemMessage(
+                        "No model presets defined. Add a `modelPresets` entry to your settings " +
+                            "(see docs/settings.md#modelpresets).",
+                    );
+                }
+                const active = getActiveModelPreset(projectRoot);
+                const presetOptions: SettingsSelectItem[] = presetNames.map((name) => {
+                    const preset = presets[name];
+                    return {
+                        value: `${MODEL_PRESET_PREFIX}${name}`,
+                        label: name === active ? `${name} (active)` : name,
+                        description: preset ? formatModelPresetDescription(preset) : undefined,
+                    };
+                });
+                presetOptions.push(
+                    {
+                        value: "none",
+                        label: !active ? "None (base config) (active)" : "None (base config)",
+                        description: "Clear activeModelPreset and use the base agents config",
+                    },
+                    { value: "back", label: "Back" },
+                );
+
+                const presetChoice = await uiAPI.promptSelect("Model Presets", presetOptions);
+                if (!presetChoice || presetChoice === "back") break;
+
+                if (presetChoice === "none") {
+                    await setCustomSetting("activeModelPreset", null, "global", projectRoot);
+                    await settingsManager.reload();
+                    uiAPI.appendSystemMessage("Active model preset cleared; base agents config is used.");
+                    uiAPI.requestRender?.();
+                } else if (presetChoice.startsWith(MODEL_PRESET_PREFIX)) {
+                    const name = presetChoice.slice(MODEL_PRESET_PREFIX.length);
+                    await setCustomSetting("activeModelPreset", name, "global", projectRoot);
+                    await settingsManager.reload();
+                    uiAPI.appendSystemMessage(`Active model preset set to ${name}.`);
+                    uiAPI.requestRender?.();
+                }
+            }
+            continue;
+        }
         if (selection !== "compaction") continue;
 
         while (true) {
