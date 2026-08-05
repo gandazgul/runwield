@@ -43,7 +43,7 @@ export function normalizeWorkflowPlanName(value) {
     if (typeof value !== "string") return "";
     return value
         .trim()
-        .replace(/^plans\//i, "")
+        .replace(/^docs\/plans\//i, "")
         .replace(/\.md$/i, "")
         .replace(/^\/+/, "")
         .trim();

@@ -365,10 +365,10 @@ rounds with a human escape hatch, and advisory-only Plan persistence.
 This PRD should precede adaptive extended review because future review tiers need a reliable finding ledger to
 coordinate multiple Reviewer passes.
 
-`plans/focused-semantic-review-after-human-feedback.md` introduces a third review mode for post-human-feedback repair
-and refactors the same review prompt builder. It should be rebased onto the round-aware builder this PRD establishes
-rather than introducing a parallel one. The Human Code Review escape hatch defined here feeds directly into that plan's
-human-feedback repair path.
+`docs/plans/focused-semantic-review-after-human-feedback.md` introduces a third review mode for post-human-feedback
+repair and refactors the same review prompt builder. It should be rebased onto the round-aware builder this PRD
+establishes rather than introducing a parallel one. The Human Code Review escape hatch defined here feeds directly into
+that plan's human-feedback repair path.
 
 Implementation should preserve current `SessionRuntime`, Plan Lifecycle, worktree merge-back, optional human review, and
 bounded diff inspection contracts. Behavioral evaluation should compare the new prompts and ledger against

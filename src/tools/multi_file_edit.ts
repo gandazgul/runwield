@@ -166,7 +166,7 @@ function resolveToBaseDir(targetPath: string, baseDir: string): string {
  */
 function isPlanMarkdownPath(path: string, baseDir: string): boolean {
     const rel = relative(baseDir, path).replaceAll("\\", "/");
-    return rel.startsWith("plans/") && rel.endsWith(".md") && !rel.startsWith("plans/archived/");
+    return rel.startsWith("docs/plans/") && rel.endsWith(".md") && !rel.startsWith("docs/plans/archived/");
 }
 
 /**
@@ -176,10 +176,10 @@ function isPlanMarkdownPath(path: string, baseDir: string): boolean {
  */
 function planNameFromMarkdownPath(path: string, baseDir: string): string {
     const rel = relative(baseDir, path).replaceAll("\\", "/");
-    if (!rel.startsWith("plans/") || !rel.endsWith(".md") || rel.startsWith("plans/archived/")) {
+    if (!rel.startsWith("docs/plans/") || !rel.endsWith(".md") || rel.startsWith("docs/plans/archived/")) {
         throw new Error(`Not a canonical Plan markdown path: ${path}`);
     }
-    return rel.slice("plans/".length, -".md".length);
+    return rel.slice("docs/plans/".length, -".md".length);
 }
 
 /**

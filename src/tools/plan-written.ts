@@ -194,7 +194,7 @@ function buildFeedbackRequestText(
     return [
         `## Plan Review Feedback (Round ${round})`,
         "",
-        `The user provided feedback on plans/${planName}.md:`,
+        `The user provided feedback on docs/plans/${planName}.md:`,
         "",
         feedback || "(no specific feedback provided)",
     ].join("\n");
@@ -368,7 +368,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
-        description: "Declare the plan filename you created in plans/ and submit it for user review. " +
+        description: "Declare the plan filename you created in docs/plans/ and submit it for user review. " +
             "Triggers review and (on approval) a save-vs-execute/decompose prompt. Execution or Slicer dispatch runs " +
             "after your turn ends — the workflow dispatcher picks it up from this tool's outcome. " +
             "Call this once after writing the plan; the user reviews it in a browser UI. " +
@@ -376,7 +376,8 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             "revise in this same session.",
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
-            const planName = String(params.planName || "").trim().replace(/^plans\//i, "").replace(/\.md$/i, "").trim();
+            const planName = String(params.planName || "").trim().replace(/^docs\/plans\//i, "").replace(/\.md$/i, "")
+                .trim();
 
             if (!planName) {
                 return textResult(
@@ -390,12 +391,12 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const stat = await Deno.stat(planPath);
                 if (!stat.isFile) {
                     return textResult(
-                        `plan_written: plans/${planName}.md is not a file. Write the plan markdown first, then call plan_written again.`,
+                        `plan_written: docs/plans/${planName}.md is not a file. Write the plan markdown first, then call plan_written again.`,
                     );
                 }
             } catch {
                 return textResult(
-                    `plan_written: plans/${planName}.md not found. Write the plan first using the write tool, then call plan_written.`,
+                    `plan_written: docs/plans/${planName}.md not found. Write the plan first using the write tool, then call plan_written.`,
                 );
             }
 
@@ -420,7 +421,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 });
                 const repairHint = Object.keys(policyOverrides).length > 0
                     ? "Call plan_written again with corrected executionAgent/collaborationRecommendation arguments."
-                    : `Fix the execution policy in plans/${planName}.md and call plan_written again.`;
+                    : `Fix the execution policy in docs/plans/${planName}.md and call plan_written again.`;
                 return textResult(
                     `plan_written: ${policy.error}\n\n${repairHint}`,
                     {
@@ -467,7 +468,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const loadedPlan = await loadPlan(cwd, planName);
                 if (!loadedPlan?.revision) {
                     return textResult(
-                        `plan_written: could not load plans/${planName}.md for objectiveChecks persistence. Call plan_written again after saving the Plan.`,
+                        `plan_written: could not load docs/plans/${planName}.md for objectiveChecks persistence. Call plan_written again after saving the Plan.`,
                         { ...params, outcome: "repair_required", planName, reason: "plan_load_failed" },
                         false,
                     );

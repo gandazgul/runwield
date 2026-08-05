@@ -70,7 +70,7 @@ export function isProhibitedImageFile(file) {
     if (file.startsWith("/app/dist/workspace-runtime/")) return false;
     if (ALLOWED_APP_SRC_FILES.has(file)) return false;
 
-    return file.startsWith("/app/plans/") || file.startsWith("/app/.wld/") || file.startsWith("/app/.git/") ||
+    return file.startsWith("/app/docs/plans/") || file.startsWith("/app/.wld/") || file.startsWith("/app/.git/") ||
         file.startsWith("/app/sessions/") || file.includes("/sessions/") ||
         file.includes("collaboration-secrets.json") || file.endsWith(".sqlite") || file.includes(".sqlite-") ||
         file.endsWith(".db") || file.includes(".db-") || file.includes(".test.") || file.startsWith("/app/src/") ||

@@ -48,7 +48,7 @@ Deno.test("workspace lifecycle action metadata blocks protected status movement 
     const summary = serializePlanSummary({
         planId: "p1",
         planName: "plan",
-        relativePath: "plans/plan.md",
+        relativePath: "docs/plans/plan.md",
         attrs: { planId: "p1", status: "draft", classification: "FEATURE" },
     });
     assertEquals(summary.actions.allowedManualTargetStatuses.includes("verified"), false);
@@ -99,7 +99,7 @@ Deno.test("Workspace dev lifecycle projection uses core transitions without muta
     const summary = serializePlanSummary({
         planId: "memory-plan-id",
         planName: "memory-plan",
-        relativePath: "plans/memory-plan.md",
+        relativePath: "docs/plans/memory-plan.md",
         attrs: { planId: "memory-plan-id", status: "draft", classification: "FEATURE" },
     });
     const moved = applyWorkspaceLifecycleActionInMemory(summary, {
@@ -350,7 +350,7 @@ Deno.test("Workspace in-memory close preview is side-effect free", async () => {
         const summary = serializePlanSummary({
             planId: "preview-id",
             name: "preview",
-            relativePath: "plans/preview.md",
+            relativePath: "docs/plans/preview.md",
             attrs: { planId: "preview-id", status: "implemented", classification: "FEATURE" },
         });
         const preview = applyWorkspaceLifecycleActionInMemory(summary, {
@@ -471,7 +471,7 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
             collaborationSpaceId: "space-1",
         });
         const loaded = await loadPlanBodyById(cwd, "locked-api-id");
-        const before = await Deno.readTextFile(`${cwd}/plans/locked.md`);
+        const before = await Deno.readTextFile(`${cwd}/docs/plans/locked.md`);
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
@@ -493,7 +493,7 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
         const bodyPayload = await bodyEdit.json();
         assertStringIncludes(bodyPayload.error, "remote-canonical");
         assertStringIncludes(bodyPayload.repair, "wld plans pull");
-        assertEquals(await Deno.readTextFile(`${cwd}/plans/locked.md`), before);
+        assertEquals(await Deno.readTextFile(`${cwd}/docs/plans/locked.md`), before);
 
         const lifecycle = await app(
             new Request("http://localhost/api/plans/locked-api-id/lifecycle-action", {
@@ -510,7 +510,7 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
         const lifecyclePayload = await lifecycle.json();
         assertStringIncludes(lifecyclePayload.blockedReason, "remote-canonical");
         assertStringIncludes(lifecyclePayload.repair, "wld plans pull");
-        assertEquals(await Deno.readTextFile(`${cwd}/plans/locked.md`), before);
+        assertEquals(await Deno.readTextFile(`${cwd}/docs/plans/locked.md`), before);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

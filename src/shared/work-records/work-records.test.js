@@ -249,8 +249,8 @@ Deno.test("default Recorder generation invokes the Recorder prompt boundary", as
     const sections = await generateRecorderSections("/tmp/project", {
         sourceKind: "active",
         name: "feature",
-        relativePath: "plans/feature.md",
-        path: "/tmp/project/plans/feature.md",
+        relativePath: "docs/plans/feature.md",
+        path: "/tmp/project/docs/plans/feature.md",
         planId: "plan-feature",
         attrs: /** @type {any} */ ({ classification: "FEATURE", status: "verified", summary: "Feature." }),
         body: "# Feature\n\n## Plan\n\nBody",
@@ -460,7 +460,7 @@ Deno.test("Work Record recorder prompt includes the task completion report as so
     const source = {
         sourceKind: "active",
         name: "reported",
-        relativePath: "plans/reported.md",
+        relativePath: "docs/plans/reported.md",
         path: "/tmp/reported.md",
         planId: "plan-reported",
         scope: "planned_change",

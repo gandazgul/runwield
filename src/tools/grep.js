@@ -327,7 +327,7 @@ export function createRunWieldGrepToolDefinition(cwd) {
     tool.promptSnippet = "Search file contents across one or more paths (respects .gitignore)";
     tool.promptGuidelines = [
         "Use grep path as a string for one path, an array for multiple paths, or shell-style text like 'src tests'",
-        "Use glob for file filtering, or include a path glob such as 'plans/feature*.md'",
+        "Use glob for file filtering, or include a path glob such as 'docs/plans/feature*.md'",
     ];
     tool.parameters = grepSchema;
     tool.prepareArguments = prepareGrepArguments;

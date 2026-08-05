@@ -267,7 +267,7 @@ export const commandRegistry = {
         summary: "Load a saved plan by name or file path and continue work on it.",
         usage: [
             `${bin("load-plan <plan-name-or-id>")}`,
-            `${bin("load-plan plans/<plan>.md")}`,
+            `${bin("load-plan docs/plans/<plan>.md")}`,
             "/load-plan                         Open the interactive Plan selector",
             "/load-plan <plan-name-or-id>",
             `${bin("load-plan --help")}`,
@@ -409,7 +409,7 @@ export const commandRegistry = {
             `${bin("plans ui --help")}`,
         ],
         notes: [
-            "Default behavior lists active Plans only; plaintext archives under plans/archived/ are hidden from this list.",
+            "Default behavior lists active Plans only; plaintext archives under docs/plans/archived/ are hidden from this list.",
             "Use plans archive with no target to list archived Plans, and plans read to open active or archived markdown in a local read-only browser view.",
             "Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one invocation.",
             "Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or unshare.",

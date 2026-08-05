@@ -125,7 +125,7 @@ export const projectPlanReviewScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/plan.md",
+            path: "docs/plans/plan.md",
             text:
                 "---\nclassification: PROJECT\ncomplexity: MEDIUM\nsummary: Golden PROJECT\naffectedPaths: []\nstatus: draft\n---\n# Golden PROJECT\n\nDraft PROJECT content.\n",
         },
@@ -355,7 +355,7 @@ export const twoChildProjectContinuationScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/epic.md",
+            path: "docs/plans/epic.md",
             text:
                 "---\nclassification: PROJECT\ncomplexity: MEDIUM\nsummary: Golden Epic\naffectedPaths: []\nstatus: draft\n---\n# Golden Epic\n\nDraft PROJECT content.\n",
         },
@@ -605,7 +605,7 @@ export const projectChildObjectiveCheckStopScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/epic.md",
+            path: "docs/plans/epic.md",
             text:
                 "---\nclassification: PROJECT\ncomplexity: MEDIUM\nsummary: Golden Epic\naffectedPaths: []\nstatus: draft\n---\n# Golden Epic\n\nDraft PROJECT content.\n",
         },

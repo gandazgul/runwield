@@ -13,11 +13,11 @@ import type { TriageMeta } from "../../tools/plan-written.ts";
 /**
  * A Plan document, as opposed to implementation work.
  *
- * Any path under `plans/` counts, not just this Plan's own file: a Plan that only
+ * Any path under `docs/plans/` counts, not just this Plan's own file: a Plan that only
  * edits sibling Plan documents has still implemented nothing.
  */
 function isPlanDocumentPath(path: string, planName: string): boolean {
-    return path === `plans/${planName}.md` || /^plans\/[^/]+\.md$/.test(path);
+    return path === `docs/plans/${planName}.md` || /^docs\/plans\/.+\.md$/.test(path);
 }
 
 export function extractDiffPaths(diffText: string): string[] {

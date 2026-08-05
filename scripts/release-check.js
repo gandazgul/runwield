@@ -350,9 +350,9 @@ export async function smokeTestBundledAgentReferenceExtraction(binaryPath, root)
 export async function smokeTestBinaryReviewSurface(binaryPath, root) {
     console.log("\n==> Smoke test standalone review surface");
     const projectDir = join(root, "project");
-    await Deno.mkdir(join(projectDir, "plans"), { recursive: true });
+    await Deno.mkdir(join(projectDir, "docs", "plans"), { recursive: true });
     await Deno.writeTextFile(
-        join(projectDir, "plans", "release-review-smoke.md"),
+        join(projectDir, "docs", "plans", "release-review-smoke.md"),
         `---\nplanId: release-review-smoke\nclassification: FEATURE\nstatus: draft\n---\n# Release binary review smoke\n`,
     );
 

@@ -43,7 +43,7 @@ function makePlan(overrides: Partial<PlanFrontMatter> = {}): RecoveryFlowPlan {
     } as PlanFrontMatter;
     return {
         planName: "recovery-contract",
-        path: "plans/recovery-contract.md",
+        path: "docs/plans/recovery-contract.md",
         markdown: "# Plan",
         body: "# Plan",
         attrs,

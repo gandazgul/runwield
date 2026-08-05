@@ -193,7 +193,7 @@ Deno.test("findProhibitedRuntimeFiles rejects broad source and state copies", ()
             "dist/workspace-runtime/server.mjs",
             "src/ui/workspace/static/styles.css",
             "src/ui/workspace/server.js",
-            "plans/example.md",
+            "docs/plans/example.md",
             ".wld/collaboration-secrets.json",
             "data/runwield.sqlite",
             ".git/config",
@@ -201,7 +201,7 @@ Deno.test("findProhibitedRuntimeFiles rejects broad source and state copies", ()
         ]),
         [
             "src/ui/workspace/server.js",
-            "plans/example.md",
+            "docs/plans/example.md",
             ".wld/collaboration-secrets.json",
             "data/runwield.sqlite",
             ".git/config",

@@ -79,7 +79,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
         // Plus the Work Record the post-verification handoff writes under docs/, which
         // is a product output the user keeps or discards, not publication residue.
         statusLines.every((line) =>
-            line.endsWith("plans/plan.md") || line.endsWith(".wld/worktrees.json") || line.endsWith("docs/") ||
+            line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/worktrees.json") || line.endsWith("docs/") ||
             line.includes("docs/work-records/")
         ),
         `Expected only lifecycle/registry status after Direct Delivery publication; got ${statusLines.join("; ")}`,
@@ -278,7 +278,7 @@ export const plannedChangeReviewRepairValidationScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/plan.md",
+            path: "docs/plans/plan.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Golden PLANNED_CHANGE\n\nDraft content.\n",
         },
@@ -372,7 +372,7 @@ export const plannedChangeBlockedMergePauseScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/plan.md",
+            path: "docs/plans/plan.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Golden PLANNED_CHANGE\n\nDraft content.\n",
         },
@@ -610,7 +610,7 @@ export const plannedChangeNonGitInPlaceScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/non-git-plan.md",
+            path: "docs/plans/non-git-plan.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden non-Git PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Non-Git PLANNED_CHANGE\n\nDraft content.\n",
         },
@@ -757,7 +757,7 @@ export const plannedChangeValidationFailureRetryScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/validation-retry.md",
+            path: "docs/plans/validation-retry.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Validation retry\naffectedPaths: []\nstatus: draft\n---\n# Validation retry\n\nDraft content.\n",
         },
@@ -858,7 +858,7 @@ export const plannedChangeValidationExhaustedScenario = {
     actions: [
         {
             type: "writeProjectFile",
-            path: "plans/validation-exhausted.md",
+            path: "docs/plans/validation-exhausted.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Validation exhausted\naffectedPaths: []\nstatus: draft\n---\n# Validation exhausted\n\nDraft content.\n",
         },

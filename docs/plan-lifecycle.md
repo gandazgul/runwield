@@ -7,8 +7,8 @@ Plan metadata is canonical in the primary project checkout even when implementat
 Worktree paths, branches, and registry records describe where execution work lives; they do not replace Plan Status.
 
 Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
-Plans under `plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point back
-to the Epic with `parentPlan` and may list sibling `dependencies`.
+Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
+back to the Epic with `parentPlan` and may list sibling `dependencies`.
 
 ## Statuses
 
@@ -55,9 +55,9 @@ visibility and blocking are listing/UI behavior.
 
 ## Physical Archival
 
-Archival is not a Plan Status. Archived Plans keep their last durable lifecycle status and move on disk from `plans/` to
-`plans/archived/`, preserving nested relative paths. Normal active listings hide `plans/archived/`, while explicit
-archive commands can list, read, and restore those plaintext markdown files.
+Archival is not a Plan Status. Archived Plans keep their last durable lifecycle status and move on disk from
+`docs/plans/` to `docs/plans/archived/`, preserving nested relative paths. Normal active listings hide
+`docs/plans/archived/`, while explicit archive commands can list, read, and restore those plaintext markdown files.
 
 `verified`, `user_verified`, and `closed_without_verification` are terminal outcomes that can be archived without
 `--force`. Other statuses, including `on_hold`, require `--force` because they may represent unfinished or resumable
@@ -218,18 +218,18 @@ branch so the target receives verified Front Matter through Git rather than a po
 registry and lock files remain local runtime state and are ignored by Git, so execution branches cannot merge stale
 registry snapshots back into the primary checkout.
 
-Each worktree-backed execution must also contain the canonical Plan Markdown at `plans/<plan-name>.md` before the
+Each worktree-backed execution must also contain the canonical Plan Markdown at `docs/plans/<plan-name>.md` before the
 execution baseline is captured. If the execution worktree was created from a commit that did not yet contain that Plan
 file, RunWield copies the full primary-checkout Plan into the absent execution path first; the copied Plan then becomes
 part of the baseline given to implementation and validation.
 
 During Workflow Validation or `wld load-plan` recovery, a missing execution Plan file is repairable only after RunWield
 proves the recorded registry entry, linked worktree path, repository common directory, checked-out branch, target
-branch, and baseline tree all match the primary Plan identity. When those proofs pass and only `plans/<plan-name>.md` is
-absent, RunWield restores it from the canonical Project Plan, emits a non-error notice naming the relative path, and
-continues validation. Existing evidence is never overwritten: malformed Front Matter, unreadable files, symlinks,
-directories or other non-regular paths, symlinked parents, and conflicting Plan IDs all block with an exact path and
-reason so the user can inspect or recover the worktree manually.
+branch, and baseline tree all match the primary Plan identity. When those proofs pass and only
+`docs/plans/<plan-name>.md` is absent, RunWield restores it from the canonical Project Plan, emits a non-error notice
+naming the relative path, and continues validation. Existing evidence is never overwritten: malformed Front Matter,
+unreadable files, symlinks, directories or other non-regular paths, symlinked parents, and conflicting Plan IDs all
+block with an exact path and reason so the user can inspect or recover the worktree manually.
 
 ## Workflow Validation and Merge-Back
 
@@ -325,7 +325,7 @@ For PROJECT Epics, child FEATURE Plans run their own Workflow Validation. The Ep
 but it does not run a validation loop as if it were an implementation diff.
 
 For executable FEATURE Plans, the workflow diff must contain implementation changes. An empty scoped diff, or a diff
-that only changes Plan documents under `plans/`, is a validation failure. OPERATION and QUICK_FIX are not saved as
+that only changes Plan documents under `docs/plans/`, is a validation failure. OPERATION and QUICK_FIX are not saved as
 executable Plans. OPERATION ends after Operator self-verification and `task_completed`. QUICK_FIX runs no-plan
 Mechanical Validation after Engineer `task_completed`, without Plan lifecycle state.
 

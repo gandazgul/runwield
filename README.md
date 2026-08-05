@@ -96,7 +96,7 @@ learned instead of from an empty context window.
 You type `wld "add rate limiting to the public API"`. Then:
 
 1. **Router** classifies it as a **Planned Change** and hands off to Planner.
-2. **Planner** investigates the repo and writes a plan to `plans/`.
+2. **Planner** investigates the repo and writes a plan to `docs/plans/`.
 3. **You review it** in the browser — comment, request changes, approve. Iterate as many times as you want. Nothing has
    touched your code yet.
 4. **Engineer** executes the approved plan in an isolated git worktree.
@@ -158,7 +158,7 @@ The agent roster:
 | Recorder          | Writes the durable Work Record after completion.                                                       |
 
 Everything RunWield owns lives under `~/.wld/` (sessions, settings, global instructions, overrides). Everything about
-_your project_ stays in your repo as plain markdown: `plans/`, `.wld/`, `CONTEXT.md`. No lock-in, no database, all
+_your project_ stays in your repo as plain markdown: `docs/plans/`, `.wld/`, `CONTEXT.md`. No lock-in, no database, all
 greppable.
 
 **Documentation:** [full docs index](docs/index.md) · [usage](docs/usage.md) · [plans and workflows](docs/workflows.md)

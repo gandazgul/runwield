@@ -104,16 +104,16 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
             planName: "Checked Out Target No Side Effects",
             worktreeRoot,
         });
-        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${projectRoot}/plans/demo.md`, "target\n");
-        await git(projectRoot, ["add", "plans/demo.md"]);
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/demo.md`, "target\n");
+        await git(projectRoot, ["add", "docs/plans/demo.md"]);
         await git(projectRoot, ["commit", "-m", "target plan metadata"]);
         await git(projectRoot, ["checkout", "main"]);
         await git(projectRoot, ["worktree", "add", targetCheckout, "feature-base"]);
 
-        await Deno.mkdir(`${worktree.path}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${worktree.path}/plans/demo.md`, "execution\n");
-        await git(worktree.path, ["add", "plans/demo.md"]);
+        await Deno.mkdir(`${worktree.path}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/docs/plans/demo.md`, "execution\n");
+        await git(worktree.path, ["add", "docs/plans/demo.md"]);
         await git(worktree.path, ["commit", "-m", "execution plan metadata"]);
         const beforeExecutionHead = await git(projectRoot, ["rev-parse", worktree.branch]);
 
@@ -130,7 +130,7 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
         );
 
         assertEquals(await git(projectRoot, ["rev-parse", worktree.branch]), beforeExecutionHead);
-        assertEquals(await git(projectRoot, ["show", `${worktree.branch}:plans/demo.md`]), "execution");
+        assertEquals(await git(projectRoot, ["show", `${worktree.branch}:docs/plans/demo.md`]), "execution");
     } finally {
         await git(projectRoot, ["worktree", "remove", "--force", targetCheckout]).catch(() => {});
         if (worktree) {
@@ -143,6 +143,55 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
         await Deno.remove(targetCheckout, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("mergeExecutionWorktree skips target-deleted Plan paths during metadata alignment", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
+    let worktree;
+    try {
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/deleted.md`, "base\n");
+        await git(projectRoot, ["add", "docs/plans/deleted.md"]);
+        await git(projectRoot, ["commit", "-m", "base plan"]);
+        await git(projectRoot, ["checkout", "-b", "feature-base"]);
+        worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "Target Deleted Plan",
+            worktreeRoot,
+        });
+
+        await Deno.remove(`${projectRoot}/docs/plans/deleted.md`);
+        await git(projectRoot, ["add", "docs/plans/deleted.md"]);
+        await git(projectRoot, ["commit", "-m", "target deletes obsolete plan"]);
+
+        await Deno.remove(`${worktree.path}/docs/plans/deleted.md`);
+        await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
+        await git(worktree.path, ["add", "docs/plans/deleted.md", "feature.txt"]);
+        await git(worktree.path, ["commit", "-m", "execution also deletes obsolete plan"]);
+
+        await mergeExecutionWorktree({
+            projectRoot,
+            branch: worktree.branch,
+            targetBranch: "feature-base",
+            worktreePath: worktree.path,
+        });
+
+        await assertRejects(() => git(projectRoot, ["show", "feature-base:docs/plans/deleted.md"]), Error);
+        assertEquals(await git(projectRoot, ["show", "feature-base:feature.txt"]), "feature");
+    } finally {
+        await git(projectRoot, ["merge", "--abort"]).catch(() => {});
+        if (worktree) {
+            await removeWorktreeGitArtifacts({
+                projectRoot,
+                path: worktree.path,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 

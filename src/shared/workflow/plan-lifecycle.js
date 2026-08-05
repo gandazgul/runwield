@@ -1061,7 +1061,7 @@ export async function stageValidationPassedInExecutionWorktree({
         );
     }
 
-    const planPath = `plans/${planName}.md`;
+    const planPath = `docs/plans/${planName}.md`;
     let executionPlan = await loadPlan(executionCwd, planName);
     let reuseVerified = executionPlan?.attrs.status === "verified";
     if (reuseVerified && executionPlan) {
@@ -1173,7 +1173,7 @@ export async function stageValidationPassedInExecutionWorktree({
                 for (const hierarchyPlanName of hierarchyPlanNames) {
                     const hierarchyPlan = await loadPlan(projectRoot, hierarchyPlanName);
                     if (!hierarchyPlan) continue;
-                    const hierarchyPath = join(executionCwd, "plans", `${hierarchyPlanName}.md`);
+                    const hierarchyPath = join(executionCwd, "docs", "plans", `${hierarchyPlanName}.md`);
                     let originalContent = null;
                     let existed = true;
                     try {
@@ -1226,7 +1226,7 @@ export async function stageValidationPassedInExecutionWorktree({
         staleStagedParentReconciled = parentWasAlreadyStaged && !parentAdvanced;
         return {
             attrs,
-            planPaths: [planPath, ...(parentAdvanced ? [`plans/${parentPlanName}.md`] : [])],
+            planPaths: [planPath, ...(parentAdvanced ? [`docs/plans/${parentPlanName}.md`] : [])],
         };
     } finally {
         for (const temporaryFile of temporaryHierarchyFiles) {

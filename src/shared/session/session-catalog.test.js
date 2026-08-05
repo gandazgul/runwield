@@ -27,7 +27,7 @@ Deno.test("two project roots keep local catalogs settings and Plans isolated", a
             await Deno.mkdir(join(root, ".wld", "prompts"), { recursive: true });
             await Deno.mkdir(join(root, ".wld", "skills", "local-skill"), { recursive: true });
             await Deno.mkdir(join(root, ".wld", "agents"), { recursive: true });
-            await Deno.mkdir(join(root, "plans"), { recursive: true });
+            await Deno.mkdir(join(root, "docs", "plans"), { recursive: true });
             await Deno.writeTextFile(
                 join(root, ".wld", "prompts", "local-prompt.md"),
                 `---\ndescription: "${marker} prompt"\n---\n${marker} prompt body`,
@@ -42,7 +42,7 @@ Deno.test("two project roots keep local catalogs settings and Plans isolated", a
             );
             await Deno.writeTextFile(join(root, ".wld", "settings.json"), JSON.stringify({ marker }));
             await Deno.writeTextFile(
-                join(root, "plans", "same-plan.md"),
+                join(root, "docs", "plans", "same-plan.md"),
                 `---\nclassification: FEATURE\ncomplexity: LOW\nsummary: "${marker} plan"\naffectedPaths: []\nstatus: approved\n---\n# ${marker} plan`,
             );
         }

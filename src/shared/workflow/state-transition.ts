@@ -459,7 +459,8 @@ function planAction(planName: string) {
     return [
         {
             label: "Reload the Plan and retry",
-            description: `Re-read plans/${planName}.md, then repeat the action so RunWield uses current Plan metadata.`,
+            description:
+                `Re-read docs/plans/${planName}.md, then repeat the action so RunWield uses current Plan metadata.`,
         },
         {
             label: "Inspect with load-plan",

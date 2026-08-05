@@ -496,7 +496,7 @@ Deno.test("ToolExecutionBlock highlights the plan review browser URL instruction
     const w = 120;
     const block = new ToolExecutionBlock("plan_written", "plan_written runtime-boundary");
     block.setOutput(
-        "Plan name: plans/runtime-boundary.md\n" +
+        "Plan name: docs/plans/runtime-boundary.md\n" +
             "To review open a browser to: http://127.0.0.1:4567/review/plan?token=test\n" +
             "Status: Waiting for plan review decision.\n",
     );

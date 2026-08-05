@@ -94,7 +94,8 @@ reimplementing forge policy, automatically acting on untrusted review comments, 
 
 ### Upstream Artifact Consent
 
-- RunWield must not infer upstream participation from `plans/`, `.wld/`, commit history, or local contributor settings.
+- RunWield must not infer upstream participation from `docs/plans/`, `.wld/`, commit history, or local contributor
+  settings.
 - Contributed RunWield Plans require an explicit, upstream-authored, version-controlled **Repository Participation
   Declaration**.
 - RunWield reads that declaration from the actual target repository and base revision, not solely from the contributor's

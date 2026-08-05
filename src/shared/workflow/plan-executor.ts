@@ -189,7 +189,7 @@ export async function executePlan({
                     initialRequest: [
                         `## Plan Review Re-opened: ${planName}`,
                         "",
-                        `plans/${planName}.md could not be loaded for execution. The user provided this feedback while`,
+                        `docs/plans/${planName}.md could not be loaded for execution. The user provided this feedback while`,
                         "recovering it:",
                         "",
                         reviewMeta.feedback || "(no specific feedback provided)",

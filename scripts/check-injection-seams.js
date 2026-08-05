@@ -1190,7 +1190,7 @@ if (import.meta.main) {
                 JSON.stringify(
                     {
                         comment:
-                            "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See plans/replace-deps-bag-with-capability-ports.md.",
+                            "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See docs/plans/replace-deps-bag-with-capability-ports.md.",
                         files: sortedSeams,
                     },
                     null,
@@ -1226,7 +1226,7 @@ if (import.meta.main) {
                 "If you ADDED a conditional seam: remove the branch; existing conditional debt may only shrink.\n" +
                 "If you REMOVED seams: run `deno task seams:update` to tighten the baseline in the same change.\n" +
                 "Never run `--update` to silence an addition; it refuses to loosen and will reject it.\n" +
-                "Background: plans/replace-deps-bag-with-capability-ports.md and src/skills/write-tests/SKILL.md.",
+                "Background: docs/plans/replace-deps-bag-with-capability-ports.md and src/skills/write-tests/SKILL.md.",
         );
         sections.push(
             "If you are an agent: do not make this pass by changing how the seam LOOKS.\n" +

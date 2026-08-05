@@ -319,10 +319,10 @@ Deno.test("Workspace detail SSR fallback renders visible empty Plan body state",
 Deno.test("Workspace body-save API preserves front matter rejects stale writes and requires token", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
         const frontMatter =
             "---\nplanId: api-id\n# comment remains\nclassification: FEATURE\nstatus: draft\nunknown: kept\n---\n";
-        await Deno.writeTextFile(`${cwd}/plans/api.md`, `${frontMatter}# Original\n`);
+        await Deno.writeTextFile(`${cwd}/docs/plans/api.md`, `${frontMatter}# Original\n`);
         const loaded = await loadPlanBodyById(cwd, "api-id");
         const app = createWorkspaceApp({
             cwd,
@@ -356,7 +356,7 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
         assertEquals(saved.status, 200);
         const savedBody = await saved.json();
         assertEquals(typeof savedBody.bodyHash, "string");
-        assertEquals(await Deno.readTextFile(`${cwd}/plans/api.md`), `${frontMatter}# Saved\n`);
+        assertEquals(await Deno.readTextFile(`${cwd}/docs/plans/api.md`), `${frontMatter}# Saved\n`);
 
         const stale = await app(
             new Request("http://localhost/api/plans/api-id/body", {

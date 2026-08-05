@@ -109,7 +109,7 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = "";
     } else if (toolName === "plan_written") {
         const planName = String(args?.planName || "").replace(/\.md$/i, "").trim();
-        headerArgs = planName ? `plans/${planName}.md` : "";
+        headerArgs = planName ? `docs/plans/${planName}.md` : "";
     } else if (toolName === "memory_recall" || toolName === "memory_recall_global") {
         headerArgs = args?.query || "";
     } else if (toolName === "memory_store" || toolName === "memory_store_global") {

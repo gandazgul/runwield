@@ -104,7 +104,7 @@ async function resolveActivePlan(cwd: string, target: string) {
     } catch (error) {
         if (error instanceof Error && /must be relative|cannot escape/.test(error.message)) {
             throw new Error(
-                "Can only share active saved Plans under plans/. External markdown files are not supported.",
+                "Can only share active saved Plans under docs/plans/. External markdown files are not supported.",
             );
         }
     }

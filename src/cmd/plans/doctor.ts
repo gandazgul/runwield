@@ -314,6 +314,7 @@ function formatDoctorRepairReport(repaired: number, remainingIssues: DoctorIssue
 }
 
 async function collectPlanIssues(
+    projectRoot: string,
     root: string,
     prefix: string[],
     issues: DoctorIssue[],
@@ -332,7 +333,7 @@ async function collectPlanIssues(
                         message: `${entryPath} is a directory, not a regular Plan markdown file.`,
                     });
                 } else if (!(prefix.length === 0 && entry.name === "archived")) {
-                    await collectPlanIssues(root, [...prefix, entry.name], issues, planIds);
+                    await collectPlanIssues(projectRoot, root, [...prefix, entry.name], issues, planIds);
                 }
                 continue;
             }
@@ -345,7 +346,7 @@ async function collectPlanIssues(
                 continue;
             }
             if (!isPlanPath) continue;
-            const result = await loadPlanStrict(join(root, ".."), planName);
+            const result = await loadPlanStrict(projectRoot, planName);
             if (result.kind === "malformed") {
                 issues.push({
                     kind: "malformed_plan",
@@ -631,7 +632,7 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
     }
 
     const discoveredPlanIds = new Map<string, string>();
-    await collectPlanIssues(getPlansDir(projectRoot), [], issues, discoveredPlanIds);
+    await collectPlanIssues(projectRoot, getPlansDir(projectRoot), [], issues, discoveredPlanIds);
     await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
 
     // Read the registry without enforcing invariants first. A violated invariant
@@ -806,7 +807,7 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 message:
                     `Registry attempt ${entry.id} belongs to planId ${entry.planId}, but no Plan (active or archived) carries that id — the Plan file was probably renamed or deleted outside RunWield.`,
                 commands: [
-                    `grep -rl "${entry.planId}" plans/`,
+                    `grep -rl "${entry.planId}" docs/plans/`,
                     `git -C ${entry.path} status --short`,
                     `git log --oneline ${entry.branch} -5`,
                 ],
@@ -859,7 +860,7 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
                 commands: claimant ? [`${CLI_BIN} plans doctor --repair`] : [
                     `git -C ${entry.path} status --short`,
                     `git log --oneline ${entry.branch} -5`,
-                    `grep -rln "worktreeId: \\"${entry.id}\\"" plans/`,
+                    `grep -rln "worktreeId: \\"${entry.id}\\"" docs/plans/`,
                 ],
                 repairSummary: claimant
                     ? `--repair records planId ${claimant.attrs.planId} on the attempt. That is a metadata write only; the worktree, branch, and Plan file are untouched.`

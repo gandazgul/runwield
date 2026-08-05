@@ -257,8 +257,8 @@ Deno.test("createUiApi keeps semantic status messages independent from active to
     const { tui, messageList } = makeTuiHarness();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
 
-    const tool = ui.startToolExecution("plan-tool", "plan_written", "plan_written plans/example.md");
-    ui.appendSystemMessage("[RunWield] Plan name: plans/example.md");
+    const tool = ui.startToolExecution("plan-tool", "plan_written", "plan_written docs/plans/example.md");
+    ui.appendSystemMessage("[RunWield] Plan name: docs/plans/example.md");
     ui.appendSystemMessage("[RunWield] Opening plan review UI for: example");
     ui.appendSystemMessage("[RunWield] Review server stderr:\nserver warning");
     ui.appendSystemMessage("[RunWield] Waiting for user decision...\n");

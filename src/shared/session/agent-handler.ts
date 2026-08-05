@@ -36,7 +36,7 @@ import {
     claimPendingTaskCompletion,
     type PendingTaskCompletionClaim,
 } from "./task-completion-session.ts";
-import { join } from "@std/path";
+import { getStoredPlanPath } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -119,7 +119,7 @@ function isMissingPrimaryPlanError(error: Error | string, planName: string): boo
  * @returns {Promise<boolean>}
  */
 async function requestMissingPrimaryPlanRetry(hostedSession: HostedSession, planName: string): Promise<boolean> {
-    const planPath = `plans/${planName}.md`;
+    const planPath = `docs/plans/${planName}.md`;
     const message =
         `The Plan file "${planPath}" is missing from the main checkout. Restore it in the main checkout, then come back and pick Retry.`;
     emitSystemStatus(hostedSession, message, { level: "warning", header: "RunWield" });
@@ -337,7 +337,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
 
             let planContent = "";
             try {
-                planContent = await Deno.readTextFile(join(projectRoot, "plans", `${planName}.md`));
+                planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, planName));
             } catch {
                 // Ignore in tests or if the file doesn't exist
             }
@@ -540,7 +540,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 let planContent = "";
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
-                        planContent = await Deno.readTextFile(join(projectRoot, "plans", `${workflow.planName}.md`));
+                        planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, workflow.planName));
                     } catch {
                         // Ignore
                     }

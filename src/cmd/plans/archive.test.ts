@@ -49,7 +49,7 @@ archiveTest("archive command resolves a planId and runs the real archive transac
     assertEquals(archived?.body, "# Draft\n\nKeep this body.");
     assertEquals(archived?.attrs.archiveReason, "stale");
     assertEquals(archived?.attrs.archivedFromStatus, "draft");
-    assertEquals(logs.some((line) => line.includes("plans/archived/canonical-plan.md")), true);
+    assertEquals(logs.some((line) => line.includes("docs/plans/archived/canonical-plan.md")), true);
     assertEquals(await Array.fromAsync(Deno.readDir(getTransitionJournalDir(projectRoot))).catch(() => []), []);
 });
 
@@ -91,8 +91,8 @@ archiveTest("archive command restores archived Plans through the real transactio
     assertEquals(await loadArchivedPlan(projectRoot, "done"), null);
     const restored = await loadPlan(projectRoot, "done-restored");
     assertEquals(restored?.body, "# Done\n\nPreserved.");
-    assertEquals(restored?.attrs.restoredFromPath, "plans/archived/done.md");
-    assertEquals(logs.some((line) => line.includes("Restored done-id to plans/done-restored.md")), true);
+    assertEquals(restored?.attrs.restoredFromPath, "docs/plans/archived/done.md");
+    assertEquals(logs.some((line) => line.includes("Restored done-id to docs/plans/done-restored.md")), true);
 });
 
 archiveTest("bulk archive moves matching parents, their children, and standalone Plans", async ({ projectRoot }) => {

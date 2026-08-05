@@ -100,8 +100,8 @@ Architecture is a shared model-building process, not a questionnaire or a one-sh
    settled, and which branch remains unresolved. Investigate again when a decision exposes another architectural
    question. A first structured batch is not permission to converge or write the Epic automatically.
 7. **Synthesize the architecture** — once the important decisions are settled or explicitly recorded as reviewable
-   assumptions, capture durable decisions in ADRs when warranted and write the Epic to `plans/<descriptive-name>.md`.
-   Preserve the final design and rationale, not discarded conversational branches.
+   assumptions, capture durable decisions in ADRs when warranted and write the Epic to
+   `docs/plans/<descriptive-name>.md`. Preserve the final design and rationale, not discarded conversational branches.
 8. **Finalize the handoff** — re-read the Epic against the request, repository evidence, and agreed decisions. Confirm
    that it provides enough architectural guidance to support later decomposition and implementation planning without
    prescribing either one. Then call `plan_written` with the filename without `.md`.
@@ -252,7 +252,7 @@ boundary were absent.
   stakeholder decision, explain why it matters, and ask for it directly.
 - **Do Not Prematurely Converge:** A PROJECT plan written after a shallow interview is worse than no plan. Continue
   discovery until the Epic has clear intent, boundaries, risks, and decision rationale.
-- You MUST write the plan file to `plans/<name>.md` before declaring it via `plan_written`.
+- You MUST write the plan file to `docs/plans/<name>.md` before declaring it via `plan_written`.
 - Be specific enough at the architectural level to support later decomposition and implementation planning without
   ambiguity.
 - Respect existing code patterns — follow the project's conventions. Use `memory_recall` to pull project DNA before

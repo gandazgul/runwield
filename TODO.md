@@ -34,9 +34,9 @@ repos that RunWield works on so they dont fall into this pattern either.
 - [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 
 - [ ] Session-independent validation-engine refactor: `src/shared/workflow/validation.ts` is 2,479 lines with Pi/session
-      turn machinery coupling. Hard prerequisite for Attached Mode — `plans/attached-mode-claude-feature-preview.md`
-      (ready_for_decomposition) must not proceed without it. Also the biggest remaining P1 file. No plan exists yet;
-      write one.
+      turn machinery coupling. Hard prerequisite for Attached Mode —
+      `docs/plans/attached-mode-claude-feature-preview.md` (ready_for_decomposition) must not proceed without it. Also
+      the biggest remaining P1 file. No plan exists yet; write one.
 
 - [ ] for epic child continuation, after the new session starts please add a system message with the plan details, and
       Launching Planner to review plan <plan name>... (Continuation mechanics are verified and golden-covered; the
@@ -49,7 +49,7 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 - [ ] providing feedback and approving a plan now reopens it as if I did send feedback this is wrong, approve feedback
       should be sent to engineer and start the plan normally. (In flight:
-      `plans/deterministic-plan-review-resubmission.md` is status `feedback`.)
+      `docs/plans/deterministic-plan-review-resubmission.md` is status `feedback`.)
 
 ### Others
 
@@ -72,7 +72,7 @@ repos that RunWield works on so they dont fall into this pattern either.
       test files: `src/plan-store.test.js` (2,776) and `src/shared/session/session-runtime.test.js` (2,190).
 
 - [ ] when resuming a quickfix, a followup message kicks up the CI run, it shouldn't we should record in the session
-      that CI ran (fix planned: `plans/resume-validation-after-repair-completion.md`, ready_for_work)
+      that CI ran (fix planned: `docs/plans/resume-validation-after-repair-completion.md`, ready_for_work)
 
 - [ ] Add a Golden TUI scenario for a brand-new Plan being stashed out of main during execution: when Engineer calls
       `task_completed`, verify the missing-Plan guidance and Retry/Stop menu, restore the Plan, choose Retry, and
@@ -108,7 +108,7 @@ repos that RunWield works on so they dont fall into this pattern either.
         collapsible sections.
 
 - [ ] Implement this from claude: `Resume this session with:\nclaude --resume eee7ef72-6d78-4961-bcfa-668dc80b3122`
-      (likely vehicle: the in-flight `plans/claude-cli-execution-backend/` work)
+      (likely vehicle: the in-flight `docs/plans/claude-cli-execution-backend/` work)
 
 - [ ] Move the plan name from the footer right to the input field top line
       `-----–------------plan-name-here-with-a-color-from-theme-background--
@@ -124,9 +124,9 @@ repos that RunWield works on so they dont fall into this pattern either.
       resolution; RunWield must perform pre/post-repair lifecycle bookkeeping itself and must not ask an agent to edit
       protected Plan front matter.
 
-- [ ] Plan lifecycle bookkeeping cleanup: `plans/re-anchor-agents-after-compaction.md` still says `ready_for_work` but
-      the implementation is committed (`extensions/re-anchor/index.ts`) — needs the mechanical lifecycle transition to
-      match.
+- [ ] Plan lifecycle bookkeeping cleanup: `docs/plans/re-anchor-agents-after-compaction.md` still says `ready_for_work`
+      but the implementation is committed (`extensions/re-anchor/index.ts`) — needs the mechanical lifecycle transition
+      to match.
 
 ## Backlog
 
@@ -170,9 +170,9 @@ Removed since the last table (split or migrated): `src/cmd/load-plan/index.js` (
 
 ### P2 - Frontend Execution UX
 
-Complete (2026-07-24): Frontend Engineer + Pair Execution shipped — `plans/archived/frontend-engineer-pair-execution.md`
-verified; `executionAgent: "frontend-engineer"` routing, headed-browser checks, user checkpoints, and switch-to-AFK are
-live.
+Complete (2026-07-24): Frontend Engineer + Pair Execution shipped —
+`docs/plans/archived/frontend-engineer-pair-execution.md` verified; `executionAgent: "frontend-engineer"` routing,
+headed-browser checks, user checkpoints, and switch-to-AFK are live.
 
 ### P3 - Session and Runtime Reliability
 
@@ -214,10 +214,10 @@ live.
     Records, and memory truth.
   - Prove the full `/runwield` FEATURE journey in an uninitialized trusted repo before expanding to stable Claude,
     Codex, OpenCode, and Pi adapters.
-  - Claude CLI execution backend work is in flight: `plans/claude-cli-execution-backend/`.
+  - Claude CLI execution backend work is in flight: `docs/plans/claude-cli-execution-backend/`.
 
 - [ ] Build Personal Remote Workspace v1: [docs/prd/runwield-workspace-PRD.md](docs/prd/runwield-workspace-PRD.md).
-  - `plans/personal-remote-workspace-v1.md` is ready_for_work.
+  - `docs/plans/personal-remote-workspace-v1.md` is ready_for_work.
   - Include registered Projects, private-network device pairing/revocation, the Attention Dashboard, persistent
     Sessions, Session Activation Leases, Durable Workflow Checkpoints, Plan Workflow Leases, notifications, artifact
     intelligence, cross-Project human Cymbal search, and the code-server Code Surface.
@@ -243,12 +243,12 @@ live.
 ### P6 - Search, Memory, and Source Intelligence
 
 - [ ] Decide RunWield-owned indexing direction: [docs/prd/runwield-core-prd.md](docs/prd/runwield-core-prd.md),
-      [plans/unified-semantic-indexer.md](plans/unified-semantic-indexer.md).
+      [docs/plans/unified-semantic-indexer.md](docs/plans/unified-semantic-indexer.md).
   - Plan is on_hold. Decide whether to keep Cymbal as primary, add local structural index, add semantic index, or retire
     old LanceDB / Tree-sitter language from Core PRDs.
 
 - [ ] Build optional Colgrep semantic search extension:
-      [plans/colgrep-semantic-search-extension.md](plans/colgrep-semantic-search-extension.md).
+      [docs/plans/colgrep-semantic-search-extension.md](docs/plans/colgrep-semantic-search-extension.md).
   - Plan is on_hold.
 
 - [ ] Add refresh path for core project memories beyond `/sleep`, while keeping Mnemosyne core memories as source of the
@@ -266,7 +266,7 @@ live.
 ### P7 - Architecture / Codebase Shape
 
 - [ ] Revisit deep semantic source modules:
-      [plans/deep-semantic-source-modules.md](plans/deep-semantic-source-modules.md).
+      [docs/plans/deep-semantic-source-modules.md](docs/plans/deep-semantic-source-modules.md).
   - Plan is draft. Decide whether this is still worth doing now, or defer until after Work Records / Frontend Engineer /
     Workspace surfaces stabilize.
 

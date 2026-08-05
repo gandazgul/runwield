@@ -54,33 +54,33 @@ import { createTestWorktreeAttempt, git, makeRepo, TEST_DELIVERY_DETAILS } from 
 Deno.test("primary Plan path handoff restores tracked and untracked working files", async () => {
     const projectRoot = await makeRepo();
     try {
-        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${projectRoot}/plans/tracked.md`, "checked in\n");
-        await git(projectRoot, ["add", "plans/tracked.md"]);
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/tracked.md`, "checked in\n");
+        await git(projectRoot, ["add", "docs/plans/tracked.md"]);
         await git(projectRoot, ["commit", "-m", "add plan"]);
-        await Deno.writeTextFile(`${projectRoot}/plans/tracked.md`, "staged implemented\n");
-        await git(projectRoot, ["add", "plans/tracked.md"]);
-        await Deno.writeTextFile(`${projectRoot}/plans/tracked.md`, "unstaged implemented\n");
-        await Deno.writeTextFile(`${projectRoot}/plans/untracked.md`, "untracked implemented\n");
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/tracked.md`, "staged implemented\n");
+        await git(projectRoot, ["add", "docs/plans/tracked.md"]);
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/tracked.md`, "unstaged implemented\n");
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/untracked.md`, "untracked implemented\n");
 
         const tracked = await preparePrimaryPlanPathForMerge({
             projectRoot,
-            relativePath: "plans/tracked.md",
+            relativePath: "docs/plans/tracked.md",
         });
         const untracked = await preparePrimaryPlanPathForMerge({
             projectRoot,
-            relativePath: "plans/untracked.md",
+            relativePath: "docs/plans/untracked.md",
         });
-        assertEquals(await Deno.readTextFile(`${projectRoot}/plans/tracked.md`), "checked in\n");
-        assertEquals(await git(projectRoot, ["diff", "--cached", "--", "plans/tracked.md"]), "");
-        await assertRejects(() => Deno.stat(`${projectRoot}/plans/untracked.md`), Deno.errors.NotFound);
+        assertEquals(await Deno.readTextFile(`${projectRoot}/docs/plans/tracked.md`), "checked in\n");
+        assertEquals(await git(projectRoot, ["diff", "--cached", "--", "docs/plans/tracked.md"]), "");
+        await assertRejects(() => Deno.stat(`${projectRoot}/docs/plans/untracked.md`), Deno.errors.NotFound);
 
         await restorePrimaryPlanPathAfterMergeFailure(tracked);
         await restorePrimaryPlanPathAfterMergeFailure(untracked);
-        assertEquals(await Deno.readTextFile(`${projectRoot}/plans/tracked.md`), "unstaged implemented\n");
-        assertEquals(await git(projectRoot, ["show", ":plans/tracked.md"]), "staged implemented");
-        assertStringIncludes(await git(projectRoot, ["status", "--short", "--", "plans/tracked.md"]), "MM");
-        assertEquals(await Deno.readTextFile(`${projectRoot}/plans/untracked.md`), "untracked implemented\n");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/docs/plans/tracked.md`), "unstaged implemented\n");
+        assertEquals(await git(projectRoot, ["show", ":docs/plans/tracked.md"]), "staged implemented");
+        assertStringIncludes(await git(projectRoot, ["status", "--short", "--", "docs/plans/tracked.md"]), "MM");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/docs/plans/untracked.md`), "untracked implemented\n");
     } finally {
         await removeTempDir(projectRoot);
     }
@@ -94,7 +94,7 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
     try {
         await savePlanForTest(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await git(projectRoot, ["add", "plans/feature.md", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans/feature.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add feature plan"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -118,13 +118,13 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
             planName: "feature",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-02T00:00:00.000Z") },
         });
-        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/feature.md" });
+        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "docs/plans/feature.md" });
         await mergeExecutionWorktree({
             projectRoot,
             branch: worktree.branch,
             targetBranch: "main",
             worktreePath: worktree.path,
-            preservePlanPaths: ["plans/feature.md"],
+            preservePlanPaths: ["docs/plans/feature.md"],
             planName: "feature",
         });
 
@@ -153,7 +153,7 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
     try {
         await savePlanForTest(projectRoot, "verified-conflict", "# Verified Conflict", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await git(projectRoot, ["add", "plans/verified-conflict.md", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans/verified-conflict.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add verified conflict plan"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -170,7 +170,7 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
             worktreeBaseBranch: "main",
             worktreeStatus: "completed",
         });
-        await git(projectRoot, ["add", "plans/verified-conflict.md"]);
+        await git(projectRoot, ["add", "docs/plans/verified-conflict.md"]);
         await git(projectRoot, ["commit", "-m", "record implemented plan state"]);
         await Deno.writeTextFile(`${worktree.path}/verified-conflict.txt`, "validated\n");
 
@@ -231,7 +231,7 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
                 parentPlan: "epic",
             });
         }
-        await git(projectRoot, ["add", "plans", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add concurrent children"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -259,22 +259,22 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
             planName: "child-a",
             details: TEST_DELIVERY_DETAILS,
         });
-        assertEquals(staged.planPaths, ["plans/child-a.md"]);
+        assertEquals(staged.planPaths, ["docs/plans/child-a.md"]);
         assertEquals((await loadPlan(worktree.path, "child-b"))?.attrs.status, "ready_for_work");
-        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/child-a.md" });
+        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "docs/plans/child-a.md" });
         await mergeExecutionWorktree({
             projectRoot,
             branch: worktree.branch,
             targetBranch: "main",
             worktreePath: worktree.path,
             preservePlanPaths: staged.planPaths,
-            allowedDirtyPaths: ["plans/child-a.md"],
+            allowedDirtyPaths: ["docs/plans/child-a.md"],
             planName: "child-a",
         });
 
         assertEquals((await loadPlan(projectRoot, "child-a"))?.attrs.status, "verified");
         assertEquals((await loadPlan(projectRoot, "child-b"))?.attrs.status, "in_progress");
-        assertStringIncludes(await git(projectRoot, ["status", "--porcelain", "plans/child-b.md"]), "child-b.md");
+        assertStringIncludes(await git(projectRoot, ["status", "--porcelain", "docs/plans/child-b.md"]), "child-b.md");
     } finally {
         if (worktree) {
             await removeWorktreeGitArtifacts({
@@ -310,7 +310,7 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
             classification: "FEATURE",
             parentPlan: "epic",
         });
-        await git(projectRoot, ["add", "plans", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add epic hierarchy"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -324,7 +324,7 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
             ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
-        await git(projectRoot, ["add", "plans/child-a.md"]);
+        await git(projectRoot, ["add", "docs/plans/child-a.md"]);
         await git(projectRoot, ["commit", "-m", "verify first child"]);
         await savePlanForTest(projectRoot, "child-b", "# B", {
             status: "implemented",
@@ -377,7 +377,7 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
         await savePlanForTest(projectRoot, "conflicted-retry", "# Conflicted Retry", { status: "ready_for_work" });
         await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
-        await git(projectRoot, ["add", "plans/conflicted-retry.md", "conflict.txt", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans/conflicted-retry.md", "conflict.txt", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add conflicted retry plan"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -403,7 +403,7 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
         });
         const firstSnapshot = await preparePrimaryPlanPathForMerge({
             projectRoot,
-            relativePath: "plans/conflicted-retry.md",
+            relativePath: "docs/plans/conflicted-retry.md",
         });
 
         await assertRejects(() =>
@@ -427,7 +427,7 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
             planName: "conflicted-retry",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-03-02T00:00:00.000Z") },
         });
-        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/conflicted-retry.md" });
+        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "docs/plans/conflicted-retry.md" });
         await mergeExecutionWorktree({
             projectRoot,
             branch: activeWorktree.branch,
@@ -463,7 +463,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
     try {
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await savePlanForTest(projectRoot, "retry", "# Retry", { status: "ready_for_work" });
-        await git(projectRoot, ["add", "plans/retry.md", ".gitignore"]);
+        await git(projectRoot, ["add", "docs/plans/retry.md", ".gitignore"]);
         await git(projectRoot, ["commit", "-m", "add retry plan"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -484,7 +484,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
         });
         const snapshot = await preparePrimaryPlanPathForMerge({
             projectRoot,
-            relativePath: "plans/retry.md",
+            relativePath: "docs/plans/retry.md",
         });
 
         await assertRejects(() =>
@@ -507,7 +507,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
             planName: "retry",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-02-02T00:00:00.000Z") },
         });
-        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/retry.md" });
+        await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "docs/plans/retry.md" });
         await mergeExecutionWorktree({
             projectRoot,
             branch: worktree.branch,

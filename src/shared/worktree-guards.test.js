@@ -67,7 +67,7 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
     let worktree;
     try {
         await savePlanForTest(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
-        await git(projectRoot, ["add", "plans/feature.md"]);
+        await git(projectRoot, ["add", "docs/plans/feature.md"]);
         await git(projectRoot, ["commit", "-m", "add feature plan"]);
         worktree = await createTestWorktreeAttempt({
             projectRoot,
@@ -92,7 +92,7 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
                     branch: activeWorktree.branch,
                     targetBranch: "main",
                     worktreePath: activeWorktree.path,
-                    preservePlanPaths: ["plans/feature.md"],
+                    preservePlanPaths: ["docs/plans/feature.md"],
                     sealedExecutionCommit: sealed.executionCommit,
                     planName: "feature",
                 }),

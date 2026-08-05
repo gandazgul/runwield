@@ -228,7 +228,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             );
         }
         // Loading is the deliberate action that adopts a plain markdown file the user
-        // wrote into plans/. Reads elsewhere tolerate the missing Front Matter and
+        // wrote into docs/plans/. Reads elsewhere tolerate the missing Front Matter and
         // leave the file alone; here it stops being an anonymous file and becomes a
         // Plan with a durable identity, so the rest of this flow has something to
         // record lifecycle state on.

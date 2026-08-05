@@ -119,7 +119,7 @@ export async function main(args = Deno.args) {
     const runtimeEntry = args[0] || DEFAULT_RUNTIME_ENTRY;
     await assertReviewRoute(runtimeEntry, "/review/plan", {
         plan: "# Release quality gate Plan\n",
-        planPath: "plans/release-quality-gate.md",
+        planPath: "docs/plans/release-quality-gate.md",
         token: "plan-review-runtime-token",
         mode: "workflow",
     });

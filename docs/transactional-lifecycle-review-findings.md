@@ -1,8 +1,9 @@
 # Transactional Plan Lifecycle — end-to-end review findings
 
 Review of the implemented feature (`d0b54174`, `be2f9bbf`) against the intent in
-`plans/transactional-plan-lifecycle-and-worktree-recovery.md`. Every finding below was reproduced against real code, not
-inferred from reading. Fixed items were fixed in this pass; open items are ranked by how badly they strand a user.
+`docs/plans/archived/transactional-plan-lifecycle-and-worktree-recovery.md`. Every finding below was reproduced against
+real code, not inferred from reading. Fixed items were fixed in this pass; open items are ranked by how badly they
+strand a user.
 
 ## What holds up
 

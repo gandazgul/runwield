@@ -177,7 +177,7 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
     const events: RuntimeStatusEvent[] = [];
     const hostedSession = makeHostedSession("non-git-progress", projectRoot, events);
     try {
-        await Deno.mkdir(join(projectRoot, "plans"), { recursive: true });
+        await Deno.mkdir(join(projectRoot, "docs", "plans"), { recursive: true });
         await savePlan(projectRoot, "non-git-progress", "# non-git-progress", {
             classification: "PLANNED_CHANGE",
             status: "ready_for_work",

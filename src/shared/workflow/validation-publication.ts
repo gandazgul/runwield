@@ -81,7 +81,7 @@ export async function runPublicationPhase(
 
     const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(context.projectRoot);
     const gitPort = args.git;
-    const planPath = `plans/${args.planName}.md`;
+    const planPath = `docs/plans/${args.planName}.md`;
     const storedRepairWorktree = await resolveStoredValidationMergeRepairWorktree(args, context);
     if (storedRepairWorktree.kind === "blocked") return storedRepairWorktree.outcome;
     let repairMergeWorktreePath = storedRepairWorktree.path;
@@ -170,8 +170,8 @@ export async function runPublicationPhase(
         const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.projectRoot, args.planName)
             .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
         const repairedPlanPaths = new Set([planPath]);
-        if (hierarchy.parentPlan) repairedPlanPaths.add(`plans/${hierarchy.parentPlan}.md`);
-        for (const sibling of hierarchy.siblingPlans) repairedPlanPaths.add(`plans/${sibling.name}.md`);
+        if (hierarchy.parentPlan) repairedPlanPaths.add(`docs/plans/${hierarchy.parentPlan}.md`);
+        for (const sibling of hierarchy.siblingPlans) repairedPlanPaths.add(`docs/plans/${sibling.name}.md`);
         const staging = repairedCandidate
             ? { planPaths: [...repairedPlanPaths] }
             : await stageValidationPassedInExecutionWorktree({

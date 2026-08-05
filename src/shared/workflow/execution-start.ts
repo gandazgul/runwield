@@ -144,7 +144,7 @@ export async function startActiveExecutionWorkflow(
     const findReusable = ports.findReusableWorktree;
     // Worktree policy and the Plan restore are RunWield's own: they stay imported so a
     // test cannot stand in for them. Producing their failure modes takes a real
-    // repository — a branch whose tree has `plans` as a file blocks the restore.
+    // repository — a branch whose tree has `docs` as a file blocks the restore.
     const prepareTarget = prepareTargetBranchRef;
     const resolveCurrentBranch = ports.resolveCurrentCheckoutBranch;
     const resolveTarget = ports.resolveTargetBranchName;

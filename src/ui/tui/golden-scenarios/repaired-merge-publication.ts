@@ -70,14 +70,14 @@ export const repairedMergePublicationScenario = {
     }],
     actions: [
         { type: "captureProjectState", planNames: [planName], key: "beforeResume" },
-        { type: "captureProjectFileText", path: `plans/${planName}.md`, key: "beforeResumePlanText" },
+        { type: "captureProjectFileText", path: `docs/plans/${planName}.md`, key: "beforeResumePlanText" },
         { type: "type", text: `/load-plan ${planName}` },
         { type: "enter" },
         { type: "enter" },
         { type: "waitForPlanAbsent", planName, timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 30000 },
         { type: "captureProjectState", planNames: [planName], key: "afterResume" },
-        { type: "captureProjectFileText", path: `plans/${planName}.md`, key: "afterResumePlanText" },
+        { type: "captureProjectFileText", path: `docs/plans/${planName}.md`, key: "afterResumePlanText" },
     ],
     assertions: [
         async (result: GoldenScenarioResult) => {
@@ -118,7 +118,7 @@ export const repairedMergePublicationScenario = {
                 result.state.afterResumePlanText === null,
                 "Expected the verified Plan to be removed from active Plan storage.",
             );
-            const publishedPlan = await git(Deno.cwd(), ["show", `${targetBranch}:plans/${planName}.md`]);
+            const publishedPlan = await git(Deno.cwd(), ["show", `${targetBranch}:docs/plans/${planName}.md`]);
             assertStringIncludes(publishedPlan, 'status: "verified"');
             assert(!publishedPlan.includes("validationMergeRepairWorktree"));
         },

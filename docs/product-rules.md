@@ -63,10 +63,11 @@ guesses, never replays uncertain Git work, and never reports a rollback it did n
 
 ### PR-6 — External Plans are first-class: a file with no Front Matter is still loadable
 
-Users write Plans in their own editors and drop them in `plans/`. A plain markdown file there is normal, not an error.
+Users write Plans in their own editors and drop them in `docs/plans/`. A plain markdown file there is normal, not an
+error.
 
 - **Reading tolerates it.** Anything that reads Front Matter ignores its absence and falls back to defaults. A bare
-  `.md` in `plans/` never makes a command fail, and never shows up as drift in `wld plans doctor`.
+  `.md` in `docs/plans/` never makes a command fail, and never shows up as drift in `wld plans doctor`.
 - **Reading never claims it.** A listing is not consent to write. Passive reads leave the file byte-for-byte alone and
   report no `planId` rather than backfilling one — otherwise opening a Plan Board or reading the worktree registry would
   silently stamp RunWield metadata into a file the user was still drafting.

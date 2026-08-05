@@ -3,7 +3,7 @@
  * Manages plan persistence: front matter injection, save/load/list, and
  * resumption of saved or external plans.
  *
- * Plans live in `<project root>/plans/` as markdown files with YAML front matter.
+ * Plans live in `<project root>/docs/plans/` as markdown files with YAML front matter.
  * The plan "id" is the filename without .md.
  * External plans (missing front matter) get sensible defaults applied.
  */
@@ -62,7 +62,7 @@ export async function ensurePlansDir(cwd) {
 }
 
 /**
- * Canonicalize a stored plan name relative to plans/.
+ * Canonicalize a stored plan name relative to docs/plans/.
  * @param {string} planName
  * @returns {{ name: string, segments: string[] }}
  */
@@ -70,6 +70,9 @@ function canonicalizeStoredPlanName(planName) {
     let normalized = String(planName || "").trim().replaceAll("\\", "/");
     if (normalized.toLowerCase().endsWith(".md")) {
         normalized = normalized.slice(0, -3);
+    }
+    if (/^docs\/plans\//i.test(normalized)) {
+        normalized = normalized.replace(/^docs\/plans\//i, "");
     }
 
     if (!normalized) throw new Error("Plan name cannot be empty");
@@ -193,11 +196,11 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
  * @property {string|null} [holdReason] - Optional human reason for the hold
  * @property {string|null} [holdStalenessBaseline] - ISO timestamp or baseline used by caller-owned Resume Check
- * @property {string|null} [archivedAt] - ISO timestamp when the Plan was physically moved to plans/archived/
+ * @property {string|null} [archivedAt] - ISO timestamp when the Plan was physically moved to docs/plans/archived/
  * @property {string|null} [archiveReason] - Optional human reason captured when the Plan was archived
  * @property {PlanFrontMatter["status"]|null} [archivedFromStatus] - Durable lifecycle status captured before archival
  * @property {string|null} [archivedFromPath] - Project-relative path the Plan occupied before archival
- * @property {string|null} [restoredAt] - ISO timestamp when the Plan was physically restored to active plans/
+ * @property {string|null} [restoredAt] - ISO timestamp when the Plan was physically restored to active docs/plans/
  * @property {string|null} [restoredFromPath] - Project-relative archived path restored from
  * @property {string} [collaborationState] - Remote-canonical lock marker for shared Plans
  * @property {string} [collaborationServerUrl] - Normalized fragment-free Plan Server base URL
@@ -1684,7 +1687,7 @@ async function loadPlanFileStrict(filePath) {
             const frontMatterRevision = await getPlanFrontMatterRevisionForText(markdown);
             rememberFrontMatterRevision(revision, frontMatterRevision);
             // A Plan file with no Front Matter at all is not a broken Plan — it is a
-            // markdown file the user put in plans/ that RunWield has not onboarded.
+            // markdown file the user put in docs/plans/ that RunWield has not onboarded.
             // Parsing yields defaults so reads never fail, but the distinction has to
             // survive: only a deliberate onboarding may write metadata into it.
             return {
@@ -2003,7 +2006,7 @@ function buildChildPlanNameSegment(child) {
 }
 
 /**
- * Save draft child FEATURE plans below `plans/<epicPlanName>/`.
+ * Save draft child FEATURE plans below `docs/plans/<epicPlanName>/`.
  *
  * This helper intentionally overwrites existing draft files at the derived
  * child path. Conflict detection/finalization belongs to the Slicer flow that
@@ -2430,9 +2433,9 @@ export async function clearPlanCollaborationMetadata(cwd, planName, collaboratio
 
 /**
  * @typedef {Object} PlanResourceEntry
- * @property {string} name - Canonical plan name relative to plans/ without .md.
+ * @property {string} name - Canonical plan name relative to docs/plans/ without .md.
  * @property {string} planName - Alias for name used by resource consumers.
- * @property {string} relativePath - Project-relative markdown path, e.g. plans/name.md.
+ * @property {string} relativePath - Project-relative markdown path, e.g. docs/plans/name.md.
  * @property {string} path - Absolute markdown path.
  * @property {string} planId - Durable resource identity.
  * @property {PlanFrontMatter} attrs - Parsed front matter including planId.
@@ -2666,7 +2669,7 @@ async function resolveArchivedPlanNameOrId(cwd, archivedPlanNameOrId) {
 }
 
 /**
- * Archive an active Plan by name or planId into plans/archived/.
+ * Archive an active Plan by name or planId into docs/plans/archived/.
  * @param {string} cwd
  * @param {string} planNameOrId
  * @param {ArchivePlanOptions} [options]
@@ -2828,7 +2831,7 @@ export async function archivePlansByStatus(cwd, status, options = {}) {
 }
 
 /**
- * List archived Plans under plans/archived/.
+ * List archived Plans under docs/plans/archived/.
  * @param {string} cwd
  * @returns {Promise<ArchivedPlanEntry[]>}
  */
@@ -2922,7 +2925,7 @@ export async function updateArchivedPlanFrontMatter(cwd, archivedPlanNameOrId, u
 }
 
 /**
- * Restore an archived Plan back under plans/.
+ * Restore an archived Plan back under docs/plans/.
  * @param {string} cwd
  * @param {string} archivedPlanNameOrId
  * @param {{ to?: string, now?: string }} [options]
@@ -3081,7 +3084,7 @@ async function ensurePlanIdentityLocked(cwd, planName, options = {}) {
         // A file with no Front Matter has not been onboarded, and a listing is not
         // consent to onboard it. Backfilling here would let opening a Plan Board or
         // reading the worktree registry stamp RunWield metadata into a markdown file
-        // the user merely dropped in plans/. Onboarding is deliberate: see
+        // the user merely dropped in docs/plans/. Onboarding is deliberate: see
         // onboardExternalPlan(), which /load-plan calls.
         if (!plan.hasFrontMatter && !options.onboardExternal) {
             return {
@@ -3134,9 +3137,9 @@ export async function ensurePlanIdentity(cwd, planName, options = {}) {
 }
 
 /**
- * Adopt a plain markdown file in `plans/` as a RunWield Plan.
+ * Adopt a plain markdown file in `docs/plans/` as a RunWield Plan.
  *
- * Users write Plans in their own editors and drop them in `plans/`. Such a file
+ * Users write Plans in their own editors and drop them in `docs/plans/`. Such a file
  * has no Front Matter, and every read path already tolerates that — parsing
  * yields defaults so nothing panics. What it must not stay is anonymous: without
  * durable metadata it has no identity, no status, and no place in the lifecycle.
@@ -3581,6 +3584,12 @@ export async function resolvePlan(cwd, arg) {
 
     if (isPath) {
         const absPath = resolve(cwd, arg);
+        const projectRelative = relative(cwd, absPath).replaceAll("\\", "/");
+        if (projectRelative === "plans" || projectRelative.startsWith("plans/")) {
+            throw new Error(
+                `Legacy Plan path is not supported: ${projectRelative}. RunWield reads Plans only from ${PLANS_DIR_NAME}/.`,
+            );
+        }
         const plan = await loadExternalPlan(absPath);
         const planName = basename(absPath, ".md");
         return { ...plan, planName };

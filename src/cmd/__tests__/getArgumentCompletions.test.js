@@ -39,7 +39,7 @@ Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", as
         const originalCwd = Deno.cwd();
         const tempDir = await Deno.makeTempDir({ prefix: "runwield-load-plan-completions-" });
         try {
-            await Deno.mkdir(`${tempDir}/plans`, { recursive: true });
+            await Deno.mkdir(`${tempDir}/docs/plans`, { recursive: true });
             const plans = [
                 ["z-verified", "FEATURE", "verified"],
                 ["b-ready-epic", "PROJECT", "ready_for_work"],
@@ -53,7 +53,7 @@ Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", as
             ];
             for (const [name, classification, status] of plans) {
                 await Deno.writeTextFile(
-                    `${tempDir}/plans/${name}.md`,
+                    `${tempDir}/docs/plans/${name}.md`,
                     `---\nclassification: "${classification}"\nstatus: "${status}"\nsummary: "${name}"\ncreatedAt: "2026-01-01T00:00:00.000Z"\n---\n\n# ${name}\n`,
                 );
             }

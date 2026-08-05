@@ -39,7 +39,7 @@ Deno.test("workflow context merges plan name and later triage clears stale plan"
     const sessionManager = makeSessionManager();
 
     recordWorkflowTriageContext(sessionManager, { routingIntent: "PROJECT", complexity: "HIGH" });
-    recordWorkflowPlanName(sessionManager, "plans/epic/child-plan.md");
+    recordWorkflowPlanName(sessionManager, "docs/plans/epic/child-plan.md");
     assertEquals(readPersistedWorkflowContext(sessionManager), {
         routingIntent: "PROJECT",
         complexity: "HIGH",
@@ -89,7 +89,7 @@ Deno.test("workflow context reads are fail-open when session entry access throws
 });
 
 Deno.test("workflow context normalization accepts canonical intents and sanitized plan names", () => {
-    assertEquals(normalizeWorkflowPlanName(" plans/example.md "), "example");
+    assertEquals(normalizeWorkflowPlanName(" docs/plans/example.md "), "example");
     assertEquals(normalizeWorkflowContext({ routingIntent: "operation", complexity: "low" }), {
         routingIntent: "OPERATION",
         complexity: "LOW",
@@ -102,14 +102,14 @@ Deno.test("workflow context normalization accepts canonical intents and sanitize
 Deno.test("workflow context derives execution metadata with legacy feature normalization", () => {
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({
-            planName: "plans/footer-plan.md",
+            planName: "docs/plans/footer-plan.md",
             triageMeta: { classification: "FEATURE", complexity: "medium" },
         }),
         { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
     );
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({
-            planName: "plans/fallback-plan.md",
+            planName: "docs/plans/fallback-plan.md",
             triageMeta: { routingIntent: "NOPE", classification: "FEATURE", complexity: "medium" },
         }),
         { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "fallback-plan" },
@@ -117,7 +117,7 @@ Deno.test("workflow context derives execution metadata with legacy feature norma
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({
             triageMeta: { routingIntent: "NOPE", classification: "bad", complexity: "medium" },
-        }, "plans/name-only.md"),
+        }, "docs/plans/name-only.md"),
         { planName: "name-only" },
     );
     assertEquals(
@@ -131,7 +131,7 @@ Deno.test("workflow context derives execution metadata with legacy feature norma
 
 Deno.test("workflow context records normalized execution context without duplicate markers", () => {
     const sessionManager = makeSessionManager();
-    const context = { routingIntent: "FEATURE", complexity: "medium", planName: "plans/footer-plan.md" };
+    const context = { routingIntent: "FEATURE", complexity: "medium", planName: "docs/plans/footer-plan.md" };
 
     recordNormalizedWorkflowContext(sessionManager, context);
     recordNormalizedWorkflowContext(sessionManager, context);

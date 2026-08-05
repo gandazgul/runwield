@@ -328,7 +328,7 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
         "--name-only",
         /** @type {string} */ (result.baselineTree),
     ]);
-    assertStringIncludes(baselineFiles, "plans/p.md");
+    assertStringIncludes(baselineFiles, "docs/plans/p.md");
 });
 
 Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source before worktree selection or creation", async () => {
@@ -350,7 +350,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
                     loadCanonicalExecutionPlanSource: () =>
                         Promise.resolve({
                             kind: "symlink",
-                            relativePath: "plans/p.md",
+                            relativePath: "docs/plans/p.md",
                             reason: "Canonical Plan source parent is a symlink at plans.",
                         }),
                     findReusableWorktree: () => {
@@ -359,12 +359,12 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
                     },
                     ensureExecutionPlanFile: () => {
                         ensureCalls++;
-                        return Promise.resolve({ kind: "present", relativePath: "plans/p.md" });
+                        return Promise.resolve({ kind: "present", relativePath: "docs/plans/p.md" });
                     },
                 },
             }),
         Error,
-        "plans/p.md",
+        "docs/plans/p.md",
     );
 
     assertEquals(reuseLookups, 0);
@@ -386,8 +386,8 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
     // Really malformed, rather than a stand-in reporting that it would have been:
     // preparation has to parse this file and refuse on what it finds. The worktree
     // carries no Plan of its own — restoring one is the step being blocked here.
-    await Deno.mkdir(`${reused.path}/plans`, { recursive: true });
-    await Deno.writeTextFile(`${reused.path}/plans/p.md`, "---\nnot: [valid\n---\n\n# broken\n");
+    await Deno.mkdir(`${reused.path}/docs/plans`, { recursive: true });
+    await Deno.writeTextFile(`${reused.path}/docs/plans/p.md`, "---\nnot: [valid\n---\n\n# broken\n");
 
     try {
         await assertRejects(
@@ -405,7 +405,7 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
                     },
                 }),
             Error,
-            "plans/p.md",
+            "docs/plans/p.md",
         );
 
         // Preservation is the point: a worktree someone may have work in survives a
@@ -421,15 +421,15 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
 Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence in the registry and on disk", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("fresh-cleanup-failure", projectRoot);
-    // A branch whose tree has `plans` as a *file*, built with plumbing so the working
-    // tree is untouched. A worktree checked out from it cannot hold plans/p.md, so the
+    // A branch whose tree has `docs` as a *file*, built with plumbing so the working
+    // tree is untouched. A worktree checked out from it cannot hold docs/plans/p.md, so the
     // real Plan restore fails on the real filesystem — after the worktree exists, which
     // is what gives the rollback below something to preserve. Faking the restore's
     // return value would have skipped both the checkout and the failure.
-    const branchRoot = await Deno.makeTempDir({ prefix: "runwield-plans-as-file-" });
+    const branchRoot = await Deno.makeTempDir({ prefix: "runwield-docs-as-file-" });
     await git(projectRoot, ["worktree", "add", "--detach", branchRoot]);
-    await Deno.writeTextFile(`${branchRoot}/plans`, "not a directory\n");
-    await git(branchRoot, ["add", "plans"]);
+    await Deno.writeTextFile(`${branchRoot}/docs`, "not a directory\n");
+    await git(branchRoot, ["add", "docs"]);
     await git(branchRoot, [
         "-c",
         "user.email=tests@example.com",
@@ -437,16 +437,16 @@ Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence in
         "user.name=RunWield Tests",
         "commit",
         "-m",
-        "plans as a file",
+        "docs as a file",
     ]);
-    await git(branchRoot, ["branch", "plans-as-file"]);
+    await git(branchRoot, ["branch", "docs-as-file"]);
     await git(projectRoot, ["worktree", "remove", "--force", branchRoot]);
     try {
         await assertRejects(
             () =>
                 startActiveExecutionWorkflow({
                     planName: "p",
-                    triageMeta: { planId: PLAN_UNDER_TEST, worktreeBaseBranch: "plans-as-file" },
+                    triageMeta: { planId: PLAN_UNDER_TEST, worktreeBaseBranch: "docs-as-file" },
                     currentStatus: "ready_for_work",
                     hostedSession,
                     ports: {
@@ -936,7 +936,7 @@ Deno.test("finalizePlanImplementation fails closed without durable execution con
 Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
     const text = buildSlicerRequest("my-plan", undefined);
     assertStringIncludes(text, "Slice Plan: my-plan");
-    assertStringIncludes(text, "plans/my-plan.md");
+    assertStringIncludes(text, "docs/plans/my-plan.md");
     assertStringIncludes(text, "system prompt");
     // Without triage meta, the report block must not appear.
     assertEquals(text.includes("Triage Report"), false);
@@ -1014,7 +1014,7 @@ Deno.test("execution preparation ignores Plan body edits the user owns", async (
                     /** @type {any} */ ({
                         kind: "loaded",
                         path: stored?.path,
-                        relativePath: "plans/body-plan.md",
+                        relativePath: "docs/plans/body-plan.md",
                         markdown: `${stored?.markdown}\n\nEdited in another editor.\n`,
                         attrs: { ...stored?.attrs },
                     }),
@@ -1062,7 +1062,7 @@ Deno.test("execution preparation still refuses when lifecycle front matter drift
                                 /** @type {any} */ ({
                                     kind: "loaded",
                                     path: stored?.path,
-                                    relativePath: "plans/fm-plan.md",
+                                    relativePath: "docs/plans/fm-plan.md",
                                     markdown: String(stored?.markdown).replace(
                                         'status: "ready_for_work"',
                                         'status: "on_hold"',

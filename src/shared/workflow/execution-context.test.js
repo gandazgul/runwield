@@ -312,9 +312,9 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
                 assertEquals(result.context.baselineTree, baselineTree);
             }
             assertEquals(result.persistedLegacyExecutionMode, false);
-            assertEquals(result.restoredPlanFile, { relativePath: "plans/p.md" });
+            assertEquals(result.restoredPlanFile, { relativePath: "docs/plans/p.md" });
         }
-        assertEquals(await Deno.readTextFile(`${worktreePath}/plans/p.md`), canonicalMarkdownBeforeResolution);
+        assertEquals(await Deno.readTextFile(`${worktreePath}/docs/plans/p.md`), canonicalMarkdownBeforeResolution);
         const persistedPlan = await loadPlan(projectRoot, "p");
         assertEquals(persistedPlan?.attrs.executionMode, undefined);
         assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);

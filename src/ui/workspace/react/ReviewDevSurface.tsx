@@ -529,7 +529,7 @@ export function ReviewDevSurface({ surface }) {
         mode: "dev",
         artifactKind: "plan",
         title: "Fixture Test Plan: Plan Review UI",
-        artifactPath: "plans/fixture-test-plan.md",
+        artifactPath: "docs/plans/fixture-test-plan.md",
         notices: [],
     };
     const readWorkRecordPayload = {

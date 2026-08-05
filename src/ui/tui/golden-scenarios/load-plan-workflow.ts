@@ -52,7 +52,7 @@ export const loadPlanActionsScenario = {
     coverage: ["workflow:load-plan", "durable:plan-lifecycle"],
     initialProjectFiles: [
         {
-            path: "plans/load-hold.md",
+            path: "docs/plans/load-hold.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Hold through load-plan\naffectedPaths: []\nstatus: ready_for_work\n---\n# Hold\n",
         },
@@ -124,17 +124,17 @@ export const loadPlanResetReviewArchiveScenario = {
     ],
     initialProjectFiles: [
         {
-            path: "plans/reset-held.md",
+            path: "docs/plans/reset-held.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Reset held\naffectedPaths: []\nstatus: on_hold\nheldFromStatus: ready_for_work\n---\n# Reset held\n",
         },
         {
-            path: "plans/re-review.md",
+            path: "docs/plans/re-review.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Re-review\naffectedPaths: []\nstatus: ready_for_work\n---\n# Re-review\n",
         },
         {
-            path: "plans/archive-me.md",
+            path: "docs/plans/archive-me.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Archive me\naffectedPaths: []\nstatus: verified\n---\n# Archive me\n",
         },
@@ -210,12 +210,12 @@ export const loadPlanInterruptedRecoveryScenario = {
     ],
     initialProjectFiles: [
         {
-            path: "plans/epic.md",
+            path: "docs/plans/epic.md",
             text:
                 "---\nclassification: PROJECT\ncomplexity: MEDIUM\nsummary: Interrupted Epic\naffectedPaths: []\nstatus: ready_for_decomposition\n---\n# Epic\n",
         },
         {
-            path: "plans/epic/01-child.md",
+            path: "docs/plans/epic/01-child.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Interrupted child\naffectedPaths: []\nstatus: ready_for_work\nparentPlan: epic\norder: 1\n---\n# Child\n",
         },
@@ -300,7 +300,7 @@ export const loadPlanWorktreeInspectResetScenario = {
         { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
     ],
     initialProjectFiles: [{
-        path: "plans/recover-reset.md",
+        path: "docs/plans/recover-reset.md",
         text:
             "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Reset recovery\naffectedPaths: []\nstatus: ready_for_work\nplanId: recover-reset-plan\n---\n# Recover reset\n",
     }],
@@ -392,7 +392,7 @@ export const loadPlanAbandonProgressScenario = {
     timeoutMs: 60000,
     coverage: ["block:abandon-progress", "recovery:load-plan-worktree"],
     initialProjectFiles: [{
-        path: "plans/recover-abandon.md",
+        path: "docs/plans/recover-abandon.md",
         text:
             "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Abandon recovery\naffectedPaths: []\nstatus: ready_for_work\nplanId: recover-abandon-plan\n---\n# Recover abandon\n",
     }],
@@ -436,7 +436,7 @@ export const loadPlanMalformedFrontMatterScenario = {
     timeoutMs: 20000,
     coverage: ["recovery:malformed-plan-front-matter"],
     initialProjectFiles: [{
-        path: "plans/broken.md",
+        path: "docs/plans/broken.md",
         text:
             "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Broken\naffectedPaths: []\nstatus: draft\n---\n# Broken\n",
     }],
@@ -444,15 +444,15 @@ export const loadPlanMalformedFrontMatterScenario = {
         { type: "type", text: "/load-plan broken" },
         {
             type: "writeProjectFile",
-            path: "plans/broken.md",
+            path: "docs/plans/broken.md",
             text: "---\nclassification: [PLANNED_CHANGE\nstatus: draft\n---\n# Broken\n",
         },
-        { type: "captureProjectFileText", path: "plans/broken.md", key: "brokenPlanTextBefore" },
+        { type: "captureProjectFileText", path: "docs/plans/broken.md", key: "brokenPlanTextBefore" },
         { type: "enter" },
         { type: "enter" },
         { type: "sleep", ms: 1000 },
         { type: "waitForIdle", timeoutMs: 10000 },
-        { type: "captureProjectFileText", path: "plans/broken.md", key: "brokenPlanTextAfter" },
+        { type: "captureProjectFileText", path: "docs/plans/broken.md", key: "brokenPlanTextAfter" },
         { type: "captureProjectState", planNames: ["broken"] },
     ],
     assertions: [

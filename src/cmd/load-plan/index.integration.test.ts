@@ -439,8 +439,8 @@ Deno.test("load-plan recursively loads a real child selected from an Epic", asyn
 
 Deno.test("load-plan adopts a plain Markdown file into the real Plan catalogue", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${projectRoot}/plans/external.md`, "# External Plan\n\nKeep this body.\n");
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/external.md`, "# External Plan\n\nKeep this body.\n");
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["cancel"]);
         try {

@@ -53,7 +53,7 @@ function printArchiveHelp(): void {
   ${CLI_BIN} plans archive --all --status <status> [--reason <text>] [--force]
   ${CLI_BIN} plans archive restore <archived-plan-name-or-id> [--to <plan-name>]
 
-Archives are plaintext markdown under plans/archived/.`);
+Archives are plaintext markdown under docs/plans/archived/.`);
 }
 
 function printArchivedPlans(plans: Awaited<ReturnType<typeof listArchivedPlans>>): void {
@@ -109,7 +109,7 @@ function isChildFeatureArchiveCandidate(plan: PlanEntry): boolean {
 }
 
 function normalizePlanNameArgument(target: string): string {
-    return target.trim().replace(/^plans\//i, "").replace(/\.md$/i, "");
+    return target.trim().replace(/^docs\/plans\//i, "").replace(/\.md$/i, "");
 }
 
 async function resolveActiveArchiveTarget(cwd: string, target: string): Promise<{ name: string; revision?: string }> {

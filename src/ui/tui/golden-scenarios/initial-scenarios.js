@@ -282,7 +282,7 @@ export const planReviewTransactionContractScenario = {
         },
     ],
     actions: [
-        { type: "writeProjectFile", path: "plans/plan.md", text: "# Plan\n\nDo the thing.\n" },
+        { type: "writeProjectFile", path: "docs/plans/plan.md", text: "# Plan\n\nDo the thing.\n" },
         { type: "type", text: "submit the plan for review" },
         { type: "enter" },
         { type: "waitForIdle" },

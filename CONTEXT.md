@@ -174,7 +174,7 @@ the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
 
 ### Plans & Review
 
-**Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
+**Plan**: A markdown file in `docs/plans/` with YAML Front Matter that describes the implementation strategy for a User
 Request. _Avoid_: Blueprint, spec, design doc
 
 **Work Record**: A small repo-local markdown retrospective planning-memory artifact that distills what completed planned
@@ -359,7 +359,7 @@ Socratic interview. _Avoid_: Explainer, investigator, researcher
 planning or implementation. _Avoid_: General helper, explainer, guide
 
 **Slicer**: The Agent that helps decompose an approved PROJECT Epic into child PLANNED_CHANGE Plans and can materialize
-those plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
+those plans under `docs/plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
 **Recorder**: The Agent that generates Work Records from completed planned work. _Avoid_: Reviewer, summarizer, auditor
 

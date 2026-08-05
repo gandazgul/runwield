@@ -323,7 +323,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
             assert(result.state.editorUsable === true, "Expected TUI usable after QUICK_FIX completion.");
             assert(
                 Array.isArray(result.state.planFiles) && result.state.planFiles.length === 0,
-                `Expected QUICK_FIX to create no Plan files under plans/; got ${
+                `Expected QUICK_FIX to create no Plan files under docs/plans/; got ${
                     JSON.stringify(result.state.planFiles)
                 }`,
             );

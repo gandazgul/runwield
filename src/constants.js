@@ -139,8 +139,8 @@ export function formatPlannedWorkLabel(workKind) {
 /** Allowed complexity values emitted by triage. */
 export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
 
-/** Directory name where plan markdown files are stored. */
-export const PLANS_DIR_NAME = "plans";
+/** Project-relative directory path where plan markdown files are stored. */
+export const PLANS_DIR_NAME = "docs/plans";
 
 /** Directory name where canonical Work Record markdown files are stored. */
 export const WORK_RECORDS_DIR_NAME = "docs/work-records";
