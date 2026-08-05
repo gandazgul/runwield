@@ -15,6 +15,21 @@ function processAlive(pid: number): boolean {
     }
 }
 
+/**
+ * Poll until the OS no longer reports a process with this pid. The wrapper
+ * shell's exit settles before its SIGKILLed descendants are reaped, so a
+ * single immediate probe can still observe them — and under CI load the
+ * window is wide enough to fail a one-shot check.
+ */
+async function waitForProcessDeath(pid: number, timeoutMs = 5000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!processAlive(pid)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return !processAlive(pid);
+}
+
 async function makeCiProject(command: string): Promise<{ cwd: string; hostedSession: HostedSession }> {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-local-ci-" });
     await setCustomSetting("verification_command", command, "project", cwd);
@@ -66,7 +81,11 @@ Deno.test({
 
             assertEquals(result.canceled, true);
             assertEquals(result.exitCode, 130);
-            assertEquals(processAlive(descendantPid), false, "cancellation must kill CI's whole process tree");
+            assertEquals(
+                await waitForProcessDeath(descendantPid),
+                true,
+                "cancellation must kill CI's whole process tree",
+            );
             assertEquals(
                 hostedSession.getActiveInteractions().size,
                 0,

@@ -29,6 +29,21 @@ function processAlive(pid: number): boolean {
 }
 
 /**
+ * Poll until the OS no longer reports a process with this pid. The wrapper
+ * shell's exit settles before its SIGKILLed descendants are reaped, so a
+ * single immediate probe can still observe them — and under CI load the
+ * window is wide enough to fail a one-shot check.
+ */
+async function waitForProcessDeath(pid: number, timeoutMs = 5000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!processAlive(pid)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return !processAlive(pid);
+}
+
+/**
  * Spawn a command whose descendant outlives a wrapper-only kill: the wrapper
  * records the descendant's pid, then waits on it.
  */
@@ -89,7 +104,11 @@ Deno.test({
             abortController.abort();
             const outcome = await shell.done;
             assertEquals(outcome, { exitCode: null, terminatedBy: "abort" });
-            assertEquals(processAlive(descendantPid), false, "abort must kill the descendant, not only the wrapper");
+            assertEquals(
+                await waitForProcessDeath(descendantPid),
+                true,
+                "abort must kill the descendant, not only the wrapper",
+            );
         } finally {
             await cleanup();
         }
@@ -109,7 +128,7 @@ Deno.test({
             abortController.abort();
             const outcome = await shell.done;
             assertEquals(outcome.terminatedBy, "abort");
-            assertEquals(processAlive(descendantPid), false);
+            assertEquals(await waitForProcessDeath(descendantPid), true);
         } finally {
             await cleanup();
         }
@@ -125,7 +144,11 @@ Deno.test({
             assert(processAlive(descendantPid), "descendant should be running before the timeout");
             const outcome = await shell.done;
             assertEquals(outcome, { exitCode: null, terminatedBy: "timeout" });
-            assertEquals(processAlive(descendantPid), false, "timeout must kill the descendant, not only the wrapper");
+            assertEquals(
+                await waitForProcessDeath(descendantPid),
+                true,
+                "timeout must kill the descendant, not only the wrapper",
+            );
         } finally {
             await cleanup();
         }

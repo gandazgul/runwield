@@ -171,6 +171,21 @@ function processAlive(pid: number): boolean {
 }
 
 /**
+ * Poll until the OS no longer reports a process with this pid. The wrapper
+ * shell's exit settles before its SIGKILLed descendants are reaped, so a
+ * single immediate probe can still observe them — and under CI load the
+ * window is wide enough to fail a one-shot check.
+ */
+async function waitForProcessDeath(pid: number, timeoutMs = 5000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!processAlive(pid)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return !processAlive(pid);
+}
+
+/**
  * Run one check whose descendant outlives a wrapper-only kill, and hand back
  * the descendant's pid once it is definitely running.
  */
@@ -214,7 +229,11 @@ Deno.test({
             const [result] = await resultsPromise;
             assertEquals(result.status, "broken");
             assertEquals(result.exitCode, null);
-            assertEquals(processAlive(descendantPid), false, "abort must kill the check's whole process tree");
+            assertEquals(
+                await waitForProcessDeath(descendantPid),
+                true,
+                "abort must kill the check's whole process tree",
+            );
         } finally {
             if (processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
             await Deno.remove(cwd, { recursive: true }).catch(() => {});
@@ -233,7 +252,11 @@ Deno.test({
             assertEquals(result.status, "broken");
             assertEquals(result.exitCode, null);
             assertStringIncludes(result.reason || "", "timed out");
-            assertEquals(processAlive(descendantPid), false, "timeout must kill the check's whole process tree");
+            assertEquals(
+                await waitForProcessDeath(descendantPid),
+                true,
+                "timeout must kill the check's whole process tree",
+            );
         } finally {
             if (processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
             await Deno.remove(cwd, { recursive: true }).catch(() => {});
