@@ -62,6 +62,11 @@ function makeEventId(entry, eventKind, blockIndex) {
     return `${entryId}:${eventKind}:${blockIndex}`;
 }
 
+/** @param {string} kind @returns {"warning" | "error"} */
+function claudeBackendStatusLevel(kind) {
+    return kind === "canceled" || kind === "bridge_disconnected" ? "warning" : "error";
+}
+
 /**
  * @param {string} sessionId
  * @param {unknown[]} entries
@@ -274,6 +279,19 @@ export function createReplayEvents(sessionId, entries) {
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
             if (agentName) replayAgentName = agentName;
+            continue;
+        }
+        if (value.type === "custom" && value.customType === "runwield.backend_status") {
+            const kind = typeof value.data?.kind === "string" ? value.data.kind : "non_zero_exit";
+            const message = typeof value.data?.message === "string" ? value.data.message : "Claude CLI backend status.";
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, 0),
+                messageId: entryMessageId(value, `${sessionId}:claude-backend-status`),
+                message,
+                level: claudeBackendStatusLevel(kind),
+            });
             continue;
         }
         const manualQaChecklist = readManualQaChecklistMessage(value);

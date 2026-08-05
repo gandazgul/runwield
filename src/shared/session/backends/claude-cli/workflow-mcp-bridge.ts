@@ -30,6 +30,7 @@ import { validateToolCall } from "@earendil-works/pi-ai";
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types";
+import { buildBackendStatusEntry, emitBackendStatus } from "./failure.ts";
 
 /** Concrete JSON shapes crossing the MCP boundary. */
 type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
@@ -91,6 +92,7 @@ export interface WorkflowMcpBridgeHandle {
     /** JSON content for the owner-only Claude `--mcp-config` file. */
     readonly config: string;
     readonly closed: boolean;
+    readonly acceptedTerminal: boolean;
     /** Stop the listener, close active streams, and release all resources. Idempotent. */
     close(): Promise<void>;
 }
@@ -373,6 +375,26 @@ export async function startWorkflowMcpBridge(
     const config = buildMcpConfigJson(url, token);
 
     let closed = false;
+    serveServer.finished.then(
+        () => {
+            if (!closed) {
+                emitBackendStatus(
+                    undefined,
+                    options.sessionManager,
+                    buildBackendStatusEntry("bridge_disconnected"),
+                );
+            }
+        },
+        () => {
+            if (!closed) {
+                emitBackendStatus(
+                    undefined,
+                    options.sessionManager,
+                    buildBackendStatusEntry("bridge_disconnected"),
+                );
+            }
+        },
+    );
     async function close(): Promise<void> {
         if (closed) return;
         closed = true;
@@ -399,6 +421,9 @@ export async function startWorkflowMcpBridge(
         config,
         get closed() {
             return closed;
+        },
+        get acceptedTerminal() {
+            return terminal;
         },
         close,
     };

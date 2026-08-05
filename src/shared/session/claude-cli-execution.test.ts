@@ -5,7 +5,8 @@ import { AGENTS } from "../../constants.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir, openPersistedRootSession } from "./root-session.js";
-import { ensureRootAgentSession, runIsolatedAgentSession, runRootTurn } from "./session.js";
+import { abortActiveSession, ensureRootAgentSession, runIsolatedAgentSession, runRootTurn } from "./session.js";
+import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/workflow-mcp-bridge.ts";
 import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 
@@ -34,6 +35,8 @@ async function withClaudeExecutionFixture(
         const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
         const previousText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT");
         const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
+        const previousSleep = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
+        const previousPostTerminal = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT");
         const home = await Deno.makeTempDir({ prefix: "runwield-claude-exec-home-" });
         const cwd = join(home, "project");
         const binDir = join(home, "bin");
@@ -56,9 +59,21 @@ async function withClaudeExecutionFixture(
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", previousText);
             if (previousCalls === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
+            if (previousSleep === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
+            else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", previousSleep);
+            if (previousPostTerminal === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT");
+            else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT", previousPostTerminal);
             await removeTempDir(home);
         }
     });
+}
+
+async function waitForLogText(logPath: string, needle: string): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const text = await Deno.readTextFile(logPath).catch(() => "");
+        if (text.includes(needle)) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 }
 
 function createHostedSession(cwd: string, manager: SessionManager): HostedSession {
@@ -237,5 +252,90 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
             ),
             true,
         );
+    });
+});
+
+Deno.test("^Claude CLI root turn abort reaches the subprocess and preserves workflow$", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", "1000");
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: cwd,
+        });
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
+        const run = runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "slow" });
+        await waitForLogText(logPath, "slow");
+        assertEquals(abortActiveSession(hostedSession), true);
+        const error = await assertRejects(() => run, ClaudeCliBackendError);
+        assertEquals(error.kind, "canceled");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
+        assertEquals(
+            manager.getBranch().filter((entry) =>
+                entry.type === "message" && (entry as { message?: { role?: string } }).message?.role === "assistant"
+            ).length,
+            0,
+        );
+        assertEquals(
+            manager.getBranch().some((entry) =>
+                entry.type === "custom" && entry.customType === "runwield.backend_status" &&
+                (entry as { data?: { kind?: string } }).data?.kind === "canceled"
+            ),
+            true,
+        );
+        const log = await Deno.readTextFile(logPath);
+        assertStringIncludes(log, "slow");
+    });
+});
+
+Deno.test("^Claude CLI missing terminal signal leaves workflow waiting like Pi$", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "I need your answer first.");
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: cwd,
+        });
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "question" });
+        assertEquals(readLatestTaskCompletedOutcome(messages), false);
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
+        assertEquals(JSON.stringify(manager.getBranch()).includes("I need your answer first."), true);
+    });
+});
+
+Deno.test("^Claude CLI post-terminal output stays display-only after accepted signal$", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: cwd,
+        });
+        const callsPath = join(cwd, "mcp-calls-post.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "runwield_task_completed", arguments: { message: "accepted" } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "final text");
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT", " post-terminal prose");
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "finish" });
+        assertEquals(readLatestTaskCompletedOutcome(messages), true);
+        const serialized = JSON.stringify(manager.getBranch());
+        assertStringIncludes(serialized, "final text post-terminal prose");
+        assertEquals(serialized.includes("terminal result did not match"), false);
     });
 });

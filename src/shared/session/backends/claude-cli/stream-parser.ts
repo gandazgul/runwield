@@ -26,6 +26,7 @@ export type ClaudeCliStreamEvent =
 
 export interface ClaudeCliStreamCallbacks {
     onDelta: (delta: ClaudeCliAssistantDelta) => void;
+    isTerminalAccepted?: () => boolean;
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -156,9 +157,12 @@ export async function parseClaudeCliStream(
             };
         }
     }
-    if (!sawResult) throw new Error("Claude CLI stream ended without a terminal result");
-    if (resultText !== visibleText) {
+    if (!sawResult) {
+        if (callbacks.isTerminalAccepted?.() === true) return { text: visibleText, metadata: { usage: emptyUsage } };
+        throw new Error("Claude CLI stream ended without a terminal result");
+    }
+    if (resultText !== visibleText && callbacks.isTerminalAccepted?.() !== true) {
         throw new Error("Claude CLI terminal result did not match visible assistant stream");
     }
-    return { text: resultText, metadata };
+    return { text: callbacks.isTerminalAccepted?.() === true ? visibleText : resultText, metadata };
 }

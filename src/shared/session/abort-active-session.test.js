@@ -109,3 +109,13 @@ Deno.test("abortActiveSession swallows errors thrown by abort() and still report
 
     assertEquals(abortActiveSession(hostedSession), true);
 });
+
+Deno.test("^abortActiveSession unwraps claude-cli execution-session wrapper and aborts the inner session$", () => {
+    const hostedSession = makeHostedSession("abort-claude-wrapper");
+    const inner = makeFakeSession({ isStreaming: true });
+    hostedSession.setRootAgentSession(/** @type {any} */ ({ kind: "claude-cli", session: inner }));
+
+    assertEquals(abortActiveSession(hostedSession), true);
+    assertEquals(inner._abortCalls, 1);
+    assertEquals(inner._clearQueueCalls, 1);
+});
