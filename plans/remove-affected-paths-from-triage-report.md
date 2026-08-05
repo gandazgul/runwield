@@ -42,12 +42,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T21:38:25-04:00"
 updatedAt: "2026-08-05T01:41:44.477Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "remove triage affected paths"
 planId: "a4311ccc-d963-4f35-94cd-1c41f9a04733"
+status: "validated_reviewer"
 ---
 
 # Remove affectedPaths from triage_report
