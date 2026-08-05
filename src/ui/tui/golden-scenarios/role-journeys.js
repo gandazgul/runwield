@@ -25,7 +25,6 @@ function triageTurn(routingIntent) {
                 complexity: "LOW",
                 summary: `Golden ${routingIntent} role journey.`,
                 sessionName: `golden ${routingIntent.toLowerCase()}`,
-                affectedPaths: ["README.md"],
             },
         }],
     };

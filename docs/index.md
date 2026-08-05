@@ -85,8 +85,8 @@ Router is the default Agent for fresh triage. Its `triage_report` assigns one ro
 ### Work through the router by default
 
 Use `wld "request"` when you want RunWield to choose the right workflow. Router records the routing intent through
-`triage_report`; implementation intents also record complexity and affected paths. That tool outcome hands off to Guide,
-Ideator, Operator, Engineer, Planner, or Architect as appropriate.
+`triage_report`; implementation intents also record complexity. That tool outcome hands off to Guide, Ideator, Operator,
+Engineer, Planner, or Architect as appropriate.
 
 ### Talk to a specific agent when you know what you need
 

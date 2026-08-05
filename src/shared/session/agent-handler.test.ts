@@ -81,7 +81,6 @@ Deno.test("agent handler routes a real triage tool outcome through Operator comp
                 complexity: "LOW",
                 summary: "Inspect the fixture state without changing code.",
                 sessionName: "Inspect fixture state",
-                affectedPaths: [],
             })),
             fauxAssistantMessage(fauxToolCall("task_completed", {
                 message: "- Inspected the isolated fixture state.",

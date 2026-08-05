@@ -95,7 +95,6 @@ Deno.test("readLatestTriageOutcome normalizes the latest current-turn report", (
             routingIntent: "QUICK_FIX",
             complexity: "LOW",
             summary: "old",
-            affectedPaths: ["old.ts"],
         }),
         triageToolResult({
             routingIntent: "FEATURE",
@@ -103,7 +102,6 @@ Deno.test("readLatestTriageOutcome normalizes the latest current-turn report", (
             complexity: "MEDIUM",
             summary: "current",
             sessionName: "current feature",
-            affectedPaths: ["src/current.ts"],
         }),
     ];
 
@@ -113,7 +111,26 @@ Deno.test("readLatestTriageOutcome normalizes the latest current-turn report", (
         complexity: "MEDIUM",
         summary: "current",
         sessionName: "current feature",
-        affectedPaths: ["src/current.ts"],
+    });
+});
+
+Deno.test("readLatestTriageOutcome normalizes a report without affectedPaths", () => {
+    const messages: AgentMessage[] = [
+        triageToolResult({
+            routingIntent: "PLANNED_CHANGE",
+            classification: "PLANNED_CHANGE",
+            complexity: "HIGH",
+            summary: "planned without paths",
+            sessionName: "plan without paths",
+        }),
+    ];
+
+    assertEquals(readLatestTriageOutcome(messages), {
+        routingIntent: "PLANNED_CHANGE",
+        classification: "PLANNED_CHANGE",
+        complexity: "HIGH",
+        summary: "planned without paths",
+        sessionName: "plan without paths",
     });
 });
 
@@ -123,7 +140,6 @@ Deno.test("readLatestTriageOutcome ignores reports before the current turn", () 
             classification: "OPERATION",
             complexity: "LOW",
             summary: "old operation",
-            affectedPaths: [],
         }),
         fauxAssistantMessage(fauxText("No triage report this turn.")),
     ];
@@ -148,7 +164,6 @@ Deno.test("dispatchPostTriage routes conversational intents through real Agent s
                 routingIntent: "INQUIRY",
                 complexity: "LOW",
                 summary: "answer a question",
-                affectedPaths: [],
             },
             userRequest: "Where is routing configured?",
             images: [],
@@ -161,7 +176,6 @@ Deno.test("dispatchPostTriage routes conversational intents through real Agent s
                 routingIntent: "IDEATION",
                 complexity: "LOW",
                 summary: "explore an idea",
-                affectedPaths: [],
             },
             userRequest: "Explore provider options.",
             images: [],
@@ -198,7 +212,6 @@ Deno.test("OPERATION completion stays with Operator without validation", async (
                 routingIntent: "OPERATION",
                 complexity: "LOW",
                 summary: "show status",
-                affectedPaths: [],
             },
             userRequest: "Show git status.",
             images: [],
@@ -228,7 +241,6 @@ Deno.test("OPERATION can hand changed scope back to Router", async () => {
                 routingIntent: "OPERATION",
                 complexity: "LOW",
                 summary: "update dependencies",
-                affectedPaths: ["deno.json"],
             },
             userRequest: "Upgrade dependencies.",
             images: [],
@@ -263,7 +275,6 @@ Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI po
                 complexity: "LOW",
                 summary: "small fix",
                 sessionName: "settings-save",
-                affectedPaths: ["src/settings.ts"],
             },
             userRequest: "Fix settings persistence.",
             images: [],
@@ -297,7 +308,6 @@ Deno.test("QUICK_FIX keeps its real workflow when Engineer stops before task_com
                 routingIntent: "QUICK_FIX",
                 complexity: "LOW",
                 summary: "small fix",
-                affectedPaths: ["src/settings.ts"],
             },
             userRequest: "Fix settings persistence.",
             images: [],
@@ -327,7 +337,6 @@ Deno.test("non-Git QUICK_FIX cancellation stops before creating an Agent session
                 routingIntent: "QUICK_FIX",
                 complexity: "LOW",
                 summary: "small fix",
-                affectedPaths: ["src/settings.ts"],
             },
             userRequest: "Fix settings persistence.",
             images: [],
@@ -356,7 +365,6 @@ Deno.test("planned work with no Plan declaration stays with the real Planner", a
                 classification: "PLANNED_CHANGE",
                 complexity: "MEDIUM",
                 summary: "plan a feature",
-                affectedPaths: ["src/feature.ts"],
             },
             userRequest: "Build the feature.",
             images: [],
@@ -400,7 +408,6 @@ Deno.test("PROJECT approval runs the real readiness transition and Slicer", asyn
                 classification: "PROJECT",
                 complexity: "HIGH",
                 summary: "Epic A",
-                affectedPaths: ["src/project.ts"],
             },
             userRequest: "Design the project.",
             images: [],
@@ -450,7 +457,6 @@ Deno.test("approved planned work executes through real lifecycle machinery and p
                 classification: "PLANNED_CHANGE",
                 complexity: "MEDIUM",
                 summary: "Feature A",
-                affectedPaths: ["src/feature.ts"],
             },
             userRequest: "Build Feature A.",
             images: [],
@@ -518,7 +524,6 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
                     classification: "PLANNED_CHANGE",
                     complexity: "MEDIUM",
                     summary: "Validated Feature",
-                    affectedPaths: ["implemented.txt"],
                 },
                 userRequest: "Build and validate the feature.",
                 images: [],
@@ -554,7 +559,6 @@ Deno.test("Router session names are persisted and emitted before specialist disp
                 complexity: "LOW",
                 summary: "question",
                 sessionName: "terminal titles",
-                affectedPaths: [],
             },
             userRequest: "How should titles work?",
             images: [],
@@ -583,7 +587,6 @@ Deno.test("dispatch only mutates the supplied HostedSession", async () => {
                 routingIntent: "INQUIRY",
                 complexity: "LOW",
                 summary: "question",
-                affectedPaths: [],
             },
             userRequest: "Answer only here.",
             images: [],

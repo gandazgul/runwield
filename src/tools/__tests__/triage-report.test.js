@@ -45,7 +45,6 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
             complexity: /** @type {const} */ ("LOW"),
             summary: "explain routing",
             sessionName: "routing overview",
-            affectedPaths: ["src/shared/workflow/orchestrator.ts"],
         };
 
         const result = await /** @type {any} */ (tool.execute)("call-1", params);
@@ -73,7 +72,6 @@ Deno.test("triage_report execute records workflow context when a HostedSession i
         complexity: "LOW",
         summary: "fix typo",
         sessionName: "fix typo",
-        affectedPaths: ["src/foo.js"],
     });
 
     assertEquals(hostedSession.getWorkflowContext(), { routingIntent: "QUICK_FIX", complexity: "LOW" });
@@ -93,7 +91,6 @@ Deno.test("triage_report accepts documentation Work Kind only for planned change
             complexity: "MEDIUM",
             summary: "refresh public docs",
             sessionName: "refresh docs",
-            affectedPaths: ["docs/guide.md"],
         });
         const operation = await /** @type {any} */ (tool.execute)("call-2", {
             routingIntent: "OPERATION",
@@ -101,7 +98,6 @@ Deno.test("triage_report accepts documentation Work Kind only for planned change
             complexity: "LOW",
             summary: "read docs",
             sessionName: "read docs",
-            affectedPaths: ["docs/guide.md"],
         });
 
         assertEquals(planned.details.workKind, "DOCUMENTATION");
@@ -122,21 +118,18 @@ Deno.test("triage_report execute preserves plan classification only for PLANNED_
         complexity: "MEDIUM",
         summary: "plan feature",
         sessionName: "plan feature",
-        affectedPaths: ["src/foo.js"],
     });
     const operation = await /** @type {any} */ (tool.execute)("call-2", {
         routingIntent: "OPERATION",
         complexity: "LOW",
         summary: "show status",
         sessionName: "show status",
-        affectedPaths: [],
     });
     const quickFix = await /** @type {any} */ (tool.execute)("call-3", {
         routingIntent: "QUICK_FIX",
         complexity: "LOW",
         summary: "fix typo",
         sessionName: "fix typo",
-        affectedPaths: ["src/foo.js"],
     });
 
     assertEquals(feature.details.routingIntent, "PLANNED_CHANGE");
@@ -155,14 +148,12 @@ Deno.test("triage_report execute normalizes legacy classification params", async
         complexity: "MEDIUM",
         summary: "legacy feature",
         sessionName: "legacy feature",
-        affectedPaths: ["src/foo.js"],
     });
     const result = await /** @type {any} */ (tool.execute)("call-1", {
         classification: "PROJECT",
         complexity: "HIGH",
         summary: "legacy project",
         sessionName: "legacy project",
-        affectedPaths: ["src/foo.js"],
     });
 
     assertEquals(legacyFeature.details.routingIntent, "PLANNED_CHANGE");
@@ -179,14 +170,12 @@ Deno.test("triage_report execute sanitizes sessionName and falls back to summary
         complexity: "LOW",
         summary: "explain routing",
         sessionName: " explain\n\trouting\u0007 ",
-        affectedPaths: [],
     });
     const fallback = await /** @type {any} */ (tool.execute)("call-2", {
         routingIntent: "INQUIRY",
         complexity: "LOW",
         summary: "explain routing",
         sessionName: "\n",
-        affectedPaths: [],
     });
 
     assertEquals(sanitized.details.sessionName, "explain routing");
@@ -201,7 +190,6 @@ Deno.test("triage_report execute rejects params without canonical or legacy inte
             /** @type {any} */ (tool.execute)("call-1", {
                 complexity: "LOW",
                 summary: "missing intent",
-                affectedPaths: [],
             }),
         TypeError,
         "routingIntent",

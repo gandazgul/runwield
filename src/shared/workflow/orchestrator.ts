@@ -73,7 +73,6 @@ export interface TriageOutcome {
     complexity: "LOW" | "MEDIUM" | "HIGH";
     summary: string;
     sessionName?: string;
-    affectedPaths: string[];
 }
 
 interface TriageOutcomeInput {
@@ -83,7 +82,6 @@ interface TriageOutcomeInput {
     complexity?: "LOW" | "MEDIUM" | "HIGH";
     summary?: string;
     sessionName?: string;
-    affectedPaths?: string[];
 }
 
 interface TriageToolResultMessage {
@@ -208,12 +206,11 @@ function normalizeTriageOutcome(details: TriageOutcomeInput | null | undefined):
     const routingIntent = asRoutingIntent(details.routingIntent) || asRoutingIntent(details.classification);
     if (!routingIntent) return null;
 
-    if (!details.complexity || !details.summary || !Array.isArray(details.affectedPaths)) return null;
+    if (!details.complexity || !details.summary) return null;
     const outcome: TriageOutcome = {
         routingIntent,
         complexity: details.complexity,
         summary: details.summary,
-        affectedPaths: details.affectedPaths,
         ...(details.workKind ? { workKind: details.workKind } : {}),
     };
     const sessionName = sanitizeSessionName(details.sessionName);
