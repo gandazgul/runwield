@@ -56,7 +56,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:34:25-04:00"
-updatedAt: "2026-08-03T13:50:13.282Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T02:14:12.634Z"
@@ -81,6 +80,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "plan execution progress"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-05T14:51:53.687Z"
+archivedAt: "2026-08-05T14:51:53.687Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/show-execution-preparation-progress.md"
 ---
 
 # Show Execution Preparation Progress

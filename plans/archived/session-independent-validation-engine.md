@@ -78,7 +78,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:20:19-0400"
-updatedAt: "2026-08-05T04:30:00.875Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-05T04:08:44.647Z"
@@ -103,6 +102,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "validation engine refactor"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-05T14:52:10.053Z"
+archivedAt: "2026-08-05T14:52:10.053Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-independent-validation-engine.md"
 ---
 
 # Session-Independent Validation Engine

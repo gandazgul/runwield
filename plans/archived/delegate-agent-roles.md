@@ -31,7 +31,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:32:24-04:00"
-updatedAt: "2026-08-03T18:30:30.986Z"
 status: "user_verified"
 origin: "internal"
 userVerifiedAt: "2026-08-03T18:30:24.985Z"
@@ -41,6 +40,10 @@ workRecord:
     recordId: "12b7ea26-672e-43f5-9d61-a058e25dbdce"
     path: "docs/work-records/2026-08-03-delegated-verification-adversary-role-added.md"
     lastAttemptAt: "2026-08-03T18:30:25.038Z"
+updatedAt: "2026-08-05T14:24:20.816Z"
+archivedAt: "2026-08-05T14:24:20.816Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "plans/delegate-agent-roles.md"
 ---
 
 # Delegate Agent Roles

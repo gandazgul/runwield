@@ -57,7 +57,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"
-updatedAt: "2026-08-03T21:59:20.929Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T18:42:18.664Z"
@@ -82,6 +81,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-05T14:51:45.698Z"
+archivedAt: "2026-08-05T14:51:45.698Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/split-plan-recovery-flow.md"
 ---
 
 # Split Plan Recovery Flow

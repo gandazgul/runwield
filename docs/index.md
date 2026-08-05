@@ -210,6 +210,7 @@ graph TD
 
 - [Settings Reference](settings.md) - global/project settings and RunWield custom keys.
 - [Themes](themes.md) - RunWield theme package behavior and theme files.
+- [Releasing](releasing.md) - wld's repository-specific release policy, Candidate/Promotion flow, and recovery paths.
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
 - [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.

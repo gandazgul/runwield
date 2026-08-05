@@ -68,7 +68,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T00:56:36-04:00"
-updatedAt: "2026-07-31T04:10:30.502Z"
+updatedAt: "2026-08-05T15:33:44.934Z"
 status: "user_verified"
 origin: "internal"
 failureReason: "Worktree merge failed: Execution worktree changed after the validated candidate was sealed. Run Workflow Validation again before publishing these files: plans/golden-tui-scenario-testing/01-establish-golden-tui-scenario-harness.md, plans/golden-tui-scenario-testing/02-add-golden-tui-workflow-portfolio.md, plans/mid-run-tool-result-auto-compaction.md, plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md, plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md, plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md, plans/personal-remote-workspace-v1/13-execution-segment-handoff-backend.md, plans/release-candidate-and-promotion-flow.md"
@@ -79,8 +79,7 @@ workRecord:
     recordId: "9e59ce1c-a1aa-45de-92d3-1ed2c5a54151"
     path: "docs/work-records/2026-07-31-transactional-plan-lifecycle-and-worktree-recovery.md"
     lastAttemptAt: "2026-07-31T04:10:22.075Z"
-worktreeId: "a999678c"
-worktreeStatus: "validation_failed"
+worktreeStatus: "abandoned"
 ---
 
 # Transactional Plan Lifecycle and Worktree Recovery

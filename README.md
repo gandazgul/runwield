@@ -175,7 +175,7 @@ deno task compile              # build the binary
 
 Branch, keep changes focused, run `deno task ci`, and open a PR with a summary and validation notes. The codebase is
 mostly pure JavaScript with JSDoc typing -> moving to TypeScript. See [contributing](docs/contributing.md) and
-[RELEASING.md](RELEASING.md).
+[releasing](docs/releasing.md).
 
 ---
 

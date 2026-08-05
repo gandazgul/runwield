@@ -17,7 +17,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T00:05:05-04:00"
-updatedAt: "2026-08-02T22:10:46.885Z"
+updatedAt: "2026-08-05T15:34:12.135Z"
 status: "user_verified"
 origin: "internal"
 implementedAt: "2026-07-31T04:24:40.791Z"
@@ -33,11 +33,11 @@ humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
 executionBaselineTree: "047bcecc31d797d70da563fffa3152385c032e8c"
-worktreeId: "69a8d3ad"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-model-workflow-validation-as-plan-lifecycle-stat-69a8d3ad"
-worktreeBranch: "runwield/worktree/model-workflow-validation-as-plan-lifecycle-stat-69a8d3ad"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+worktreeStatus: "abandoned"
+archivedAt: "2026-08-05T14:24:27.899Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "plans/model-workflow-validation-as-plan-lifecycle-states.md"
 ---
 
 # Model Workflow Validation as Plan Lifecycle States

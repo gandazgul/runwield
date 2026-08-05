@@ -1,4 +1,5 @@
 ---
+planId: "cef05b40-ce1e-49db-b065-1a2054b3d8e8"
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "MEDIUM"
@@ -30,13 +31,26 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T11:57:36-04:00"
-updatedAt: "2026-07-31T16:02:03.403Z"
-status: "ready_for_work"
+updatedAt: "2026-08-05T15:54:10.719Z"
+status: "validated_reviewer"
 origin: "internal"
+implementedAt: "2026-08-05T15:03:37.928Z"
 userVerifiedAt: null
+executionReport: "- Implemented clean-break Plan store move to `docs/plans/` across runtime code, tools, CLI flows, TUI/workflow surfaces, docs, release guidance, scripts, and tracked Plan files; no tracked `plans/**/*.md` remain.\n- Fixed discovered `plans doctor` root/path bug by passing the project root explicitly into recursive Plan issue collection, so active Plans under `docs/plans/` no longer false-report `plan_not_found`.\n- Added regression coverage: `src/plan-store.test.js` verifies legacy `plans/` files are ignored; `src/tools/__tests__/plan-written.test.js` verifies `plan_written` rejects legacy-only `plans/<name>.md` and accepts `docs/plans/<name>.md`.\n- Test changes: +2 automated tests total; no tests removed. Existing path/assertion tests were rewritten to the new `docs/plans/` store shape; legacy behavior coverage remains only where it proves old `plans/` is ignored or treated as implementation diff.\n- Verification passed: targeted `deno run -A scripts/run-tests.js ...` suite passed `293 passed | 0 failed`; `deno task test` passed `247 files passed | 0 failed`; `deno task ci` passed fully.\n- Objective checks passed: `getStoredPlanPath(\"/project\", \"demo\")` returned `/project/docs/plans/demo.md`; `git ls-files 'plans/*.md' 'plans/**/*.md'` returned empty; final grep left only intentional legacy regression text."
+humanReviewMode: "always"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-05T15:54:10.697Z"
+executionMode: "worktree"
+executionBaselineTree: "bd4b729fffdc2deb74dec8b4124b6ae12d80ee47"
+worktreeId: "8aeef850"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-move-plans-to-docs-plans-8aeef850"
+worktreeBranch: "worktree/move-plans-to-docs-plans-8aeef850"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "docs plans relocation"
-planId: "cef05b40-ce1e-49db-b065-1a2054b3d8e8"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Move Plans to docs/plans

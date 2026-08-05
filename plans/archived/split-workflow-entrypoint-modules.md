@@ -61,7 +61,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:03:40-04:00"
-updatedAt: "2026-08-03T02:38:54.419Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T01:36:47.299Z"
@@ -87,6 +86,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "workflow module split"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-05T14:25:27.314Z"
+archivedAt: "2026-08-05T14:25:27.314Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/split-workflow-entrypoint-modules.md"
 ---
 
 # Split Workflow Entrypoint Modules
