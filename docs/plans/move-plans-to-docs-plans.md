@@ -36,7 +36,7 @@ status: "verified"
 origin: "internal"
 implementedAt: "2026-08-05T15:03:37.928Z"
 verifiedAt: "2026-08-05T16:06:36.181Z"
-userVerifiedAt: null
+userVerifiedAt: "2026-08-05T16:17:37.300Z"
 executionReport: "- Implemented clean-break Plan store move to `docs/plans/` across runtime code, tools, CLI flows, TUI/workflow surfaces, docs, release guidance, scripts, and tracked Plan files; no tracked `plans/**/*.md` remain.\n- Fixed discovered `plans doctor` root/path bug by passing the project root explicitly into recursive Plan issue collection, so active Plans under `docs/plans/` no longer false-report `plan_not_found`.\n- Added regression coverage: `src/plan-store.test.js` verifies legacy `plans/` files are ignored; `src/tools/__tests__/plan-written.test.js` verifies `plan_written` rejects legacy-only `plans/<name>.md` and accepts `docs/plans/<name>.md`.\n- Test changes: +2 automated tests total; no tests removed. Existing path/assertion tests were rewritten to the new `docs/plans/` store shape; legacy behavior coverage remains only where it proves old `plans/` is ignored or treated as implementation diff.\n- Verification passed: targeted `deno run -A scripts/run-tests.js ...` suite passed `293 passed | 0 failed`; `deno task test` passed `247 files passed | 0 failed`; `deno task ci` passed fully.\n- Objective checks passed: `getStoredPlanPath(\"/project\", \"demo\")` returned `/project/docs/plans/demo.md`; `git ls-files 'plans/*.md' 'plans/**/*.md'` returned empty; final grep left only intentional legacy regression text."
 humanReviewMode: "always"
 humanReviewDecision: "approved"
