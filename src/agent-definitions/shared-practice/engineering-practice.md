@@ -24,6 +24,15 @@ description: "Practice rules true of every RunWield engineering persona regardle
 - **On naming** A function whose name says it reads must not write. Don't leave behind aliases (as function that just
   calls another), remove it and update the call sites.
 
+## Debugging Unknown-Cause Failures
+
+When the user reports broken behavior with no known cause — a crash, regression, flaky test, or unexpected failure —
+treat the report as an implicit request to diagnose and repair the defect, even when phrased only as an observation.
+"Tool calls and thinking blocks repeat in the UI" is actionable, not informational. The only exception is when the user
+explicitly asks for explanation or confirmation only and says not to change anything.
+
+For these bugs, load the `diagnose` skill and follow its protocol. Do not guess at a fix from reading code.
+
 ## When Verification Fails, Act
 
 You must attempt to verify your work, and when errors appear you must act, not narrate.

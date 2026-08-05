@@ -14,20 +14,24 @@
 - Huge nested loops using continue and break for control instead function calling or event driven state machines
 - Very long functions, see huge loops and all in the same file, similar symptoms
 
+## Idea sources for better engineering, testing and refactoring practices
+
+- https://martinfowler.com/books/refactoring.html
+- https://www.amazon.com/Philosophy-Software-Design-John-Ousterhout/dp/1732102201
+- https://www.amazon.com/Pragmatic-Programmer-journey-mastery-Anniversary/dp/0135957052/
+
 ## Followup for Claude
 
 ## __deps refactor
 
 Remaining: finish and validate the capability-port migration — see Bugs → P0 (seams refactor).
 
+00f890486fbe7211d211289e00b6cf53ddab7719 811b32db23359562bafb23ae47f64f72abec0cfd
+plans/split-claude-md-into-agents-md.md
+
 ## Bugs
 
 ### P0
-
-- [ ] RunWield Objective-Failing Checks: 4 met, 0 unmet, 1 broken (5 total) — no engineer dispatch for this.
-      `plans/model-welcome-auth-deps-refactor.md` is `implemented` but `worktreeStatus: validation_failed`; the broken
-      check (OC5) timed out on a Vite download during golden tests — infra flake, not product. 29 files are uncommitted
-      in the working tree (19 under `src/shared/`, plus `scripts/check-injection-seams.js`). Re-verify and commit.
 
 - [ ] Session-independent validation-engine refactor: `src/shared/workflow/validation.ts` is 2,479 lines with Pi/session
       turn machinery coupling. Hard prerequisite for Attached Mode — `plans/attached-mode-claude-feature-preview.md`
@@ -49,6 +53,7 @@ Remaining: finish and validate the capability-port migration — see Bugs → P0
 
 ### Others
 
+- [ ] Detect model repetition or overthinking and cancel the call and send a new message with the nudge.
 - [ ] when resuming the session name (tab title on the terminal) should be set to the session's name which is in the
       file not the UUID — resume currently falls back to the UUID (`src/cmd/resume/index.ts` uses
       `resumed?.name || loaded.sessionManagerId`, and the snapshot name isn't reliably populated after load). Persist
