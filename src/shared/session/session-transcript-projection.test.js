@@ -4,6 +4,7 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 import { encodeCwdForSessionDir } from "./root-session.js";
 import {
     captureTranscriptEvidence,
+    createReplayEvents,
     getCommittedTranscriptAuthorityFacts,
     projectCommittedTranscript,
     selectProjectedEventsAfterCursor,
@@ -261,4 +262,47 @@ Deno.test("projection cursor selection validates prefix ordinal continuity", () 
     const selected = selectProjectedEventsAfterCursor({ events, cursorEventId: "two", cursorEventOrdinal: 2 });
     assertEquals(selected.events, []);
     assertEquals(selected.nextCursorOrdinal, 2);
+});
+
+Deno.test("^projection replays Claude backend failure entries as display-only status$", () => {
+    const entries = [
+        { type: "custom", id: "active", customType: "runwield.active_agent", data: { agentName: "Engineer" } },
+        {
+            type: "custom",
+            id: "backend-failure",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "claude-cli",
+                kind: "auth_failed",
+                exitCode: 1,
+                message: "Claude Code authentication failed. Sign in to Claude Code, then retry this turn.",
+            },
+        },
+        {
+            type: "custom",
+            id: "backend-canceled",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "claude-cli",
+                kind: "canceled",
+                exitCode: null,
+                message: "Claude Code turn canceled.",
+            },
+        },
+    ];
+    const events = createReplayEvents("projection", entries);
+    assertEquals(events.map((event) => ({ type: event.type, level: event.level, messageId: event.messageId })), [
+        { type: "system_status", level: "error", messageId: "backend-failure" },
+        { type: "system_status", level: "warning", messageId: "backend-canceled" },
+    ]);
+    assertEquals(events[0].message, "Claude Code authentication failed. Sign in to Claude Code, then retry this turn.");
+    assertEquals(getCommittedTranscriptAuthorityFacts({ snapshot: summarizeProjectedEntries(entries) }), {
+        activeAgent: "Engineer",
+        workflowContext: null,
+        model: null,
+        provider: null,
+        thinkingLevel: null,
+    });
 });

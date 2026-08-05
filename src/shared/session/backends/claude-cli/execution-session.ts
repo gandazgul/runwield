@@ -10,7 +10,13 @@ import {
     removeClaudeCliMcpConfigFile,
     removeClaudeCliPromptFile,
 } from "./command.ts";
-import { DenoClaudeCliProcessPort } from "./process.ts";
+import {
+    buildBackendStatusEntry,
+    ClaudeCliBackendError,
+    emitBackendStatus,
+    sanitizeStderrForDisplay,
+} from "./failure.ts";
+import { type ClaudeCliProcessResult, DenoClaudeCliProcessPort } from "./process.ts";
 import { type ClaudeCliUsage, parseClaudeCliStream } from "./stream-parser.ts";
 import { startWorkflowMcpBridge, workflowMcpAliasFor, type WorkflowMcpBridgeHandle } from "./workflow-mcp-bridge.ts";
 
@@ -64,6 +70,7 @@ export class ClaudeCliExecutionSession {
     private readonly hostedSession?: HostedSession;
     private readonly workflowTools: ToolDefinition[];
     private readonly messages: AgentMessage[] = [];
+    private turnAbortController: AbortController | null = null;
     isStreaming = false;
 
     constructor(options: ClaudeCliExecutionSessionOptions) {
@@ -82,9 +89,15 @@ export class ClaudeCliExecutionSession {
         return [...this.messages];
     }
 
-    dispose(): void {}
+    dispose(): void {
+        this.abort();
+    }
 
-    abort(): void {}
+    abort(): void {
+        this.turnAbortController?.abort();
+    }
+
+    clearQueue(): void {}
 
     async runTurn(options: ClaudeCliRunOptions): Promise<AgentMessage[]> {
         if (options.images && options.images.length > 0) {
@@ -92,37 +105,67 @@ export class ClaudeCliExecutionSession {
         }
         const conversation = this.readConversation();
         const userMessage = makeUserMessage(options.userRequest);
-        this.sessionManager.appendMessage(userMessage);
-        this.messages.push(userMessage as AgentMessage);
         conversation.push({ role: "user", text: options.userRequest });
         const selector = this.model.id;
         let bridge: WorkflowMcpBridgeHandle | null = null;
         let command: PreparedClaudeCliCommand | null = null;
+        let process: ClaudeCliProcessResult | null = null;
+        let statusEmitted = false;
+        this.turnAbortController = new AbortController();
+        const combinedSignal = options.signal
+            ? AbortSignal.any([options.signal, this.turnAbortController.signal])
+            : this.turnAbortController.signal;
         this.isStreaming = true;
+
+        const emitFailure = (kind: ConstructorParameters<typeof ClaudeCliBackendError>[0], exitCode: number | null) => {
+            // emitBackendStatus persists the sanitized runwield.backend_status transcript entry.
+            if (statusEmitted) return;
+            statusEmitted = true;
+            emitBackendStatus(this.hostedSession, this.sessionManager, buildBackendStatusEntry(kind, { exitCode }));
+        };
+
         try {
             const eligibleAliases = this.workflowTools
                 .map((tool) => workflowMcpAliasFor(tool.name))
                 .filter((alias): alias is string => typeof alias === "string");
             if (eligibleAliases.length > 0) {
-                bridge = await startWorkflowMcpBridge({
-                    tools: this.workflowTools,
-                    cwd: this.cwd,
-                    sessionManager: this.sessionManager,
-                    onMessage: (message) => {
-                        this.messages.push(message);
-                    },
-                    assistantBase: {
-                        api: this.model.api,
-                        provider: this.model.provider,
-                        model: this.model.id,
-                    },
-                });
+                try {
+                    bridge = await startWorkflowMcpBridge({
+                        tools: this.workflowTools,
+                        cwd: this.cwd,
+                        sessionManager: this.sessionManager,
+                        onMessage: (message) => {
+                            this.messages.push(message);
+                        },
+                        assistantBase: {
+                            api: this.model.api,
+                            provider: this.model.provider,
+                            model: this.model.id,
+                        },
+                    });
+                } catch {
+                    emitFailure("bridge_startup_failed", null);
+                    throw new ClaudeCliBackendError("bridge_startup_failed");
+                }
             }
             command = await prepareClaudeCliCommand({
                 selector,
                 systemPrompt: this.finalSystemPrompt + buildWorkflowPromptAppendix(eligibleAliases),
                 ...(bridge ? { mcpConfig: bridge.config } : {}),
             });
+            const stdinText = serializeConversation(conversation);
+            const processPort = new DenoClaudeCliProcessPort();
+            try {
+                process = processPort.run(command, stdinText, this.cwd, combinedSignal);
+            } catch (error) {
+                if (error instanceof ClaudeCliBackendError) {
+                    emitFailure(error.kind, error.exitCode);
+                }
+                throw error;
+            }
+
+            this.sessionManager.appendMessage(userMessage);
+            this.messages.push(userMessage as AgentMessage);
             this.sessionManager.appendCustomEntry("runwield.execution_backend", {
                 version: 1,
                 backend: "claude-cli",
@@ -130,25 +173,70 @@ export class ClaudeCliExecutionSession {
                 model: selector,
                 outputFormat: "stream-json",
             });
-            const stdinText = serializeConversation(conversation);
-            const processPort = new DenoClaudeCliProcessPort();
+
             const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
-            const process = processPort.run(command, stdinText, this.cwd, options.signal);
-            const parsed = await parseClaudeCliStream(process.stdout, {
-                onDelta: (delta) => {
-                    emitHostedSessionRuntimeEvent(this.hostedSession, {
-                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                        messageId,
-                        delta: delta.text,
-                        agentName: this.agentName,
-                        messageKind: "assistant",
-                    });
-                },
-            });
-            const status = await process.completed;
+            let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>>;
+            try {
+                parsed = await parseClaudeCliStream(process.stdout, {
+                    onDelta: (delta) => {
+                        emitHostedSessionRuntimeEvent(this.hostedSession, {
+                            type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                            messageId,
+                            delta: delta.text,
+                            agentName: this.agentName,
+                            messageKind: "assistant",
+                        });
+                    },
+                    isTerminalAccepted: () => bridge?.acceptedTerminal === true,
+                });
+            } catch (error) {
+                process.kill();
+                if (!combinedSignal.aborted && error instanceof Error && error.message.includes("terminal result")) {
+                    try {
+                        const status = await process.completed;
+                        if (!status.success) {
+                            const stderr = await process.stderrText;
+                            const kind = isAuthFailure(stderr) ? "auth_failed" : "non_zero_exit";
+                            emitFailure(kind, status.code);
+                            const excerpt = sanitizeStderrForDisplay(stderr);
+                            const base = buildBackendStatusEntry(kind, { exitCode: status.code }).message;
+                            throw new ClaudeCliBackendError(kind, {
+                                exitCode: status.code,
+                                message: excerpt ? `${base}\n${excerpt}` : base,
+                            });
+                        }
+                    } catch (statusError) {
+                        if (statusError instanceof ClaudeCliBackendError) throw statusError;
+                    }
+                }
+                const kind = combinedSignal.aborted ? "canceled" : "malformed_stream";
+                emitFailure(kind, null);
+                throw error instanceof ClaudeCliBackendError ? error : new ClaudeCliBackendError(kind);
+            }
+
+            let status: Deno.CommandStatus;
+            try {
+                status = await process.completed;
+            } catch {
+                const kind = combinedSignal.aborted ? "canceled" : "non_zero_exit";
+                emitFailure(kind, null);
+                throw new ClaudeCliBackendError(kind);
+            }
+            if (combinedSignal.aborted) {
+                process.kill();
+                emitFailure("canceled", status.code);
+                throw new ClaudeCliBackendError("canceled", { exitCode: status.code });
+            }
             if (!status.success) {
                 const stderr = await process.stderrText;
-                throw new Error(`Claude CLI exited with code ${status.code}${stderr ? `: ${stderr}` : ""}`);
+                const kind = isAuthFailure(stderr) ? "auth_failed" : "non_zero_exit";
+                emitFailure(kind, status.code);
+                const excerpt = sanitizeStderrForDisplay(stderr);
+                const base = buildBackendStatusEntry(kind, { exitCode: status.code }).message;
+                throw new ClaudeCliBackendError(kind, {
+                    exitCode: status.code,
+                    message: excerpt ? `${base}\n${excerpt}` : base,
+                });
             }
             this.sessionManager.appendModelChange(this.model.provider, this.model.id);
             const assistantMessage = makeAssistantMessage(parsed.text, this.model, parsed.metadata.usage);
@@ -169,6 +257,7 @@ export class ClaudeCliExecutionSession {
             return this.getMessages();
         } finally {
             this.isStreaming = false;
+            this.turnAbortController = null;
             if (command) {
                 await removeClaudeCliPromptFile(command);
                 await removeClaudeCliMcpConfigFile(command);
@@ -256,6 +345,10 @@ function toPiUsage(usage: ClaudeCliUsage) {
 
 function serializeConversation(messages: ConversationMessage[]): string {
     return messages.map((message) => `${message.role.toUpperCase()}: ${message.text}`).join("\n\n");
+}
+
+function isAuthFailure(stderr: string): boolean {
+    return /authenticate|not signed in|oauth|api key|login|expired/i.test(stderr);
 }
 
 /**

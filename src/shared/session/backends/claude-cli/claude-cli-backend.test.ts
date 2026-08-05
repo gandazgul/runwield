@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../../testing/process-global-lock.js";
@@ -8,6 +8,7 @@ import { HostedSession } from "../../hosted-session.js";
 import { readLatestTaskCompletedOutcome } from "../../../workflow/workflow-results.js";
 import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
 import { ClaudeCliExecutionSession } from "./execution-session.ts";
+import { ClaudeCliBackendError } from "./failure.ts";
 import { parseClaudeCliStream } from "./stream-parser.ts";
 
 async function withTempDir(callback: (dir: string) => Promise<void>): Promise<void> {
@@ -37,6 +38,10 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
         const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
         const previousOutput = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT");
         const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
+        const previousExitCode = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE");
+        const previousStderr = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_STDERR");
+        const previousMalformed = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MALFORMED");
+        const previousSleep = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
         await withTempDir(async (root) => {
             const binDir = join(root, "bin");
             const logPath = join(root, "fixture.jsonl");
@@ -54,9 +59,25 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_OUTPUT", previousOutput);
                 if (previousCalls === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
+                if (previousExitCode === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE", previousExitCode);
+                if (previousStderr === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_STDERR");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_STDERR", previousStderr);
+                if (previousMalformed === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MALFORMED");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MALFORMED", previousMalformed);
+                if (previousSleep === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", previousSleep);
             }
         });
     });
+}
+
+async function waitForLogText(logPath: string, needle: string): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const text = await Deno.readTextFile(logPath).catch(() => "");
+        if (text.includes(needle)) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 }
 
 function streamFromText(text: string): ReadableStream<Uint8Array> {
@@ -278,5 +299,194 @@ Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", asy
         // Config file and loopback listener are gone after the turn.
         await assertRejects(() => Deno.stat(configPath), Deno.errors.NotFound);
         await assertRejects(() => fetch(configLine.mcp.config.url), TypeError);
+    });
+});
+
+Deno.test("^Claude CLI missing executable fails before workflow mutation$", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPath = Deno.env.get("PATH");
+        await withTempDir(async (root) => {
+            const emptyBin = join(root, "empty-bin");
+            await Deno.mkdir(emptyBin);
+            Deno.env.set("PATH", emptyBin);
+            try {
+                const model = getModelRegistry().find("claude-cli", "sonnet");
+                if (!model) throw new Error("missing claude model");
+                const manager = SessionManager.inMemory(root);
+                const hostedSession = new HostedSession({
+                    id: `hosted-${crypto.randomUUID()}`,
+                    cwd: root,
+                    sessionManager: manager as never,
+                });
+                hostedSession.setActiveExecutionWorkflow({
+                    planName: "plan",
+                    triageMeta: { classification: "PLANNED_CHANGE" },
+                    executionAgent: "engineer",
+                    executionStarted: true,
+                    executionCwd: root,
+                });
+                const session = new ClaudeCliExecutionSession({
+                    cwd: root,
+                    agentName: "Engineer",
+                    finalSystemPrompt: "system",
+                    model,
+                    sessionManager: manager,
+                    hostedSession,
+                });
+                const error = await assertRejects(
+                    () => session.runTurn({ userRequest: "do it" }),
+                    ClaudeCliBackendError,
+                    "Claude Code",
+                );
+                assertEquals(error.kind, "missing_executable");
+                assertEquals(manager.getBranch().filter((entry) => entry.type === "message").length, 0);
+                assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "plan");
+                assertEquals(
+                    manager.getBranch().some((entry) =>
+                        entry.type === "custom" && entry.customType === "runwield.backend_status" &&
+                        (entry as { data?: { kind?: string } }).data?.kind === "missing_executable"
+                    ),
+                    true,
+                );
+            } finally {
+                if (previousPath === undefined) Deno.env.delete("PATH");
+                else Deno.env.set("PATH", previousPath);
+            }
+        });
+    });
+});
+
+Deno.test("^Claude CLI auth failure is a sanitized visible non-zero exit$", async () => {
+    await withClaudeFixture(async (root) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE", "1");
+        Deno.env.set(
+            "RUNWIELD_CLAUDE_FIXTURE_STDERR",
+            "not signed in\nAuthorization: Bearer secret-token\nSee https://secret.example/login\n",
+        );
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        const events: Array<{ type?: string; level?: string; message?: string }> = [];
+        hostedSession.setEventSink((event: { type?: string; level?: string; message?: string }) => events.push(event));
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Engineer",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+            hostedSession,
+        });
+        const error = await assertRejects(() => session.runTurn({ userRequest: "auth" }), ClaudeCliBackendError);
+        assertEquals(error.kind, "auth_failed");
+        assertStringIncludes(error.message, "Claude Code authentication failed");
+        assertEquals(error.message.includes("secret-token"), false);
+        assertEquals(error.message.includes("https://secret.example"), false);
+        const statusEntries = manager.getBranch().filter((entry) =>
+            entry.type === "custom" && entry.customType === "runwield.backend_status"
+        ) as Array<{ data?: { kind?: string; message?: string; exitCode?: number | null } }>;
+        assertEquals(statusEntries.length, 1);
+        assertEquals(statusEntries[0].data?.kind, "auth_failed");
+        assertEquals(statusEntries[0].data?.exitCode, 1);
+        const serialized = JSON.stringify(manager.getBranch());
+        assertEquals(serialized.includes("secret-token"), false);
+        assertEquals(serialized.includes("Authorization"), false);
+        assertEquals(events.some((event) => event.type === "system_status" && event.level === "error"), true);
+    });
+});
+
+Deno.test("^Claude CLI malformed stream is a typed failure with cleanup$", async () => {
+    await withClaudeFixture(async (root) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MALFORMED", "1");
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: root,
+        });
+        const taskTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Engineer",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+            hostedSession,
+            workflowTools: [taskTool],
+        });
+        const error = await assertRejects(() => session.runTurn({ userRequest: "malformed" }), ClaudeCliBackendError);
+        assertEquals(error.kind, "malformed_stream");
+        const entries = manager.getBranch();
+        assertEquals(
+            entries.some((entry) =>
+                entry.type === "custom" && entry.customType === "runwield.backend_status" &&
+                (entry as { data?: { kind?: string } }).data?.kind === "malformed_stream"
+            ),
+            true,
+        );
+        const logEntry = JSON.parse(
+            (await Deno.readTextFile(Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG") || "")).trim().split("\n")[0],
+        );
+        const promptPath = logEntry.args[logEntry.args.indexOf("--append-system-prompt-file") + 1];
+        const mcpPath = logEntry.args[logEntry.args.indexOf("--mcp-config") + 1];
+        await assertRejects(() => Deno.stat(promptPath), Deno.errors.NotFound);
+        await assertRejects(() => Deno.stat(mcpPath), Deno.errors.NotFound);
+    });
+});
+
+Deno.test("^Claude CLI abort cancels the subprocess and preserves active workflow$", async () => {
+    await withClaudeFixture(async (root, logPath) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", "1000");
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "plan",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionCwd: root,
+        });
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Engineer",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+            hostedSession,
+        });
+        const run = session.runTurn({ userRequest: "slow" });
+        await waitForLogText(logPath, "slow");
+        session.abort();
+        const error = await assertRejects(() => run, ClaudeCliBackendError);
+        assertEquals(error.kind, "canceled");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "plan");
+        assertEquals(
+            manager.getBranch().some((entry) =>
+                entry.type === "custom" && entry.customType === "runwield.backend_status" &&
+                (entry as { data?: { kind?: string } }).data?.kind === "canceled"
+            ),
+            true,
+        );
+        const log = await Deno.readTextFile(logPath);
+        assert(log.includes("SIGTERM") || log.includes("slow"));
     });
 });

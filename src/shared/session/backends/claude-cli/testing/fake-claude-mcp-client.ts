@@ -135,6 +135,18 @@ function extractCallResultText(content: { type: string; text?: string }[]): stri
     }).join("\n");
 }
 
+async function sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+try {
+    Deno.addSignalListener("SIGTERM", () => {
+        appendLogLine({ signal: "SIGTERM" }).finally(() => Deno.exit(143));
+    });
+} catch {
+    // Signal listeners are unavailable on some platforms.
+}
+
 async function main(): Promise<void> {
     const stdin = await new Response(Deno.stdin.readable).text();
     const promptIndex = Deno.args.indexOf("--append-system-prompt-file");
@@ -142,9 +154,23 @@ async function main(): Promise<void> {
     const promptText = await readTextFile(promptPath);
     await appendLogLine({ args: Deno.args, stdin, promptText });
 
+    const exitCodeText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE");
+    if (exitCodeText) {
+        const stderrText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_STDERR") || "fixture stderr";
+        await Deno.stderr.write(new TextEncoder().encode(stderrText));
+        Deno.exit(Number.parseInt(exitCodeText, 10));
+    }
+
     const mcpConfigIndex = Deno.args.indexOf("--mcp-config");
     if (mcpConfigIndex >= 0) {
         await runMcpCalls(Deno.args[mcpConfigIndex + 1]);
+    }
+
+    const sleepMsText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
+    if (sleepMsText) await sleep(Number.parseInt(sleepMsText, 10));
+    if (Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MALFORMED")) {
+        console.log("{malformed-stream-line");
+        return;
     }
 
     const output = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT") || "";
@@ -155,6 +181,14 @@ async function main(): Promise<void> {
         type: "assistant",
         message: { content: [{ type: "text", text }] },
     }));
+    const postTerminalText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT") || "";
+    if (postTerminalText) {
+        console.log(JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: postTerminalText }] },
+        }));
+    }
+    if (Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_NO_RESULT")) return;
     console.log(JSON.stringify({
         type: "result",
         result: text,
