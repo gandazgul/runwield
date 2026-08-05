@@ -1,4 +1,5 @@
 ---
+planId: "4a63fb51-d786-4e68-8772-2cbb4e928198"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "HIGH"
@@ -34,16 +35,69 @@ objectiveChecks:
     - id: "OC4"
       command: "grep -q \"export async function runValidationLoop\" src/shared/workflow/validation-engine.ts && grep -q \"MAX_PHASES_PER_CALL\" src/shared/workflow/validation-engine.ts && grep -q \"createValidationSessionPort\" src/shared/workflow/validation-session-adapter.ts && grep -q \"from \\\"./validation-engine\" src/shared/workflow/validation.ts && ! grep -qE \"async function run(MechanicalValidationPhase|SemanticReviewPhase|HumanReviewPhase|ValidatedReviewerPhase|PublicationPhase)\" src/shared/workflow/validation.ts"
       rationale: "The engine owns the substantive loop body (not a re-export shim), the session adapter is real, the public entry delegates to the engine, and no phase implementation remains defined in validation.ts — a rename-plus-shims counterfeit fails these greps."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-05T03:33:44.297Z"
+    head: "fd5e2eeac6e20d2e9a9f1337d33a4b5f2513cff3"
+    results:
+        - id: "OC1"
+          command: "test \"$(wc -l < src/shared/workflow/validation.ts)\" -lt 1000"
+          rationale: "The 2,482-line monolith is no longer the entry point; this fails today and passes only after validation.ts is reduced below the requested ceiling."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 22
+          output: "\n"
+        - id: "OC2"
+          command: "for f in src/shared/workflow/validation*.ts; do test -f \"$f\" && test \"$(wc -l < \"$f\")\" -lt 1000 || exit 1; done"
+          rationale: "Every validation*.ts module in the directory is under the requested ceiling; the directory glob (not an enumerated list) catches a renamed monolith that keeps a validation-* name regardless of what it is called."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 89
+          output: "\n"
+        - id: "OC3"
+          command: "F=\"validation-ports.ts validation-types.ts validation-engine.ts validation-context.ts validation-mechanical.ts validation-semantic.ts validation-human-review.ts validation-publication.ts validation-merge-repair.ts validation-emit.ts validation-interactions.ts\"; cd src/shared/workflow; for f in $F; do test -f \"$f\" || exit 1; done; ! grep -lE \"@earendil-works|\\.\\./session/\" $F"
+          rationale: "The 11 engine modules exist and none imports Pi packages or ../session/ modules, proving the sequencing/convergence/gate logic is session-independent (the Attached Mode prerequisite)."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 14
+          output: "\n"
+        - id: "OC4"
+          command: "grep -q \"export async function runValidationLoop\" src/shared/workflow/validation-engine.ts && grep -q \"MAX_PHASES_PER_CALL\" src/shared/workflow/validation-engine.ts && grep -q \"createValidationSessionPort\" src/shared/workflow/validation-session-adapter.ts && grep -q \"from \\\"./validation-engine\" src/shared/workflow/validation.ts && ! grep -qE \"async function run(MechanicalValidationPhase|SemanticReviewPhase|HumanReviewPhase|ValidatedReviewerPhase|PublicationPhase)\" src/shared/workflow/validation.ts"
+          rationale: "The engine owns the substantive loop body (not a re-export shim), the session adapter is real, the public entry delegates to the engine, and no phase implementation remains defined in validation.ts — a rename-plus-shims counterfeit fails these greps."
+          status: "unmet"
+          stdout: ""
+          stderr: "grep: src/shared/workflow/validation-engine.ts: No such file or directory\n"
+          exitCode: 2
+          durationMs: 36
+          output: "\ngrep: src/shared/workflow/validation-engine.ts: No such file or directory\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:20:19-0400"
-updatedAt: "2026-08-05T03:33:02.133Z"
+updatedAt: "2026-08-05T04:28:17.206Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-05T04:08:44.647Z"
+verifiedAt: "2026-08-05T04:28:17.206Z"
 userVerifiedAt: null
+executionReport: "Session-independent validation engine extraction complete. All 11 Implementation Steps, all 4 Objective Checks, and the full Verification Plan pass.\n\n**Implementation**\n- `validation.ts` shrunk from 2,482 → 125 lines: public composition root only. Every prior runtime export preserved (10 validation-helpers re-exports, `SYSTEM_SEMANTIC_REVIEW_PORT`, `SemanticReviewPort`, `WorkflowValidationResult`, `runMechanicalValidation`, `runValidationLoop`, `runValidationPhase`); `runValidationLoop`/`runValidationPhase` keep the old `hostedSession`/`sessionManager?`/`semanticReviewPort`/`git`/`localCI`/`workRecordMnemosynePort` shape, verified by `git show HEAD` export diff and unchanged imports in `orchestrator.ts`, `epic-continuation.ts`, `agent-handler.ts`, `validation-test-helpers.js`.\n- 13 new `.ts` modules: `validation-ports.ts` (287), `validation-types.ts` (152), `validation-engine.ts` (226), `validation-context.ts` (239), `validation-mechanical.ts` (402), `validation-semantic.ts` (548), `validation-human-review.ts` (242), `validation-publication.ts` (418), `validation-merge-repair.ts` (179), `validation-emit.ts` (213), `validation-interactions.ts` (46), `validation-session-adapter.ts`, all under 1000 lines (OC1/OC2 green).\n- `validation-session-adapter.ts` is the only new session/Pi-coupled module: implements every `ValidationSessionPort` method (workflow state, position, progress, interactions, abort registration, completion-gated turns with claim/acknowledge, isolated sessions with opaque-handle casts, display names, handoffs) and translates engine requests to the pre-existing `IsolatedAgentSessionOptions` shape, converting returned Pi messages with `readLatestReviewOutcome`/`readLatestTaskCompletedReport`/`usedReviewDiffTool`/`hasTrustedClaudeMcpReview` — injected `semanticReviewPort` fixtures behave exactly as before (review-loop tests pass).\n- Stale diff-scope helpers deleted from `validation.ts`; engine imports canonical `validation-scope.ts` versions; `unaccountedOpenItems` moved to `review-ledger.ts` with `validation-helpers.ts` re-exporting it; the `validation.ts` re-export chain resolves.\n- No injection seams added: `deno task seams:check` green against unchanged baseline (0 seams); the port is a plain required engine argument; engine's `localCI` port takes only `{ cwd }` with the real HostedSession bound at the composition root.\n- `architecture-boundary.test.ts` lists the 6 new engine modules in `HIGH_LEVEL_FILES`; `session/architecture-boundary.test.js` gains the durable whitelist rule (only `validation.ts`, `validation-session-adapter.ts`, `validation-helpers.ts`, `validation-local-ci.ts`, `validation-position.ts`, `validation-progress.ts`, `validation-prompts.ts` may import `@earendil-works`/`../session/`) — passes green. `CONTEXT.md` glossary names the session-independent engine without claiming Attached behavior.\n\n**Objective Checks** — OC1 (125 < 1000) ✓, OC2 (all `validation*.ts` < 1000) ✓, OC3 (11 engine modules exist, none import Pi/session) ✓, OC4 (engine owns `export async function runValidationLoop` + `MAX_PHASES_PER_CALL`; adapter real; entry imports `./validation-engine`; no phase impl defined in `validation.ts`) ✓.\n\n**Verification**\n- `deno task check` green (563 files); `deno task language-policy:check` green; `deno task seams:check` green; `deno task lint` clean.\n- Full verification-suite test list (20 files incl. both architecture boundaries): 140 passed, 0 failed.\n- `deno task ci` full run: green — 247 files passed, 0 failed (submodules, type-check, workspace check, lint, language policy, seams, doc-links, tests).\n- Manual: no `.wld/` lock/journal artifacts under the checkout after validation-loop runs (only the pre-existing tracked `settings.json`).\n- Behavior preservation covered by the unchanged suites: CI/Objective-Check repair gating and 3-round limits, semantic discovery/verify rounds + ledger nudges + round-limit decision + `changes_requested` re-entry, human-review modes/pauses/metadata, publication transaction/merge repair/settlement/handoffs, position memory, status healing, progress seeding/panel, metrics.\n\n**Test-count delta** — no tests deleted or added. `validation-lifecycle-source.test.js` was rewritten in place (same 3 tests and assertions): the dispatcher and publication-transaction tests now extract source from `validation-engine.ts` / `validation-publication.ts` — required because OC4 forbids `async function runPublicationPhase` in the entry, which the old test demanded there. `validation-progress.ts` gained one additive export (`setCurrentValidationProgress`) so the adapter can honestly implement the port's `setCurrentProgress` method; no behavior change."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "9009994cc9c04591f038faa220556d139b7a55bf"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "2c407f872b8dcb04b64d976a6624e7a50851eb14"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation engine refactor"
-planId: "4a63fb51-d786-4e68-8772-2cbb4e928198"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Session-Independent Validation Engine
