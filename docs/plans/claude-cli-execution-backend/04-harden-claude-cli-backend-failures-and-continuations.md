@@ -34,14 +34,28 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T09:32:26-04:00"
-updatedAt: "2026-08-05T13:59:11.968Z"
+updatedAt: "2026-08-05T22:01:23.382Z"
+status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 4
 dependencies:
     - "03-bridge-claude-workflow-signals-through-mcp"
+implementedAt: "2026-08-05T21:40:41.393Z"
+verifiedAt: "2026-08-05T22:01:23.382Z"
 userVerifiedAt: null
-status: "validated_reviewer"
+executionReport: "- Implemented Claude CLI failure hardening: typed/sanitized backend status entries, spawn/error classification, abort teardown via `AbortSignal.any`, post-terminal parser policy, bridge accepted-terminal/disconnect handling, and replay projection.\n- Added fixture failure modes and 9 behavioral tests (0 removed): +4 backend failure tests, +3 vertical Claude execution tests, +1 projection test, +1 abort unwrap test.\n- Fixed CI-blocking broken relative PRD links in `docs/prd/runwield.md` after `deno task ci` exposed them.\n- Verification passed: targeted backend, vertical, projection/regression, bridge/regression commands; OC1–OC4 filtered checks; `deno task check`; `deno task seams:check`; final `deno task ci` (`247 files passed | 0 failed`).\n- Note: one accidental direct `deno test` attempt was blocked by the repository unsandboxed-test guard; all sanctioned sandboxed verification commands passed."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "1749c3b9eb848cdcb9f3b81a076517075b06fab5"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "e561fa8603adb3979589787f49f9d9019f9c15f2"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Harden Claude CLI Backend Failures and Continuations
