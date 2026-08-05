@@ -46,6 +46,13 @@ export interface SubAgentDefinition {
     file: string;
     verifyFile?: string;
     allowedTools?: readonly string[];
+    /**
+     * Explicit opt-out for a bare-prompt subagent that is intentionally
+     * tool-free. A barePrompt definition must declare either `allowedTools`
+     * (its canonical tool ceiling) or `toolFree: true`; anything else fails
+     * closed at load time instead of silently running a session with no tools.
+     */
+    toolFree?: boolean;
 }
 
 export interface DelegatedRoleDefinition {
@@ -117,6 +124,7 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         displayNameFallback: "Manual QA",
         loadMode: "barePrompt",
         file: MANUAL_QA_PROMPT_FILE,
+        toolFree: true,
     }),
     [SUBAGENTS.REVIEWER]: Object.freeze({
         id: SUBAGENTS.REVIEWER,
@@ -222,10 +230,30 @@ async function readBundledPromptFrontMatter(
     );
 }
 
-async function loadBarePromptDefinition(
+/**
+ * Load a bare workflow prompt (no shared system prompt) into an AgentDefinition.
+ *
+ * The tool ceiling comes from the definition registry, not the prompt front
+ * matter: a barePrompt subagent must declare `allowedTools` (its canonical
+ * tool set) or explicitly opt out with `toolFree: true`. Missing both fails
+ * closed — a silent `tools: []` would let the subagent's session start with
+ * none of its required tools (the failure mode that once stripped the
+ * Semantic Reviewer of `review_complete`), and the first sign of that would
+ * be the workflow stalling mid-validation instead of a load error.
+ *
+ * Exported for tests that exercise the fail-closed guard with a crafted
+ * definition.
+ */
+export async function loadBarePromptDefinition(
     definition: SubAgentDefinition,
     relativePath: string,
 ): Promise<AgentDefinition> {
+    if (!definition.allowedTools && !definition.toolFree) {
+        throw new Error(
+            `Subagent definition "${definition.id}" (barePrompt) declares neither allowedTools nor toolFree: ` +
+                "its session would silently run with no tools. Declare an explicit tool ceiling.",
+        );
+    }
     const { attrs, body } = await readBundledPromptFrontMatter(relativePath);
     const displayName = typeof attrs.name === "string" && attrs.name.trim()
         ? attrs.name.trim()

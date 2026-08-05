@@ -5,6 +5,7 @@ import {
     DELEGATED_ROLE_IDS,
     DELEGATED_ROLES,
     getDelegatedRole,
+    loadBarePromptDefinition,
     loadSubAgentDefinition,
     SUBAGENT_DEFINITIONS,
     type SubAgentDefinitionId,
@@ -105,6 +106,32 @@ Deno.test("bare-prompt subagents receive canonical tool ceilings without the sha
     assertEquals(manualQa.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(reviewer.systemPrompt.includes("{{AVAILABLE_TOOLS}}"), false);
     assertEquals(manualQa.name, AGENTS.OPERATOR);
+});
+
+Deno.test("bare-prompt subagents without a tool ceiling fail closed instead of silently running tool-free", async () => {
+    // A registry regression that drops `allowedTools` from a tools-carrying
+    // subagent must throw at load time: the silent `tools: []` fallback once
+    // let the Semantic Reviewer start with no `review_complete` (and no
+    // read/grep/find/ls), stalling Workflow Validation mid-round.
+    const error = await assertRejects(
+        () =>
+            loadBarePromptDefinition(
+                {
+                    id: "reviewer",
+                    agentName: AGENTS.REVIEWER,
+                    displayNameFallback: "Reviewer",
+                    loadMode: "barePrompt",
+                    file: "reviewer-prompt.md",
+                    // allowedTools deliberately absent — the regression being guarded.
+                },
+                "reviewer-prompt.md",
+            ),
+        Error,
+    );
+
+    assertStringIncludes(error.message, "allowedTools");
+    assertStringIncludes(error.message, "toolFree");
+    assertStringIncludes(error.message, "reviewer");
 });
 
 Deno.test("full-agent subagents keep shared system-prompt composition and runtime names", async () => {

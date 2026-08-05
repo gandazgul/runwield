@@ -1,11 +1,13 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
-import { AGENTS } from "../../../constants.js";
+import { AGENTS, SUBAGENTS } from "../../../constants.js";
 import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
+import { REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
 import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
+import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
 
 // Anchored to this file, not Deno.cwd(): test realms share one process, so a
 // concurrent test file's chdir would otherwise point these at its temp dir.
@@ -367,6 +369,56 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
             __resetSettingsForTests();
             await removeTempDir(tempHome);
             await Deno.remove(debugLogPath);
+        }
+    });
+});
+
+Deno.test("buildAgentSession wires review_complete and file tools into the Semantic Reviewer subagent", async () => {
+    // Regression: the Semantic Reviewer's session once started with only
+    // `review_diff` + `see_image` — no read/grep/find/ls and no
+    // `review_complete` — so every `review_complete` call failed with "Tool
+    // review_complete not found" and Workflow Validation stalled mid-round.
+    // The canonical tool ceiling lives in the subagent definition registry and
+    // must reach the session's effective tools and auto-wired custom tools.
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-reviewer-tools-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+
+            const hostedSession = new HostedSession({ id: "reviewer-tools-policy", cwd: REPO_ROOT });
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: AGENTS.REVIEWER,
+                modelOverride: "test/text",
+                subAgentDefinition: {
+                    id: SUBAGENTS.REVIEWER,
+                    options: { reviewerMode: "discovery" },
+                },
+                toolNames: [...REVIEWER_SUBAGENT_TOOLS],
+                customTools: [createReviewDiffTool({ full: "diff" })],
+                includeEditFallback: false,
+            });
+            session = built.session;
+
+            for (const toolName of ["read", "grep", "find", "ls", "review_diff", "review_complete"]) {
+                assert(built.tools.includes(toolName), `expected ${toolName} in effective reviewer tools`);
+            }
+            const reviewComplete = built.finalCustomTools.find((tool) => tool.name === "review_complete");
+            assert(reviewComplete, "expected review_complete to be auto-wired into the reviewer session");
+            assertEquals(typeof reviewComplete.execute, "function");
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await removeTempDir(tempHome);
         }
     });
 });
