@@ -130,6 +130,9 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 ## Backlog
 
+- [ ] support importing files from RUNWIELD.md with @FILE for example to import AGENTS.md. I still think runwield is
+      unique enough that you wont want to have the same agents.md file between other tools and it.
+
 ### P1 - big files
 
 Break up these files into smaller ones, each with a single responsibility. The goal is to make the codebase easier to
