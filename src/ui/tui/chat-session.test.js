@@ -7,6 +7,7 @@ import {
     getActiveModel,
     getFooterWorkflowLabelText,
     persistThinkingLevel,
+    recordUserInputHistory,
     renderClipboardImageHintLines,
     renderFooterWorkflowLabelParts,
     renderUpdateNoticeLine,
@@ -60,6 +61,33 @@ Deno.test("streaming submissions execute safe one-shot slash commands before ste
     assertEquals(blockedSlashIndex > executeSlashIndex, true);
     assertEquals(blockedSlashMessageIndex > blockedSlashIndex, true);
     assertEquals(steerIndex > blockedSlashMessageIndex, true);
+});
+
+Deno.test("executed bash and slash commands are added to Up Arrow history", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const bashBranchIndex = source.indexOf('if (userRequest.startsWith("!")) {');
+    const bashHistoryIndex = source.indexOf("recordUserInputHistory(editor, userRequest);", bashBranchIndex);
+    const bashDispatchIndex = source.indexOf("handleBashCommand({", bashBranchIndex);
+    const slashStartIndex = source.indexOf(
+        'if (userRequest.startsWith("/")) recordUserInputHistory(editor, userRequest);',
+    );
+    const slashDispatchIndex = source.indexOf("await handleSlashCommand({", slashStartIndex);
+    const handledSlashReturnIndex = source.indexOf("if (handledSlash) return;", slashDispatchIndex);
+
+    assertEquals(bashBranchIndex >= 0, true);
+    assertEquals(bashHistoryIndex > bashBranchIndex, true);
+    assertEquals(bashHistoryIndex < bashDispatchIndex, true);
+    assertEquals(slashStartIndex >= 0, true);
+    assertEquals(slashStartIndex < slashDispatchIndex, true);
+    assertEquals(slashDispatchIndex < handledSlashReturnIndex, true);
+});
+
+Deno.test("recordUserInputHistory stores trimmed submitted input", () => {
+    const history = /** @type {string[]} */ ([]);
+    recordUserInputHistory({ addToHistory: (text) => history.push(text) }, "  /skill:review branch  ");
+    recordUserInputHistory({ addToHistory: (text) => history.push(text) }, "   ");
+
+    assertEquals(history, ["/skill:review branch"]);
 });
 
 Deno.test("managed session sync can read processing state before startup awaits", async () => {

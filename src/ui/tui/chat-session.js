@@ -453,6 +453,18 @@ export function getActiveModel(runtime, sessionId) {
 }
 
 /**
+ * Add user-entered text to the editor history that Up Arrow navigates.
+ *
+ * @param {{ addToHistory?: (text: string) => void }} editor
+ * @param {string} text
+ */
+export function recordUserInputHistory(editor, text) {
+    const historyText = text.trim();
+    if (!historyText) return;
+    editor.addToHistory?.(historyText);
+}
+
+/**
  * Testable core of the interactive submit loop. It follows typed handoff
  * results produced by the runtime session's active handler only.
  *
@@ -1320,7 +1332,7 @@ export async function startInteractiveSession(initialUserRequest, options) {
             } else if (result?.restoreDraft) {
                 restoreQueuedItemToEditor({ text: result.submittedRequest, images: savedImages });
             } else if (result?.historyText) {
-                editor.addToHistory?.(result.historyText);
+                recordUserInputHistory(editor, result.historyText);
             }
         } catch (err) {
             restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
@@ -1342,7 +1354,10 @@ export async function startInteractiveSession(initialUserRequest, options) {
         const userRequest = text.trim();
         if (!userRequest && savedImages.length === 0) return;
 
-        // Slash commands (`/builtin` or `/template`)
+        // Slash commands (`/builtin` or `/template`). Record the raw command
+        // as soon as it is accepted for slash dispatch; commands like
+        // /load-plan can take over the session before returning.
+        if (userRequest.startsWith("/")) recordUserInputHistory(editor, userRequest);
         const handledSlash = userRequest
             ? await handleSlashCommand({
                 userRequest,
@@ -1421,6 +1436,7 @@ export async function startInteractiveSession(initialUserRequest, options) {
         // queueing paths so a stray `!` typed during a model turn is executed
         // locally instead of being sent as steering text.
         if (userRequest.startsWith("!")) {
+            recordUserInputHistory(editor, userRequest);
             handleBashCommand({
                 userRequest,
                 sessionRuntime,

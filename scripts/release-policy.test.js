@@ -23,7 +23,7 @@ Deno.test("release prompt starts with the three release choices before policy di
 });
 
 Deno.test("wld release policy distinguishes repository-specific policy from generic wld usage", async () => {
-    const policy = await Deno.readTextFile(new URL("../RELEASING.md", import.meta.url));
+    const policy = await Deno.readTextFile(new URL("../docs/releasing.md", import.meta.url));
 
     assertStringIncludes(policy, "This document is wld's release policy");
     assertStringIncludes(policy, "wld users releasing other repositories");
@@ -59,7 +59,7 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
 
-    const policy = await Deno.readTextFile("RELEASING.md");
+    const policy = await Deno.readTextFile("docs/releasing.md");
     assertStringIncludes(policy, "required-tag manual dispatch solely for recovery");
     assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
 });
@@ -80,5 +80,5 @@ Deno.test("release CLI publishes tags without owning qualification or host relea
 
 Deno.test("README links to wld release policy", async () => {
     const readme = await Deno.readTextFile(new URL("../README.md", import.meta.url));
-    assertStringIncludes(readme, "[RELEASING.md](RELEASING.md)");
+    assertStringIncludes(readme, "[releasing](docs/releasing.md)");
 });
