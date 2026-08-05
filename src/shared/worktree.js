@@ -702,7 +702,14 @@ async function alignPlanFilesWithMergeTarget(cwd, targetRef, branch, executionWo
     );
     const planFilesInTarget = new Set(
         parseNameOnlyPaths(
-            await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${targetRef}`, "--", "docs/plans/*.md"]),
+            await runGit(cwd, [
+                "diff",
+                "--name-only",
+                "--diff-filter=AMRT",
+                `${mergeBase}..${targetRef}`,
+                "--",
+                "docs/plans/*.md",
+            ]),
         ),
     );
     const conflictingPlanFiles = [...planFilesInBranch].filter((/** @type {string} */ file) =>
