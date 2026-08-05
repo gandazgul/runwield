@@ -80,7 +80,8 @@ Use this as an orientation map, not a directory inventory:
 - `src/ui/tui/` is the terminal adapter. `src/ui/workspace/`, `src/review-workspace-server.js`, and `src/ui/review/` are
   the browser Workspace and review surfaces. Shared visual language belongs in `src/ui/design-system/` and
   `src/ui/theme/`.
-- `plans/` stores durable Plan Markdown. `docs/` stores user, contributor, architecture, ADR, PRD, and product docs.
+- `docs/plans/` stores durable Plan Markdown. `docs/` (outside `docs/plans/`) stores user, contributor, architecture,
+  ADR, PRD, and product docs.
 
 ## Golden TUI Scenarios
 

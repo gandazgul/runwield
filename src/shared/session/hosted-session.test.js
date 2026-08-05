@@ -398,7 +398,7 @@ Deno.test("HostedSession hydrates and persists workflow context defensively", ()
 
     session.setWorkflowTriageContext({ routingIntent: "PROJECT", complexity: "HIGH" });
     assertEquals(session.getWorkflowContext(), { routingIntent: "PROJECT", complexity: "HIGH" });
-    session.setWorkflowPlanName("plans/epic/child.md");
+    session.setWorkflowPlanName("docs/plans/epic/child.md");
     assertEquals(session.getWorkflowContext(), {
         routingIntent: "PROJECT",
         complexity: "HIGH",
@@ -651,7 +651,7 @@ Deno.test("HostedSession plan setter preserves triage fields without persistence
     });
     session.setRootSessionManager(null);
 
-    session.setWorkflowPlanName("plans/updated-plan.md");
+    session.setWorkflowPlanName("docs/plans/updated-plan.md");
 
     assertEquals(session.getWorkflowContext(), {
         routingIntent: "PLANNED_CHANGE",

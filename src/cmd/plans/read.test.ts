@@ -89,7 +89,7 @@ readTest("read command resolves explicitly addressed archived Plans in the real 
     const result = await runReadAndClose(["archived/done", "--no-open"]);
 
     assertStringIncludes(result.html, "Archived Body Marker");
-    assertStringIncludes(result.html, "plans/archived/done.md");
+    assertStringIncludes(result.html, "docs/plans/archived/done.md");
 });
 
 readTest("read command resolves archived Plans by durable id", async ({ projectRoot }) => {
@@ -102,7 +102,7 @@ readTest("read command resolves archived Plans by durable id", async ({ projectR
     const result = await runReadAndClose(["archived-id", "--no-open"]);
 
     assertStringIncludes(result.html, "Archived By ID Marker");
-    assertStringIncludes(result.html, "plans/archived/archived-match.md");
+    assertStringIncludes(result.html, "docs/plans/archived/archived-match.md");
 });
 
 readTest("read command resolves active Plans by durable id", async ({ projectRoot }) => {

@@ -1157,7 +1157,7 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
     });
 
     hostedSession.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
-    hostedSession.setWorkflowPlanName("plans/footer-restoration.md");
+    hostedSession.setWorkflowPlanName("docs/plans/footer-restoration.md");
     runtime.setActiveExecutionWorkflow(sessionId, {
         planName: "execution-plan",
         triageMeta: { complexity: "HIGH" },

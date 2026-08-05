@@ -588,9 +588,9 @@ Deno.test("manual board helper exports expose lifecycle-owned rules", () => {
 Deno.test("recordPlanEvent mutates only the selected held plan file", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await Deno.mkdir(`${cwd}/plans/epic`, { recursive: true });
+        await Deno.mkdir(`${cwd}/docs/plans/epic`, { recursive: true });
         await Deno.writeTextFile(
-            `${cwd}/plans/epic.md`,
+            `${cwd}/docs/plans/epic.md`,
             [
                 "---",
                 'classification: "PROJECT"',
@@ -605,7 +605,7 @@ Deno.test("recordPlanEvent mutates only the selected held plan file", async () =
             ].join("\n"),
         );
         await Deno.writeTextFile(
-            `${cwd}/plans/epic/child.md`,
+            `${cwd}/docs/plans/epic/child.md`,
             [
                 "---",
                 'classification: "FEATURE"',
@@ -622,15 +622,15 @@ Deno.test("recordPlanEvent mutates only the selected held plan file", async () =
         );
 
         await recordPlanEvent({ cwd, planName: "epic", event: "plan_held", currentStatus: "ready_for_work" });
-        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic.md`)).includes('status: "on_hold"'), true);
+        assertEquals((await Deno.readTextFile(`${cwd}/docs/plans/epic.md`)).includes('status: "on_hold"'), true);
         assertEquals(
-            (await Deno.readTextFile(`${cwd}/plans/epic/child.md`)).includes('status: "ready_for_work"'),
+            (await Deno.readTextFile(`${cwd}/docs/plans/epic/child.md`)).includes('status: "ready_for_work"'),
             true,
         );
 
         await recordPlanEvent({ cwd, planName: "epic/child", event: "plan_held", currentStatus: "ready_for_work" });
-        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic.md`)).includes('status: "on_hold"'), true);
-        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic/child.md`)).includes('status: "on_hold"'), true);
+        assertEquals((await Deno.readTextFile(`${cwd}/docs/plans/epic.md`)).includes('status: "on_hold"'), true);
+        assertEquals((await Deno.readTextFile(`${cwd}/docs/plans/epic/child.md`)).includes('status: "on_hold"'), true);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -780,8 +780,8 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
     const projectRoot = await Deno.makeTempDir();
     const executionCwd = await Deno.makeTempDir();
     try {
-        const canonicalPath = `${projectRoot}/plans/feature.md`;
-        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
+        const canonicalPath = `${projectRoot}/docs/plans/feature.md`;
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
         await Deno.writeTextFile(
             canonicalPath,
             injectFrontMatter(
@@ -826,7 +826,7 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
         assertEquals(first.attrs.worktreeStatus, "merged");
         assertEquals(first.attrs.humanReviewDecision, "approved");
         assertEquals(second.attrs.verifiedAt, first.attrs.verifiedAt);
-        assertEquals(first.planPaths, ["plans/feature.md"]);
+        assertEquals(first.planPaths, ["docs/plans/feature.md"]);
         assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
         assertStringIncludes((await loadPlan(executionCwd, "feature"))?.markdown || "", "customFlag: true");
     } finally {
@@ -976,7 +976,7 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
         assertEquals(retriedParent?.attrs.verifiedAt, "2026-01-03T00:00:00.000Z");
         assertEquals(/** @type {any} */ (retriedParent?.attrs).customFlag, true);
         assertEquals(retriedParent?.body, "# Epic");
-        assertEquals(result.planPaths, ["plans/child-b.md", "plans/epic.md"]);
+        assertEquals(result.planPaths, ["docs/plans/child-b.md", "docs/plans/epic.md"]);
         assertEquals(retried.planPaths, result.planPaths);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
@@ -1033,7 +1033,7 @@ Deno.test("stageValidationPassedInExecutionWorktree reevaluates parent advanceme
 
         assertEquals(first.attrs.verifiedAt, "2026-01-03T00:00:00.000Z");
         assertEquals(retried.attrs.verifiedAt, first.attrs.verifiedAt);
-        assertEquals(retried.planPaths, ["plans/child-a.md", "plans/epic.md"]);
+        assertEquals(retried.planPaths, ["docs/plans/child-a.md", "docs/plans/epic.md"]);
         assertEquals((await loadPlan(executionCwd, "epic"))?.attrs.status, "verified");
         assertEquals((await loadPlan(executionCwd, "child-b"))?.attrs.status, "ready_for_work");
     } finally {
@@ -1089,8 +1089,8 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
-        assertEquals(first.planPaths, ["plans/child-a.md", "plans/epic.md"]);
-        assertEquals(retried.planPaths, ["plans/child-a.md"]);
+        assertEquals(first.planPaths, ["docs/plans/child-a.md", "docs/plans/epic.md"]);
+        assertEquals(retried.planPaths, ["docs/plans/child-a.md"]);
         assertEquals(retried.attrs.verifiedAt, first.attrs.verifiedAt);
         assertEquals((await loadPlan(executionCwd, "epic"))?.attrs.status, "ready_for_work");
         assertEquals((await loadPlan(executionCwd, "child-b"))?.attrs.status, "ready_for_work");
@@ -1149,8 +1149,8 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
-        assertEquals(first.planPaths, ["plans/child-a.md", "plans/epic.md"]);
-        assertEquals(retried.planPaths, ["plans/child-a.md"]);
+        assertEquals(first.planPaths, ["docs/plans/child-a.md", "docs/plans/epic.md"]);
+        assertEquals(retried.planPaths, ["docs/plans/child-a.md"]);
         assertEquals(retried.attrs.verifiedAt, first.attrs.verifiedAt);
         assertEquals((await loadPlan(projectRoot, "epic"))?.attrs.status, "on_hold");
         assertEquals((await loadPlan(executionCwd, "epic"))?.attrs.status, "verified");

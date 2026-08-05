@@ -190,12 +190,12 @@ Deno.test("plans doctor is report-only without repair", async () => {
                 }],
             }),
         );
-        const beforePlan = await Deno.readTextFile(join(cwd, "plans", "missing-id.md"));
+        const beforePlan = await Deno.readTextFile(join(cwd, "docs", "plans", "missing-id.md"));
         const beforeRegistry = await Deno.readTextFile(registryPath);
 
         const report = await runPlansDoctor(cwd, false);
         assertEquals(report.issues.some((issue) => issue.kind === "registry_missing_plan_id"), true);
-        assertEquals(await Deno.readTextFile(join(cwd, "plans", "missing-id.md")), beforePlan);
+        assertEquals(await Deno.readTextFile(join(cwd, "docs", "plans", "missing-id.md")), beforePlan);
         assertEquals(await Deno.readTextFile(registryPath), beforeRegistry);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
@@ -210,9 +210,9 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
             status: "ready_for_work",
             classification: "FEATURE",
         });
-        await Deno.mkdir(join(cwd, "plans", "archived"), { recursive: true });
+        await Deno.mkdir(join(cwd, "docs", "plans", "archived"), { recursive: true });
         await Deno.writeTextFile(
-            join(cwd, "plans", "archived", "old.md"),
+            join(cwd, "docs", "plans", "archived", "old.md"),
             injectFrontMatter("# Old", {
                 planId: "same-plan-id",
                 status: "verified",
@@ -276,7 +276,7 @@ Deno.test("plans doctor command --repair applies safe repairs through the real d
 Deno.test("plans doctor command --repair summarizes remaining problems without repeating their details", async () => {
     await withDoctorCommandFixture(async ({ projectRoot }) => {
         await seedMissingSettledWorktree(projectRoot, "wt-command-partial-repair");
-        await Deno.writeTextFile(join(projectRoot, "plans", "broken.md"), "---\nstatus: [\n---\n# Broken\n");
+        await Deno.writeTextFile(join(projectRoot, "docs", "plans", "broken.md"), "---\nstatus: [\n---\n# Broken\n");
 
         const output = await captureConsoleLog(async () => {
             await runPlansDoctorCommand(["--repair"]);
@@ -359,9 +359,9 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
 Deno.test("plans doctor does not report an archived Plan's attempt as a dangling planId", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-archived-" });
     try {
-        await Deno.mkdir(join(cwd, "plans", "archived"), { recursive: true });
+        await Deno.mkdir(join(cwd, "docs", "plans", "archived"), { recursive: true });
         await Deno.writeTextFile(
-            join(cwd, "plans", "archived", "done.md"),
+            join(cwd, "docs", "plans", "archived", "done.md"),
             injectFrontMatter("# Done\n", {
                 planId: "plan-archived",
                 classification: "FEATURE",

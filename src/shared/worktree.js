@@ -87,7 +87,7 @@ async function pathExists(path) {
  */
 export async function preparePrimaryPlanPathForMerge({ projectRoot, relativePath }) {
     const normalizedPath = relativePath.replaceAll("\\", "/");
-    if (!normalizedPath.startsWith("plans/") || !normalizedPath.endsWith(".md") || normalizedPath.includes("..")) {
+    if (!normalizedPath.startsWith("docs/plans/") || !normalizedPath.endsWith(".md") || normalizedPath.includes("..")) {
         throw new Error(`Refusing to prepare non-Plan merge path: ${relativePath}`);
     }
 
@@ -491,7 +491,7 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
  *
  * Single implementation on purpose. This check previously existed twice with different
  * rules — once here inside the merge, keyed on the staged Plan paths, and once in
- * validation, keyed on `plans/<planName>.md` alone. The narrower rule was wrong for
+ * validation, keyed on `docs/plans/<planName>.md` alone. The narrower rule was wrong for
  * Epic publication, where the parent Epic and siblings are staged too, so the staged
  * path set is the correct authority and prefix matching is kept.
  *
@@ -696,11 +696,13 @@ async function alignPlanFilesWithMergeTarget(cwd, targetRef, branch, executionWo
     const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
     const mergeBase = (await runGit(cwd, ["merge-base", targetRef, branch])).trim();
     const planFilesInBranch = new Set(
-        parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${branch}`, "--", "plans/*.md"])),
+        parseNameOnlyPaths(
+            await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${branch}`, "--", "docs/plans/*.md"]),
+        ),
     );
     const planFilesInTarget = new Set(
         parseNameOnlyPaths(
-            await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${targetRef}`, "--", "plans/*.md"]),
+            await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${targetRef}`, "--", "docs/plans/*.md"]),
         ),
     );
     const conflictingPlanFiles = [...planFilesInBranch].filter((/** @type {string} */ file) =>

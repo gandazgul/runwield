@@ -29,7 +29,7 @@ humanReviewDecision: "skipped"
 ## Context
 
 Personal Remote Workspace v1 uses the architecture accepted in
-[`ADR-011`](../../docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and
+[`ADR-011`](../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and
 ACP remain sibling `SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from
 exclusive writable Session activation, Durable Workflow Checkpoints, committed Session generations, automatic read
 synchronization, and a separate Session-owned Plan Workflow Lease—not a central Workspace-owned Runtime proxy.

@@ -167,7 +167,7 @@ export function findProhibitedRuntimeFiles(files) {
         if (file.startsWith("dist/workspace-runtime/")) return false;
         if (listRuntimeAssetDestinations().includes(file)) return false;
         return file.endsWith(".js") || file.endsWith(".jsx") || file.endsWith(".ts") || file.endsWith(".tsx") ||
-            file.startsWith("plans/") || file.startsWith(".wld/") || file.startsWith(".git/") ||
+            file.startsWith("docs/plans/") || file.startsWith(".wld/") || file.startsWith(".git/") ||
             file.includes("collaboration-secrets") || file.endsWith(".sqlite") || file.includes("/sessions/") ||
             file.includes(".test.");
     });

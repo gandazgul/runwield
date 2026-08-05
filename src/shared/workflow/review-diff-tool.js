@@ -150,7 +150,6 @@ export function formatChangedFileList(entries) {
 
 const LOW_REVIEW_SIGNAL_PATTERNS = [
     /^docs\//,
-    /^plans\//,
     /^third_party\//,
     /(^|\/)deno\.lock$/,
     /(^|\/)package-lock\.json$/,

@@ -19,7 +19,7 @@ async function makeHarness(options = {}) {
     const events = /** @type {any[]} */ ([]);
     const reviewResponses = [...(options.reviewResponses || [])];
     const cwd = await Deno.makeTempDir();
-    await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+    await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
     if (options.exists !== false) {
         // `approved` because that is where a Plan actually is when this tool records
         // readiness: the review has already run. Starting at `draft` only worked while
@@ -30,7 +30,7 @@ async function makeHarness(options = {}) {
         // lifecycle writes the Plan it is named for rather than a recorded call.
         for (const name of ["runtime-boundary", "runtime-epic"]) {
             await Deno.writeTextFile(
-                `${cwd}/plans/${name}.md`,
+                `${cwd}/docs/plans/${name}.md`,
                 `---
 classification: ${options.classification || "FEATURE"}
 status: approved
@@ -112,6 +112,47 @@ Deno.test("plan_written validates the declared plan before requesting review", a
     assertEquals(result.terminate, undefined);
 });
 
+Deno.test("plan_written ignores legacy plans/ files and requires docs/plans/", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.writeTextFile(`${cwd}/plans/runtime-boundary.md`, "# Legacy only\n");
+        const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+        hostedSession.setInteractionAdapter({
+            requestInteraction: () => {
+                throw new Error("legacy-only Plan must fail before review");
+            },
+        });
+        const tool = createPlanWrittenTool({
+            hostedSession,
+            triageMeta: { classification: "PLANNED_CHANGE", complexity: "MEDIUM" },
+        });
+
+        const legacyResult = await execute(tool, "runtime-boundary");
+        assertStringIncludes(legacyResult.content[0].text, "docs/plans/runtime-boundary.md not found");
+
+        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${cwd}/docs/plans/runtime-boundary.md`,
+            `---\nclassification: PLANNED_CHANGE\nstatus: approved\n---\n# Current\n`,
+        );
+        hostedSession.setInteractionAdapter({
+            requestInteraction: async () => ({
+                outcome: "accepted",
+                _meta: {
+                    approved: true,
+                    approvalAction: "run",
+                    revision: (await loadPlan(cwd, "runtime-boundary"))?.revision,
+                },
+            }),
+        });
+        const currentResult = await execute(tool, "docs/plans/runtime-boundary.md");
+        assertEquals(currentResult.details.outcome, "approved_execute");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("plan_written streams declared plan details into the active tool block", async () => {
     const { tool, events } = await makeHarness();
     const updates = /** @type {any[]} */ ([]);
@@ -119,12 +160,12 @@ Deno.test("plan_written streams declared plan details into the active tool block
 
     assertEquals(updates.length >= 2, true);
     const firstText = updates[0].content[0].text;
-    assertMatch(firstText, /Plan name: plans\/runtime-boundary\.md/);
+    assertMatch(firstText, /Plan name: docs\/plans\/runtime-boundary\.md/);
     assertMatch(firstText, /Status: Opening browser review UI\./);
     const readyText = updates[1].content[0].text;
     assertMatch(
         readyText,
-        /Plan name: plans\/runtime-boundary\.md\nTo review open a browser to: http:\/\/127\.0\.0\.1:4567\/review\/plan\?token=test/,
+        /Plan name: docs\/plans\/runtime-boundary\.md\nTo review open a browser to: http:\/\/127\.0\.0\.1:4567\/review\/plan\?token=test/,
     );
     assertEquals(updates[1].details.reviewUrl, "http://127.0.0.1:4567/review/plan?token=test");
     assertEquals(updates[0].details.planName, "runtime-boundary");
@@ -132,7 +173,7 @@ Deno.test("plan_written streams declared plan details into the active tool block
     assertEquals(
         events.some((event) =>
             event.type === RuntimeEventTypes.SYSTEM_STATUS &&
-            String(event.message || "").includes("Plan name: plans/runtime-boundary.md")
+            String(event.message || "").includes("Plan name: docs/plans/runtime-boundary.md")
         ),
         false,
     );
@@ -141,9 +182,9 @@ Deno.test("plan_written streams declared plan details into the active tool block
 Deno.test("plan_written rejects invalid loaded Plan policy before review or readiness", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
         await Deno.writeTextFile(
-            `${cwd}/plans/runtime-boundary.md`,
+            `${cwd}/docs/plans/runtime-boundary.md`,
             `---
 classification: FEATURE
 executionAgent: engineer
@@ -319,7 +360,7 @@ Deno.test("plan_written persists Objective-Failing Checks to front matter before
             },
         ],
     });
-    const markdown = await Deno.readTextFile(`${hostedSession.cwd}/plans/runtime-boundary.md`);
+    const markdown = await Deno.readTextFile(`${hostedSession.cwd}/docs/plans/runtime-boundary.md`);
 
     assertEquals(result.details.outcome, "approved_execute");
     assertStringIncludes(markdown, "objectiveChecks:");
@@ -338,9 +379,9 @@ Deno.test("plan_written accepts PROJECT Epics without Objective-Failing Checks",
 Deno.test("plan_written preserves documentation triage workKind when Plan front matter omits it", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
         await Deno.writeTextFile(
-            `${cwd}/plans/runtime-boundary.md`,
+            `${cwd}/docs/plans/runtime-boundary.md`,
             `---
 classification: PLANNED_CHANGE
 status: approved

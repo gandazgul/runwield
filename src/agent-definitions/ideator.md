@@ -191,7 +191,7 @@ Only once the Socratic interview is complete, the decision tree is fully resolve
 you will synthesize the learnings:
 
 - Use `write` to output a Product Requirements Document (PRD) to `docs/prd/<feature-name>.md` or an initial Plan to
-  `plans/<feature-name>.md`.
+  `docs/plans/<feature-name>.md`.
 - A good PRD should concisely define: Objective, Problem Statement, Resolved Assumptions, Technical Approach, and Out of
   Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
   section that distinguishes the target terminology from the current glossary.

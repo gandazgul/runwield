@@ -371,7 +371,7 @@ export async function runGoldenScenario(scenario, options = {}) {
                 const decisions = typed.decisions || [];
                 const reviewSurface = new ScriptedReviewSurface(decisions);
                 const planDir = await Deno.makeTempDir({ prefix: "runwield-golden-plan-review-" });
-                const plansDir = join(planDir, "plans");
+                const plansDir = join(planDir, "docs", "plans");
                 await Deno.mkdir(plansDir, { recursive: true });
                 const planPath = join(plansDir, "plan.md");
                 await Deno.writeTextFile(planPath, typed.plan || "# Plan\n\nDo the thing.\n");
@@ -858,7 +858,10 @@ async function runComposedTuiScenario(scenario, options) {
                         if (response) {
                             const eventName = response.approved ? "review_approved" : "review_feedback";
                             const expectedStatus = response.approved ? "approved" : "feedback";
-                            const lifecycle = findFixturePlanLifecycle(join(Deno.cwd(), "plans"), expectedStatus);
+                            const lifecycle = findFixturePlanLifecycle(
+                                join(Deno.cwd(), "docs", "plans"),
+                                expectedStatus,
+                            );
                             persistedLifecycleEvents.push({
                                 event: eventName,
                                 status: lifecycle.status,
@@ -1102,7 +1105,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const deliveryLog = goldenFileExists
                         ? await runGoldenGit(["log", "--format=%H", "--", "golden-planned-change.txt"], Deno.cwd())
                         : "";
-                    const planText = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"));
+                    const planText = await Deno.readTextFile(join(Deno.cwd(), "docs", "plans", "plan.md"));
                     const planAttrs = parsePlanFrontMatter(planText).attrs;
                     const deliveredHead = await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd());
                     const recordedWorktreeBranch = String(planAttrs.worktreeBranch || "");
@@ -1178,7 +1181,7 @@ async function runComposedTuiScenario(scenario, options) {
                     // a real product output, not leftover mess: it is generated after the
                     // Plan verifies and is the user's to keep or discard.
                     const unexpectedStatus = statusLines.filter((line) =>
-                        !line.endsWith("plans/plan.md") && !line.endsWith(".wld/worktrees.json") &&
+                        !line.endsWith("docs/plans/plan.md") && !line.endsWith(".wld/worktrees.json") &&
                         !line.endsWith("docs/") && !line.includes("docs/work-records/")
                     );
                     if (unexpectedStatus.length) {
@@ -1378,7 +1381,7 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push("project:state:captured");
                     await writeHeartbeat();
                 } else if (typed.type === "assertNoPlanFile") {
-                    const plansRoot = join(Deno.cwd(), "plans");
+                    const plansRoot = join(Deno.cwd(), "docs", "plans");
                     const planPath = join(plansRoot, `${String(typed.planName || "")}.md`);
                     const exists = await Deno.stat(planPath).then(() => true).catch(() => false);
                     if (exists) throw new Error(`Expected no Plan file at ${planPath}`);
@@ -1514,7 +1517,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const planName = String(typed.planName || "");
                     const expectedStatuses = new Set((Array.isArray(typed.statuses) ? typed.statuses : []).map(String));
                     const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
-                    const planPath = join(Deno.cwd(), "plans", ...planName.split("/")) + ".md";
+                    const planPath = join(Deno.cwd(), "docs", "plans", ...planName.split("/")) + ".md";
                     const startedAt = Date.now();
                     let latestStatus = "";
                     while (!expectedStatuses.has(latestStatus)) {
@@ -1578,12 +1581,12 @@ async function runComposedTuiScenario(scenario, options) {
                     `Expected every real Plan Review decision to resolve; pending=${pendingReviewLifecycleObservations.length}`,
                 );
                 reviewSurface.assertComplete();
-                let parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", "plan.md"))
-                    .catch(() => Deno.readTextFile(join(Deno.cwd(), "plans", "epic.md"))).catch(() => "");
+                let parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "docs", "plans", "plan.md"))
+                    .catch(() => Deno.readTextFile(join(Deno.cwd(), "docs", "plans", "epic.md"))).catch(() => "");
                 if (!parsedPlan) {
-                    for await (const entry of Deno.readDir(join(Deno.cwd(), "plans"))) {
+                    for await (const entry of Deno.readDir(join(Deno.cwd(), "docs", "plans"))) {
                         if (entry.isFile && entry.name.endsWith(".md")) {
-                            parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "plans", entry.name));
+                            parsedPlan = await Deno.readTextFile(join(Deno.cwd(), "docs", "plans", entry.name));
                             break;
                         }
                     }

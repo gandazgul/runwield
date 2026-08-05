@@ -59,12 +59,12 @@ export const concurrentPlansIdentityScenario = {
     ],
     initialProjectFiles: [
         {
-            path: "plans/concurrent-a.md",
+            path: "docs/plans/concurrent-a.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Concurrent A\naffectedPaths: []\nstatus: ready_for_work\nplanId: concurrent-plan-a\n---\n# Concurrent A\n",
         },
         {
-            path: "plans/concurrent-b.md",
+            path: "docs/plans/concurrent-b.md",
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Concurrent B\naffectedPaths: []\nstatus: ready_for_work\nplanId: concurrent-plan-b\n---\n# Concurrent B\n",
         },

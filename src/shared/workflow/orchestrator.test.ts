@@ -373,7 +373,7 @@ Deno.test("planned work with no Plan declaration stays with the real Planner", a
         });
 
         assertEquals(fixture.hostedSession.getRootAgentName(), "planner");
-        assertEquals(await Deno.stat(`${projectRoot}/plans`).then((entry) => entry.isDirectory), true);
+        assertEquals(await Deno.stat(`${projectRoot}/docs/plans`).then((entry) => entry.isDirectory), true);
         assertEquals(ci.calls, []);
         fixture.hostedSession.dispose();
     });

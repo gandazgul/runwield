@@ -104,16 +104,16 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
             planName: "Checked Out Target No Side Effects",
             worktreeRoot,
         });
-        await Deno.mkdir(`${projectRoot}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${projectRoot}/plans/demo.md`, "target\n");
-        await git(projectRoot, ["add", "plans/demo.md"]);
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/demo.md`, "target\n");
+        await git(projectRoot, ["add", "docs/plans/demo.md"]);
         await git(projectRoot, ["commit", "-m", "target plan metadata"]);
         await git(projectRoot, ["checkout", "main"]);
         await git(projectRoot, ["worktree", "add", targetCheckout, "feature-base"]);
 
-        await Deno.mkdir(`${worktree.path}/plans`, { recursive: true });
-        await Deno.writeTextFile(`${worktree.path}/plans/demo.md`, "execution\n");
-        await git(worktree.path, ["add", "plans/demo.md"]);
+        await Deno.mkdir(`${worktree.path}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/docs/plans/demo.md`, "execution\n");
+        await git(worktree.path, ["add", "docs/plans/demo.md"]);
         await git(worktree.path, ["commit", "-m", "execution plan metadata"]);
         const beforeExecutionHead = await git(projectRoot, ["rev-parse", worktree.branch]);
 
@@ -130,7 +130,7 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
         );
 
         assertEquals(await git(projectRoot, ["rev-parse", worktree.branch]), beforeExecutionHead);
-        assertEquals(await git(projectRoot, ["show", `${worktree.branch}:plans/demo.md`]), "execution");
+        assertEquals(await git(projectRoot, ["show", `${worktree.branch}:docs/plans/demo.md`]), "execution");
     } finally {
         await git(projectRoot, ["worktree", "remove", "--force", targetCheckout]).catch(() => {});
         if (worktree) {

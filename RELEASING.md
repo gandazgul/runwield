@@ -17,6 +17,16 @@ wld supports three release operations:
 The `/release` prompt asks which operation to run before inspecting this policy in detail. All release commands are
 non-interactive so the prompt can own user choices and final confirmation.
 
+## Breaking change in the current release
+
+The next release moves the canonical Plan store from `plans/` to `docs/plans/`. Release notes for the release that
+contains this change MUST include the following breaking-change copy verbatim in the **Breaking Changes** section:
+
+> RunWield now reads Plans only from `docs/plans/`. Before upgrading, move your existing `plans/` directory to
+> `docs/plans/`; the release does not migrate or read the old location.
+
+There is no migration command, fallback read, symlink support, or deprecation period for the old location.
+
 ## Tags and channels
 
 - Stable tags use `vMAJOR.MINOR.PATCH`, for example `v0.8.12`.

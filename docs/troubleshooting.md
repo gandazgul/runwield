@@ -25,8 +25,8 @@ published Plannotator packages are available:
 ## A saved plan is not loading
 
 - Use `wld plans` to list plan names.
-- Use `wld load-plan <name>` for a plan in `plans/`.
-- Use `wld load-plan plans/<name>.md` for a direct path.
+- Use `wld load-plan <name>` for a plan in `docs/plans/`.
+- Use `wld load-plan docs/plans/<name>.md` for a direct path.
 - Use `/resume` only for chat sessions, not plan files.
 
 ## Agent behavior looks off

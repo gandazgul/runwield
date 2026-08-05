@@ -644,7 +644,7 @@ maintenance view with prominent status, archival, supersession, and completion-m
 
 `wld wr backfill` should:
 
-1. scan completed top-level Plans/Epics in both `plans/` and archived Plan locations, where completed means
+1. scan completed top-level Plans/Epics in both `docs/plans/` and archived Plan locations, where completed means
    `status: verified`, `status: closed_without_verification`, or PROJECT Epics with `epicCompletionMode: done_enough`;
 2. skip Plans that already have a `workRecord` backlink;
 3. preview the eligible Plans and likely generated record count;

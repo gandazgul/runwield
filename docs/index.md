@@ -109,7 +109,7 @@ of bundled skills is available under [`docs/customization.md`](customization.md)
 
 ### Use plans for non-trivial work
 
-Plans are Markdown files under `plans/` with YAML front matter. List and resume them with:
+Plans are Markdown files under `docs/plans/` with YAML front matter. List and resume them with:
 
 ```bash
 wld plans
@@ -117,8 +117,8 @@ wld load-plan <name-or-path>
 ```
 
 PROJECT plans are Epic containers. After review, the interactive Slicer helps split an Epic into child FEATURE plans
-under `plans/<epic-name>/`; each child then moves through the normal review, execution, validation, and recovery states.
-See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
+under `docs/plans/<epic-name>/`; each child then moves through the normal review, execution, validation, and recovery
+states. See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
 ### Use slash commands in the TUI
 

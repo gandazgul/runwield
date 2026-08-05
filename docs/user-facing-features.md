@@ -45,7 +45,7 @@
   - Use workflow specialists such as Slicer and Reviewer during plan decomposition and validation flows.
 
 - **Planning and execution**
-  - Store plans as Markdown files under `plans/`.
+  - Store plans as Markdown files under `docs/plans/`.
   - Use YAML front matter to preserve plan metadata and workflow state.
   - Review `FEATURE` plans before execution.
   - Save approved plans for later execution.

@@ -169,7 +169,7 @@ function buildResumeRequest(planName: string, attrs: PlanFrontMatter): string {
     return [
         `## Resuming Epic Child Plan: ${planName}`,
         "",
-        `RunWield automatically selected plans/${planName}.md from its parent Epic. Status: ${attrs.status}.`,
+        `RunWield automatically selected docs/plans/${planName}.md from its parent Epic. Status: ${attrs.status}.`,
         "",
         buildTriageReport(attrs),
     ].join("\n");

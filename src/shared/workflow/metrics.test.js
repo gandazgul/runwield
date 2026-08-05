@@ -96,7 +96,7 @@ Deno.test("sanitizeMetricDetails redacts sensitive keys, paths, and long strings
 Deno.test("sanitizeMetricDetails redacts generic relative paths but preserves affectedPaths metadata", () => {
     const sanitized = /** @type {any} */ (sanitizeMetricDetails({
         path: "src/private/file.js",
-        file: "plans/secret.md",
+        file: "docs/plans/secret.md",
         affectedPaths: ["src/visible.js", "docs/visible.md", "/Users/example/project/secret.js"],
     }));
     assertEquals(sanitized.path, "[path-redacted]");

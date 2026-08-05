@@ -44,7 +44,7 @@ Plannotator code review, Plan Events, Plan Status changes, or worktree merge-bac
 
 ## FEATURE
 
-A `FEATURE` creates a Markdown plan under `plans/` and sends it through review before execution.
+A `FEATURE` creates a Markdown plan under `docs/plans/` and sends it through review before execution.
 
 Typical flow:
 
@@ -91,7 +91,7 @@ Typical flow:
 3. RunWield moves the Epic to `ready_for_decomposition`.
 4. Slicer opens as an interactive PM/lead-engineer session. It discusses vertical slice boundaries, sequencing,
    dependencies, MVP scope, and deferred work with the user.
-5. After explicit user confirmation, Slicer writes draft child FEATURE plans under `plans/<epic-name>/`.
+5. After explicit user confirmation, Slicer writes draft child FEATURE plans under `docs/plans/<epic-name>/`.
 6. Slicer finalizes decomposition, moving the Epic to `ready_for_work` for child selection.
 7. RunWield advances through child FEATURE plans in Epic order. After a child verifies, Manual QA and Work Record
    handoffs finish in the old Session; then RunWield creates a fresh Session and starts the next child automatically.
@@ -121,8 +121,8 @@ permissions.
 
 ## Plan files
 
-Plans are Markdown files with YAML front matter in `plans/`. Standalone plans live directly under `plans/`; child
-FEATURE plans for an Epic live under `plans/<epic-name>/` and point back to the parent with `parentPlan`.
+Plans are Markdown files with YAML front matter in `docs/plans/`. Standalone plans live directly under `docs/plans/`;
+child FEATURE plans for an Epic live under `docs/plans/<epic-name>/` and point back to the parent with `parentPlan`.
 
 Use:
 

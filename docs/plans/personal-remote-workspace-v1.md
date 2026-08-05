@@ -36,7 +36,7 @@ worktreeStatus: "abandoned"
 ## Context
 
 RunWield's current browser Workspace is a strong single-checkout Plan surface, but it is not yet the persistent browser
-environment described by [`docs/prd/runwield-workspace-PRD.md`](../docs/prd/runwield-workspace-PRD.md). The owner cannot
+environment described by [`docs/prd/runwield-workspace-PRD.md`](../prd/runwield-workspace-PRD.md). The owner cannot
 register multiple trusted Projects, continue one durable Session across TUI, Workspace, and ACP, see attention across
 Projects, or search eligible artifacts and source code from one remote interface.
 
@@ -67,8 +67,8 @@ safely move between surfaces or survive process loss.
 Product discovery rejected a central Runtime proxy as unnecessary for the intended experience. TUI, Workspace, and ACP
 remain sibling Runtime consumers. Cross-surface continuity instead uses exclusive Session activation, durable workflow
 checkpoints, automatic read synchronization, and a separate Session-owned Plan Workflow Lease, as accepted in
-[`ADR-011`](../docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md). The planning-to-execution
-handoff follows [`ADR-012`](../docs/adr/012-segment-session-transcripts-at-execution-handoff.md): one stable Session
+[`ADR-011`](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md). The planning-to-execution
+handoff follows [`ADR-012`](../adr/012-segment-session-transcripts-at-execution-handoff.md): one stable Session
 owns ordered transcript segments that project as continuous scrollback, while only the current segment supplies model
 context.
 

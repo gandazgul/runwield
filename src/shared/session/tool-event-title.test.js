@@ -29,7 +29,7 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
     });
     assertEquals(describeRuntimeTool("plan_written", { planName: "runtime-boundary.md" }), {
         toolName: "plan_written",
-        title: "plan_written plans/runtime-boundary.md",
+        title: "plan_written docs/plans/runtime-boundary.md",
         kind: "other",
     });
     assertEquals(

@@ -311,7 +311,7 @@ export async function runResumeCheck({
         if (worktreeContext?.branch) {
             try {
                 /** @type {string[]} */
-                const allowedDirtyPaths = [`plans/${plan.planName}.md`];
+                const allowedDirtyPaths = [`docs/plans/${plan.planName}.md`];
                 const risk = await inspectExecutionWorktreeMergeRisk({
                     projectRoot: projectRoot,
                     branch: worktreeContext.branch,

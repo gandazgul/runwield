@@ -24,7 +24,7 @@ Spec Kit creates structured artifacts such as:
 
 RunWield already has its own durable artifacts and lifecycle:
 
-- Plans under `plans/`
+- Plans under `docs/plans/`
 - PRDs, ADRs, and `CONTEXT.md`
 - Plan Front Matter and Plan Lifecycle events
 - execution worktrees and Workflow Validation
@@ -55,7 +55,7 @@ A user points RunWield at a Spec Kit feature directory or repository containing 
 RunWield inspects available files and offers import modes:
 
 1. **Create PRD:** turn `spec.md` into a RunWield PRD under `docs/prd/` for ideation/planning.
-2. **Create Plan:** synthesize a RunWield Plan under `plans/` from `spec.md`, `plan.md`, and optionally `tasks.md`.
+2. **Create Plan:** synthesize a RunWield Plan under `docs/plans/` from `spec.md`, `plan.md`, and optionally `tasks.md`.
 3. **Use as context:** attach the Spec Kit artifacts to the current planning session without writing a new artifact yet.
 4. **Create Work Record:** for completed external work, create a draft external Work Record with provenance.
 

@@ -94,7 +94,7 @@ Deno.test("review page accepts Unicode Plan payloads", async () => {
     const app = createReviewWorkspaceApp({
         cwd: Deno.cwd(),
         token,
-        reviewPayload: { plan: "# Café 🚀\n", planPath: "plans/café.md" },
+        reviewPayload: { plan: "# Café 🚀\n", planPath: "docs/plans/café.md" },
         reviewType: "plan",
     }).handler();
 
@@ -635,7 +635,7 @@ Deno.test("Plan review feedback preserves all annotations and the edited Plan", 
                     annotations,
                     globalAttachments,
                     plan: "# Edited Plan\n",
-                    planSave: { enabled: true, path: "plans/edited.md" },
+                    planSave: { enabled: true, path: "docs/plans/edited.md" },
                 }),
             }),
         );
@@ -651,7 +651,7 @@ Deno.test("Plan review feedback preserves all annotations and the edited Plan", 
                 { path: "/tmp/annotated.png", name: "annotated" },
             ],
             plan: "# Edited Plan\n",
-            savedPath: "plans/edited.md",
+            savedPath: "docs/plans/edited.md",
         });
     } finally {
         unregisterReviewDecision(token);
@@ -690,7 +690,7 @@ Deno.test("Plan approval preserves annotations, global images, and the edited Pl
                     globalAttachments,
                     approvalAction: "run",
                     plan: "# Approved edited Plan\n",
-                    planSave: { enabled: true, path: "plans/approved.md" },
+                    planSave: { enabled: true, path: "docs/plans/approved.md" },
                 }),
             }),
         );
@@ -706,7 +706,7 @@ Deno.test("Plan approval preserves annotations, global images, and the edited Pl
                 { path: "/tmp/approval-inline.png", name: "approval-inline" },
             ],
             plan: "# Approved edited Plan\n",
-            savedPath: "plans/approved.md",
+            savedPath: "docs/plans/approved.md",
             approvalAction: "run",
             agentSwitch: undefined,
             permissionMode: undefined,

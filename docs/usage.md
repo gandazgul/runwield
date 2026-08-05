@@ -97,16 +97,16 @@ Load a plan by name or path:
 
 ```bash
 wld load-plan my-feature
-wld load-plan plans/my-feature.md
+wld load-plan docs/plans/my-feature.md
 ```
 
 Loading a plan lets you inspect it, continue work, recover failed work, or re-open review depending on the plan status.
 
-Plans live under `plans/` and use Markdown plus YAML front matter. RunWield treats the plan file as durable workflow
-state, not just a generated note.
+Plans live under `docs/plans/` and use Markdown plus YAML front matter. RunWield treats the plan file as durable
+workflow state, not just a generated note.
 
 PROJECT plans are Epic containers by default. Loading an approved or decomposing Epic opens the interactive Slicer so
-you can discuss child FEATURE boundaries and materialize drafts under `plans/<epic-name>/`. Once decomposition is
+you can discuss child FEATURE boundaries and materialize drafts under `docs/plans/<epic-name>/`. Once decomposition is
 finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
 execution, validation, and recovery flow.
 
@@ -321,7 +321,7 @@ RunWield uses RunWield-owned paths instead of Pi-owned paths:
 | Project settings             | `.wld/settings.json`                       |
 | Project agents               | `.wld/agents/`                             |
 | Project prompts              | `.wld/prompts/`                            |
-| Project plans                | `plans/`                                   |
+| Project plans                | `docs/plans/`                              |
 
 On first use, RunWield imports some Pi config files into `~/.wld/` when the RunWield copy does not exist.
 

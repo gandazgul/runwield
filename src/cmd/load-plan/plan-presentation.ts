@@ -68,7 +68,7 @@ export function buildResumeRequest(planName: string, attrs: Partial<PlanFrontMat
     return [
         `## Resuming Plan: ${planName}`,
         "",
-        `The user re-opened plans/${planName}.md, last saved with status: ${attrs.status}.`,
+        `The user re-opened docs/plans/${planName}.md, last saved with status: ${attrs.status}.`,
         "",
         buildTriageReport(attrs),
     ].join("\n");
@@ -82,7 +82,7 @@ export function buildReReviewRevisionRequest(planName: string, feedback: string 
     return [
         `## Plan Review Re-opened: ${planName}`,
         "",
-        `The user provided feedback on the previously approved plans/${planName}.md:`,
+        `The user provided feedback on the previously approved docs/plans/${planName}.md:`,
         "",
         feedback || "(no specific feedback provided)",
     ].join("\n");
@@ -96,7 +96,7 @@ export function buildPlannerReReviewRequest(planName: string): string {
     return [
         `## Plan Re-review Requested: ${planName}`,
         "",
-        `The user wants plans/${planName}.md to go back through Planner re-review before execution, without opening the`,
+        `The user wants docs/plans/${planName}.md to go back through Planner re-review before execution, without opening the`,
         "local review UI first. No feedback was submitted with the request.",
     ].join("\n");
 }

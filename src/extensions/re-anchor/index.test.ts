@@ -75,7 +75,7 @@ globalThis.addEventListener("unload", () => {
  * The Plan pointer is RunWield's own state, not an external boundary, so these
  * tests store it through `setActiveExecutionWorkflow` and `setWorkflowPlanName`
  * and read it back through the same accessors the extension calls. A stand-in
- * returning literals would happily hand back a `plans/x.md` shape that
+ * returning literals would happily hand back a `docs/plans/x.md` shape that
  * `setWorkflowPlanName` normalizes away, and the precedence assertions would
  * prove nothing about the object the extension actually gets.
  */
@@ -109,7 +109,7 @@ Deno.test("a settled compaction injects one re-anchor naming the Plan", () => {
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "plans/some-plan.md");
+    assertStringIncludes(text, "docs/plans/some-plan.md");
     assertStringIncludes(text, "Verification Plan");
 });
 
@@ -153,21 +153,21 @@ Deno.test("the active execution Plan wins over the planning workflow context", (
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "plans/executing-plan.md");
+    assertStringIncludes(text, "docs/plans/executing-plan.md");
     assert(!text.includes("stale-planning-plan"), "the planning context must not override the executing Plan");
 });
 
 Deno.test("a planning turn re-anchors from the recorded workflow Plan name", () => {
     const harness = setup({
         agentName: "planner",
-        hostedSession: hostedSession(null, "plans/drafted-plan.md"),
+        hostedSession: hostedSession(null, "docs/plans/drafted-plan.md"),
     });
     harness.compact({ reason: "manual" });
 
     const text = harness.injected();
 
     assertStringIncludes(text, "draft Plan");
-    assertStringIncludes(text, "plans/drafted-plan.md");
+    assertStringIncludes(text, "docs/plans/drafted-plan.md");
 });
 
 Deno.test("an Architect re-anchors on its Epic", () => {
@@ -177,7 +177,7 @@ Deno.test("an Architect re-anchors on its Epic", () => {
     const text = harness.injected();
 
     assertStringIncludes(text, "Epic");
-    assertStringIncludes(text, "plans/some-epic.md");
+    assertStringIncludes(text, "docs/plans/some-epic.md");
 });
 
 Deno.test("Reviewer-Feedback Engineer carries the open Review Issue Ledger", () => {
@@ -210,7 +210,7 @@ Deno.test("Reviewer-Feedback Engineer carries the open Review Issue Ledger", () 
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "plans/repairing-plan.md");
+    assertStringIncludes(text, "docs/plans/repairing-plan.md");
     assertStringIncludes(text, "R1-1");
     assertStringIncludes(text, "Seam check never runs");
     assert(!text.includes("R1-2"), "resolved items must not be reopened by the re-anchor");

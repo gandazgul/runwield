@@ -463,8 +463,8 @@ Deno.test("execution preparation transition locks resources and journals blocked
 Deno.test("Plan front matter transition preserves malformed bytes and stays retryable", async () => {
     const cwd = await makeProject();
     try {
-        await Deno.mkdir(join(cwd, "plans"), { recursive: true });
-        const path = join(cwd, "plans", "bad.md");
+        await Deno.mkdir(join(cwd, "docs", "plans"), { recursive: true });
+        const path = join(cwd, "docs", "plans", "bad.md");
         const malformed = "---\n: bad\n---\n# Bad";
         await Deno.writeTextFile(path, malformed);
         const result = await runPlanFrontMatterTransition({
@@ -532,7 +532,7 @@ Deno.test("direct delivery publication rollback settles reversible pre-target st
                     restored = true;
                     return Promise.resolve();
                 });
-                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["plans/demo.md"] });
+                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["docs/plans/demo.md"] });
                 throw new Error("merge failed before target ref movement");
             },
         });
@@ -558,7 +558,7 @@ Deno.test("direct delivery publication leaves reconciliation after target ref mo
                     rollbackRan = true;
                     return Promise.resolve();
                 });
-                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["plans/demo.md"] });
+                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["docs/plans/demo.md"] });
                 await markEffect("direct_delivery_target_ref_moved", { targetBranch: "main", executionCommit: "abc" });
                 throw new Error("metadata ancestry proof failed after target ref movement");
             },

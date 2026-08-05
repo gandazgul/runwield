@@ -66,7 +66,7 @@ reviewLauncherTest("Plan Review reports its real Workspace URL before opening th
     const server = await startPlanReviewSurface<PlanDecision>({
         cwd: projectRoot,
         plan: "# Plan",
-        planPath: "plans/example.md",
+        planPath: "docs/plans/example.md",
         browser,
         onSurfaceReady: (surface) => surfaces.push(surface),
     });
@@ -114,7 +114,7 @@ collaborationRecommendation: pair
 ---
 # Plan
 `,
-            planPath: "plans/policy.md",
+            planPath: "docs/plans/policy.md",
             browser: recordingBrowser(false),
         });
         const html = await (await fetch(server.url)).text();

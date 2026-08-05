@@ -651,7 +651,8 @@ Ticket Reference, and lifecycle relationships without duplicating this section's
 
 ### Canonical Plan representation
 
-`plans/**/*.md` is the source of truth. A Plan consists of a YAML front matter record plus a Markdown body. The store:
+`docs/plans/**/*.md` is the source of truth. A Plan consists of a YAML front matter record plus a Markdown body. The
+store:
 
 - guards Plan names against absolute paths and `..` traversal;
 - normalizes known metadata while preserving supported Plan fields;
@@ -845,8 +846,8 @@ map for Core persistence.
 | Session image and memory-backup artifacts | Beside the persisted session                                      | Session-scoped file helpers                          |
 | Global settings, models, auth             | `~/.wld/`                                                         | RunWield settings/model services                     |
 | Project settings and overrides            | `<project>/.wld/`                                                 | Project-scoped settings/catalog services             |
-| Plans                                     | `<project>/plans/**/*.md`                                         | Plan store and Plan lifecycle                        |
-| Archived Plans                            | `<project>/plans/archived/`                                       | Plan store archive/restore operations                |
+| Plans                                     | `<project>/docs/plans/**/*.md`                                    | Plan store and Plan lifecycle                        |
+| Archived Plans                            | `<project>/docs/plans/archived/`                                  | Plan store archive/restore operations                |
 | Worktree registry                         | `<project>/.wld/worktrees.json`                                   | Worktree registry under a local lock file            |
 | Execution worktrees                       | `~/.wld/worktrees/<encoded-project-root>/` by default             | Git worktree service                                 |
 | Workflow metrics                          | `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`    | Optional, sanitized, fail-open append                |

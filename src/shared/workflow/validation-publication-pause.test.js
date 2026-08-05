@@ -205,7 +205,7 @@ Deno.test("resumes publication from stored repaired merge worktree", async () =>
 
         assertEquals(result.kind, "verified");
         assertEquals(await git(projectRoot, ["show", "main:shared.txt"]), "repaired result");
-        const publishedPlan = await git(projectRoot, ["show", `main:plans/${PLAN_NAME}.md`]);
+        const publishedPlan = await git(projectRoot, ["show", `main:docs/plans/${PLAN_NAME}.md`]);
         assertStringIncludes(publishedPlan, 'status: "verified"');
         assert(!publishedPlan.includes("validationMergeRepairWorktree"));
     } finally {

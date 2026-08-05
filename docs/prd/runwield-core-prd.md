@@ -124,7 +124,7 @@ Parameters:
 
 Behavior:
 
-1. Validate that `plans/<planName>.md` exists.
+1. Validate that `docs/plans/<planName>.md` exists.
 2. Resolve effective triage metadata from captured context or Plan front matter.
 3. Submit the Plan for review.
 4. On approval, record approval and run the classification-aware Readiness Gate.
@@ -246,7 +246,7 @@ Current local Workspace requirements:
 - uses a random token for non-public routes and state-changing requests
 - exposes board, detail, lifecycle-action, and body-save APIs
 - reads and writes canonical markdown Plans through Plan store and lifecycle APIs
-- preserves `plans/` as the source of truth
+- preserves `docs/plans/` as the source of truth
 
 The local Workspace is a Core client and remains supported alongside the later persistent owner Workspace. Broader
 Workspace, Personal Remote Workspace, and SaaS requirements live in
@@ -478,7 +478,7 @@ Current:
 - **Compatibility:** preserve Pi Coding Agent behavior and configuration compatibility where it does not conflict with
   RunWield's planning/lifecycle product model.
 - **Local UI:** Astro SSR, Vite, React islands, Tailwind/Radix-compatible Workspace primitives.
-- **Plan persistence:** repo-local markdown under `plans/`.
+- **Plan persistence:** repo-local markdown under `docs/plans/`.
 - **RunWield settings/state:** `~/.wld/` and `.wld/` where appropriate.
 - **Memory:** Mnemosyne.
 - **Code intelligence:** Cymbal plus command/search tools.

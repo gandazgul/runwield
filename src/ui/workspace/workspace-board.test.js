@@ -25,8 +25,8 @@ Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/depe
     const summary = serializePlanSummary({
         planId: "p1",
         planName: "epic/child",
-        relativePath: "plans/epic/child.md",
-        path: "/tmp/project/plans/epic/child.md",
+        relativePath: "docs/plans/epic/child.md",
+        path: "/tmp/project/docs/plans/epic/child.md",
         attrs: {
             status: "draft",
             classification: "FEATURE",
@@ -44,7 +44,7 @@ Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/depe
             worktreePath: "/tmp/project-runwield-worktree",
         },
     });
-    assertEquals(summary.relativePath, "plans/epic/child.md");
+    assertEquals(summary.relativePath, "docs/plans/epic/child.md");
     assertEquals(Object.hasOwn(summary, "path"), false);
     assertEquals(Object.hasOwn(summary.attrs, "worktreePath"), false);
     assertEquals(summary.attrs.executionMode, "worktree");

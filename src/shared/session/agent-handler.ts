@@ -119,7 +119,7 @@ function isMissingPrimaryPlanError(error: Error | string, planName: string): boo
  * @returns {Promise<boolean>}
  */
 async function requestMissingPrimaryPlanRetry(hostedSession: HostedSession, planName: string): Promise<boolean> {
-    const planPath = `plans/${planName}.md`;
+    const planPath = `docs/plans/${planName}.md`;
     const message =
         `The Plan file "${planPath}" is missing from the main checkout. Restore it in the main checkout, then come back and pick Retry.`;
     emitSystemStatus(hostedSession, message, { level: "warning", header: "RunWield" });

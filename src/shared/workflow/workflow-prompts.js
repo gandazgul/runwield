@@ -107,7 +107,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         "Follow the Slicer system prompt: discuss planned-change boundaries first; use the workflow tool for materialization/finalization only when explicitly requested.",
         "",
         "## Epic Lifecycle State",
-        `- Plan: plans/${planName}.md`,
+        `- Plan: docs/plans/${planName}.md`,
         `- Classification: ${attrs.classification || "unknown"}`,
         `- Status: ${attrs.status || "unknown"}`,
     ];
@@ -223,7 +223,7 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
 /**
  * @typedef {Object} ReAnchorContext
  * @property {string} [agentName]
- * @property {string} [planName] - Normalized Plan name: no `plans/` prefix, no `.md` suffix.
+ * @property {string} [planName] - Normalized Plan name: no `docs/plans/` prefix, no `.md` suffix.
  * @property {string} [openReviewItems] - Rendered open Review Issue Ledger items for a repair turn.
  */
 
@@ -250,7 +250,7 @@ export function buildReAnchorMessage(context = {}) {
     const lines = [
         "## Context Re-Anchor",
         "",
-        `Context was compacted. Your ${artifact.label} is \`plans/${planName}.md\`.`,
+        `Context was compacted. Your ${artifact.label} is \`docs/plans/${planName}.md\`.`,
         `Reread it before continuing: ${artifact.sections}.`,
     ];
 

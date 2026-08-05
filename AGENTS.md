@@ -29,8 +29,8 @@ Two rules keep it that way:
 ## Test Seams and Dependency Injection
 
 RunWield has eliminated the `__deps`/`__testDeps` dependency-bag pattern and forbids its return under a different name.
-See `plans/replace-deps-bag-with-capability-ports.md` for the migration history and load the bundled `write-tests` skill
-before changing tests. `deno task seams:check` enforces the zero-seam baseline and runs in `deno task ci`.
+See `docs/plans/replace-deps-bag-with-capability-ports.md` for the migration history and load the bundled `write-tests`
+skill before changing tests. `deno task seams:check` enforces the zero-seam baseline and runs in `deno task ci`.
 
 An injection seam is a public claim that something is **not ours**. Treat it as an architectural decision, not a testing
 convenience:

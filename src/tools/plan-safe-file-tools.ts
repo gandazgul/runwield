@@ -46,16 +46,16 @@ function stringValue(value: unknown): string {
 export function isCanonicalPlanMarkdownPath(cwd: string, path: string): boolean {
     const absolute = isAbsolute(path) ? path : join(cwd, path);
     const rel = relative(cwd, absolute).replaceAll("\\", "/");
-    return rel.startsWith("plans/") && rel.endsWith(".md") && !rel.startsWith("plans/archived/");
+    return rel.startsWith("docs/plans/") && rel.endsWith(".md") && !rel.startsWith("docs/plans/archived/");
 }
 
 function planNameFromCanonicalMarkdownPath(cwd: string, path: string): string {
     const absolute = isAbsolute(path) ? path : join(cwd, path);
     const rel = relative(cwd, absolute).replaceAll("\\", "/");
-    if (!rel.startsWith("plans/") || !rel.endsWith(".md") || rel.startsWith("plans/archived/")) {
+    if (!rel.startsWith("docs/plans/") || !rel.endsWith(".md") || rel.startsWith("docs/plans/archived/")) {
         throw new Error(`Not a canonical Plan markdown path: ${path}`);
     }
-    return rel.slice("plans/".length, -".md".length);
+    return rel.slice("docs/plans/".length, -".md".length);
 }
 
 function applySingleExactEdit(content: string, oldText: string, newText: string, path: string): string {

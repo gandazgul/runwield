@@ -62,7 +62,7 @@ every response.
 Use the read-only exploration tools to understand the Epic and surrounding codebase whenever they improve the proposed
 slices.
 
-`slicer_finalize_decomposition` materializes child planned change drafts under `plans/<epic-name>/`, records the
+`slicer_finalize_decomposition` materializes child planned change drafts under `docs/plans/<epic-name>/`, records the
 finalized decomposition, and moves the parent Epic to `ready_for_work` when the lifecycle allows it.
 
 When the user clearly agrees with the decomposition, materialize it. Ordinary instructions such as "go ahead,"

@@ -145,14 +145,14 @@ Deno.test("buildReAnchorMessage names the draft Plan and its sections for Planne
     const message = buildReAnchorMessage({ agentName: "planner", planName: "some-plan" });
 
     assertStringIncludes(String(message), "Context was compacted.");
-    assertStringIncludes(String(message), "draft Plan is `plans/some-plan.md`");
+    assertStringIncludes(String(message), "draft Plan is `docs/plans/some-plan.md`");
     assertStringIncludes(String(message), "Implementation Steps");
 });
 
 Deno.test("buildReAnchorMessage names the Epic for Architect", () => {
     const message = buildReAnchorMessage({ agentName: "architect", planName: "some-epic" });
 
-    assertStringIncludes(String(message), "Epic is `plans/some-epic.md`");
+    assertStringIncludes(String(message), "Epic is `docs/plans/some-epic.md`");
     assertStringIncludes(String(message), "Vertical Slice Findings");
 });
 
@@ -160,7 +160,7 @@ Deno.test("buildReAnchorMessage points both execution agents at the Verification
     for (const agentName of ["engineer", "frontend-engineer"]) {
         const message = String(buildReAnchorMessage({ agentName, planName: "some-plan" }));
 
-        assertStringIncludes(message, "Plan is `plans/some-plan.md`");
+        assertStringIncludes(message, "Plan is `docs/plans/some-plan.md`");
         assertStringIncludes(message, "Verification Plan");
     }
 });
@@ -172,7 +172,7 @@ Deno.test("buildReAnchorMessage carries open review issues for a repair turn", (
         openReviewItems: "[R1-1] Seam check never runs\n  Plan requirement: Verification Plan step 3",
     }));
 
-    assertStringIncludes(message, "plans/some-plan.md");
+    assertStringIncludes(message, "docs/plans/some-plan.md");
     assertStringIncludes(message, "## Open Review Issue Ledger");
     assertStringIncludes(message, "[R1-1] Seam check never runs");
 });
@@ -184,7 +184,7 @@ Deno.test("buildReAnchorMessage omits an empty Review Issue Ledger", () => {
         openReviewItems: "(none)",
     }));
 
-    assertStringIncludes(message, "plans/some-plan.md");
+    assertStringIncludes(message, "docs/plans/some-plan.md");
     if (message.includes("Open Review Issue Ledger")) {
         throw new Error("An empty ledger must not add a ledger section");
     }

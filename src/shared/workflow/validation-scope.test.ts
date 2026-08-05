@@ -38,7 +38,7 @@ Deno.test("only a child Plan with a parent hands back to its Epic", () => {
 });
 
 Deno.test("implementation diffs are distinguished from Plan-only edits", () => {
-    const planOnly = "diff --git a/plans/demo.md b/plans/demo.md\n";
+    const planOnly = "diff --git a/docs/plans/demo.md b/docs/plans/demo.md\n";
     const withCode = `${planOnly}diff --git a/src/thing.ts b/src/thing.ts\n`;
 
     assertEquals(extractDiffPaths(withCode).length, 4);
@@ -46,9 +46,16 @@ Deno.test("implementation diffs are distinguished from Plan-only edits", () => {
     assertEquals(hasImplementationDiff(withCode, "demo"), true);
     assertEquals(hasImplementationDiff("   \n", "demo"), false);
 
-    // A sibling Plan document is still a Plan document: editing another Plan is not
-    // implementing this one.
-    assertEquals(hasImplementationDiff("diff --git a/plans/other.md b/plans/other.md\n", "demo"), false);
+    // Sibling and nested child Plan documents are still Plan documents: editing another
+    // Plan is not implementing this one.
+    assertEquals(hasImplementationDiff("diff --git a/docs/plans/other.md b/docs/plans/other.md\n", "demo"), false);
+    assertEquals(
+        hasImplementationDiff("diff --git a/docs/plans/epic/child.md b/docs/plans/epic/child.md\n", "demo"),
+        false,
+    );
+
+    // The legacy store is no longer canonical Plan metadata after the clean break.
+    assertEquals(hasImplementationDiff("diff --git a/plans/demo.md b/plans/demo.md\n", "demo"), true);
 
     // Non-empty but unparseable counts as implementation on purpose. Treating a diff
     // RunWield cannot read as "no work" would let a Plan claim completion over

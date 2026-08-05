@@ -164,7 +164,7 @@ async function attemptManualPublication(
             siblingPlanNames,
             publicationProof: { phase: "manual_recovery_merge", worktreeBranch: manualWorktreeBranch },
             publish: async ({ markEffect, registerRollback }) => {
-                const planPath = `plans/${plan.planName}.md`;
+                const planPath = `docs/plans/${plan.planName}.md`;
                 let deliveryEvidence: WorktreeDeliveryEvidence;
                 if (plan.attrs.deliveryEvidence?.mode === "worktree_merge") {
                     deliveryEvidence = plan.attrs.deliveryEvidence;

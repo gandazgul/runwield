@@ -274,7 +274,7 @@ export function buildActiveWorkRecordSource(name, loaded) {
     return {
         sourceKind: "active",
         name,
-        relativePath: `plans/${name}.md`,
+        relativePath: `docs/plans/${name}.md`,
         path: loaded.path,
         planId: loaded.attrs.planId || "",
         attrs: loaded.attrs,

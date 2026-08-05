@@ -8,7 +8,7 @@ import { resolveEpicContinuation } from "./epic-continuation.ts";
  * @param {Record<string, unknown>} attrs
  */
 async function writePlan(cwd, name, attrs) {
-    const path = join(cwd, "plans", `${name}.md`);
+    const path = join(cwd, "docs", "plans", `${name}.md`);
     await Deno.mkdir(dirname(path), { recursive: true });
     const lines = ["---"];
     for (const [key, value] of Object.entries(attrs)) {
@@ -25,7 +25,7 @@ async function writePlan(cwd, name, attrs) {
 
 async function makeProject() {
     const cwd = await Deno.makeTempDir();
-    await Deno.mkdir(join(cwd, "plans", "epic"), { recursive: true });
+    await Deno.mkdir(join(cwd, "docs", "plans", "epic"), { recursive: true });
     await writePlan(cwd, "epic", {
         classification: "PROJECT",
         complexity: "HIGH",
