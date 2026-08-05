@@ -1,4 +1,5 @@
 ---
+planId: "a4311ccc-d963-4f35-94cd-1c41f9a04733"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "MEDIUM"
@@ -38,16 +39,97 @@ objectiveChecks:
     - id: "OC7"
       command: "! grep -q \"complexity and affected paths\" docs/index.md"
       rationale: "docs/index.md currently says implementation intents record complexity and affected paths."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-05T01:42:09.900Z"
+    head: "2fb270f391c40cf7d7c12855d6e0d3774810ce22"
+    results:
+        - id: "OC1"
+          command: "! grep -q \"affectedPaths\" src/tools/triage-report.ts"
+          rationale: "The triage_report PARAMETERS schema, TriageReportDetails interface, and triage_reported metric must no longer reference affectedPaths; all three contain it today."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 17
+          output: "\n"
+        - id: "OC2"
+          command: "! grep -qiE \"affectedPaths|vertical slice\" src/agent-definitions/router.md"
+          rationale: "Router prompt step 7 currently requires an ordered affectedPaths list and step 6 instructs identifying the vertical slice; both mentions exist today."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 15
+          output: "\n"
+        - id: "OC3"
+          command: "! grep -q \"affectedPaths\" src/shared/workflow/orchestrator.ts"
+          rationale: "TriageOutcome/TriageOutcomeInput declare affectedPaths and normalizeTriageOutcome hard-requires Array.isArray(details.affectedPaths) today; the removal must update all four occurrences or triage dispatch breaks."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 23
+          output: "\n"
+        - id: "OC4"
+          command: "! grep -q \"affectedPaths\" docs/prd/runwield-core-prd.md"
+          rationale: "The living PRD documents affectedPaths as a triage_report parameter (line ~97) today."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 16
+          output: "\n"
+        - id: "OC5"
+          command: "! grep -q \"summary, affected paths\" CONTEXT.md"
+          rationale: "CONTEXT.md's Triage Report definition currently lists affected paths among its contents."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 24
+          output: "\n"
+        - id: "OC6"
+          command: "! grep -q \"summary, affected paths\" src/agent-definitions/operator.md"
+          rationale: "operator.md's Router-handoff input description currently lists affected paths."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 14
+          output: "\n"
+        - id: "OC7"
+          command: "! grep -q \"complexity and affected paths\" docs/index.md"
+          rationale: "docs/index.md currently says implementation intents record complexity and affected paths."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 13
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T21:38:25-04:00"
-updatedAt: "2026-08-05T01:41:44.477Z"
+updatedAt: "2026-08-05T04:20:18.503Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-05T02:56:04.615Z"
+verifiedAt: "2026-08-05T04:20:18.503Z"
 userVerifiedAt: null
+executionReport: "- **`src/tools/triage-report.ts`** — zero `affectedPaths`: removed from `PARAMETERS` schema, `TriageReportDetails` interface, `normalizeTriageParams`, and the `triage_reported` metric details (drops `affectedPaths`/`affectedPathCount` keys). OC1 verified.\n- **`src/shared/workflow/orchestrator.ts`** — zero `affectedPaths`: removed from `TriageOutcome`/`TriageOutcomeInput`; `normalizeTriageOutcome` now validates only `complexity`/`summary`/`routingIntent` and constructs the outcome without the field. OC3 verified.\n- **`src/agent-definitions/router.md`** — no `affectedPaths`, no \"vertical slice\" (OC2); step 6 no longer instructs identifying the vertical slice, step 7 lists exactly `routingIntent`, `complexity`, `summary`, `sessionName`.\n- **`src/agent-definitions/operator.md`** — \"Your Inputs\" handoff no longer lists affected paths (OC6); line-67 \"likely affected paths\" is freeform `return_to_router` message guidance, not the triage contract, left per plan scope.\n- **`CONTEXT.md`** — Triage Report definition now lists routing intent/complexity/summary/optional Session Name; **Affected Paths** redefined as Plan front-matter metadata; stable-relationship bullets re-anchored (OC5). \"Vertical Slice\" glossary term kept (only router.md removal was required).\n- **`docs/index.md`** and **`docs/prd/runwield-core-prd.md`** — Router usage and `triage_report` parameter list no longer mention affected paths (OC7, OC4).\n- **Tests** — removed `affectedPaths` from all `triage_report` params/fixtures in `triage-report.test.js`, `orchestrator.test.ts` (triage fixtures only; `savePlan` front-matter fixtures kept), `agent-handler.test.ts`; added regression test `readLatestTriageOutcome normalizes a report without affectedPaths` (this input returned `null` before).\n- **Golden TUI mocks** — `initial-scenarios.js` (2 sites) and `role-journeys.js` pass `triage_report` args without `affectedPaths`; Golden `plans/*.md` front-matter fixture text untouched.\n- **Plan-gap repair** — read-only exploration missed `scripts/run-router-golden-set.js:286`, which consumed `triage.affectedPaths` for the `routerAffectedPaths` golden-set CSV column; it now records `\"\"` (column schema kept for CSV compatibility) and its test updated. This was required for `deno task test` to go green.\n- **Protected behavior verified** — `workflow-prompts.test.js` \"buildTriageReport preserves the Router's structured context\" passes unmodified (Plan-attrs render path intact); `plan-store.js`, `workflow-slicer.ts`, `metrics.js`, `plan-presentation.ts`, `epic-continuation.ts` untouched; `deno task seams:check` baseline holds (no seams added).\n- **Verification** — `deno check` on the three touched source files green; full `deno task ci` green: type-check 551 files (0 errors), workspace check (0 errors), lint clean, language-policy ok, seams ok, doc-links ok, `deno task test` = 247 files passed / 0 failed. Manual `wld` scratch-project runs not executed; the equivalent behaviors (six-intent dispatch, auto session naming, legacy FEATURE→PLANNED_CHANGE, workKind preserved only for PLANNED_CHANGE) are covered by the orchestrator/triage-report automated suites."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-05T04:20:17.600Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "0e6cbb86e027d61a2eb199d943561dfde4009349"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "fd5e2eeac6e20d2e9a9f1337d33a4b5f2513cff3"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "remove triage affected paths"
-planId: "a4311ccc-d963-4f35-94cd-1c41f9a04733"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Remove affectedPaths from triage_report
