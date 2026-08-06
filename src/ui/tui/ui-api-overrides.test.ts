@@ -1,6 +1,6 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
 import { Container, Editor, Image, Spacer, TUI } from "@earendil-works/pi-tui";
-import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
+import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { getEditorTheme, initRunWieldTheme } from "../theme/theme.js";
@@ -120,6 +120,8 @@ Deno.test("installUiApiOverrides selects a configured fixture model through the 
             getProjectRoot: () => projectRoot,
             setActiveModel: (model: string, provider?: string) => {
                 selectedModels.push({ model, provider });
+                getSettingsManager(projectRoot).setDefaultModelAndProvider(provider || "", model);
+                return { status: "active" };
             },
             getActiveModelState: () => ({
                 model: "fixture-model",
@@ -128,12 +130,12 @@ Deno.test("installUiApiOverrides selects a configured fixture model through the 
         });
         try {
             const selectionPromise = harness.uiAPI.showModelSelector();
-            let selector = harness.container.children.find((child) => child instanceof ModelSelectorComponent);
+            let selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
             for (let attempt = 0; !selector && attempt < 50; attempt++) {
                 await new Promise((resolve) => setTimeout(resolve, 0));
-                selector = harness.container.children.find((child) => child instanceof ModelSelectorComponent);
+                selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
             }
-            assertInstanceOf(selector, ModelSelectorComponent);
+            assertInstanceOf(selector, RunWieldModelSelectorComponent);
             selector.handleInput("\r");
             await selectionPromise;
 
@@ -151,18 +153,49 @@ Deno.test("installUiApiOverrides selects a configured fixture model through the 
     });
 });
 
+Deno.test("installUiApiOverrides sends Claude selections through the runtime callback", async () => {
+    await withRuntimeCommandFixture("ui-api-model-selector-claude-", async ({ projectRoot }) => {
+        const selectedModels: Array<{ model: string; provider?: string }> = [];
+        const harness = makeHarness(projectRoot);
+        installUiApiOverrides({
+            ...harness,
+            getProjectRoot: () => projectRoot,
+            setActiveModel: (model: string, provider?: string) => {
+                selectedModels.push({ model, provider });
+                return { status: "active" };
+            },
+        });
+        try {
+            const selectionPromise = harness.uiAPI.showModelSelector("claude-cli/sonnet");
+            let selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
+            for (let attempt = 0; !selector && attempt < 50; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
+            }
+            assertInstanceOf(selector, RunWieldModelSelectorComponent);
+            selector.handleInput("\r");
+            await selectionPromise;
+            assertEquals(selectedModels, [{ model: "sonnet", provider: "claude-cli" }]);
+            assertEquals(harness.container.children.includes(harness.editor), true);
+            assertEquals(harness.editor.focused, true);
+        } finally {
+            harness.tui.stop();
+        }
+    });
+});
+
 Deno.test("installUiApiOverrides restores a missing editor after the real selector is cancelled", async () => {
     await withRuntimeCommandFixture("ui-api-model-cancel-", async ({ projectRoot }) => {
         const harness = makeHarness(projectRoot);
         harness.container.removeChild(harness.editor);
         try {
             const selectionPromise = harness.uiAPI.showModelSelector();
-            let selector = harness.container.children.find((child) => child instanceof ModelSelectorComponent);
+            let selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
             for (let attempt = 0; !selector && attempt < 50; attempt++) {
                 await new Promise((resolve) => setTimeout(resolve, 0));
-                selector = harness.container.children.find((child) => child instanceof ModelSelectorComponent);
+                selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
             }
-            assertInstanceOf(selector, ModelSelectorComponent);
+            assertInstanceOf(selector, RunWieldModelSelectorComponent);
             selector.handleInput("\x1b");
             await selectionPromise;
             assertEquals(harness.container.children.includes(harness.editor), true);

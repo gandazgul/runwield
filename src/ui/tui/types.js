@@ -40,7 +40,7 @@
  *   clearMessages?: () => void,
  *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string, persistResult?: boolean }) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean, persistResult?: boolean }) => Promise<string | null>,
- *   showModelSelector: () => Promise<void> | void,
+ *   showModelSelector: (initialSearchInput?: string) => Promise<void> | void,
  *   disableInput?: () => void,
  *   enableInput?: () => void,
  *   startToolExecution?: (id: string, toolName: string, title: string) => ToolExecutionBlockApi,

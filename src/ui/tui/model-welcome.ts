@@ -117,20 +117,13 @@ export function getSelectedDefaultModelAvailability(projectRoot: string): ModelA
         if (!registry.find) return { available: true, error: null };
         const found = registry.find(defaultProvider || "", defaultModel);
         const foundModel = isRegistryModelSummary(found) ? found : null;
+        if (foundModel && registry.isSelectable?.(foundModel)) return { available: true, error: null };
         const availableModels = registry.getAvailable?.() || [];
         const runnable = availableModels.some((model) =>
             model.provider === (defaultProvider || foundModel?.provider) &&
             model.id === (foundModel?.id || defaultModel)
         );
         if (foundModel && runnable) return { available: true, error: null };
-
-        if (foundModel?.executionBackend === "claude-cli" || defaultProvider === "claude-cli") {
-            return {
-                available: false,
-                error:
-                    `Selected default model is deferred until the Claude CLI execution backend is installed: claude-cli/${defaultModel}`,
-            };
-        }
 
         return {
             available: false,
@@ -185,10 +178,17 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
         initialAvailability.error ? `Model registry note: ${initialAvailability.error}` : "",
     ].filter(Boolean).join("\n");
 
+    let modelSelectorAlreadyShown = false;
     while (!afterLoginAvailability.available) {
         const choice = await options.uiAPI.promptSelect(
             title,
             [
+                {
+                    value: "claude-cli",
+                    label: "Use Claude Code CLI",
+                    description:
+                        "Select a Claude CLI alias. Requires Claude Code installed and signed in; no RunWield API key login.",
+                },
                 {
                     value: "subscription",
                     label: "Use a subscription login",
@@ -209,6 +209,14 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
             return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
         }
 
+        if (choice === "claude-cli") {
+            if (options.uiAPI.showModelSelector) await options.uiAPI.showModelSelector("claude-cli/sonnet");
+            else await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
+            modelSelectorAlreadyShown = true;
+            afterLoginAvailability = getConfiguredModelAvailability();
+            break;
+        }
+
         const loginArg = choice === "subscription" ? "subscription" : "api-key";
         await commandRegistry[COMMAND_NAMES.LOGIN].execute([loginArg], {
             ...runCommandContext(options),
@@ -218,7 +226,7 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
         afterLoginAvailability = getConfiguredModelAvailability();
     }
 
-    await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
+    if (!modelSelectorAlreadyShown) await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
 
     const afterSelectionAvailability = getSelectedDefaultModelAvailability(options.projectRoot);
     if (!afterSelectionAvailability.available) {

@@ -43,10 +43,14 @@ function registryValue(available: RegistryValueModel[]): RegistryValue {
 }
 
 /** Drive the onboarding completion path through the scripted OAuth provider. */
+async function chooseSubscriptionLogin(harness: InteractiveCompositionHarness): Promise<void> {
+    await harness.type("subscription\r");
+}
+
 async function completeOnboardingWithScriptedProvider(
     harness: InteractiveCompositionHarness,
 ): Promise<void> {
-    await harness.type("\r"); // welcome prompt: "Use a subscription login"
+    await chooseSubscriptionLogin(harness);
     await harness.waitForScreen("Select provider to configure:");
     await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
     await harness.waitForScreen("Paste the redirect URL");
@@ -111,6 +115,28 @@ Deno.test("a usable selected fixture model bypasses onboarding and activates the
     });
 });
 
+Deno.test("no-provider onboarding can choose Claude Code CLI without login", async () => {
+    await withRuntimeCommandFixture("model-welcome-claude-cli-", async ({ projectRoot }) => {
+        const harness = await createInteractiveCompositionHarness({});
+        try {
+            await harness.waitForScreen(WELCOME_TITLE);
+            await harness.type("\r"); // first option: Use Claude Code CLI
+            const selectorScreen = await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+            assert(selectorScreen.includes("Claude CLI"));
+            assert(!selectorScreen.includes("Select provider to configure:"));
+            await harness.type("\r");
+            const composition = await harness.waitForComposition(30_000);
+            const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+            assertEquals(snapshot?.activeAgent, "router");
+            assertEquals(snapshot?.activeModel, { model: "sonnet", provider: "claude-cli" });
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "sonnet");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "claude-cli");
+        } finally {
+            await harness.dispose();
+        }
+    }, { providerState: "none" });
+});
+
 Deno.test("no providers opens the real welcome prompt and never the model selector", async () => {
     await withRuntimeCommandFixture("model-welcome-no-providers-", async () => {
         const harness = await createInteractiveCompositionHarness({});
@@ -169,7 +195,7 @@ Deno.test("subscription login through the scripted OAuth fixture runs the real /
             await harness.waitForScreen(WELCOME_TITLE);
             const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "success" });
-            await harness.type("\r"); // welcome prompt: "Use a subscription login"
+            await chooseSubscriptionLogin(harness);
             await harness.waitForScreen("Select provider to configure:");
             await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
             await harness.waitForScreen("Paste the redirect URL");
@@ -208,7 +234,7 @@ Deno.test("login failure renders a user-visible error and activates no root Sess
             await harness.waitForScreen(WELCOME_TITLE);
             const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "failure", error: "boom" });
-            await harness.type("\r");
+            await chooseSubscriptionLogin(harness);
             await harness.waitForScreen("Select provider to configure:");
             await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
             const errorScreen = await harness.waitForScreen("Failed to login to Aardvark Fixture OAuth: boom");
@@ -237,7 +263,7 @@ Deno.test("cancelled login re-prompts instead of returning to chat", async () =>
             await harness.waitForScreen(WELCOME_TITLE);
             const provider = await registerScriptedOAuthProvider();
             provider.setOutcome({ kind: "cancel" });
-            await harness.type("\r"); // "Use a subscription login"
+            await chooseSubscriptionLogin(harness);
             await harness.waitForScreen("Select provider to configure:");
             await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
             const rePrompted = await waitForWelcomeRePrompt(harness);

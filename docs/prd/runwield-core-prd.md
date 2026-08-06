@@ -370,7 +370,9 @@ returning to Core requirements.
 
 ## 8. Models and Providers
 
-Core uses RunWield-owned model/auth config built on Pi's provider system.
+Core uses RunWield-owned model/auth config built on Pi's provider system and RunWield-owned Execution Backend metadata.
+The selected model reference determines which Core Execution Backend runs the turn; UI surfaces are clients of Session
+Runtime model selection, not independent model-state owners.
 
 Current requirements:
 
@@ -378,9 +380,23 @@ Current requirements:
 - migrate older Pi config once when useful
 - support user-selected model overrides
 - support Agent/default/provider model resolution rules
+- support Pi/API-authenticated model Execution Backends through configured providers
+- support `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and `claude-cli/fable` as Claude CLI Core
+  Execution Backend aliases
 - support OpenAI-compatible provider discovery through `/models`
 - support local/custom providers through `models.json`
 - support vision fallback configuration for pasted images when the active model is text-only
+
+Claude CLI is a Core Execution Backend: RunWield shells out to Claude Code from inside a RunWield Session, while
+RunWield remains the Session Transcript, workflow, resume, and replay authority. Setup requires installing the Claude
+Code CLI and signing in with Claude Code; it does not require a RunWield API-key or subscription login. Missing
+executable or authentication state is reported by the first-turn backend preflight, not by provider credential
+onboarding.
+
+In the MVP Claude CLI transcript projection, Claude Code owns its internal file/Bash/tool activity. That internal
+file/Bash/tool activity can affect the worktree, but RunWield persists final assistant/workflow Session Transcript
+history rather than native RunWield tool events for Claude's internal tools. RunWield Connect remains the separate
+product mode where Claude Code is the External Agent Host and owns the user conversation and model calls.
 
 Future/open requirements:
 
