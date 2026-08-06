@@ -77,6 +77,60 @@ export function reduceOperationTransientItems(events) {
     return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
 }
 
+/**
+ * @typedef {{ model?: string, provider?: string }} SessionModelState
+ */
+
+/**
+ * @typedef {{ activeModel?: SessionModelState | null, model?: string, provider?: string }} SessionModelSnapshot
+ */
+
+/** @param {SessionModelSnapshot | undefined | null} snapshot */
+export function deriveSessionModelDisclosure(snapshot) {
+    const activeModel = snapshot?.activeModel;
+    const rawModel = typeof activeModel?.model === "string" ? activeModel.model : snapshot?.model;
+    const rawProvider = typeof activeModel?.provider === "string" ? activeModel.provider : snapshot?.provider;
+    const model = typeof rawModel === "string" && rawModel.trim() ? rawModel.trim() : "";
+    const provider = typeof rawProvider === "string" && rawProvider.trim() ? rawProvider.trim() : "";
+    const reference = model
+        ? (provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model)
+        : "Model not recorded";
+    const isClaudeCli = provider === "claude-cli";
+    return {
+        reference,
+        backendLabel: isClaudeCli ? "Claude CLI" : provider || "Execution Backend not recorded",
+        showClaudeCaveat: isClaudeCli,
+    };
+}
+
+/** @param {{ snapshot?: SessionModelSnapshot | null }} props */
+export function SessionBackendDisclosure({ snapshot }) {
+    const disclosure = deriveSessionModelDisclosure(snapshot);
+    return (
+        <section className="session-backend-disclosure" aria-label="Session model and Execution Backend">
+            <div className="session-backend-grid">
+                <div>
+                    <span className="session-backend-label">Model</span>
+                    <code>{disclosure.reference}</code>
+                </div>
+                <div>
+                    <span className="session-backend-label">Execution Backend</span>
+                    <strong>{disclosure.backendLabel}</strong>
+                </div>
+            </div>
+            {disclosure.showClaudeCaveat
+                ? (
+                    <p className="session-backend-caveat" role="note">
+                        Claude Code owns its internal file/Bash/tool activity for this backend. RunWield persists the
+                        final assistant/workflow Session Transcript and owns workflow, resume, and replay, but Claude
+                        internal tool activity is not native RunWield tool-event history in this MVP.
+                    </p>
+                )
+                : null}
+        </section>
+    );
+}
+
 /** @param {{ projectId: string, mode?: "list" | "detail", runwieldSessionId?: string }} props */
 export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
@@ -380,6 +434,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 Generation {timeline.generation ?? "not prepared"} · Agent{" "}
                                 {timeline.snapshot?.activeAgent || "unknown"}
                             </p>
+                            <SessionBackendDisclosure snapshot={timeline.snapshot} />
                             <SessionActivationStatus availability={availability} />
                             {availability.canPrepare
                                 ? (

@@ -2,10 +2,9 @@
 
 import { Image, Spacer } from "@earendil-works/pi-tui";
 import type { Container, Editor, TUI } from "@earendil-works/pi-tui";
-import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
-import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.ts";
-import { getSettingsManager } from "../../shared/settings.js";
+import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { imageTheme } from "../theme/theme.js";
+import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 
 interface ActiveModelState {
     model: string;
@@ -37,7 +36,7 @@ export function installUiApiOverrides({
     editor,
     container,
     messageList,
-    getProjectRoot,
+    getProjectRoot: _getProjectRoot,
     setActiveModel,
     getActiveModelState = () => ({ model: "", provider: "" }),
 }: InstallUiApiOverridesOptions): void {
@@ -77,14 +76,13 @@ export function installUiApiOverrides({
         }
     };
 
-    uiAPI.showModelSelector = () => {
+    uiAPI.showModelSelector = (initialSearchInput?: string) => {
         return new Promise((resolve, reject) => {
-            const settingsManager = getSettingsManager(getProjectRoot());
             const modelRegistry = getModelRegistry();
             const activeModelState = getActiveModelState();
             const currentModel = modelRegistry.find(activeModelState.provider || "", activeModelState.model || "");
             const editorIndex = container.children.indexOf(editor);
-            let selector: ModelSelectorComponent;
+            let selector: RunWieldModelSelectorComponent;
             let settled = false;
 
             const restoreSelector = () => {
@@ -98,25 +96,39 @@ export function installUiApiOverrides({
                 resolve();
             };
 
-            getModelRuntime().then((modelRuntime) => {
-                selector = new ModelSelectorComponent(
+            try {
+                selector = new RunWieldModelSelectorComponent({
                     tui,
                     currentModel,
-                    settingsManager,
-                    modelRuntime,
-                    [],
-                    async (model) => {
-                        await setActiveModel(model.id, model.provider);
-                        restoreSelector();
+                    modelRegistry,
+                    onSelect: async (model) => {
+                        try {
+                            const activation = await setActiveModel(model.id, model.provider);
+                            uiAPI.appendSystemMessage(
+                                activation?.status === "deferred"
+                                    ? activation.message ||
+                                        `Saved ${model.provider}/${model.id} for later. The current Session was not switched.`
+                                    : `Switched model to ${model.provider}/${model.id}`,
+                                false,
+                                "RunWield",
+                            );
+                            restoreSelector();
+                        } catch (error) {
+                            restoreSelector();
+                            reject(error);
+                        }
                     },
-                    restoreSelector,
-                );
+                    onCancel: restoreSelector,
+                    initialSearchInput,
+                });
 
                 if (editorIndex !== -1) container.children.splice(editorIndex, 1, selector);
                 else container.addChild(selector);
                 tui.setFocus(selector);
                 tui.requestRender();
-            }).catch(reject);
+            } catch (error) {
+                reject(error);
+            }
         });
     };
 
