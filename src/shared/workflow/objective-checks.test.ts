@@ -39,6 +39,42 @@ Deno.test("runObjectiveChecks classifies non-zero commands that ran as unmet", a
     }
 });
 
+async function filesystemTreatsCaseOnlyPathVariantsAsSameForTest(cwd: string): Promise<boolean> {
+    const probeDir = await Deno.makeTempDir({ dir: cwd, prefix: ".runwield-oc-test-case-probe-" });
+    try {
+        await Deno.writeTextFile(`${probeDir}/context.md`, "probe");
+        return await Deno.stat(`${probeDir}/CONTEXT.md`).then(() => true, () => false);
+    } finally {
+        await Deno.remove(probeDir, { recursive: true }).catch(() => {});
+    }
+}
+
+Deno.test("runObjectiveChecks reports case-sensitive path contradictions as broken on case-insensitive filesystems", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const caseInsensitive = await filesystemTreatsCaseOnlyPathVariantsAsSameForTest(cwd);
+        const [result] = await runObjectiveChecks({
+            cwd,
+            checks: [{
+                id: "OC-CASE",
+                command:
+                    't=$(mktemp -d "${PWD}/rw-oc-case.XXXXXX"); mkdir -p "$t/p"; printf legacy > "$t/p/context.md"; test ! -e "$t/p/CONTEXT.md"; cat "$t/p/context.md" >/dev/null',
+            }],
+            timeoutMs: 5_000,
+        });
+        if (caseInsensitive) {
+            assertEquals(result.status, "broken");
+            assertEquals(result.exitCode, null);
+            assertStringIncludes(result.reason || "", "case-sensitive filesystem path distinction");
+        } else {
+            assertEquals(result.status, "met");
+            assertEquals(result.exitCode, 0);
+        }
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("runObjectiveChecks classifies missing commands as broken", async () => {
     const cwd = await Deno.makeTempDir();
     try {

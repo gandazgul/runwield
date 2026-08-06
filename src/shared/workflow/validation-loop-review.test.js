@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
+import { captureWorktreeTree } from "./git-snapshot.js";
 import {
     git,
     makeRecordedSession,
@@ -465,6 +466,63 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
     assertStringIncludes(reviewPrompts[0], "added the guard in file.js");
     assertStringIncludes(reviewPrompts[0], "claims to verify, not proof");
     assertEquals(plan?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("runValidationPhase gives later semantic rounds a repair-scoped review_diff", async () => {
+    const ledger = {
+        sequence: 1,
+        items: [{
+            id: "R1-1",
+            openedInRound: 1,
+            resolvedInRound: null,
+            title: "Missing guard",
+            requirement: "Step 2",
+            evidence: "workflow.js",
+        }],
+    };
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    const repairBaselineTree = await captureWorktreeTree(projectRoot);
+    await Deno.writeTextFile(`${projectRoot}/workflow.js`, "export const repairedWorkflowChange = true;\n");
+    hostedSession.setActiveExecutionWorkflow(
+        /** @type {any} */ ({
+            ...hostedSession.getActiveExecutionWorkflow(),
+            reviewLedger: ledger,
+            repairBaselineTree,
+            lastRepairReport: "R1-1 — fixed: updated workflow.js.",
+        }),
+    );
+    const repairDiffTexts = /** @type {string[]} */ ([]);
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: async (/** @type {any} */ opts) => {
+                assertStringIncludes(opts.userRequest, 'scope: "repair"');
+                const repairList = await opts.customTools[0].execute("repair-list", {
+                    command: "list",
+                    scope: "repair",
+                });
+                const repairShow = await opts.customTools[0].execute("repair-show", {
+                    command: "show",
+                    scope: "repair",
+                    path: "workflow.js",
+                });
+                assertEquals(repairList.details.scope, "repair");
+                assertEquals(repairList.details.fileCount, 1);
+                repairDiffTexts.push(repairShow.content[0].text);
+                return reviewerMessages({
+                    findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
+                });
+            },
+        }),
+    });
+
+    assertStringIncludes(repairDiffTexts[0], "-export const scopedWorkflowChange = true;");
+    assertStringIncludes(repairDiffTexts[0], "+export const repairedWorkflowChange = true;");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
 });
 
 Deno.test("runValidationPhase refuses semantic approval while a prior finding is unmentioned", async () => {

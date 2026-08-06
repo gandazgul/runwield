@@ -196,6 +196,32 @@ function formatModelPresetsMenuDescription(projectRoot: string): string {
     return names.includes(active) ? `Active: ${active}` : `${active} (missing); ${names.length} defined`;
 }
 
+/**
+ * Rebuild the active Session's agent so a model preset change takes effect
+ * immediately, instead of waiting for the next `/reload` or new Session.
+ */
+async function reloadActiveSessionForPresetChange(
+    sessionRuntime: SessionRuntime,
+    sessionId: string,
+    uiAPI: SettingsCommandUi,
+): Promise<void> {
+    try {
+        const result = await sessionRuntime.reloadSession(sessionId);
+        if (!result.ok) return;
+        uiAPI.appendSystemMessage(
+            result.deferred
+                ? "Agent context will rebuild on the next managed turn."
+                : "Agent context reloaded with the new model preset.",
+        );
+    } catch (error) {
+        uiAPI.appendSystemMessage(
+            `Preset saved, but the active agent could not be reloaded: ${
+                error instanceof Error ? error.message : String(error)
+            }. Run /reload to retry.`,
+        );
+    }
+}
+
 function formatModelPresetDescription(preset: ModelPreset): string {
     const parts: string[] = [];
     const agentEntries = Object.entries(preset.agents ?? {});
@@ -288,14 +314,14 @@ export async function runSettingsCommand(argv: string[], options: SettingsComman
 
                 if (presetChoice === "none") {
                     await setCustomSetting("activeModelPreset", null, "global", projectRoot);
-                    await settingsManager.reload();
                     uiAPI.appendSystemMessage("Active model preset cleared; base agents config is used.");
+                    await reloadActiveSessionForPresetChange(sessionRuntime, sessionId, uiAPI);
                     uiAPI.requestRender?.();
                 } else if (presetChoice.startsWith(MODEL_PRESET_PREFIX)) {
                     const name = presetChoice.slice(MODEL_PRESET_PREFIX.length);
                     await setCustomSetting("activeModelPreset", name, "global", projectRoot);
-                    await settingsManager.reload();
                     uiAPI.appendSystemMessage(`Active model preset set to ${name}.`);
+                    await reloadActiveSessionForPresetChange(sessionRuntime, sessionId, uiAPI);
                     uiAPI.requestRender?.();
                 }
             }

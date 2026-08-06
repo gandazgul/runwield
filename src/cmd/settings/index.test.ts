@@ -21,6 +21,10 @@ interface SettingsSelectRecord {
     options: SelectItem[];
 }
 
+interface SettingsFileRecord {
+    activeModelPreset?: string | null;
+}
+
 interface SettingsUiHarness {
     editor: {
         disableSubmit: boolean;
@@ -263,8 +267,41 @@ Deno.test("runSettingsCommand selects a model preset and persists activeModelPre
                 "1 agent model override",
             );
 
-            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as Record<string, unknown>;
+            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as SettingsFileRecord;
             assertEquals(persisted.activeModelPreset, "quality");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runSettingsCommand applies a selected model preset to the active Session immediately", async () => {
+    await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        await setCustomSetting(
+            "modelPresets",
+            { fast: { agents: { router: { model: "runtime-command-fixture/fixture-model" } } } },
+            "global",
+            projectRoot,
+        );
+
+        const harness = makeUiHarness(["model-presets", "preset:fast", "back", "done"]);
+        try {
+            await runSettingsCommand([], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                sessionRuntime: runtime,
+                sessionId,
+            });
+
+            assertEquals(harness.messages, [
+                "Active model preset set to fast.",
+                "Agent context reloaded with the new model preset.",
+            ]);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "runtime-command-fixture/fixture-model",
+                provider: "runtime-command-fixture",
+            });
         } finally {
             runtime.closeAllSessions();
         }
@@ -293,7 +330,7 @@ Deno.test("runSettingsCommand clears activeModelPreset via None", async () => {
 
             assertEquals(getCustomSetting("activeModelPreset", "global", projectRoot), null);
             assert(harness.messages.includes("Active model preset cleared; base agents config is used."));
-            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as Record<string, unknown>;
+            const persisted = JSON.parse(await Deno.readTextFile(settingsPath)) as SettingsFileRecord;
             assertEquals(persisted.activeModelPreset, null);
         } finally {
             runtime.closeAllSessions();

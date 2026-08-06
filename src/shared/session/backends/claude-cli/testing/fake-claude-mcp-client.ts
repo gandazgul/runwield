@@ -32,6 +32,32 @@ interface JsonObject {
     [key: string]: JsonValue;
 }
 
+interface StringMap {
+    [key: string]: string;
+}
+
+interface McpServerConfig {
+    url?: string;
+    headers?: StringMap;
+}
+
+interface McpServerMap {
+    [key: string]: McpServerConfig;
+}
+
+interface ClaudeMcpConfig {
+    mcpServers?: McpServerMap;
+}
+
+interface ToolResultContentBlock {
+    type: string;
+    text?: string;
+}
+
+interface FixtureOutput {
+    result?: string;
+}
+
 async function readTextFile(path: string | undefined): Promise<string> {
     if (!path) return "";
     try {
@@ -48,9 +74,7 @@ async function appendLogLine(entry: JsonObject): Promise<void> {
 }
 
 async function runMcpCalls(configPath: string): Promise<void> {
-    const config = JSON.parse(await readTextFile(configPath)) as {
-        mcpServers?: Record<string, { url?: string; headers?: Record<string, string> }>;
-    };
+    const config = JSON.parse(await readTextFile(configPath)) as ClaudeMcpConfig;
     const server = config.mcpServers?.runwield;
     if (!server?.url) {
         await appendLogLine({ mcp: { error: "missing runwield mcp server in config" } });
@@ -102,7 +126,7 @@ async function runMcpCalls(configPath: string): Promise<void> {
                 results.push({
                     name: call.name,
                     isError: result.isError === true,
-                    text: extractCallResultText(result.content as { type: string; text?: string }[]),
+                    text: extractCallResultText(result.content as ToolResultContentBlock[]),
                 });
             } catch (error) {
                 results.push({
@@ -127,7 +151,7 @@ async function runMcpCalls(configPath: string): Promise<void> {
     }
 }
 
-function extractCallResultText(content: { type: string; text?: string }[]): string {
+function extractCallResultText(content: ToolResultContentBlock[]): string {
     if (!Array.isArray(content)) return "";
     return content.flatMap((block) => {
         if (block.type !== "text") return [];
@@ -175,8 +199,24 @@ async function main(): Promise<void> {
 
     const output = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT") || "";
     const text = output
-        ? (JSON.parse(output) as { result?: string }).result || "fixture"
+        ? (JSON.parse(output) as FixtureOutput).result || "fixture"
         : Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT") || "fixture reply";
+    if (Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM")) {
+        const half = Math.max(1, Math.ceil(text.length / 2));
+        for (const thinking of ["thinking about it", "..."]) {
+            console.log(JSON.stringify({
+                type: "stream_event",
+                event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking } },
+            }));
+        }
+        for (const chunk of [text.slice(0, half), text.slice(half)]) {
+            if (!chunk) continue;
+            console.log(JSON.stringify({
+                type: "stream_event",
+                event: { type: "content_block_delta", delta: { type: "text_delta", text: chunk } },
+            }));
+        }
+    }
     console.log(JSON.stringify({
         type: "assistant",
         message: { content: [{ type: "text", text }] },

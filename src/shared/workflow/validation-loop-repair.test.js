@@ -132,7 +132,7 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
     );
 });
 
-Deno.test("runValidationLoop stops without repair when an Objective-Failing Check is broken", async () => {
+Deno.test("runValidationLoop sends rejected broken Objective-Failing Check waiver feedback to Engineer", async () => {
     const objectiveChecks = [{ id: "OC1", command: "not-a-real-runwield-command" }];
     await withIncompleteRepairModel(
         "validation-repair-broken-objective-",
@@ -150,10 +150,15 @@ Deno.test("runValidationLoop stops without repair when an Objective-Failing Chec
             });
 
             const plan = await loadPlan(projectRoot, "p");
-            assertEquals(result.kind, "failed");
-            assertStringIncludes(result.reason || "", "Objective-Failing Check defect");
-            assertEquals(prompts.length, 0);
-            assertEquals(plan?.attrs.validationCiAttempts, 0);
+            assertEquals(result.kind, "paused");
+            assertStringIncludes(
+                result.reason || "",
+                "without task_completed during broken Objective-Failing Check repair",
+            );
+            assertEquals(prompts.length, 1);
+            assertStringIncludes(prompts[0], "User feedback");
+            assertEquals(plan?.attrs.validationCiAttempts, 1);
+            assertEquals(plan?.attrs.objectiveCheckWaivers, undefined);
         },
     );
 });

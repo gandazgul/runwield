@@ -20,7 +20,26 @@
 - https://www.amazon.com/Philosophy-Software-Design-John-Ousterhout/dp/1732102201
 - https://www.amazon.com/Pragmatic-Programmer-journey-mastery-Anniversary/dp/0135957052/
 
-## Followup for Claude
+## Product Questions to document
+
+- How does it help small local models?
+- How will non-engineers use it? how do we adapt it for them? for shareable prototypes and small one-off apps?
+- The different layers of memory.
+- How is it different from Cursor, Lovable, Humanlayer and Warp. - we already know how is different from other strict
+  harnesses like Claude Code and Codex.
+
+### The bet
+
+`The winners of the next decade of developer tools won't be the ones who build a slightly better pull request UI. They will be the ones who build the infrastructure primitives that allow code generation, validation, and deployment to operate seamlessly at machine scale.`
+
+From Y Combinator call for Startups:
+
+- Multiplayer AI - https://www.ycombinator.com/rfs#multiplayer-ai - RunWield will have collaborative planning with multi
+  user comments on plans and any one on the team able to advance the plan forward, model agnostic and job role agnostic.
+
+- Company Brain - https://www.ycombinator.com/rfs#company-brain - RunWield gets better the more you use it and the SasS
+  will provide a platform for teams to share on that intelligence, anytime anyone on the team uses RunWield all of the
+  team's planning and code gets better because new retrospective and learnings were added to the shared intelligence.
 
 ## __deps refactor
 
@@ -30,6 +49,29 @@ repos that RunWield works on so they dont fall into this pattern either.
 ## Bugs
 
 ### P0
+
+- [ ] We need to provide claude with the skills! its missing ketch
+
+  I couldn't verify this against live Claude CLI docs — WebSearch isn't available to me in this session, and the pi-mono
+  sibling repo is outside my allowed search paths — so I'll separate what's confirmed from the RunWield source versus
+  what's my recollection of the Claude CLI's own behavior (flagged as unverified).
+
+  Also got permission denied when trying to run the cli tool
+
+  me: WebSearch is not but you can use `ketch` cli tool
+
+  guide: User denied reading the ketch skill file. Let me check if there's a ketch CLI tool directly available via bash
+  instead.I'm hitting permission denials trying to read the ketch skill file and run the ketch CLI directly — both
+  attempts were blocked. Could you approve one of those, or point me to how you'd like me to invoke it?
+
+  claude cant write either Writing the plan.I hit a permission wall writing the plan file — RunWield declined the Write
+  to docs/plans/broken-objective-check-user-judgement.md. Approve that write and I'll land it immediately; the full plan
+  is drafted and ready to go out verbatim.
+
+  I'll load the EnterWorktree tool and switch into the worktree for this plan.Found it. Entering the worktree
+  now.Entering the worktree needs your approval through the permission prompt. You already told me to work in the
+  worktree for move-domain-language-out-of-context-files, so please approve the EnterWorktree prompt when it appears,
+  and I will continue right after.
 
 - [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 
@@ -53,6 +95,8 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 ### Others
 
+- [ ] what is the EnterWorktree tool from claude code, should we copy it?
+- [ ] ![alt text](image-1.png) planner needs to be aware that the diagram is rendered and users cant see the letters
 - [ ] Need to ensure that all agents and sub agents have their entire tool declaration in the prompt front-matter. We
       need having this issue where tools go missing. 1 single source of truth and user editable. Still retain the tools
       that can't be taken away like the workflow tools, so for those missing from the front matter doesnt matter, but
@@ -207,13 +251,13 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
 
 ### P5 - Collaboration and Workspace
 
-- [ ] Build Attached Mode starting with the Claude Code FEATURE Preview:
+- [ ] Build Attached Mode starting with the Claude Code PLANNED_CHANGE Preview:
       [docs/prd/attached-mode-prd.md](docs/prd/attached-mode-prd.md).
   - BLOCKED on the session-independent validation-engine refactor (see Bugs → P0).
   - Keep all model calls host-owned while RunWield owns Plan Lifecycle, review, worktrees, validation, recovery, Work
     Records, and memory truth.
-  - Prove the full `/runwield` FEATURE journey in an uninitialized trusted repo before expanding to stable Claude,
-    Codex, OpenCode, and Pi adapters.
+  - Prove the full `/runwield` PLANNED_CHANGE journey in an uninitialized trusted repo before expanding to stable
+    Claude, Codex, OpenCode, and Pi adapters.
   - Claude CLI execution backend work is in flight: `docs/plans/claude-cli-execution-backend/`.
 
 - [ ] Build Personal Remote Workspace v1: [docs/prd/runwield-workspace-PRD.md](docs/prd/runwield-workspace-PRD.md).
@@ -235,8 +279,8 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
   - PRD exists; no plan yet.
   - Preserve Direct Delivery as the unchanged default while adding a nonterminal In Review / finalization-pending path
     for GitHub and GitLab shared-repo and fork publication.
-  - Prove merged delivery before marking FEATURE work Verified, bind validation evidence to the published revision, and
-    keep QUICK_FIX support explicit.
+  - Prove merged delivery before marking PLANNED_CHANGE work Verified, bind validation evidence to the published
+    revision, and keep QUICK_FIX support explicit.
 
 - [ ] Build runwield.dev landing/docs site. Inspiration: https://itayinbarr.github.io/little-coder/
 
@@ -277,7 +321,8 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
   - Dangerous shell policy in RunWield vs Pi vs user/project instructions?
   - Governance/Security Reviewer as workflow gate vs Skill/policy?
 
-- [ ] Add Security Reviewer as optional planning/review gate for production-oriented FEATURE and PROJECT workflows.
+- [ ] Add Security Reviewer as optional planning/review gate for production-oriented PLANNED_CHANGE and PROJECT
+      workflows.
 - [ ] Make security review mode-aware so prototypes and one-off builds can bypass it.
 - [ ] Investigate running restricted Agents' bash commands under a read-only OS user for stronger write barriers.
 

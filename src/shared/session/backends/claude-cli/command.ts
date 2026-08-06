@@ -3,6 +3,8 @@ export interface ClaudeCliCommandRequest {
     systemPrompt: string;
     /** JSON content of the additive Claude MCP config (mcpServers map). */
     mcpConfig?: string;
+    /** Claude Code tool names pre-authorized for this non-interactive turn. */
+    allowedToolNames?: readonly string[];
 }
 
 export interface PreparedClaudeCliCommand {
@@ -12,6 +14,24 @@ export interface PreparedClaudeCliCommand {
     /** Owner-only temporary MCP config file path, when mcpConfig was supplied. */
     mcpConfigPath?: string;
 }
+
+const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "Bash",
+    "Glob",
+    "Grep",
+    "LS",
+    "TodoWrite",
+    "Task",
+    "WebFetch",
+    "WebSearch",
+    "NotebookRead",
+    "NotebookEdit",
+    "EnterWorktree",
+];
 
 async function writeOwnerOnlyTempFile(prefix: string, suffix: string, content: string): Promise<string> {
     const path = await Deno.makeTempFile({ prefix, suffix });
@@ -37,6 +57,8 @@ export async function prepareClaudeCliCommand(request: ClaudeCliCommandRequest):
         "--verbose",
         "--include-partial-messages",
         "--no-session-persistence",
+        "--permission-mode",
+        "acceptEdits",
         "--append-system-prompt-file",
         promptFilePath,
     ];
@@ -47,6 +69,13 @@ export async function prepareClaudeCliCommand(request: ClaudeCliCommandRequest):
         // `--strict-mcp-config` is deliberately never passed.
         args.push("--mcp-config", mcpConfigPath);
     }
+    const allowedToolNames = [
+        ...new Set([
+            ...CLAUDE_CLI_PROJECT_TOOL_NAMES,
+            ...(request.allowedToolNames || []),
+        ]),
+    ].filter((name) => name.trim().length > 0);
+    args.push("--allowedTools", ...allowedToolNames);
     return {
         command: "claude",
         args,

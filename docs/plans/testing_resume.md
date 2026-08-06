@@ -1,20 +1,34 @@
 ---
 planId: "60cbd3ea-07a9-4bb9-9692-66ae1e1aebee"
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
 complexity: "LOW"
 summary: "Testing the resume command"
 affectedPaths:
-    []
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+    - "docs/plans/testing_resume.complete"
 createdAt: "2026-04-26T04:26:00.000Z"
-updatedAt: "2026-07-25T22:52:33.544Z"
 status: "implemented"
 origin: "internal"
 failureReason: "No implementation changes detected in workflow diff."
 implementedAt: "2026-07-13T17:32:13.722Z"
 worktreeStatus: "validation_failed"
+objectiveChecks:
+    - id: "OC1"
+      command: "test -f docs/plans/testing_resume.complete"
+      rationale: "The command fails on the current baseline and passes only after the resumed workflow creates its tracked completion marker."
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+updatedAt: "2026-08-06T00:54:34.290Z"
 ---
 
-This is a test plan to verify the resume command functionality. Nothing actually needs to be done. Please just call the
-`plan_written` tool or complete the execution depending on your active toolset.
+This is a test plan to verify the resume command functionality. Execution only needs to create the empty tracked marker
+`docs/plans/testing_resume.complete`, proving that the resumed workflow produced an implementation diff.
+
+## Implementation Steps
+
+- [ ] `docs/plans/testing_resume.complete` exists as a tracked empty marker file.
+
+## Verification Plan
+
+### Objective-Failing Checks
+
+- `OC1` — `test -f docs/plans/testing_resume.complete` — the resumed workflow created its tracked completion marker.

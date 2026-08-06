@@ -1,4 +1,5 @@
 ---
+planId: "180f60ce-4469-4d0e-b910-d042a04a6cbe"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Add Claude Code print mode (`claude -p`) as a RunWield execution backend with RunWield-owned session persistence and workflow lifecycle signals."
@@ -18,11 +19,16 @@ affectedPaths:
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/attached-mode-prd.md"
 createdAt: "2026-08-02T12:25:40-04:00"
-updatedAt: "2026-08-06T02:18:40.996Z"
+updatedAt: "2026-08-06T02:18:55.649Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-08-06T02:18:40.996Z"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "9a937ce9-33ca-4ef9-ad13-0cf7c5ed94fe"
+    path: "docs/work-records/2026-08-06-claude-cli-execution-backend-completed.md"
+    lastAttemptAt: "2026-08-06T02:18:50.943Z"
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-08-06T02:18:40.996Z"
 epicDoneEnoughSummary: "All 5 child plans are completed after claude-cli-execution-backend/05-surface-claude-cli-selection-and-caveats."
@@ -76,8 +82,8 @@ The target architecture must make these ownership boundaries explicit:
 - **RunWield Session Transcript JSONL remains the source of truth** for RunWield resume/replay; Claude Code's own
   transcript and session id are metadata only.
 - **Workflow signals cross through one small bridge**: Claude calls MCP tools named for RunWield workflow signals; the
-  bridge delegates to existing `plan_written`, `task_completed`, and `review_complete` machinery instead of
-  reimplementing lifecycle behavior.
+  bridge delegates to existing `plan_written`, `task_completed`, `review_complete`, and Router `triage_report` machinery
+  instead of reimplementing lifecycle behavior.
 
 No ADR was created during this Epic drafting. The rationale is recorded here because the decision is localized to this
 feature and follows the same host-native-capability principle as RunWield Connect while preserving a different control
@@ -245,9 +251,9 @@ that is red before the work and green after.
 - Workflow terminal signals cross through MCP, not prose parsing — the Claude backend passes an MCP config that exposes
   only RunWield workflow-signal tools, and there is no production parser that treats sentinel text like
   `RUNWIELD_SIGNAL` as lifecycle authority.
-- The MCP bridge is only a shim — MCP tool implementations delegate to existing `plan_written`, `task_completed`, and
-  `review_complete` machinery or shared factored functions; they do not directly edit Plan status, active workflow
-  state, validation ledgers, or review results.
+- The MCP bridge is only a shim — MCP tool implementations delegate to existing `plan_written`, `task_completed`,
+  `review_complete`, and Router `triage_report` machinery or shared factored functions; they do not directly edit Plan
+  status, active workflow state, validation ledgers, review results, or routing outcomes.
 - Plain-text questions remain non-terminal — a Claude-backed planning response that asks a question and calls no MCP
   workflow tool persists as an assistant message and leaves the Session waiting for user input without invoking
   `plan_written`, `task_completed`, or `review_complete`.
@@ -315,8 +321,9 @@ tool entry points.
 - **Effort/thinking mismatch:** Claude `--effort` does not map perfectly to RunWield thinking levels. `low`, `medium`,
   `high`, `xhigh`, and `max` can map directly where supported; `off`/`minimal` need documented fallback behavior.
 - **Permissions:** Claude Code permission modes (`acceptEdits`, `bypassPermissions`, scoped `--allowedTools`, or
-  default/manual behavior) materially affect safety. The MVP should select a conservative explicit policy per workflow
-  and document what Claude may do.
+  default/manual behavior) materially affect safety. The MVP uses one explicit `acceptEdits` policy with a documented
+  allowed-tool set for Claude-backed turns. Per-workflow tightening remains future hardening work after the MVP proves
+  the backend boundary.
 - **Terminal signal after extra output:** Claude Code may continue producing text after an MCP workflow call even if
   RunWield treats the signal as terminal. RunWield should treat the first valid terminal workflow signal as
   authoritative and ignore, abort, or mark post-terminal output according to a deterministic backend policy.

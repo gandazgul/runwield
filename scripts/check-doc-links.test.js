@@ -16,8 +16,11 @@ function fakeRepo(files) {
     };
 }
 
-Deno.test("extractRelativeLinks ignores absolute, anchor-only, and fenced links", () => {
+Deno.test("extractRelativeLinks ignores absolute, anchor-only, front matter, and fenced links", () => {
     const markdown = [
+        "---",
+        'failureReason: "[captured](docs/not-documentation.md)"',
+        "---",
         "[relative](docs/thing.md)",
         "[external](https://example.com/x.md)",
         "[anchor](#section)",
@@ -27,7 +30,7 @@ Deno.test("extractRelativeLinks ignores absolute, anchor-only, and fenced links"
         "```",
     ].join("\n");
 
-    assertEquals(extractRelativeLinks(markdown), [{ line: 1, target: "docs/thing.md" }]);
+    assertEquals(extractRelativeLinks(markdown), [{ line: 4, target: "docs/thing.md" }]);
 });
 
 Deno.test("headingSlug matches GitHub-style anchors", () => {
@@ -36,8 +39,17 @@ Deno.test("headingSlug matches GitHub-style anchors", () => {
     assertEquals(headingSlug("`code` and *emphasis*"), "code-and-emphasis");
 });
 
-Deno.test("headingSlugs skips fenced code and disambiguates duplicates", () => {
-    const slugs = headingSlugs(["# Title", "```", "# Not A Heading", "```", "## Title"].join("\n"));
+Deno.test("headingSlugs skips front matter, fenced code, and disambiguates duplicates", () => {
+    const slugs = headingSlugs([
+        "---",
+        'summary: "# Not A Heading"',
+        "---",
+        "# Title",
+        "```",
+        "# Not A Heading",
+        "```",
+        "## Title",
+    ].join("\n"));
     assertEquals([...slugs], ["title", "title-1"]);
 });
 

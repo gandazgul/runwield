@@ -2054,6 +2054,10 @@ async function composeClaudeCliWorkflowTools({ agentDef, agentName, hostedSessio
             createReviewCompletedTool({ hostedSession, agentName: agentDef.displayName }),
         );
     }
+    if (declared.has("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
+        const { createTriageReportTool } = await import("../../tools/triage-report.ts");
+        finalCustomTools.push(createTriageReportTool({ hostedSession }));
+    }
     return finalCustomTools;
 }
 
@@ -2110,6 +2114,9 @@ export async function buildExecutionSession(opts) {
         );
     }
     const effectiveSessionManager = opts.sessionManager || SessionManager.inMemory(sessionCwd);
+    const rebuildToolNames = resolveEffectiveSessionToolNames(agentDef.tools, opts.toolNames, [], {
+        allowReturnToRouter: opts.allowReturnToRouter ?? true,
+    });
     const { prompt: finalSystemPrompt, projection: contextProjection } =
         await assembleFinalSystemPromptWithContextProjection(
             agentDef,
@@ -2158,7 +2165,7 @@ export async function buildExecutionSession(opts) {
         session,
         agentDef,
         promptState,
-        tools: [],
+        tools: rebuildToolNames,
         finalCustomTools,
         resolvedModel,
         resolvedThinkingLevel: undefined,

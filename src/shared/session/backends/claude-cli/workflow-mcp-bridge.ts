@@ -51,6 +51,7 @@ export const WORKFLOW_MCP_ALIASES = {
     plan_written: "runwield_plan_written",
     task_completed: "runwield_task_completed",
     review_complete: "runwield_review_complete",
+    triage_report: "runwield_triage_report",
 } as const;
 
 export type WorkflowInternalToolName = keyof typeof WORKFLOW_MCP_ALIASES;
@@ -101,6 +102,12 @@ interface BridgeToolEntry {
     alias: string;
     internalName: string;
     definition: ToolDefinition;
+}
+
+interface McpToolInputSchema {
+    type: "object";
+    properties?: JsonObject;
+    required?: string[];
 }
 
 interface DelegatedToolResult {
@@ -327,11 +334,7 @@ export async function startWorkflowMcpBridge(
             tools: entries.map((entry) => ({
                 name: entry.alias,
                 description: entry.definition.description,
-                inputSchema: entry.definition.parameters as {
-                    type: "object";
-                    properties?: JsonObject;
-                    required?: string[];
-                },
+                inputSchema: entry.definition.parameters as McpToolInputSchema,
             })),
         };
     });

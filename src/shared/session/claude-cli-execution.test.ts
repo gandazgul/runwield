@@ -5,10 +5,60 @@ import { AGENTS } from "../../constants.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir, openPersistedRootSession } from "./root-session.js";
-import { abortActiveSession, ensureRootAgentSession, runIsolatedAgentSession, runRootTurn } from "./session.js";
+import {
+    abortActiveSession,
+    ensureRootAgentSession,
+    getRootSessionRebuildOptions,
+    runIsolatedAgentSession,
+    runRootTurn,
+} from "./session.js";
 import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/workflow-mcp-bridge.ts";
 import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
+import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
+
+interface ToolResultDetails {
+    outcome?: string;
+    message?: string;
+    provenance?: string;
+}
+
+interface ToolResultMessage {
+    role?: string;
+    toolName?: string;
+    isError?: boolean;
+    details?: ToolResultDetails;
+}
+
+interface BranchContentBlock {
+    type?: string;
+    name?: string;
+}
+
+interface BranchMessage {
+    role?: string;
+    toolName?: string;
+    content?: BranchContentBlock[];
+}
+
+interface BranchMessageEntry {
+    type: string;
+    message?: BranchMessage;
+}
+
+interface BranchCustomData {
+    kind?: string;
+}
+
+interface BranchCustomEntry {
+    type: string;
+    customType?: string;
+    data?: BranchCustomData;
+}
+
+interface RootSessionRef {
+    kind: string;
+}
 
 async function removeTempDir(path: string): Promise<void> {
     await Deno.remove(path, { recursive: true }).catch(() => undefined);
@@ -91,12 +141,45 @@ Deno.test("Claude CLI selected root turn dispatches without Pi AgentSession", as
         const manager = SessionManager.inMemory(cwd);
         const hostedSession = createHostedSession(cwd, manager);
         const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
-        assertEquals((root as never as { kind: string }).kind, "claude-cli");
+        assertEquals((root as never as RootSessionRef).kind, "claude-cli");
         await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "hello" });
         const log = JSON.parse((await Deno.readTextFile(logPath)).trim());
         assertEquals(log.args.includes("--model"), true);
         assertEquals(log.args[log.args.indexOf("--model") + 1], "sonnet");
         assertEquals("agent" in root, false);
+    });
+});
+
+Deno.test("Claude CLI root turn advertises RunWield skills and project tool permissions", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+        await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "lookup current docs" });
+        const log = JSON.parse((await Deno.readTextFile(logPath)).trim());
+        const allowedIndex = log.args.indexOf("--allowedTools");
+        assertEquals(allowedIndex >= 0, true);
+        const allowedTools = log.args.slice(allowedIndex + 1);
+        assertEquals(allowedTools.includes("Read"), true);
+        assertEquals(allowedTools.includes("Write"), true);
+        assertEquals(allowedTools.includes("Bash"), true);
+        assertEquals(allowedTools.includes("EnterWorktree"), true);
+        assertStringIncludes(log.promptText, "ketch - Use this skill");
+        assertStringIncludes(log.promptText, "ketch/SKILL.md");
+    });
+});
+
+Deno.test("Claude CLI root keeps agent tool names available for provider reload", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+
+        const rebuildOptions = getRootSessionRebuildOptions(hostedSession);
+
+        assertEquals(rebuildOptions.toolNames?.includes("read"), true);
+        assertEquals(rebuildOptions.toolNames?.includes("bash"), true);
+        assertEquals(rebuildOptions.toolNames?.includes("return_to_router"), true);
     });
 });
 
@@ -216,27 +299,24 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
             message.role === "toolResult" && message.toolName === "task_completed"
         );
         assertEquals(toolResults.length, 2);
-        const accepted = toolResults.at(-1) as {
-            details?: { outcome?: string; message?: string; provenance?: string };
-        };
+        const accepted = toolResults.at(-1) as ToolResultMessage;
         assertEquals(accepted.details?.outcome, "task_completed");
         assertEquals(accepted.details?.message, "vertical accepted");
         assertEquals(accepted.details?.provenance, CLAUDE_CLI_MCP_PROVENANCE);
-        const rejected = toolResults[0] as { isError?: boolean; details?: { outcome?: unknown } };
+        const rejected = toolResults[0] as ToolResultMessage;
         assertEquals(rejected.isError, true);
         assertEquals("outcome" in (rejected.details || {}), false);
 
         // The SessionManager transcript carries the same canonical exchange.
         const branchMessages = manager.getBranch()
             .filter((entry) => entry.type === "message")
-            .map((entry) => (entry as { message?: unknown }).message) as Array<Record<string, unknown>>;
+            .map((entry) => (entry as BranchMessageEntry).message)
+            .filter((message): message is BranchMessage => message !== undefined);
         assertEquals(
             branchMessages.some((msg) =>
                 msg.role === "assistant" &&
                 Array.isArray(msg.content) &&
-                (msg.content as Array<{ type?: string; name?: string }>).some(
-                    (block) => block.type === "toolCall" && block.name === "task_completed",
-                )
+                msg.content.some((block) => block.type === "toolCall" && block.name === "task_completed")
             ),
             true,
         );
@@ -252,6 +332,42 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
             ),
             true,
         );
+    });
+});
+
+Deno.test("^Claude CLI Router exposes triage_report through the MCP lifecycle bridge$", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const callsPath = join(cwd, "mcp-calls-triage.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{
+                name: "runwield_triage_report",
+                arguments: {
+                    routingIntent: "QUICK_FIX",
+                    complexity: "LOW",
+                    summary: "Router can report a bounded Claude CLI bug fix.",
+                    sessionName: "claude router tools",
+                },
+            }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "freeform text after triage");
+
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ROUTER });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.ROUTER, userRequest: "route this" });
+
+        const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+        assertEquals(lines[0].args.includes("--allowedTools"), true);
+        assertEquals(lines[0].args.includes("runwield_triage_report"), true);
+        assertEquals(lines[0].args.includes("mcp__runwield__runwield_triage_report"), true);
+        const toolsLine = lines.find((line) => line.mcp?.tools);
+        assertEquals(toolsLine.mcp.tools.includes("runwield_triage_report"), true);
+        const callsLine = lines.find((line) => line.mcp?.calls);
+        assertEquals(callsLine.mcp.calls[0].isError, false);
+        const triage = readLatestTriageOutcome(messages);
+        assertEquals(triage?.routingIntent, "QUICK_FIX");
     });
 });
 
@@ -276,14 +392,14 @@ Deno.test("^Claude CLI root turn abort reaches the subprocess and preserves work
         assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "quick-fix");
         assertEquals(
             manager.getBranch().filter((entry) =>
-                entry.type === "message" && (entry as { message?: { role?: string } }).message?.role === "assistant"
+                entry.type === "message" && (entry as BranchMessageEntry).message?.role === "assistant"
             ).length,
             0,
         );
         assertEquals(
             manager.getBranch().some((entry) =>
                 entry.type === "custom" && entry.customType === "runwield.backend_status" &&
-                (entry as { data?: { kind?: string } }).data?.kind === "canceled"
+                (entry as BranchCustomEntry).data?.kind === "canceled"
             ),
             true,
         );

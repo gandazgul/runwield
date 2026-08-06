@@ -16,6 +16,7 @@ const EXCLUDED_PREFIXES = ["node_modules/", ".history/", "dist/", "third_party/"
 const LINK_PATTERN = /\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HEADING_PATTERN = /^#{1,6}\s+(.+?)\s*$/;
 const CODE_FENCE_PATTERN = /^\s*(?:```|~~~)/;
+const FRONT_MATTER_DELIMITER_PATTERN = /^---\s*$/;
 
 /**
  * @typedef {Object} BrokenLink
@@ -68,7 +69,14 @@ export function headingSlugs(markdown) {
     /** @type {Set<string>} */
     const slugs = new Set();
     let inFence = false;
-    for (const line of markdown.split("\n")) {
+    let inFrontMatter = markdown.startsWith("---\n");
+    const lines = markdown.split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (inFrontMatter) {
+            if (index > 0 && FRONT_MATTER_DELIMITER_PATTERN.test(line)) inFrontMatter = false;
+            continue;
+        }
         if (CODE_FENCE_PATTERN.test(line)) {
             inFence = !inFence;
             continue;
@@ -105,9 +113,14 @@ export function extractRelativeLinks(markdown) {
     /** @type {Array<{ line: number, target: string }>} */
     const links = [];
     let inFence = false;
+    let inFrontMatter = markdown.startsWith("---\n");
     const lines = markdown.split("\n");
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
+        if (inFrontMatter) {
+            if (index > 0 && FRONT_MATTER_DELIMITER_PATTERN.test(line)) inFrontMatter = false;
+            continue;
+        }
         if (CODE_FENCE_PATTERN.test(line)) {
             inFence = !inFence;
             continue;

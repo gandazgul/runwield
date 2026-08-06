@@ -6,8 +6,10 @@
 
 import { isPlannedChangeClassification } from "../../constants.js";
 import { type ObjectiveCheckResult, runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
+import { objectiveChecksWithoutWaivers, persistObjectiveCheckWaiver } from "./objective-check-waivers.ts";
 import type { ValidationLocalCIResult } from "./validation-ports.ts";
 import type {
+    BrokenObjectiveCheckReport,
     ObjectiveCheckPhaseOutcome,
     PhaseContext,
     UserActionPause,
@@ -24,7 +26,8 @@ import {
 } from "./validation-context.ts";
 import { AUTOMATIC_ROUNDS } from "./validation-types.ts";
 import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
-import { pauseForUserAction } from "./validation-interactions.ts";
+import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
+import { type AgentTurnOutcome, ValidationInteractionTypes } from "./validation-ports.ts";
 
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -132,18 +135,85 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 };
             }
             if (objectiveCheckOutcome.kind === "broken") {
+                const reported = Array.isArray(
+                        (args.triageMeta as { engineerReportedBrokenObjectiveChecks?: unknown })
+                            .engineerReportedBrokenObjectiveChecks,
+                    )
+                    ? resolveEngineerReportedBrokenChecks(
+                        args.triageMeta.objectiveChecks || [],
+                        (args.triageMeta as { engineerReportedBrokenObjectiveChecks: BrokenObjectiveCheckReport[] })
+                            .engineerReportedBrokenObjectiveChecks,
+                    )
+                    : [];
+                const reportedIds = new Set(reported.map((result) => result.id));
+                const source = reportedIds.size && objectiveCheckOutcome.results.some((result) =>
+                        reportedIds.has(result.id)
+                    )
+                    ? "engineer_report"
+                    : "mechanical_detection";
+                const judgement = await requestObjectiveCheckWaiver(
+                    args,
+                    phase.context,
+                    objectiveCheckOutcome.reason,
+                    objectiveCheckOutcome.results,
+                    source,
+                );
+                const waived = judgement.kind === "waived";
+                if (waived) {
+                    await recordLifecycleEvent(
+                        args,
+                        phase.context.projectRoot,
+                        "mechanical_validation_passed",
+                        "implemented",
+                    );
+                    preserveValidationContinuationState(args, phase.context);
+                    emitProgress(
+                        args,
+                        "Build and tests passed; broken Objective-Failing Checks were waived by user.",
+                        "success",
+                        {
+                            stage: "cycle",
+                            checks: { ci: "passed" },
+                        },
+                    );
+                    return {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: phase.context.projectRoot,
+                        reason: "Mechanical Validation passed with Objective-Failing Check waiver.",
+                    };
+                }
+                const repair = await dispatchObjectiveCheckRepair(
+                    args,
+                    phase.context,
+                    objectiveCheckOutcome.results,
+                    judgement.feedback,
+                );
                 await recordLifecycleEvent(
                     args,
                     phase.context.projectRoot,
-                    "validation_failed",
+                    "mechanical_validation_failed",
                     "implemented",
-                    objectiveCheckOutcome.reason,
+                    judgement.feedback || objectiveCheckOutcome.reason,
                 );
+                if (!repair.completed) {
+                    const reason = `${
+                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                    } stopped without task_completed during broken Objective-Failing Check repair.`;
+                    emitStatus(args, `${reason} Validation will resume after task_completed.`, "warning");
+                    return {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: phase.context.projectRoot,
+                        reason,
+                        awaitingTaskCompletion: true,
+                    };
+                }
                 return {
-                    kind: "failed",
+                    kind: "paused",
                     planName: args.planName,
                     projectRoot: phase.context.projectRoot,
-                    reason: objectiveCheckOutcome.reason,
+                    reason: "Objective-Failing Check waiver was rejected; repair required.",
                 };
             }
 
@@ -176,7 +246,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 };
             }
 
-            const repairCompleted = await dispatchObjectiveCheckRepair(
+            const repair = await dispatchObjectiveCheckRepair(
                 args,
                 phase.context,
                 objectiveCheckOutcome.results,
@@ -188,7 +258,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 "implemented",
                 objectiveCheckOutcome.reason,
             );
-            if (!repairCompleted) {
+            if (!repair.completed) {
                 const reason = `${
                     args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
                 } stopped without task_completed during Objective-Failing Check repair.`;
@@ -204,6 +274,74 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     reason,
                     awaitingTaskCompletion: true,
                 };
+            }
+            if (repair.brokenObjectiveChecks.length) {
+                const reportedResults = resolveEngineerReportedBrokenChecks(
+                    args.triageMeta.objectiveChecks || [],
+                    repair.brokenObjectiveChecks,
+                );
+                const rerun = await runPlanObjectiveChecks(args, phase.context, attempts);
+                if (rerun.kind === "passed" || rerun.kind === "skipped") {
+                    await recordLifecycleEvent(
+                        args,
+                        phase.context.projectRoot,
+                        "mechanical_validation_passed",
+                        "implemented",
+                    );
+                    preserveValidationContinuationState(args, phase.context);
+                    return {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: phase.context.projectRoot,
+                        reason: "Mechanical Validation passed.",
+                    };
+                }
+                if (rerun.kind === "broken") {
+                    const reportedIds = new Set(reportedResults.map((reported) => reported.id));
+                    const reportedBrokenResults = rerun.results.filter((result) =>
+                        result.status === "broken" && reportedIds.has(result.id)
+                    );
+                    if (reportedBrokenResults.length) {
+                        const judgement = await requestObjectiveCheckWaiver(
+                            args,
+                            phase.context,
+                            `Engineer reported broken Objective-Failing Checks after repair.\n\n${
+                                summarizeObjectiveChecks(reportedResults).block
+                            }\n\nRerun result:\n\n${rerun.reason}`,
+                            reportedBrokenResults,
+                            "engineer_report",
+                        );
+                        if (judgement.kind === "waived") {
+                            const remainingUnmet = rerun.results.filter((result) =>
+                                result.status !== "met" && !reportedIds.has(result.id)
+                            );
+                            if (!remainingUnmet.length) {
+                                await recordLifecycleEvent(
+                                    args,
+                                    phase.context.projectRoot,
+                                    "mechanical_validation_passed",
+                                    "implemented",
+                                );
+                                preserveValidationContinuationState(args, phase.context);
+                                return {
+                                    kind: "paused",
+                                    planName: args.planName,
+                                    projectRoot: phase.context.projectRoot,
+                                    reason:
+                                        "Mechanical Validation passed with Engineer-reported Objective-Failing Check waiver.",
+                                };
+                            }
+                        } else {
+                            await dispatchObjectiveCheckRepair(args, phase.context, rerun.results, judgement.feedback);
+                            return {
+                                kind: "paused",
+                                planName: args.planName,
+                                projectRoot: phase.context.projectRoot,
+                                reason: "Objective-Failing Check waiver was rejected; repair required.",
+                            };
+                        }
+                    }
+                }
             }
             return {
                 kind: "paused",
@@ -287,10 +425,18 @@ export async function runPlanObjectiveChecks(
     if (!isPlannedChangeClassification(args.triageMeta.classification)) return { kind: "skipped" };
     const checks = args.triageMeta.objectiveChecks || [];
     if (!checks.length) return { kind: "skipped" };
+    const activeChecks = objectiveChecksWithoutWaivers(checks, args.triageMeta.objectiveCheckWaivers);
+    if (!activeChecks.length) {
+        emitStatus(args, `All Objective-Failing Checks for ${args.planName} are waived; skipping them.`, "success");
+        return { kind: "passed" };
+    }
+    const skippedCount = checks.length - activeChecks.length;
 
     emitStatus(
         args,
-        `Running Objective-Failing Checks for ${args.planName}: ${checks.map((check) => check.id).join(", ")}.`,
+        `Running Objective-Failing Checks for ${args.planName}: ${activeChecks.map((check) => check.id).join(", ")}.${
+            skippedCount ? ` Skipping ${skippedCount} waived check${skippedCount === 1 ? "" : "s"}.` : ""
+        }`,
     );
     // Register the whole phase as a Session active interaction so Escape reaches
     // it exactly like it reaches local CI: one abort, whole process trees stop,
@@ -301,7 +447,7 @@ export async function runPlanObjectiveChecks(
     let results: ObjectiveCheckResult[];
     try {
         results = await runObjectiveChecks({
-            checks,
+            checks: activeChecks,
             cwd: context.executionCwd,
             signal: abortController.signal,
         });
@@ -340,11 +486,89 @@ export async function runPlanObjectiveChecks(
     return { kind: "passed" };
 }
 
+export async function requestObjectiveCheckWaiver(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    reason: string,
+    results: ObjectiveCheckResult[],
+    source: "mechanical_detection" | "engineer_report",
+): Promise<{ kind: "waived" } | { kind: "rejected"; feedback: string }> {
+    const prompt = source === "engineer_report"
+        ? `The execution agent reported broken Objective-Failing Checks for "${args.planName}".`
+        : `RunWield detected broken Objective-Failing Checks for "${args.planName}".`;
+    emitStatus(
+        args,
+        `${prompt}\n\n${reason}\n\nAccept a waiver only if the check itself is broken and the implementation should continue.`,
+        "warning",
+    );
+    const response = await requestInteraction(args, {
+        type: ValidationInteractionTypes.SELECT,
+        prompt: `${prompt}\n\n${reason}\n\nWhat should RunWield do?`,
+        options: [
+            { value: "waive", label: "Waive broken checks" },
+            { value: "retry", label: "Retry later" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    if (response.outcome !== "selected" || response.value !== "waive") {
+        const feedbackResponse = await requestInteraction(args, {
+            type: ValidationInteractionTypes.TEXT,
+            prompt: "Tell the Engineer what to fix about these broken Objective-Failing Checks.",
+            defaultValue:
+                "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.",
+        });
+        const feedback = typeof feedbackResponse.value === "string" && feedbackResponse.value.trim()
+            ? feedbackResponse.value.trim()
+            : "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.";
+        return { kind: "rejected", feedback };
+    }
+    const noteResponse = await requestInteraction(args, {
+        type: ValidationInteractionTypes.TEXT,
+        prompt: "Optional note for the Objective Check waiver record.",
+        allowEmpty: true,
+    });
+    const userNote = typeof noteResponse.value === "string" ? noteResponse.value.trim() : "";
+    await persistObjectiveCheckWaiver({
+        projectRoot: context.projectRoot,
+        planName: args.planName,
+        recoveryAttrs: { ...args.triageMeta },
+        existingWaivers: args.triageMeta.objectiveCheckWaivers,
+        source,
+        explanation: reason,
+        ...(userNote ? { userNote } : {}),
+        results,
+    });
+    return { kind: "waived" };
+}
+
+function resolveEngineerReportedBrokenChecks(
+    checks: Array<{ id: string; command: string; rationale?: string }>,
+    reports: BrokenObjectiveCheckReport[],
+): ObjectiveCheckResult[] {
+    return reports.map((report) => {
+        const check = checks.find((candidate) => candidate.id === report.id);
+        const command = report.command || check?.command || "reported-command-unknown";
+        return {
+            id: report.id,
+            command,
+            ...(check?.rationale ? { rationale: check.rationale } : {}),
+            status: "broken" as const,
+            stdout: "",
+            stderr: "",
+            exitCode: null,
+            durationMs: 0,
+            output: "",
+            reason: report.explanation,
+        };
+    });
+}
+
 export async function dispatchObjectiveCheckRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
     results: ObjectiveCheckResult[],
-): Promise<boolean> {
+    feedback = "",
+): Promise<AgentTurnOutcome> {
     const summary = summarizeObjectiveChecks(results);
     args.session.setActiveWorkflow({ ...context.workflowBase });
     emitStatus(
@@ -354,14 +578,13 @@ export async function dispatchObjectiveCheckRepair(
         } to satisfy them...`,
         "warning",
     );
-    const outcome = await args.session.runActiveAgentTurn({
+    return await args.session.runActiveAgentTurn({
         agentName: context.executionAgent,
         userRequest:
-            "The Plan failed Objective-Failing Checks during Mechanical Validation. Fix the implementation so these checks exit 0, then call task_completed when the repair is complete. Do not edit the Plan checks unless the user explicitly asks for a new Plan review. If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
-            summary.block,
+            "The Plan failed Objective-Failing Checks during Mechanical Validation. Fix the implementation so these checks exit 0, then call task_completed when the repair is complete. Do not edit the Plan checks unless the user explicitly asks for a new Plan review. If you determine a check is broken, report it in task_completed.brokenObjectiveChecks with id and explanation. If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
+            (feedback ? `User feedback:\n${feedback}\n\n` : "") + summary.block,
         cwd: context.executionCwd,
     });
-    return outcome.completed;
 }
 
 export async function dispatchCiRepair(

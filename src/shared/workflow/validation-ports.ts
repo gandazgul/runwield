@@ -141,6 +141,7 @@ export type ValidationReviewOutcome = {
 export type AgentTurnOutcome = {
     completed: boolean;
     report: string;
+    brokenObjectiveChecks: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
 };
 
 /** What the engine asks for when it dispatches a completion-gated active Agent turn. */

@@ -151,6 +151,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {ObjectiveCheck[]} [objectiveChecks] - Executable Objective-Failing Checks owned by RunWield.
  * @property {ObjectiveChecksBaseline} [objectiveChecksBaseline] - Last trusted pre-execution red-state check results.
+ * @property {ObjectiveCheckWaiver[]} [objectiveCheckWaivers] - User-accepted waivers for broken Objective-Failing Checks.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
@@ -236,6 +237,16 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} recordedAt
  * @property {string} [head]
  * @property {ObjectiveCheckResult[]} results
+ */
+
+/**
+ * @typedef {Object} ObjectiveCheckWaiver
+ * @property {string} id
+ * @property {string} command
+ * @property {"mechanical_detection"|"engineer_report"} source
+ * @property {string} explanation
+ * @property {string} [userNote]
+ * @property {string} waivedAt
  */
 
 /** @typedef {Partial<PlanFrontMatter> & Record<string, unknown>} PlanFrontMatterInput */
@@ -425,6 +436,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecks, fm.objectiveChecks);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline, fm.objectiveChecksBaseline);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers, fm.objectiveCheckWaivers);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
@@ -862,6 +874,45 @@ export function normalizeObjectiveChecksBaseline(value) {
     return { recordedAt, ...(head ? { head } : {}), results };
 }
 
+const OBJECTIVE_CHECK_WAIVER_SOURCES = new Set(["mechanical_detection", "engineer_report"]);
+
+/**
+ * @param {unknown} value
+ * @returns {ObjectiveCheckWaiver | undefined}
+ */
+function normalizeObjectiveCheckWaiver(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const source = /** @type {Record<string, unknown>} */ (value);
+    const id = typeof source.id === "string" ? source.id.trim() : "";
+    const command = typeof source.command === "string" ? source.command.trim() : "";
+    const waiverSource = typeof source.source === "string" && OBJECTIVE_CHECK_WAIVER_SOURCES.has(source.source)
+        ? /** @type {ObjectiveCheckWaiver["source"]} */ (source.source)
+        : undefined;
+    const explanation = typeof source.explanation === "string" && source.explanation.trim()
+        ? source.explanation.trim()
+        : "";
+    const userNote = typeof source.userNote === "string" && source.userNote.trim() ? source.userNote.trim() : "";
+    const waivedAt = typeof source.waivedAt === "string" && source.waivedAt.trim() ? source.waivedAt.trim() : "";
+    if (!id || !command || !waiverSource || !explanation || !waivedAt) return undefined;
+    return { id, command, source: waiverSource, explanation, ...(userNote ? { userNote } : {}), waivedAt };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {ObjectiveCheckWaiver[] | undefined}
+ */
+export function normalizeObjectiveCheckWaivers(value) {
+    if (!Array.isArray(value)) return undefined;
+    /** @type {ObjectiveCheckWaiver[]} */
+    const waivers = [];
+    for (const item of value) {
+        const normalized = normalizeObjectiveCheckWaiver(item);
+        if (!normalized) return undefined;
+        waivers.push(normalized);
+    }
+    return waivers;
+}
+
 /**
  * @param {unknown} value
  * @returns {number | undefined}
@@ -1047,6 +1098,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         objectiveChecksBaseline: Object.hasOwn(overrides, "objectiveChecksBaseline")
             ? normalizeObjectiveChecksBaseline(overrides.objectiveChecksBaseline)
             : normalizeObjectiveChecksBaseline(existingFm.objectiveChecksBaseline),
+        objectiveCheckWaivers: Object.hasOwn(overrides, "objectiveCheckWaivers")
+            ? normalizeObjectiveCheckWaivers(overrides.objectiveCheckWaivers)
+            : normalizeObjectiveCheckWaivers(existingFm.objectiveCheckWaivers),
         tickets: Object.hasOwn(overrides, "tickets")
             ? normalizeTicketReferences(overrides.tickets)
             : normalizeTicketReferences(existingFm.tickets),
@@ -1180,6 +1234,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
             objectiveChecks: normalizeObjectiveChecks(attrs.objectiveChecks),
             objectiveChecksBaseline: normalizeObjectiveChecksBaseline(attrs.objectiveChecksBaseline),
+            objectiveCheckWaivers: normalizeObjectiveCheckWaivers(attrs.objectiveCheckWaivers),
             tickets: normalizeTicketReferences(attrs.tickets),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")

@@ -152,6 +152,7 @@ export class ClaudeCliExecutionSession {
                 selector,
                 systemPrompt: this.finalSystemPrompt + buildWorkflowPromptAppendix(eligibleAliases),
                 ...(bridge ? { mcpConfig: bridge.config } : {}),
+                allowedToolNames: eligibleAliases.flatMap((alias) => [alias, `mcp__runwield__${alias}`]),
             });
             const stdinText = serializeConversation(conversation);
             const processPort = new DenoClaudeCliProcessPort();
@@ -175,6 +176,7 @@ export class ClaudeCliExecutionSession {
             });
 
             const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
+            const thinkingMessageId = `claude-cli-thinking:${crypto.randomUUID()}`;
             let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>>;
             try {
                 parsed = await parseClaudeCliStream(process.stdout, {
@@ -185,6 +187,21 @@ export class ClaudeCliExecutionSession {
                             delta: delta.text,
                             agentName: this.agentName,
                             messageKind: "assistant",
+                        });
+                    },
+                    onThinkingDelta: (delta) => {
+                        emitHostedSessionRuntimeEvent(this.hostedSession, {
+                            type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+                            messageId: thinkingMessageId,
+                            delta: delta.text,
+                            agentName: this.agentName,
+                        });
+                    },
+                    onThinkingEnd: () => {
+                        emitHostedSessionRuntimeEvent(this.hostedSession, {
+                            type: RuntimeEventTypes.ASSISTANT_THINKING_END,
+                            messageId: thinkingMessageId,
+                            agentName: this.agentName,
                         });
                     },
                     isTerminalAccepted: () => bridge?.acceptedTerminal === true,

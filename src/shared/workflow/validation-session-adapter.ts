@@ -128,7 +128,7 @@ async function runIsolatedRequest(
     const report = readLatestTaskCompletedReport(messages);
     return {
         kind: "feedback_engineer",
-        taskReport: { completed: report.completed, report: report.message },
+        taskReport: { completed: report.completed, report: report.message, brokenObjectiveChecks: [] },
     };
 }
 
@@ -176,9 +176,13 @@ export function createValidationSessionPort(
                 cwd,
             });
             const completion = claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession());
-            if (!completion) return { completed: false, report: "" };
+            if (!completion) return { completed: false, report: "", brokenObjectiveChecks: [] };
             acknowledgeTaskCompletion(hostedSession, completion);
-            return { completed: true, report: completion.report };
+            return {
+                completed: true,
+                report: completion.report,
+                brokenObjectiveChecks: completion.brokenObjectiveChecks || [],
+            };
         },
         createInMemorySessionManager: (cwd) => SessionManager.inMemory(cwd) as unknown as SessionManagerHandle,
         runIsolatedAgentSession: async <K extends IsolatedAgentSessionRequest["kind"]>(

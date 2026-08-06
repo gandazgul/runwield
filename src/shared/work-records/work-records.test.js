@@ -455,6 +455,46 @@ Deno.test("Work Record generation includes the task completion report", async ()
     }
 });
 
+Deno.test("Work Record generation includes accepted Objective Check waivers", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "waived", "# Waived\n\n## Plan\n\nBody", {
+            planId: "plan-waived",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Built waived feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            objectiveCheckWaivers: [{
+                id: "OC1",
+                command: "missing-tool",
+                source: "mechanical_detection",
+                explanation: "User accepted the check defect.",
+                userNote: "Not relevant on this platform.",
+                waivedAt: "2026-07-15T00:00:00.000Z",
+            }],
+        });
+        const preview = await previewWorkRecordBackfill(cwd);
+        const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            idGenerator: () => "88888888-8888-4888-8888-888888888888",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            runRecorderPrompt: recorderResponse({ title: "Waived Outcome", summary: "Completed with a waiver." }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        const record = await findWorkRecordById(cwd, "88888888-8888-4888-8888-888888888888");
+        assertStringIncludes(record?.sections["Objective Check Waivers"] || "", "OC1");
+        assertStringIncludes(
+            record?.markdown || "",
+            "Plan Front Matter contains accepted Objective-Failing Check waivers.",
+        );
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
 Deno.test("Work Record recorder prompt includes the task completion report as source material", async () => {
     /** @type {import('./generation.js').WorkRecordSource} */
     const source = {

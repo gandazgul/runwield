@@ -5,6 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
+import { captureWorktreeTree } from "./git-snapshot.js";
 import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
 import {
     applyRoundFindings,
@@ -179,6 +180,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             },
         });
 
+        const repairBaselineTree = await captureWorktreeTree(context.executionCwd);
         const repair = await dispatchReviewFeedbackRepair(args, context, {
             diffText,
             findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
@@ -187,7 +189,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             activeWorkflow: {
                 semanticRound: nextRound,
                 reviewLedger: review.ledger,
-                repairBaselineTree: state.repairBaselineTree || context.baselineTree || "",
+                repairBaselineTree,
             },
         });
         if (!repair.completed) {
@@ -251,6 +253,8 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     } Run this Plan again when you want to pick it back up.`,
                 };
             }
+            state.repairBaselineTree = repairBaselineTree;
+            state.lastRepairReport = repair.report;
             round = nextRound;
             ledger = review.ledger;
             diffText = await getDiffText(context.baselineTree, context.executionCwd);
@@ -329,7 +333,10 @@ export async function runReviewerRound(
                 "info",
             );
         }
-        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText);
+        const repairDiffText = state.repairBaselineTree
+            ? await getDiffText(state.repairBaselineTree, context.executionCwd)
+            : "";
+        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText, repairDiffText);
         nudgeReason = undefined;
         try {
             const sessionOutcome = await args.session.runIsolatedAgentSession({
@@ -404,13 +411,16 @@ export function buildSemanticReviewAttempt(
     state: SemanticRoundState,
     reviewMode: "discovery" | "verify",
     diffText: string,
+    repairDiffText = "",
 ): {
     prompt: string;
     customTools: OpaqueToolDefinition[];
 } {
+    const hasRepairScope = state.repairBaselineTree.trim() !== "";
+    const toolDiffs = hasRepairScope ? { full: diffText, repair: repairDiffText } : { full: diffText };
     // `createReviewDiffTool` returns a Pi ToolDefinition; the engine brands it opaque
     // here so the adapter can un-brand it once at the port boundary.
-    const customTools = [createReviewDiffTool({ full: diffText }) as unknown as OpaqueToolDefinition];
+    const customTools = [createReviewDiffTool(toolDiffs) as unknown as OpaqueToolDefinition];
     if (attempt > 1) {
         return {
             prompt: nudgeReason ||
@@ -454,7 +464,7 @@ export function buildSemanticReviewAttempt(
         );
     }
     sections.push(
-        buildDiffInspectionSection(diffText),
+        buildDiffInspectionSection(diffText, { hasRepairScope }),
         "",
         "### Approved Plan",
         "",

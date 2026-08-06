@@ -18,6 +18,12 @@ export interface ObjectiveCheck {
 
 export type ObjectiveCheckStatus = "met" | "unmet" | "broken";
 
+export interface BrokenObjectiveCheckReport {
+    id: string;
+    explanation: string;
+    command?: string;
+}
+
 export interface ObjectiveCheckResult {
     id: string;
     command: string;
@@ -60,6 +66,80 @@ export interface RunObjectiveChecksOptions {
 const SHELL_NOT_FOUND_EXIT_CODES = new Set([126, 127]);
 export const DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS = 60_000;
 
+interface CaseInsensitivePathContradiction {
+    negatedPath: string;
+    requiredPath: string;
+}
+
+function shellTokenPattern(): string {
+    return `(?:"([^"]+)"|'([^']+)'|([^\\s;&|]+))`;
+}
+
+function firstDefinedMatchGroup(match: RegExpExecArray): string {
+    for (let index = 1; index < match.length; index += 1) {
+        const value = match[index];
+        if (value !== undefined) return value;
+    }
+    return "";
+}
+
+function collectCommandTokenMatches(command: string, pattern: RegExp): string[] {
+    const matches: string[] = [];
+    for (const match of command.matchAll(pattern)) {
+        const token = firstDefinedMatchGroup(match);
+        if (token) matches.push(token);
+    }
+    return matches;
+}
+
+function collectNegatedExistenceTokens(command: string): string[] {
+    return collectCommandTokenMatches(command, new RegExp(`\\btest\\s+!\\s+-e\\s+${shellTokenPattern()}`, "g"));
+}
+
+function collectRequiredPathTokens(command: string): string[] {
+    const token = shellTokenPattern();
+    return [
+        ...collectCommandTokenMatches(command, new RegExp(`\\bcat\\s+${token}`, "g")),
+        ...collectCommandTokenMatches(command, new RegExp(`\\btest\\s+-[efs]\\s+${token}`, "g")),
+        ...collectCommandTokenMatches(command, new RegExp(`[<>]{1,2}\\s*${token}`, "g")),
+    ];
+}
+
+function findCaseInsensitivePathContradiction(command: string): CaseInsensitivePathContradiction | undefined {
+    const negatedPaths = collectNegatedExistenceTokens(command);
+    if (negatedPaths.length === 0) return undefined;
+    const requiredPaths = collectRequiredPathTokens(command);
+    for (const negatedPath of negatedPaths) {
+        const foldedNegatedPath = negatedPath.toLocaleLowerCase();
+        for (const requiredPath of requiredPaths) {
+            if (requiredPath !== negatedPath && requiredPath.toLocaleLowerCase() === foldedNegatedPath) {
+                return { negatedPath, requiredPath };
+            }
+        }
+    }
+    return undefined;
+}
+
+async function filesystemTreatsCaseOnlyPathVariantsAsSame(cwd: string): Promise<boolean> {
+    const probeDir = await Deno.makeTempDir({ dir: cwd, prefix: ".runwield-objective-case-probe-" });
+    try {
+        const lowerPath = `${probeDir}/case-probe`;
+        const upperPath = `${probeDir}/CASE-PROBE`;
+        await Deno.writeTextFile(lowerPath, "probe");
+        return await Deno.stat(upperPath).then(() => true, () => false);
+    } finally {
+        await Deno.remove(probeDir, { recursive: true }).catch(() => {});
+    }
+}
+
+async function caseInsensitivePathContradictionReason(command: string, cwd: string): Promise<string | undefined> {
+    const contradiction = findCaseInsensitivePathContradiction(command);
+    if (!contradiction) return undefined;
+    const caseInsensitive = await filesystemTreatsCaseOnlyPathVariantsAsSame(cwd).catch(() => false);
+    if (!caseInsensitive) return undefined;
+    return `Objective check requires a case-sensitive filesystem path distinction that this filesystem cannot represent: ${contradiction.negatedPath} must not exist while ${contradiction.requiredPath} must exist.`;
+}
+
 function statusForExitCode(exitCode: number): ObjectiveCheckStatus {
     if (exitCode === 0) return "met";
     if (SHELL_NOT_FOUND_EXIT_CODES.has(exitCode)) return "broken";
@@ -88,6 +168,21 @@ async function runOneObjectiveCheck(
 ): Promise<ObjectiveCheckResult> {
     const startedAt = Date.now();
     try {
+        const contradictionReason = await caseInsensitivePathContradictionReason(check.command, cwd);
+        if (contradictionReason) {
+            return {
+                id: check.id,
+                command: check.command,
+                ...(check.rationale ? { rationale: check.rationale } : {}),
+                status: "broken",
+                stdout: "",
+                stderr: "",
+                exitCode: null,
+                durationMs: Date.now() - startedAt,
+                output: "",
+                reason: contradictionReason,
+            };
+        }
         // The foreground-process module owns the abort/timeout triggers and
         // kills the whole process tree — including a pre-aborted signal, which
         // skips the spawn entirely.

@@ -49,7 +49,10 @@ Deno.test("accepted task completion survives HostedSession replacement and ackno
 
     await tool.execute(
         "completion-call",
-        { message: "- Completed before restart." },
+        {
+            message: "- Completed before restart.",
+            brokenObjectiveChecks: [{ id: "OC1", explanation: "tool removed", command: "missing-tool" }],
+        },
         undefined,
         undefined,
         EXTENSION_CONTEXT,
@@ -71,6 +74,7 @@ Deno.test("accepted task completion survives HostedSession replacement and ackno
     assertExists(completion);
     assertEquals(completion.report, "- Completed before restart.");
     assertEquals(completion.workflow?.planName, "durable-plan");
+    assertEquals(completion.brokenObjectiveChecks?.[0].explanation, "tool removed");
     assertEquals(completion.durable, true);
 
     acknowledgeTaskCompletion(resumed, completion, 2345);

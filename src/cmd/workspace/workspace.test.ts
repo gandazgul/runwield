@@ -78,7 +78,8 @@ async function runWorkspaceChild(
 
 async function waitForWorkspace(origin: string): Promise<Response> {
     let lastError: Error | undefined;
-    for (let attempt = 0; attempt < 200; attempt++) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
         try {
             const response = await fetch(`${origin}/pair`);
             if (response.ok) return response;

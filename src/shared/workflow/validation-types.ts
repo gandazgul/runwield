@@ -102,6 +102,7 @@ export type UserActionPause = {
 };
 
 export type ReviewFeedbackImage = { base64: string; mimeType: string };
+export type BrokenObjectiveCheckReport = import("./objective-checks.ts").BrokenObjectiveCheckReport;
 
 export type ReviewFeedbackRepairPacket = {
     diffText: string;

@@ -143,6 +143,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} agentName
  * @property {string} report
  * @property {number} timestampMs
+ * @property {import('../workflow/objective-checks.ts').BrokenObjectiveCheckReport[]} [brokenObjectiveChecks]
  * @property {DisposableLike | null} owningSession
  */
 
@@ -501,13 +502,15 @@ export class HostedSession {
      * @param {string} agentName
      * @param {string} report
      * @param {number} timestampMs
+     * @param {import('../workflow/objective-checks.ts').BrokenObjectiveCheckReport[]} [brokenObjectiveChecks]
      */
-    recordPendingTaskCompletion(agentName, report, timestampMs = Date.now()) {
+    recordPendingTaskCompletion(agentName, report, timestampMs = Date.now(), brokenObjectiveChecks = undefined) {
         this.assertActive();
         this.pendingTaskCompletion = {
             agentName,
             report,
             timestampMs,
+            ...(Array.isArray(brokenObjectiveChecks) && brokenObjectiveChecks.length ? { brokenObjectiveChecks } : {}),
             owningSession: this.getActiveSteeringTargetSession(),
         };
     }

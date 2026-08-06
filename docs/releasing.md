@@ -37,6 +37,27 @@ There is no migration command, fallback read, symlink support, or deprecation pe
 - Stable releases are non-prereleases and become GitHub latest only after qualification and artifact publication
   succeed.
 
+## Immutability boundary
+
+A tag is a release attempt, not a release. Pushing a tag does not by itself make that tag immutable. The immutable
+boundary is creation of the GitHub Release for that tag. As soon as a GitHub Release exists—even if asset upload or the
+later notes edit is incomplete—the tag must continue to identify the same commit forever. Do not delete the GitHub
+Release to make the tag reusable.
+
+Before a GitHub Release exists, a failed tag attempt may be deleted and retried at a corrected commit when all of these
+conditions hold:
+
+- The tag-triggered workflow failed before creating the GitHub Release.
+- The corrected commit is the immediate child of the failed tag's commit and is the current `HEAD`; in other words, the
+  fix is exactly the next commit after the failed attempt.
+- The corrected commit is still a valid source for the selected release operation. In particular, Candidate promotion
+  must still use the selected Candidate's peeled commit.
+- Immediately before deleting the remote tag, the operator verifies again that no GitHub Release exists for it.
+
+Delete both remote and local copies of the failed tag, then rerun the repository-owned release command so it creates the
+same tag at the new `HEAD`. If any condition is false, keep the tag and use the recovery workflow when appropriate, or
+choose a new release tag. Never move a tag after its GitHub Release has been created.
+
 The default installer and schema URLs use GitHub `/releases/latest`; therefore a Candidate must never displace the
 current Stable channel. To dogfood a Candidate explicitly, install by tag:
 
@@ -91,7 +112,7 @@ releases, or leave repository files behind.
    keep the cumulative upgrade notes and add validation-relevant changes since the previous Candidate when useful.
 3. Run `deno task release:candidate --tag <candidate-tag> --dry-run` and inspect the resolved `HEAD` commit and proposed
    tag.
-4. Confirm the irreversible operation.
+4. Confirm the tag push. The tag remains a retryable release attempt until its GitHub Release is created.
 5. Run `deno task release:candidate --tag <candidate-tag>`.
 6. Wait for the tag-triggered GitHub workflow to publish the prerelease assets.
 7. Edit the published Candidate release with the curated temporary notes and verify they landed.
@@ -104,7 +125,7 @@ releases, or leave repository files behind.
    treat promotion as an empty release merely because the source commit is unchanged from the Candidate.
 4. Run `deno task release:promote --candidate <candidate-tag> --dry-run` and inspect the Candidate source commit and
    target Stable tag.
-5. Confirm the irreversible operation.
+5. Confirm the tag push. The tag becomes immutable when its GitHub Release is created.
 6. Run `deno task release:promote --candidate <candidate-tag>`.
 7. Wait for the Stable tag-triggered GitHub workflow to publish Stable assets.
 8. Edit the published Stable release with the curated temporary notes and verify they landed.
@@ -124,11 +145,12 @@ The tag-triggered workflow owns release qualification, builds, GitHub release cr
 commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
 qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
 
-The workflow also exposes a required-tag manual dispatch solely for recovery after an immutable tag's workflow fails
-because of a qualification test or workflow defect. In that mode, the source-quality job runs from the default-branch
-workflow revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
-explicitly check out the existing immutable tag. Never use manual recovery to bypass a genuine failure in tagged product
-source, and never move the tag to include a later fix.
+The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
+moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can
+safely retry the existing tagged source. In that mode, the source-quality job runs from the default-branch workflow
+revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
+explicitly check out the existing tag. Never use manual recovery to bypass a genuine failure in tagged product source.
+Once a GitHub Release exists, never move its tag to include a later fix.
 
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as
@@ -142,9 +164,13 @@ gh release edit <tag> --notes-file <notes-file>
 
 - **Local tag created but not pushed**: delete the local tag after confirming no remote tag exists, repair the issue,
   and rerun the command.
-- **Remote tag pushed and workflow failed**: do not move or reuse the tag. Fix the workflow/source issue according to
-  the failure and rerun the workflow for the same immutable tag when safe. If the failed tag predates the qualification
-  fix, dispatch `release-wld` manually with that existing tag after the recovery commit reaches the default branch.
+- **Remote tag pushed, workflow failed, and no GitHub Release exists**: if the fix is the immediate next commit and all
+  conditions in **Immutability boundary** hold, verify the absence of a GitHub Release, delete the remote and local tag,
+  and rerun the release command at the corrected `HEAD`. Otherwise keep the tag and use a new release tag or the manual
+  recovery workflow when safe.
+- **GitHub Release exists**: the tag is immutable, including when qualification, asset upload, or notes editing later
+  fails. Keep the tag at its original commit and recover the existing release. If a workflow fix is required, dispatch
+  `release-wld` manually with that tag after the recovery commit reaches the default branch.
 - **Candidate published but should not be promoted**: leave it as a prerelease and publish a later Candidate tag.
 - **Assets published but notes pending**: do not recreate the release. Retry the notes edit and verify the published
   notes.

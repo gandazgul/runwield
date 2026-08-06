@@ -25,6 +25,7 @@ import {
     loadPlan,
     loadPlanBodyById,
     normalizeObjectiveChecksBaseline,
+    normalizeObjectiveCheckWaivers,
     onboardExternalPlan,
     parsePlanFrontMatter,
     PLAN_FRONT_MATTER_KEY_ORDER,
@@ -154,14 +155,73 @@ Deno.test("objectiveChecksBaseline normalizes valid baseline results and drops m
     });
 });
 
+Deno.test("objectiveCheckWaivers normalize accepted broken-check evidence only", () => {
+    const waivers = normalizeObjectiveCheckWaivers([{
+        id: " OC1 ",
+        command: " missing-tool ",
+        source: "mechanical_detection",
+        explanation: " User accepted the check defect. ",
+        userNote: " accepted by Alice ",
+        waivedAt: "2026-01-01T00:00:00.000Z",
+    }]);
+
+    assertEquals(waivers?.[0].id, "OC1");
+    assertEquals(waivers?.[0].source, "mechanical_detection");
+    assertEquals(waivers?.[0].userNote, "accepted by Alice");
+    assertEquals(
+        normalizeObjectiveCheckWaivers([{
+            id: "",
+            command: "missing-tool",
+            source: "mechanical_detection",
+            explanation: "x",
+            waivedAt: "now",
+        }]),
+        undefined,
+    );
+    assertEquals(
+        normalizeObjectiveCheckWaivers([{
+            id: "OC1",
+            command: "",
+            source: "mechanical_detection",
+            explanation: "x",
+            waivedAt: "now",
+        }]),
+        undefined,
+    );
+});
+
 Deno.test("front matter key constants expose canonical planning metadata order", () => {
     assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER[0], PLAN_FRONT_MATTER_KEYS.planId);
     assertEquals(PLAN_FRONT_MATTER_KEYS.frontend, "frontend");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.devServerUrl), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline), true);
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
     assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
+});
+
+testWithFs("objectiveCheckWaivers round-trip through saved Plan front matter", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "waived-plan", "# Waived", {
+            objectiveCheckWaivers: [{
+                id: "OC1",
+                command: "missing-tool",
+                source: "engineer_report",
+                explanation: "Engineer reported the check is broken.",
+                waivedAt: "2026-01-01T00:00:00.000Z",
+            }],
+        });
+
+        const loaded = await loadPlan(cwd, "waived-plan");
+        assertEquals(loaded?.attrs.objectiveCheckWaivers?.[0].source, "engineer_report");
+        assertEquals(loaded?.attrs.objectiveCheckWaivers?.[0].id, "OC1");
+        const markdown = await Deno.readTextFile(join(cwd, "docs", "plans", "waived-plan.md"));
+        assertStringIncludes(markdown, "objectiveCheckWaivers:");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 testWithFs("objectiveChecksBaseline round-trips through saved Plan front matter", async () => {

@@ -491,6 +491,19 @@ export function aggregateWorkRecordTickets(source) {
 
 /**
  * @param {WorkRecordSource} source
+ */
+function formatObjectiveCheckWaivers(source) {
+    const waivers = source.attrs.objectiveCheckWaivers || [];
+    if (!waivers.length) return "";
+    return waivers.map((waiver) =>
+        `- ${waiver.waivedAt} (${waiver.source}) ${waiver.id}: ${waiver.explanation} Command: ${waiver.command}${
+            waiver.userNote ? ` User note: ${waiver.userNote}` : ""
+        }`
+    ).join("\n");
+}
+
+/**
+ * @param {WorkRecordSource} source
  * @param {GeneratedWorkRecordSections} sections
  */
 function buildBody(source, sections) {
@@ -514,6 +527,10 @@ function buildBody(source, sections) {
     }
     if (nonEmptyString(source.executionReport)) {
         lines.push("", "## Execution Report", "", nonEmptyString(source.executionReport));
+    }
+    const waiverText = formatObjectiveCheckWaivers(source);
+    if (waiverText) {
+        lines.push("", "## Objective Check Waivers", "", waiverText);
     }
     return lines.join("\n");
 }
@@ -613,7 +630,17 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
                     .completionMode),
             createdAt: iso(now),
             ...(aggregateWorkRecordTickets(source) ? { tickets: aggregateWorkRecordTickets(source) } : {}),
-            provenance: { sourcePlans: [source.planId] },
+            provenance: {
+                sourcePlans: [source.planId],
+                ...(source.attrs.objectiveCheckWaivers?.length
+                    ? {
+                        evidence: [{
+                            path: source.relativePath,
+                            note: "Plan Front Matter contains accepted Objective-Failing Check waivers.",
+                        }],
+                    }
+                    : {}),
+            },
         };
         const body = buildBody(source, sections);
         const title = body.match(/^#\s+(.+)$/m)?.[1] || attrs.recordId;

@@ -1,3 +1,5 @@
+Please talk in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.
+
 FEATURE is a legacy alias for PLANNED_CHANGE
 
 The main codebase is JS with JSDoc, but we are migrating to TypeScript. Write new files in TypeScript, and migrate

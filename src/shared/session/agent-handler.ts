@@ -550,7 +550,12 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     hostedSession,
                     planName: workflow.planName,
                     planContent,
-                    triageMeta: workflow.triageMeta,
+                    triageMeta: {
+                        ...workflow.triageMeta,
+                        ...(acceptedCompletion.brokenObjectiveChecks?.length
+                            ? { engineerReportedBrokenObjectiveChecks: acceptedCompletion.brokenObjectiveChecks }
+                            : {}),
+                    },
                     sessionManager,
                     finalAgentName: agentName,
                     git: createGitPort(),
