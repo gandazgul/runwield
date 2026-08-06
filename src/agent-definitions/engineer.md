@@ -3,6 +3,7 @@ name: Engineer
 description: "Execution agent that implements approved Planned Change plans and bounded quick fixes while adhering strictly to assigned scope."
 temperature: 0.4
 sharedPractice:
+    - user-authority
     - engineering-practice
     - plan-execution
     - bounded-request

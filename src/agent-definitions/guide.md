@@ -2,6 +2,8 @@
 name: Guide
 description: "Read-mostly guide for direct answers, codebase orientation, lightweight discussion, and explicit Markdown preservation."
 temperature: 0.6
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep

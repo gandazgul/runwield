@@ -371,6 +371,24 @@ async function readSharedPracticeBody(name, projectRoot) {
 }
 
 /**
+ * Compose named shared-practice fragments for full agents and bare-prompt
+ * subagents. Keeping this path common prevents workflow-only agents from
+ * silently missing universal collaboration policy.
+ *
+ * @param {unknown} value
+ * @param {string} agentName
+ * @param {string | undefined} [projectRoot]
+ * @returns {Promise<string>}
+ */
+export async function composeSharedPracticePrompt(value, agentName, projectRoot) {
+    const segments = [];
+    for (const name of normalizeSharedPracticeNames(value, agentName)) {
+        segments.push(await readSharedPracticeBody(name, projectRoot));
+    }
+    return segments.join("\n\n").trim();
+}
+
+/**
  * Load and merge an agent definition from one or more layered files in priority
  * order (lowest → highest). Missing paths are skipped; if none exist, throws.
  *
@@ -446,9 +464,8 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         : undefined;
     const temperature = normalizeTemperature(mergedAttrs.temperature);
 
-    for (const name of normalizeSharedPracticeNames(mergedAttrs.sharedPractice, agentName)) {
-        promptSegments.push(await readSharedPracticeBody(name, projectRoot));
-    }
+    const sharedPracticePrompt = await composeSharedPracticePrompt(mergedAttrs.sharedPractice, agentName, projectRoot);
+    if (sharedPracticePrompt) promptSegments.push(sharedPracticePrompt);
 
     const mergedPromptBody = promptSegments.join("\n\n").trim();
     const CORE_SYSTEM_PROMPT = await Deno.readTextFile(SYSTEM_PROMPT_TEMPLATE_PATH);

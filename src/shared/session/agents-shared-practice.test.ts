@@ -7,9 +7,11 @@ const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 
 /** Personas that compose shared practice, and the fragments each one claims. */
 const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["engineer", ["engineering-practice", "plan-execution", "bounded-request"]],
-    ["frontend-engineer", ["engineering-practice", "plan-execution", "bounded-request"]],
+    ["engineer", ["user-authority", "engineering-practice", "plan-execution", "bounded-request"]],
+    ["frontend-engineer", ["user-authority", "engineering-practice", "plan-execution", "bounded-request"]],
 ];
+
+const USER_AUTHORITY_MARKER = "After one concern, the discussion is complete. The user decides. Continue the work.";
 
 interface ProjectAgentFile {
     path: string;
@@ -121,6 +123,7 @@ Deno.test("shared practice fragments are never offered as agents", async () => {
     const names = await listAgentDefNames();
     assertEquals(names.includes("engineering-practice"), false);
     assertEquals(names.includes("plan-execution"), false);
+    assertEquals(names.includes("user-authority"), false);
     assertEquals(names.includes("shared-practice"), false);
 });
 
@@ -143,6 +146,13 @@ Deno.test("bundled personas compose their declared shared practice", async () =>
         assertStringIncludes(def.systemPrompt, "The Zero-Trust Implementation Protocol");
         assertStringIncludes(def.systemPrompt, "When Verification Fails, Act");
         assertStringIncludes(def.systemPrompt, "Requests that are not the Plan");
+    }
+});
+
+Deno.test("every bundled top-level agent receives the user-authority policy", async () => {
+    for (const agentName of await listAgentDefNames()) {
+        const def = await loadAgentDef(agentName);
+        assertStringIncludes(def.systemPrompt, USER_AUTHORITY_MARKER, `${agentName} is missing user authority`);
     }
 });
 

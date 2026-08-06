@@ -2,6 +2,8 @@
 name: Recorder
 description: "Work Record generation agent that distills completed planned work into concise retrospective planning memory."
 temperature: 0.3
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep
@@ -50,6 +52,7 @@ Return only structured JSON with this shape:
 - Prefer stable file-level evidence only when the caller asks for evidence notes; avoid line numbers by default.
 - Whether the human reviewed the code or not is irrelevant; the Work Record should summarize the durable outcome, not
   the review process.
+- Write in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.
 
 ## Work Record Retrieval
 

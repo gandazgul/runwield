@@ -22,6 +22,7 @@ const EXPECTED_PROMPT_FILES = [
 ];
 
 const EXPECTED_ROLE_OVERLAY_FILES = ["verification-adversary.md"];
+const USER_AUTHORITY_MARKER = "After one concern, the discussion is complete. The user decides. Continue the work.";
 
 function sourcePromptPath(fileName: string) {
     return join("src", "agent-definitions", "subagent-definitions", fileName);
@@ -59,6 +60,7 @@ Deno.test("every registered subagent loads from the moved bundled prompt files",
         loadedIds.push(id);
         assertEquals(agentDef.name, definition.agentName);
         assertEquals(prompt.trim().length > 0, true);
+        assertStringIncludes(agentDef.systemPrompt, USER_AUTHORITY_MARKER, `${id} is missing user authority`);
     }
 
     assertEquals(loadedIds.sort(), Object.values(SUBAGENTS).sort());
@@ -72,6 +74,8 @@ Deno.test("reviewer discovery and verify prompts load through one registry id", 
     assertEquals(verify.name, AGENTS.REVIEWER);
     assertStringIncludes(discovery.systemPrompt, "Your Default Is Approval");
     assertStringIncludes(verify.systemPrompt, "verification round");
+    assertStringIncludes(discovery.systemPrompt, USER_AUTHORITY_MARKER);
+    assertStringIncludes(verify.systemPrompt, USER_AUTHORITY_MARKER);
 });
 
 Deno.test("bare-prompt subagents receive canonical tool ceilings without the shared system prompt", async () => {
@@ -159,6 +163,7 @@ Deno.test("loadSubAgentDefinition composes delegated role overlays", async () =>
     // The overlay adds only the role-specific adversarial task and handoff contract.
     assertStringIncludes(adversary.systemPrompt, "Role: Verification Adversary");
     assertStringIncludes(adversary.systemPrompt, "not-discriminating");
+    assertStringIncludes(adversary.systemPrompt, USER_AUTHORITY_MARKER);
     assertEquals(general.systemPrompt.includes("not-discriminating"), false);
     assertEquals(adversary.systemPrompt.startsWith(general.systemPrompt), true);
     assertEquals(adversary.name, AGENTS.DELEGATED);

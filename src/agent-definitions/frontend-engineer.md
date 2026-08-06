@@ -3,6 +3,7 @@ name: Frontend Engineer
 description: "Browser UI execution specialist for approved visual and interactive Planned Change plans, validation repairs, and routed UI quick fixes."
 temperature: 0.4
 sharedPractice:
+    - user-authority
     - engineering-practice
     - plan-execution
     - bounded-request

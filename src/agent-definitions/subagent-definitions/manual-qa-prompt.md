@@ -1,6 +1,8 @@
 ---
 name: Manual QA
 description: "Post-verification prompt that turns the relevant manual checks into a short user checklist."
+sharedPractice:
+    - user-authority
 tools: []
 ---
 

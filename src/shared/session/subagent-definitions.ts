@@ -8,7 +8,7 @@ import { extractYaml } from "@std/front-matter";
 import { join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, SUBAGENTS } from "../../constants.js";
 import { ensureBundledAgentDefFile } from "./agent-assets.js";
-import { loadAgentDefFromPath } from "./agents.js";
+import { composeSharedPracticePrompt, loadAgentDefFromPath } from "./agents.js";
 import type { AgentDefinition } from "./types.js";
 
 const SUBAGENT_DEFINITIONS_DIR = "subagent-definitions";
@@ -259,6 +259,10 @@ export async function loadBarePromptDefinition(
         ? attrs.name.trim()
         : definition.displayNameFallback;
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
+    const sharedPracticePrompt = await composeSharedPracticePrompt(
+        attrs.sharedPractice,
+        definition.agentName,
+    );
 
     return {
         name: definition.agentName,
@@ -266,7 +270,7 @@ export async function loadBarePromptDefinition(
         model: "",
         description,
         tools: [...(definition.allowedTools || [])],
-        systemPrompt: body.trim(),
+        systemPrompt: [body.trim(), sharedPracticePrompt].filter(Boolean).join("\n\n"),
     };
 }
 

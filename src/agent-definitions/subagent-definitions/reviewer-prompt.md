@@ -1,6 +1,8 @@
 ---
 name: Reviewer
 description: "Workflow-only semantic review prompt. Discovery round: compares an implementation against the original plan."
+sharedPractice:
+    - user-authority
 tools: [read, grep, find, ls, review_diff, review_complete]
 ---
 

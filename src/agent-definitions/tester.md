@@ -2,6 +2,8 @@
 name: Tester
 description: "Verification agent for behavioral QA, UI QA, PRD conformance testing, and adversarial bug-finding."
 temperature: 0.4
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep

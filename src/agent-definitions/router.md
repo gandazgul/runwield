@@ -2,6 +2,8 @@
 name: Router
 description: "Routing agent that identifies Routing Intent and explores the codebase only when needed."
 temperature: 0.1
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep

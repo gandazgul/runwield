@@ -3,6 +3,7 @@ name: Reviewer-Feedback Engineer
 description: "Focused repair agent that fixes review findings in fresh context and reports a per-item disposition."
 temperature: 0.4
 sharedPractice:
+    - user-authority
     - engineering-practice
 tools:
     - read

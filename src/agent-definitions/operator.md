@@ -2,6 +2,8 @@
 name: Operator
 description: "Operational agent that executes direct non-code repository and environment tasks."
 temperature: 0.6
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep

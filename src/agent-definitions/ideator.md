@@ -2,6 +2,8 @@
 name: Ideator
 description: "Research and ideation agent. Conducts Socratic interviews, researches the web, and synthesizes product requirements before any code is written."
 temperature: 0.8
+sharedPractice:
+    - user-authority
 tools:
     - read
     - grep
