@@ -91,6 +91,29 @@ RunWield doesn't believe it:
 the way. Combined with searchable project memory, PRDs, and ADRs, the next planning session starts from what you already
 learned instead of from an empty context window.
 
+### Compared to other Software Factories
+
+They are currently task/ticket and session-centered. It helps teams operate AI software factories and manage context
+efficiently.
+
+RunWield is Plan- and lifecycle-centered. It intends to be the authority that decides:
+
+- Which work needs a Plan.
+- Which Plan was approved.
+- Whether approval also authorized execution.
+- Which session owns the Plan.
+- Which worktree and baseline belong to it.
+- Whether implementation matches the approved intent.
+- Whether validation and repair completed.
+- Whether the exact validated result reached the target branch.
+- Whether recovery is still necessary.
+- Which final outcome becomes durable planning memory.
+
+They expose rich session history. RunWield deliberately treats raw conversations as private working space and makes
+Plans, PRDs, ADRs, and Work Records the durable knowledge layer. All of the artifacts stay in your repo as plain
+markdown, so you can grep, diff, and version them like any other source file. RunWield will never encrypt or convert
+those files to keep you trapped, any other harness or coding tool can still make use of them.
+
 ### What a Planned Change actually looks like
 
 You type `wld "add rate limiting to the public API"`. Then:

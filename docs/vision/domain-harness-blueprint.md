@@ -5,6 +5,8 @@ lock the product direction.
 
 > Shape the environment so the human plus LLM can do cognition neither could do alone.
 
+https://web-archive.southampton.ac.uk/cogprints.org/320/1/extended.html
+
 ## Core Idea
 
 A domain harness is a purpose-built cognitive system for human and LLM collaboration in a specific field.

@@ -52,6 +52,15 @@ From Y Combinator call for Startups:
   will provide a platform for teams to share on that intelligence, anytime anyone on the team uses RunWield all of the
   team's planning and code gets better because new retrospective and learnings were added to the shared intelligence.
 
+### Response to a prospective user or investor
+
+HumanLayer is the closest product to RunWield. It is excellent at operating multiple coding-agent sessions and managing
+the artifacts and context around them. RunWield starts from a different source of truth: the approved Plan and its
+verified outcome. We treat approval, execution ownership, worktree state, validation, recovery, and the final Work
+Record as one durable transaction. HumanLayer helps run an AI software factory. RunWield is intended to be the
+change-governance and planning-memory system that tells that factory what was authorized, whether it was actually
+delivered, and what the team should remember.
+
 ## __deps refactor
 
 This is done, but we need to do some better detection and guard against the pattern re-emerging. And apply this to the
@@ -62,6 +71,33 @@ repos that RunWield works on so they dont fall into this pattern either.
 ### P0
 
 - [ ] Confirm claude has access to our skills, to write and edit files, EnterWorktree.
+
+- [ ] Already started work that's being continued shouldn't execute the OC again:
+
+  Error: RunWield stopped part-way through setting up the execution worktree for split-gemini-service, and cannot tell
+  by itself whether that finished. Some of it did complete, so the repository may already be partly updated. Do not
+  repeat the step by hand until this is settled. Why it stopped: The following Objective-Failing Check(s) are already
+  satisfied before implementation: OC1, OC3, OC4, OC5, OC6. An already-green check cannot discriminate whether Plan
+  split-gemini-service's objective was achieved. Revise the check(s) so they fail against the unmodified tree and pass
+  only after the objective is implemented.
+
+  Objective-Failing Checks: 5 met, 0 unmet, 0 broken (5 total).
+
+- [ ] Re-cerating the worktree doesnt work EITHER
+
+  Error: RunWield stopped part-way through setting up the execution worktree for split-gemini-service, and cannot tell
+  by itself whether that finished. Some of it did complete, so the repository may already be partly updated. Do not
+  repeat the step by hand until this is settled. Why it stopped: The following Objective-Failing Check(s) could not run
+  cleanly before implementation: OC1, OC2, OC3, OC4, OC5, OC6. A broken check cannot prove the objective is unmet, so
+  revise the command(s) before execution starts.
+
+  Objective-Failing Checks: 0 met, 0 unmet, 6 broken (6 total).
+
+  - OC1: broken command: test "$(wc -l < services/geminiService.ts)" -le 120 && ! grep -Eq '^(async )?function |^export
+    (const|function|class|async function) ' services/geminiService.ts rationale: Proves the 13,117-line implementation
+    became a facade rather than retaining implementations. exitCode: none reason: Failed to spawn objective check:
+    Failed to spawn '/bin/sh': No such cwd
+    '/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-brandchef.ai--/brandchef.ai-split-gemini-service-fa93705d'
 
 - [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 
@@ -85,6 +121,10 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 ### Others
 
+- [ ] Upgrade PI docs/plans/upgrade-pi-0-84-and-latex-rendering.md
+- [ ] Grab Matt Pockock wizard skill.
+- [ ] Plans should have optional dependencies on other plans, where an Epic is overkill but you need 2 or 3 sequencial
+      steps.
 - [ ] what is the EnterWorktree tool from claude code, should we copy it?
 - [ ] ![alt text](image-1.png) planner needs to be aware that the diagram is rendered and users cant see the letters
 - [ ] Need to ensure that all agents and sub agents have their entire tool declaration in the prompt front-matter. We

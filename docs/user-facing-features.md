@@ -11,6 +11,8 @@
   - Print global command help with `wld help`.
   - Print per-command help with `wld help <command>`.
   - Print version and platform architecture with `wld version`.
+  - Check for newer stable releases and run the CLI update flow with `wld update`.
+  - See stable update notices during normal use when a newer release is available.
   - Start an interactive terminal session with `wld`.
   - Send a one-shot routed request with `wld "<request>"`.
   - Explicitly route a request with `wld router "<request>"`.
@@ -21,9 +23,14 @@
   - Remove stored provider credentials with `/logout`.
   - Inspect configured providers and available models with `/status`.
   - Switch the active model with `/model` or `wld model <provider>/<model_id>`.
+  - Select Claude Code CLI execution models such as `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and
+    `claude-cli/fable`.
+  - Use custom non-empty `claude-cli/<selector>` model references when Claude Code supports the selector.
+  - Choose Claude Code CLI from first-run model setup without storing API credentials in RunWield.
   - Configure providers and custom models through RunWield-owned config paths.
   - Use per-agent model overrides in settings.
   - Use named model presets in settings.
+  - Edit model presets from the interactive `/settings` flow.
   - Configure model thinking levels per agent.
   - Use a vision fallback model for pasted images when the active model is text-only.
 
@@ -43,6 +50,8 @@
   - Switch agents inside the TUI with `/agent <name>`.
   - Use bundled specialist agents including Router, Guide, Ideator, Operator, Planner, Architect, Engineer, and Tester.
   - Use workflow specialists such as Slicer and Reviewer during plan decomposition and validation flows.
+  - Let agents use bounded delegated agent sessions for parallel investigation or isolated implementation work.
+  - Let agents use a verification-adversary delegated role to attack objective checks and weak validation plans.
 
 - **Planning and execution**
   - Store plans as Markdown files under `docs/plans/`.
@@ -61,6 +70,7 @@
   - Put plans on hold and later resume them.
   - Close eligible work without verification when explicitly chosen.
   - Recover failed execution, validation, and merge-back states through dedicated plan recovery actions.
+  - Inspect and repair plan/worktree registry mismatches with `wld plans doctor`.
 
 - **Project Epics and slicing**
   - Represent large `PROJECT` work as Epic container plans.
@@ -76,9 +86,12 @@
 - **Validation and review**
   - Run Mechanical Validation after direct `QUICK_FIX` work.
   - Run workflow validation after saved executable plan work.
+  - Run Objective-Failing Checks during Mechanical Validation.
+  - Baseline Objective-Failing Checks before execution so validation can prove they became satisfied.
   - Run semantic review against the original plan after saved plan implementation, in narrowing rounds: two full plan
     reviews, then verification-only rounds that check the repairs rather than re-reviewing everything.
   - Report code smells as non-blocking advisories instead of blocking findings.
+  - Use focused verification-only semantic review rounds after the full-plan review budget is spent.
   - Track review findings with stable identities across rounds so repairs and re-reviews refer to the same issue.
   - Repair review findings with a dedicated agent in fresh context, which reports what it did for each finding.
   - Offer another verification round or an immediate code review when automatic rounds run out, rather than stranding
@@ -113,6 +126,9 @@
   - View closed plans in the browser.
   - View on-hold plans in the browser.
   - View plan and Epic detail pages in the browser.
+  - View Session detail pages with model and Execution Backend disclosure.
+  - See the Claude CLI MVP caveat that Claude Code internal file/Bash/tool history is not replayed as native RunWield
+    tool history.
   - Use stable plan detail URLs based on `planId`.
   - Review plans in the browser through the Workspace/Plannotator review surface.
   - Approve, request changes, save, or cancel from the plan review flow.
@@ -155,6 +171,7 @@
   - Use Mnemosyne for project and global memory recall; Mnemosyne models download lazily on first semantic use.
   - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.
   - Use Snip for compact command-output rewriting when available; Snip remains optional and fail-open.
+  - Use `code_batch` to read several Cymbal source or outline results in one tool call.
   - Install RunWield-managed Deno Snip filters with `wld snip-filters install`.
   - Check Snip filter status with `wld snip-filters status`.
   - Remove RunWield-managed Snip filters with `wld snip-filters cleanup`.
@@ -164,10 +181,15 @@
 - **Interactive TUI and session management**
   - Use slash-command autocomplete by typing `/`.
   - Use file-reference fuzzy search by typing `@`.
+  - Recall slash-command and shell-command input history.
+  - Open inline keyboard help for TUI shortcuts.
+  - Render Mermaid diagrams inline in Markdown responses.
   - Run shell commands and send output to the model with `!command`.
   - Run shell commands without adding output to model context with `!!command`.
   - Paste images into the TUI when supported by the active model or configured fallback.
   - Queue messages while an agent is working.
+  - Steer foreground work early without waiting for the active process to finish.
+  - Cancel active work and its process tree reliably with Escape.
   - Use multiline input and external editor shortcuts inherited from Pi.
   - Browse and resume recent sessions with `/resume`.
   - Start a new root session with `/new`.
@@ -178,11 +200,14 @@
   - Manually compact session context with `/compact`.
   - Customize compaction instructions with `/compact "<instructions>"`.
   - Configure compaction behavior through `/settings`.
+  - Receive a notification when manual compaction finishes.
+  - Automatically compact large mid-run tool results when configured.
   - Reload settings, instructions, prompts, skills, models, themes, and memories with `/reload`.
   - Copy the last assistant message to the clipboard with `/copy`.
   - Exit with `/quit` or `/exit`.
   - Persist session history under `~/.wld/sessions/`.
   - Automatically name sessions and terminal titles from Router triage when no manual name exists.
+  - Send native terminal notifications, terminal activation requests, and terminal bell notices for supported events.
   - Offer compaction before resuming large sessions when configured.
 
 - **Session export and sharing**
