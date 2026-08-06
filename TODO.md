@@ -28,6 +28,17 @@
 - How is it different from Cursor, Lovable, Humanlayer and Warp. - we already know how is different from other strict
   harnesses like Claude Code and Codex.
 
+### Mutiplayer AI
+
+- Cohesive
+
+### Spec -> build
+
+- Humanlayer
+- Cursor
+- Warp?
+- Lovable?
+
 ### The bet
 
 `The winners of the next decade of developer tools won't be the ones who build a slightly better pull request UI. They will be the ones who build the infrastructure primitives that allow code generation, validation, and deployment to operate seamlessly at machine scale.`
@@ -50,28 +61,7 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 ### P0
 
-- [ ] We need to provide claude with the skills! its missing ketch
-
-  I couldn't verify this against live Claude CLI docs — WebSearch isn't available to me in this session, and the pi-mono
-  sibling repo is outside my allowed search paths — so I'll separate what's confirmed from the RunWield source versus
-  what's my recollection of the Claude CLI's own behavior (flagged as unverified).
-
-  Also got permission denied when trying to run the cli tool
-
-  me: WebSearch is not but you can use `ketch` cli tool
-
-  guide: User denied reading the ketch skill file. Let me check if there's a ketch CLI tool directly available via bash
-  instead.I'm hitting permission denials trying to read the ketch skill file and run the ketch CLI directly — both
-  attempts were blocked. Could you approve one of those, or point me to how you'd like me to invoke it?
-
-  claude cant write either Writing the plan.I hit a permission wall writing the plan file — RunWield declined the Write
-  to docs/plans/broken-objective-check-user-judgement.md. Approve that write and I'll land it immediately; the full plan
-  is drafted and ready to go out verbatim.
-
-  I'll load the EnterWorktree tool and switch into the worktree for this plan.Found it. Entering the worktree
-  now.Entering the worktree needs your approval through the permission prompt. You already told me to work in the
-  worktree for move-domain-language-out-of-context-files, so please approve the EnterWorktree prompt when it appears,
-  and I will continue right after.
+- [ ] Confirm claude has access to our skills, to write and edit files, EnterWorktree.
 
 - [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 

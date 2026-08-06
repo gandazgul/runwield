@@ -49,13 +49,18 @@ own release policy and automation.
      behavior.
    - Keep notes in a temporary file unless repository policy explicitly requires committing them.
 
-5. Confirm before irreversible side effects.
+5. Confirm before network-visible or irreversible side effects.
 
    - Summarize the chosen operation, source commit/tag, target tag/version, release notes location, and exact
      repository-owned command(s) to run.
    - Use `user_interview` for a yes/no confirmation before creating or pushing a tag, publishing a release, or starting
-     another irreversible operation.
+     another network-visible or irreversible operation. Do not describe a tag push as irreversible when repository
+     policy says an unreleased tag may be moved.
    - If not confirmed, stop without side effects.
+
+   If the user later directs a recovery action that repository policy allows, follow the shared **One concern, then
+   comply** rule: state a concern at most once. After the user confirms they understand and repeats the instruction,
+   execute it. Do not turn a recommendation into a policy prohibition.
 
 6. Execute and monitor.
 

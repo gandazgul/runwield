@@ -39,24 +39,23 @@ There is no migration command, fallback read, symlink support, or deprecation pe
 
 ## Immutability boundary
 
-A tag is a release attempt, not a release. Pushing a tag does not by itself make that tag immutable. The immutable
-boundary is creation of the GitHub Release for that tag. As soon as a GitHub Release exists—even if asset upload or the
-later notes edit is incomplete—the tag must continue to identify the same commit forever. Do not delete the GitHub
-Release to make the tag reusable.
+**An unreleased tag is mutable. A released tag is immutable.** A local or remote tag is only a release attempt. Pushing
+the tag or running tag-triggered CI does not make it immutable. The tag becomes immutable only when a GitHub Release
+exists for that tag.
 
-Before a GitHub Release exists, a failed tag attempt may be deleted and retried at a corrected commit when all of these
-conditions hold:
+Before a GitHub Release exists, the operator may delete the remote and local tag and recreate it at a corrected commit.
+The normal recommendation after failed CI is to move it to the immediate next commit containing the fix, but that is a
+recommendation, not a prerequisite or a reason to refuse. Multiple intervening commits, a changed `HEAD`, or a previous
+workflow run do not make an unreleased tag immutable.
 
-- The tag-triggered workflow failed before creating the GitHub Release.
-- The corrected commit is the immediate child of the failed tag's commit and is the current `HEAD`; in other words, the
-  fix is exactly the next commit after the failed attempt.
-- The corrected commit is still a valid source for the selected release operation. In particular, Candidate promotion
-  must still use the selected Candidate's peeled commit.
-- Immediately before deleting the remote tag, the operator verifies again that no GitHub Release exists for it.
+If moving the tag would include unexpected commits or depart from the normal release operation, the operator may state
+that concern once. If the user then confirms that they understand and still directs the move, the operator MUST comply.
+Do not repeat the objection, insist on a new Candidate number, or substitute the manual recovery workflow. Re-verify
+immediately before deletion that no GitHub Release exists for the tag, then perform the requested move.
 
-Delete both remote and local copies of the failed tag, then rerun the repository-owned release command so it creates the
-same tag at the new `HEAD`. If any condition is false, keep the tag and use the recovery workflow when appropriate, or
-choose a new release tag. Never move a tag after its GitHub Release has been created.
+As soon as a GitHub Release exists—even if qualification, asset upload, or the later notes edit is incomplete—the tag
+must continue to identify the same commit forever. Do not delete the GitHub Release to make the tag reusable. Never move
+a tag after its GitHub Release has been created.
 
 The default installer and schema URLs use GitHub `/releases/latest`; therefore a Candidate must never displace the
 current Stable channel. To dogfood a Candidate explicitly, install by tag:
@@ -164,10 +163,10 @@ gh release edit <tag> --notes-file <notes-file>
 
 - **Local tag created but not pushed**: delete the local tag after confirming no remote tag exists, repair the issue,
   and rerun the command.
-- **Remote tag pushed, workflow failed, and no GitHub Release exists**: if the fix is the immediate next commit and all
-  conditions in **Immutability boundary** hold, verify the absence of a GitHub Release, delete the remote and local tag,
-  and rerun the release command at the corrected `HEAD`. Otherwise keep the tag and use a new release tag or the manual
-  recovery workflow when safe.
+- **Remote tag pushed, workflow failed, and no GitHub Release exists**: the tag is mutable. Prefer moving it to the
+  immediate next fix commit. If the user directs another target, state any concern once; if they confirm, verify again
+  that no GitHub Release exists, delete the remote and local tag, and recreate it at the requested commit. Do not refuse
+  merely because CI ran or multiple commits followed the old target.
 - **GitHub Release exists**: the tag is immutable, including when qualification, asset upload, or notes editing later
   fails. Keep the tag at its original commit and recover the existing release. If a workflow fix is required, dispatch
   `release-wld` manually with that tag after the recovery commit reaches the default branch.
