@@ -50,6 +50,13 @@ interface MigrationFilePair {
     destinationPath: string;
 }
 
+interface ParsedMarkdownLink {
+    fullText: string;
+    targetTail: string;
+    startIndex: number;
+    endIndex: number;
+}
+
 interface ParsedMapLink {
     fullText: string;
     target: string;
@@ -258,14 +265,80 @@ function extractInlineLinkTarget(linkTail: string): string | undefined {
     return match?.[1];
 }
 
-function replaceInlineLinkTarget(fullText: string, oldTarget: string, newTarget: string): string {
-    const openParenIndex = fullText.lastIndexOf("(");
-    const before = fullText.slice(0, openParenIndex + 1);
-    const tail = fullText.slice(openParenIndex + 1, -1);
-    if (tail.trimStart().startsWith("<")) {
-        return `${before}${tail.replace(`<${oldTarget}>`, `<${newTarget}>`)})`;
+function findClosingMarkdownLinkParen(content: string, startIndex: number): number | undefined {
+    let depth = 1;
+    let quote: string | undefined;
+    for (let index = startIndex; index < content.length; index += 1) {
+        const char = content[index];
+        if (char === "\n") return undefined;
+        if (char === "\\") {
+            index += 1;
+            continue;
+        }
+        if (quote) {
+            if (char === quote) quote = undefined;
+            continue;
+        }
+        if (char === '"' || char === "'") {
+            quote = char;
+            continue;
+        }
+        if (char === "(") depth += 1;
+        if (char === ")") {
+            depth -= 1;
+            if (depth === 0) return index;
+        }
     }
-    return `${before}${tail.replace(oldTarget, newTarget)})`;
+    return undefined;
+}
+
+function findMarkdownInlineLinks(content: string): ParsedMarkdownLink[] {
+    const links: ParsedMarkdownLink[] = [];
+    let cursor = 0;
+    while (cursor < content.length) {
+        const tailStart = content.indexOf("](", cursor);
+        if (tailStart === -1) break;
+        const labelStart = content.lastIndexOf("[", tailStart);
+        if (labelStart === -1 || content.slice(labelStart, tailStart).includes("\n")) {
+            cursor = tailStart + 2;
+            continue;
+        }
+        const fullStart = labelStart > 0 && content[labelStart - 1] === "!" ? labelStart - 1 : labelStart;
+        const linkTailStart = tailStart + 2;
+        const closeIndex = findClosingMarkdownLinkParen(content, linkTailStart);
+        if (closeIndex === undefined) {
+            cursor = linkTailStart;
+            continue;
+        }
+        links.push({
+            fullText: content.slice(fullStart, closeIndex + 1),
+            targetTail: content.slice(linkTailStart, closeIndex),
+            startIndex: fullStart,
+            endIndex: closeIndex + 1,
+        });
+        cursor = closeIndex + 1;
+    }
+    return links;
+}
+
+function isIndexInsideLink(index: number, links: ParsedMarkdownLink[]): boolean {
+    return links.some((link) => link.startIndex <= index && index < link.endIndex);
+}
+
+function hasUnsupportedLegacyMention(content: string, links: ParsedMarkdownLink[]): boolean {
+    let cursor = 0;
+    while (cursor < content.length) {
+        const index = content.indexOf(LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext, cursor);
+        if (index === -1) return false;
+        if (!isIndexInsideLink(index, links)) return true;
+        cursor = index + LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext.length;
+    }
+    return false;
+}
+
+function replaceInlineLinkTarget(fullText: string, oldTarget: string, newTarget: string): string {
+    if (fullText.includes(`<${oldTarget}>`)) return fullText.replace(`<${oldTarget}>`, `<${newTarget}>`);
+    return fullText.replace(oldTarget, newTarget);
 }
 
 function parseLegacyMapLinks(
@@ -274,11 +347,29 @@ function parseLegacyMapLinks(
     content: string,
 ): ParsedMapLink[] | DomainLanguageMigrationWarning {
     const links: ParsedMapLink[] = [];
-    const linkPattern = /!?\[[^\]\n]*\]\(([^\n()]*)\)/g;
-    for (const match of content.matchAll(linkPattern)) {
-        const fullText = match[0];
-        const target = extractInlineLinkTarget(match[1]);
-        if (!target) continue;
+    const markdownLinks = findMarkdownInlineLinks(content);
+    if (hasUnsupportedLegacyMention(content, markdownLinks)) {
+        return {
+            kind: "multi-context-map",
+            code: "unsupported_map_link",
+            message: "Legacy domain-language map mentions CONTEXT.md without a supported local Markdown link.",
+            sourcePath: mapPath,
+        };
+    }
+
+    for (const markdownLink of markdownLinks) {
+        const target = extractInlineLinkTarget(markdownLink.targetTail);
+        if (!target) {
+            if (markdownLink.fullText.includes(LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext)) {
+                return {
+                    kind: "multi-context-map",
+                    code: "unsupported_map_link",
+                    message: "Legacy domain-language map mentions CONTEXT.md without a supported local Markdown link.",
+                    sourcePath: mapPath,
+                };
+            }
+            continue;
+        }
         if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("//")) continue;
         const { pathPart } = splitTarget(target);
         if (pathPart.split("/").at(-1) !== LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext) continue;
@@ -291,24 +382,13 @@ function parseLegacyMapLinks(
                 sourcePath: mapPath,
             };
         }
-        const storedName = pathPart.split("/").at(-1);
-        if (storedName !== LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext) continue;
         links.push({
-            fullText,
+            fullText: markdownLink.fullText,
             target,
             rewrittenTarget: rewriteLocalTarget(target),
             sourcePath,
             destinationPath: join(dirname(sourcePath), DOMAIN_LANGUAGE_PATHS.perContextGlossary),
         });
-    }
-
-    if (content.includes(LEGACY_DOMAIN_LANGUAGE_NAMES.singleContext) && links.length === 0) {
-        return {
-            kind: "multi-context-map",
-            code: "unsupported_map_link",
-            message: "Legacy domain-language map mentions CONTEXT.md without a supported local Markdown link.",
-            sourcePath: mapPath,
-        };
     }
 
     return links;

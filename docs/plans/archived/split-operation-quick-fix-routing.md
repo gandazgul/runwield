@@ -97,8 +97,9 @@ requirement, no Reviewer, no Plannotator code review, and no worktree merge-back
   `scripts/run-router-golden-set.js`, and router-eval tests — update intent order, materializing sets, disagreement
   labels, seeded operation examples, CLI help strings, and fixtures.
 - `docs/workflows.md`, `docs/usage.md`, `docs/index.md`, `docs/quickstart.md`, `docs/contributing.md`,
-  `docs/router-model-selection.md`, `docs/plan-lifecycle.md`, `README.md`, `CONTEXT.md` — align public workflow language
-  with the six intents, OPERATION/QUICK_FIX ownership, Mechanical Validation, and Scope Escalation semantics.
+  `docs/router-model-selection.md`, `docs/plan-lifecycle.md`, `README.md`, `docs/domain-language.md` — align public
+  workflow language with the six intents, OPERATION/QUICK_FIX ownership, Mechanical Validation, and Scope Escalation
+  semantics.
 
 ## Reuse Opportunities
 

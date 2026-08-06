@@ -53,6 +53,22 @@ Deno.test("domain-language migration moves an exact-uppercase single-context glo
     }
 });
 
+Deno.test("domain-language migration preserves legacy single-context content that equals lowercase text", async () => {
+    const projectRoot = await makeProject("runwield-domain-language-single-lower-content-");
+    try {
+        await Deno.writeTextFile(join(projectRoot, "CONTEXT.md"), "lower");
+
+        const result = await migrateDomainLanguageArtifacts(projectRoot);
+
+        assertEquals(result.warnings, []);
+        assertEquals(await Deno.readTextFile(join(projectRoot, DOMAIN_LANGUAGE_PATHS.singleContext)), "lower");
+        assertEquals(await exists(join(projectRoot, "CONTEXT.md")), false);
+        assertEquals(await exists(join(projectRoot, "context.md")), false);
+    } finally {
+        await cleanup(projectRoot);
+    }
+});
+
 Deno.test("domain-language migration creates docs when it is missing and ignores lowercase and mixed-case files", async () => {
     const projectRoot = await makeProject("runwield-domain-language-case-");
     try {
@@ -110,7 +126,7 @@ Deno.test("domain-language migration rewrites a multi-context map and moves refe
             [
                 "# Contexts",
                 '- [One](./one/CONTEXT.md#terms "One title")',
-                "- [Two](two/CONTEXT.md)",
+                "- [Two](two/CONTEXT.md (Two title))",
                 "- [External](https://example.com/CONTEXT.md)",
             ].join("\n"),
         );
@@ -127,7 +143,7 @@ Deno.test("domain-language migration rewrites a multi-context map and moves refe
         assertEquals(await Deno.readTextFile(join(projectRoot, "two", "domain-language.md")), "two");
         const rewrittenMap = await Deno.readTextFile(join(projectRoot, DOMAIN_LANGUAGE_PATHS.multiContextMap));
         assertStringIncludes(rewrittenMap, "./one/domain-language.md#terms");
-        assertStringIncludes(rewrittenMap, "two/domain-language.md");
+        assertStringIncludes(rewrittenMap, "two/domain-language.md (Two title)");
         assertStringIncludes(rewrittenMap, "https://example.com/CONTEXT.md");
 
         const rerun = await migrateDomainLanguageArtifacts(projectRoot);
@@ -149,6 +165,40 @@ Deno.test("domain-language map migration refuses malformed or escaping legacy li
         const malformed = await migrateDomainLanguageArtifacts(projectRoot);
         assertEquals(malformed.warnings[0].code, "unsupported_map_link");
         assertEquals(await exists(join(projectRoot, "CONTEXT-MAP.md")), true);
+    } finally {
+        await cleanup(projectRoot);
+    }
+});
+
+Deno.test("domain-language map migration refuses malformed legacy references even when another link is valid", async () => {
+    const projectRoot = await makeProject("runwield-domain-language-mixed-bad-map-");
+    try {
+        await Deno.mkdir(join(projectRoot, "one"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectRoot, "CONTEXT-MAP.md"),
+            [
+                "# Contexts",
+                "- [One](./one/CONTEXT.md)",
+                "- dangling legacy reference: ./missing/CONTEXT.md",
+            ].join("\n"),
+        );
+        await Deno.writeTextFile(join(projectRoot, "one", "CONTEXT.md"), "one");
+
+        const result = await migrateDomainLanguageArtifacts(projectRoot);
+
+        assertEquals(result.notices, []);
+        assertEquals(result.warnings[0].code, "unsupported_map_link");
+        assertEquals(await exists(join(projectRoot, DOMAIN_LANGUAGE_PATHS.multiContextMap)), false);
+        assertEquals(
+            await Deno.readTextFile(join(projectRoot, "CONTEXT-MAP.md")),
+            [
+                "# Contexts",
+                "- [One](./one/CONTEXT.md)",
+                "- dangling legacy reference: ./missing/CONTEXT.md",
+            ].join("\n"),
+        );
+        assertEquals(await Deno.readTextFile(join(projectRoot, "one", "CONTEXT.md")), "one");
+        assertEquals(await exists(join(projectRoot, "one", "domain-language.md")), false);
     } finally {
         await cleanup(projectRoot);
     }

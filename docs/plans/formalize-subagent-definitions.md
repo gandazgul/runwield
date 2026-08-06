@@ -163,9 +163,9 @@ The retry/recoverable-error/direct-source fallback currently inside `validation-
 The Reviewer discovery/verify split remains a mode option on the Reviewer registry entry, not two independent registry
 entries that can drift.
 
-No `CONTEXT.md` update is planned: user-visible Agent, Session, Workflow Validation, and Delegated Agent Session
-language does not change. `subagent-definitions` is an internal asset/module name for prompts RunWield dispatches on a
-user's behalf.
+No `docs/domain-language.md` update is planned: user-visible Agent, Session, Workflow Validation, and Delegated Agent
+Session language does not change. `subagent-definitions` is an internal asset/module name for prompts RunWield
+dispatches on a user's behalf.
 
 ## Files to Modify
 
@@ -258,7 +258,8 @@ user's behalf.
   mode selection.
 - Behavior expected to stop existing: `delegate-agent.js` failing on a transient cold-cache or partial prompt read, and
   call sites resolving subagent prompt files directly instead of going through the shared loader.
-- Glossary check: no `CONTEXT.md` change is expected because no user-visible domain term or relationship changes.
+- Glossary check: no `docs/domain-language.md` change is expected because no user-visible domain term or relationship
+  changes.
 
 ### Objective-Failing Checks
 

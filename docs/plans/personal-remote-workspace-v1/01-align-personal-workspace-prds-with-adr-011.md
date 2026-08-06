@@ -29,8 +29,8 @@ humanReviewDecision: "skipped"
 ## Context
 
 Personal Remote Workspace v1 uses the architecture accepted in
-[`ADR-011`](../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and
-ACP remain sibling `SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from
+[`ADR-011`](../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and ACP
+remain sibling `SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from
 exclusive writable Session activation, Durable Workflow Checkpoints, committed Session generations, automatic read
 synchronization, and a separate Session-owned Plan Workflow Lease—not a central Workspace-owned Runtime proxy.
 
@@ -85,8 +85,8 @@ Existing documents and patterns to reuse:
   identity, activation, fencing, checkpoint, synchronization, commit-order, and recovery invariants.
 - `plans/personal-remote-workspace-v1.md` — source for the v1 owner journey, trust model, compatibility promises,
   deferred work, and cross-surface acceptance scenarios.
-- `CONTEXT.md` — canonical Project, Session, Plan Workflow Lease, Attention Dashboard, Code Surface, Shared Space,
-  Approve & Run, and Approve for Later language, except for the explicitly retired Session Control term.
+- `docs/domain-language.md` — canonical Project, Session, Plan Workflow Lease, Attention Dashboard, Code Surface, Shared
+  Space, Approve & Run, and Approve for Later language, except for the explicitly retired Session Control term.
 - `docs/prd/runwield-core-prd.md` — retain its current-vs-future organization rather than turning the PRDs into
   implementation-history logs.
 
@@ -160,9 +160,9 @@ Existing documents and patterns to reuse:
 
 ## Edge Cases & Considerations
 
-- `CONTEXT.md` still defines Session Control. The user explicitly retired that term for these PRDs; this Plan must not
-  modify the domain glossary. Recommend an Ideator/Init follow-up to remove or supersede the glossary entry and affected
-  relationships so future Plans do not reintroduce it.
+- `docs/domain-language.md` still defines Session Control. The user explicitly retired that term for these PRDs; this
+  Plan must not modify the domain glossary. Recommend an Ideator/Init follow-up to remove or supersede the glossary
+  entry and affected relationships so future Plans do not reintroduce it.
 - ADR-011 is read-only for this slice unless a concrete contradiction appears. If one does, stop and surface the
   architecture decision rather than casually rewriting the accepted ADR during PRD cleanup.
 - Do not over-specify table layouts, lease timeout values, ACP wire errors, pairing screens, or process supervision;

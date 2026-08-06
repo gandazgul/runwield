@@ -41,7 +41,7 @@ status: "verified"
 origin: "internal"
 implementedAt: "2026-07-26T15:50:50.951Z"
 verifiedAt: "2026-07-26T16:35:31.944Z"
-executionReport: "- Implemented `user_verified` Plan status and `manual_user_verified` lifecycle event with required user note, `userVerifiedAt`, reopen cleanup, dependency satisfaction, Epic split progress/completion, and archive eligibility.\n- Added `wld load-plan` and Workspace User Verified actions with required-note validation, distinct labels/messages, no `verifiedAt`/Delivery Evidence fabrication, and best-effort Work Record generation.\n- Extended Work Records with `completionMode: user_verified`, Recorder/fallback attribution safeguards, list/read notices, backfill eligibility, and user note preservation.\n- Updated lifecycle/storage/CLI/Workspace/Work Record tests and documentation/PRDs/design guidance; recorded `User Verified Plan` as a separate `CONTEXT.md` follow-up without editing `CONTEXT.md` or ADRs.\n- Verification passed: `deno test -A src/plan-store.test.js src/shared/workflow/plan-lifecycle.test.js src/shared/workflow/epic-continuation.test.js`; `deno test -A src/cmd/load-plan/load-plan-recovery.test.js src/cmd/load-plan/load-plan-epic.test.js src/cmd/plans/archive.test.js`; `deno test -A src/shared/work-records/work-records.test.js src/ui/workspace/workspace-lifecycle.test.js src/ui/workspace/workspace-board.test.js`; `deno test -A src/cmd/load-plan/load-plan-review.test.js`; `deno test -A src/ui/workspace/workspace-local-server.test.js`; `deno task ci`.\n- Frontend browser check: started Workspace dev server at `http://127.0.0.1:5173/`, opened headed agent-browser session `runwield-user-verified-6dce8cd5`, verified Plan Board/detail routes loaded with lifecycle controls and no reported browser errors; did not submit the User Verified action in the live project to avoid mutating an active real Plan."
+executionReport: "- Implemented `user_verified` Plan status and `manual_user_verified` lifecycle event with required user note, `userVerifiedAt`, reopen cleanup, dependency satisfaction, Epic split progress/completion, and archive eligibility.\n- Added `wld load-plan` and Workspace User Verified actions with required-note validation, distinct labels/messages, no `verifiedAt`/Delivery Evidence fabrication, and best-effort Work Record generation.\n- Extended Work Records with `completionMode: user_verified`, Recorder/fallback attribution safeguards, list/read notices, backfill eligibility, and user note preservation.\n- Updated lifecycle/storage/CLI/Workspace/Work Record tests and documentation/PRDs/design guidance; recorded `User Verified Plan` as a separate `docs/domain-language.md` follow-up without editing `docs/domain-language.md` or ADRs.\n- Verification passed: `deno test -A src/plan-store.test.js src/shared/workflow/plan-lifecycle.test.js src/shared/workflow/epic-continuation.test.js`; `deno test -A src/cmd/load-plan/load-plan-recovery.test.js src/cmd/load-plan/load-plan-epic.test.js src/cmd/plans/archive.test.js`; `deno test -A src/shared/work-records/work-records.test.js src/ui/workspace/workspace-lifecycle.test.js src/ui/workspace/workspace-board.test.js`; `deno test -A src/cmd/load-plan/load-plan-review.test.js`; `deno test -A src/ui/workspace/workspace-local-server.test.js`; `deno task ci`.\n- Frontend browser check: started Workspace dev server at `http://127.0.0.1:5173/`, opened headed agent-browser session `runwield-user-verified-6dce8cd5`, verified Plan Board/detail routes loaded with lifecycle controls and no reported browser errors; did not submit the User Verified action in the live project to avoid mutating an active real Plan."
 workRecord:
     status: "generated"
     recordId: "54bedc3a-2aa2-4dfc-bb20-bf8a5fe9cb30"
@@ -205,8 +205,8 @@ Existing functions, modules, or patterns to reuse:
       including negative assertions that User Verification never synthesizes `verifiedAt` or Delivery Evidence and never
       erases a prior RunWield validation failure.
 - [ ] Update lifecycle, workflow, settings, design-system, and living PRD documentation. Record `User Verified Plan` as
-      a proposed canonical domain term needing a separate `CONTEXT.md` update by Ideator/Init; do not modify
-      `CONTEXT.md` or ADRs in this feature.
+      a proposed canonical domain term needing a separate `docs/domain-language.md` update by Ideator/Init; do not
+      modify `docs/domain-language.md` or ADRs in this feature.
 
 ## Verification Plan
 
@@ -257,5 +257,5 @@ Existing functions, modules, or patterns to reuse:
 - User Verified Epics and FEATURE Plans are both supported. Epic attestation may close an Epic with remaining children,
   so its required note and Work Record must make that user decision explicit rather than imply every child passed
   RunWield validation.
-- `User Verified Plan` is new canonical language not yet present in `CONTEXT.md`. This Plan uses that term consistently
-  and records the glossary follow-up without changing context or ADR artifacts in this feature.
+- `User Verified Plan` is new canonical language not yet present in `docs/domain-language.md`. This Plan uses that term
+  consistently and records the glossary follow-up without changing context or ADR artifacts in this feature.

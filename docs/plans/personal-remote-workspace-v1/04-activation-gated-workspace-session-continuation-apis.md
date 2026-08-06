@@ -437,8 +437,8 @@ Existing functions, modules, or patterns to reuse:
 - **Process shutdown:** release only before hydration or after a proven checkpoint. A killed owner becomes uncertain and
   requires later recovery.
 - **Domain language:** ADR-011 and the aligned Personal Workspace PRDs govern this Plan's use of Session Activation
-  Lease and automatic synchronization. Root `CONTEXT.md` still contains the retired “Session Control” term; updating
-  that glossary is a separate Ideator/Init follow-up, not part of this Plan.
+  Lease and automatic synchronization. Root `docs/domain-language.md` still contains the retired “Session Control” term;
+  updating that glossary is a separate Ideator/Init follow-up, not part of this Plan.
 - **Slice handoff:** this Plan supersedes overlapping draft language in sibling slices: slice 5 consumes an Ideator-only
   API, slice 6 adds watching and generalized incremental idle synchronization around this completed projector, and slice
   7 converts the fail-closed mutator matrix to fenced support rather than reimplementing create/load/prompt activation.

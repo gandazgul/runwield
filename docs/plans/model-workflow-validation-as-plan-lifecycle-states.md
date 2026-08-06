@@ -144,8 +144,9 @@ becomes a status switch over the phase functions, each of which already exists a
 - `src/cmd/load-plan/index.js` — the Plan Recovery menu must offer the same actions for the new statuses that it offers
   for `implemented`, so a Plan paused mid-validation is never left without a route.
 
-`CONTEXT.md` needs no change: this introduces no new domain language. `validated_ci` and `validated_reviewer` are
-lifecycle statuses, and Mechanical Validation and Semantic Code Review are already defined terms.
+`docs/domain-language.md` needs no change: this introduces no new domain language. `validated_ci` and
+`validated_reviewer` are lifecycle statuses, and Mechanical Validation and Semantic Code Review are already defined
+terms.
 
 ## Reuse Opportunities
 

@@ -10,7 +10,7 @@ affectedPaths:
     - "docs/design-system.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/attached-mode-prd.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
@@ -49,7 +49,7 @@ PRDs.
 Use the backend/model metadata from prior children to present Claude CLI as a selectable execution backend alongside
 normal model references. Keep visual changes consistent with the RunWield browser design system and avoid creating a
 separate Claude-specific visual identity. Put durable product wording in the PRDs and, if implementation makes new
-stable domain language true, update `CONTEXT.md` in the same change.
+stable domain language true, update `docs/domain-language.md` in the same change.
 
 Workspace changes should be browser-verified through the normal dev server. If the current Workspace has limited model
 settings UI, the implementation should add the smallest coherent surface that lets users see/select Claude CLI where
@@ -68,8 +68,8 @@ model or execution settings are already presented, rather than inventing a disco
 - `docs/prd/runwield-core-prd.md` — document Claude CLI as a Core-supported execution backend and clarify model/backend
   terminology.
 - `docs/prd/attached-mode-prd.md` — align language so this feature is not conflated with Attached Mode.
-- `CONTEXT.md` — add or refine glossary language only for stable terms made true by the implementation, such as a Claude
-  CLI execution backend distinction.
+- `docs/domain-language.md` — add or refine glossary language only for stable terms made true by the implementation,
+  such as a Claude CLI execution backend distinction.
 
 ## Reuse Opportunities
 
@@ -93,8 +93,8 @@ Existing functions, modules, or patterns to reuse:
       history in MVP, while RunWield Session Transcript remains the source of truth for resume/replay.
 - [ ] Documentation explains that this feature shells out to Claude Code from inside RunWield and is distinct from
       Attached Mode, where Claude Code is the user's External Agent Host.
-- [ ] `CONTEXT.md` is updated only if the implementation introduces stable domain language that agents and docs should
-      reuse; the glossary does not promote unimplemented proposals.
+- [ ] `docs/domain-language.md` is updated only if the implementation introduces stable domain language that agents and
+      docs should reuse; the glossary does not promote unimplemented proposals.
 - [ ] Headed-browser verification proves the Workspace surface is visually consistent and usable at the relevant
       route/state.
 

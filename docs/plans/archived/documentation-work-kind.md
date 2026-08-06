@@ -5,7 +5,7 @@ workKind: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add DOCUMENTATION as a canonical Work Kind for Planned Change Plans and Work Records."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "src/constants.js"
     - "src/tools/triage-report.js"
     - "src/plan-store.js"
@@ -61,8 +61,9 @@ tool schemas; Plan and Work Record Front Matter normalize through `normalizeWork
 the same set. The prior Work Record for the taxonomy change explicitly recommends compatibility-first normalization and
 moving prompts, UI labels, schemas, and tests together.
 
-This Plan uses current terminology from `CONTEXT.md`: the new value is a Work Kind for `PLANNED_CHANGE`, not a new
-Routing Intent or Plan Classification. The canonical value will be `DOCUMENTATION`, as discussed with the user.
+This Plan uses current terminology from `docs/domain-language.md`: the new value is a Work Kind for `PLANNED_CHANGE`,
+not a new Routing Intent or Plan Classification. The canonical value will be `DOCUMENTATION`, as discussed with the
+user.
 
 ## Objective
 
@@ -84,8 +85,8 @@ Extend the existing Work Kind taxonomy in place with a compatibility-first chang
   displays update automatically where they already call the formatter.
 - Update Router, Planner-format, and Slicer prompts so future agents can emit `workKind: DOCUMENTATION` intentionally
   for documentation-primary planned work.
-- Update Plan, Work Record, and external-Plan onboarding documentation plus `CONTEXT.md` so the glossary and product
-  docs match implemented behavior.
+- Update Plan, Work Record, and external-Plan onboarding documentation plus `docs/domain-language.md` so the glossary
+  and product docs match implemented behavior.
 - Add focused regression tests that prove the new value survives triage normalization, Plan Front Matter
   parsing/formatting, Slicer child materialization, and Work Record read/search/list display.
 
@@ -94,8 +95,8 @@ Kind values should remain normalized away exactly as they do today.
 
 ## Files to Modify
 
-- `CONTEXT.md` — update the Work Kind definition list and add a `DOCUMENTATION` Work Kind glossary entry with avoided
-  aliases.
+- `docs/domain-language.md` — update the Work Kind definition list and add a `DOCUMENTATION` Work Kind glossary entry
+  with avoided aliases.
 - `src/constants.js` — add `DOCUMENTATION` to `WORK_KINDS`, update JSDoc return unions, and add the
   `Planned documentation` label in `formatPlannedWorkLabel`.
 - `src/tools/triage-report.js` — allow `workKind: DOCUMENTATION` in the tool parameter schema and update its
@@ -150,9 +151,9 @@ Kind values should remain normalized away exactly as they do today.
 
 ## Implementation Steps
 
-- [ ] Step 1: Update `CONTEXT.md` to make the new domain language true: change the Work Kind definition to list
-      `DOCUMENTATION`; add a `DOCUMENTATION` Work Kind entry describing documentation-primary planned executable work;
-      distinguish it from `INQUIRY`, `OPERATION`, and small `QUICK_FIX` documentation edits. Update
+- [ ] Step 1: Update `docs/domain-language.md` to make the new domain language true: change the Work Kind definition to
+      list `DOCUMENTATION`; add a `DOCUMENTATION` Work Kind entry describing documentation-primary planned executable
+      work; distinguish it from `INQUIRY`, `OPERATION`, and small `QUICK_FIX` documentation edits. Update
       `docs/product-rules.md` in the same language pass so external Plan onboarding no longer claims the old four-value
       set is complete.
 - [ ] Step 2: Update `src/constants.js` by adding `DOCUMENTATION` to `WORK_KINDS`, expanding JSDoc unions for
@@ -205,8 +206,8 @@ Kind values should remain normalized away exactly as they do today.
   normalization.
 - Expected result: Work Records with `scope: planned_change` and `workKind: DOCUMENTATION` display/search/read as
   `Planned documentation` and retain `workKind: DOCUMENTATION` in metadata output.
-- Glossary/docs check: confirm `CONTEXT.md`, `docs/product-rules.md`, PRDs, code behavior, and prompts all use the same
-  `DOCUMENTATION` Work Kind language and do not promote unimplemented Routing Intent behavior.
+- Glossary/docs check: confirm `docs/domain-language.md`, `docs/product-rules.md`, PRDs, code behavior, and prompts all
+  use the same `DOCUMENTATION` Work Kind language and do not promote unimplemented Routing Intent behavior.
 - Execution policy matrix:
   - Planned Change Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
   - Planned Change Plans may set `executionAgent: "engineer"` with `collaborationRecommendation: "autonomous"` or
@@ -237,5 +238,5 @@ Kind values should remain normalized away exactly as they do today.
 - **Prompt/schema drift**: The main risk is updating code normalization without updating prompts and docs. Mitigate by
   changing all enumerated Work Kind lists in the same implementation and adding tests for both machine schemas and
   user-facing labels.
-- **Terminology**: Update `CONTEXT.md` in the same change so the glossary describes implemented behavior when the new
-  value lands.
+- **Terminology**: Update `docs/domain-language.md` in the same change so the glossary describes implemented behavior
+  when the new value lands.

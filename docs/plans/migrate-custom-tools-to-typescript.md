@@ -253,4 +253,4 @@ re-export shims, `@ts-ignore`/`@ts-nocheck`, or transpilation output.
   field optionality and exported names so TypeScript and JSDoc consumers stay compatible.
 - The injection-seam baseline must not increase. If prerequisite work removed seams, preserve that tighter baseline; do
   not use `seams:update` to re-allow one.
-- No `CONTEXT.md` update is needed because Custom Tool names, ownership, and behavior do not change.
+- No `docs/domain-language.md` update is needed because Custom Tool names, ownership, and behavior do not change.

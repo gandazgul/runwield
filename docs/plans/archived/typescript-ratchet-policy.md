@@ -196,4 +196,5 @@ Existing functions, modules, or patterns to reuse:
   those modules migrate.
 - Keep canary migrations behavior-preserving. If TypeScript exposes unclear typing or package-boundary problems, prefer
   stopping after `base64url.ts` rather than expanding this Plan into semantic refactoring.
-- No `CONTEXT.md` update is required because this Plan changes language/tooling policy, not RunWield domain language.
+- No `docs/domain-language.md` update is required because this Plan changes language/tooling policy, not RunWield domain
+  language.

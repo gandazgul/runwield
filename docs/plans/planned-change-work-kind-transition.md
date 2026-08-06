@@ -19,7 +19,7 @@ affectedPaths:
     - "src/agent-definitions/"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/work-records-prd.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T21:10:30-04:00"
@@ -140,8 +140,8 @@ should be observable through new artifacts and display labels, not by mutating o
   classification labels to Planned Change terminology; display Work Kind where useful.
 - `docs/prd/runwield-core-prd.md` — update canonical routing and Plan lifecycle language.
 - `docs/prd/work-records-prd.md` — update Work Record scope/workKind language and legacy compatibility notes.
-- `CONTEXT.md` — ensure the final glossary captures `PLANNED_CHANGE`, Work Kind, `BUG_FIX`, `FEATURE` Work Kind, and
-  legacy `FEATURE` normalization.
+- `docs/domain-language.md` — ensure the final glossary captures `PLANNED_CHANGE`, Work Kind, `BUG_FIX`, `FEATURE` Work
+  Kind, and legacy `FEATURE` normalization.
 - Tests touching the above files — update expectations and add legacy compatibility coverage.
 
 ## Reuse Opportunities
@@ -255,7 +255,7 @@ Existing functions, modules, or patterns to reuse:
   - Update agent document-format templates to include `workKind` once the runtime supports it.
   - Keep historical `docs/prd/done/` files as historical unless they are actively consumed as current instructions;
     avoid rewriting old completed PRDs solely for terminology.
-  - Ensure `CONTEXT.md` reflects final accepted domain language.
+  - Ensure `docs/domain-language.md` reflects final accepted domain language.
 
 - [ ] Step 11: Add focused compatibility tests.
   - Triage tool: new `PLANNED_CHANGE` with `BUG_FIX`; legacy `FEATURE` input normalizes to planned-change; non-plan

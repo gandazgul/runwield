@@ -4,7 +4,7 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Deliver live steering messages to the current foreground Agent Session, including Reviewer and delegated sessions, at the earliest safe tool boundary."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "src/shared/session/hosted-session.js"
     - "src/shared/session/session.js"
     - "src/shared/session/session-runtime.js"
@@ -112,8 +112,8 @@ delegated/sub-agent Agent Sessions because the user explicitly wants Reviewer st
 
 ## Files to Modify
 
-- `CONTEXT.md` — add a concise definition for Steering Message / live steering behavior and its relationship to
-  foreground Agent Sessions.
+- `docs/domain-language.md` — add a concise definition for Steering Message / live steering behavior and its
+  relationship to foreground Agent Sessions.
 - `src/shared/session/hosted-session.js` — add foreground steering target stack state and methods, e.g.
   `pushSteeringTargetSession(session)`, `popSteeringTargetSession(id)`, and `getActiveSteeringTargetSession()`.
 - `src/shared/session/session.js` — install the early-steering guard in `buildAgentSession()`; push/pop steering targets
@@ -150,7 +150,7 @@ Existing functions, modules, and contracts to reuse:
 
 ## Implementation Steps
 
-- [ ] Step 1: Update `CONTEXT.md` with implemented steering terminology.
+- [ ] Step 1: Update `docs/domain-language.md` with implemented steering terminology.
   - Add a concise entry for **Steering Message** near the Agent Session/runtime terms.
   - Define it as a user message submitted while an Agent Session is streaming, routed to the current foreground
     steerable Agent Session and injected at the next safe boundary.
@@ -251,8 +251,8 @@ Existing functions, modules, and contracts to reuse:
   - The steering message is injected before the next provider call.
   - Follow-up/next-turn queued messages keep their existing behavior.
   - Image steering still uses existing model capability and fallback handling.
-  - `CONTEXT.md` describes the implemented steering behavior and does not document unimplemented provider-stream
-    interruption.
+  - `docs/domain-language.md` describes the implemented steering behavior and does not document unimplemented
+    provider-stream interruption.
 
 ## Edge Cases & Considerations
 

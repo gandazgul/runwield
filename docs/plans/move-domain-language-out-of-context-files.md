@@ -2,9 +2,9 @@
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "MEDIUM"
-summary: "Move RunWield domain-language artifacts away from CONTEXT.md names and temporarily migrate exact-uppercase legacy files at project startup."
+summary: "Move RunWield domain-language artifacts away from docs/domain-language.md names and temporarily migrate exact-uppercase legacy files at project startup."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "docs/domain-language.md"
     - "docs/domain-language-map.md"
     - "src/cli.js"
@@ -18,16 +18,16 @@ affectedPaths:
     - "docs/"
 objectiveChecks:
     - id: "OC1"
-      command: "test -f docs/domain-language.md && test ! -e CONTEXT.md && test -f src/agent-definitions/document-formats/domain-language-format.md && test ! -e src/agent-definitions/document-formats/CONTEXT-FORMAT.md"
+      command: "test -f docs/domain-language.md && test ! -e docs/domain-language.md && test -f src/agent-definitions/document-formats/domain-language-format.md && test ! -e src/agent-definitions/document-formats/domain-language-format.md"
       rationale: "Proves both this repository's glossary and the shipped format moved without compatibility stubs under the colliding names."
     - id: "OC2"
-      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p\" \"$t/h\"; printf legacy >\"$t/p/CONTEXT.md\"; printf lower >\"$t/p/context.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test ! -e \"$t/p/CONTEXT.md\"; test \"$(cat \"$t/p/docs/domain-language.md\")\" = legacy; test \"$(cat \"$t/p/context.md\")\" = lower'"
+      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p\" \"$t/h\"; printf legacy >\"$t/p/docs/domain-language.md\"; printf lower >\"$t/p/context.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test ! -e \"$t/p/docs/domain-language.md\"; test \"$(cat \"$t/p/docs/domain-language.md\")\" = legacy; test \"$(cat \"$t/p/context.md\")\" = lower'"
       rationale: "Launches the real CLI and proves exact-uppercase single-context migration plus lowercase immunity."
     - id: "OC3"
-      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p/one\" \"$t/h\"; printf \"%s\\n\" \"# Contexts\" \"- [One]\"\"(./one/CONTEXT.md)\" >\"$t/p/CONTEXT-MAP.md\"; printf one >\"$t/p/one/CONTEXT.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test ! -e \"$t/p/CONTEXT-MAP.md\"; test ! -e \"$t/p/one/CONTEXT.md\"; test \"$(cat \"$t/p/one/domain-language.md\")\" = one; grep -Fq \"./one/domain-language.md\" \"$t/p/docs/domain-language-map.md\"; ! grep -Fq \"CONTEXT.md\" \"$t/p/docs/domain-language-map.md\"'"
+      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p/one\" \"$t/h\"; printf \"%s\\n\" \"# Contexts\" \"- [One]\"\"(./one/docs/domain-language.md)\" >\"$t/p/docs/domain-language-map.md\"; printf one >\"$t/p/one/docs/domain-language.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test ! -e \"$t/p/docs/domain-language-map.md\"; test ! -e \"$t/p/one/docs/domain-language.md\"; test \"$(cat \"$t/p/one/domain-language.md\")\" = one; grep -Fq \"./one/domain-language.md\" \"$t/p/docs/domain-language-map.md\"; ! grep -Fq \"docs/domain-language.md\" \"$t/p/docs/domain-language-map.md\"'"
       rationale: "Proves the actual startup boundary migrates a map and its referenced glossary without leaving a dangling legacy link."
     - id: "OC4"
-      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p/docs\" \"$t/h\"; printf source >\"$t/p/CONTEXT.md\"; printf existing >\"$t/p/docs/domain-language.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test \"$(cat \"$t/p/CONTEXT.md\")\" = source; test \"$(cat \"$t/p/docs/domain-language.md\")\" = existing; test -s \"$t/e\"'"
+      command: "bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap \"rm -rf \\\"$t\\\"\" EXIT; mkdir -p \"$t/p/docs\" \"$t/h\"; printf source >\"$t/p/docs/domain-language.md\"; printf existing >\"$t/p/docs/domain-language.md\"; (cd \"$t/p\" && HOME=\"$t/h\" MNEMOSYNE_DB_PATH=\"$t/h/m.db\" deno run -A \"$r/src/cli.js\" plans >/dev/null 2>\"$t/e\"); test \"$(cat \"$t/p/docs/domain-language.md\")\" = source; test \"$(cat \"$t/p/docs/domain-language.md\")\" = existing; test -s \"$t/e\"'"
       rationale: "Proves an existing canonical destination wins without data loss and the real CLI surfaces the conflict."
     - id: "OC5"
       command: "! grep -R -n -E 'CONTEXT\\.md|CONTEXT-MAP\\.md|CONTEXT-FORMAT\\.md' src/agent-definitions src/skills src/cmd docs --exclude-dir=work-records"
@@ -36,23 +36,23 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T09:43:39-04:00"
 updatedAt: "2026-08-04T15:38:30.743Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
+status: "validated_reviewer"
 ---
 
 # Move Domain Language Out of CONTEXT Files
 
 ## Context
 
-RunWield currently claims root `CONTEXT.md` as the single-context domain glossary and root `CONTEXT-MAP.md` as the
-multi-context index. Matt Pocock skills and other coding harnesses may assign different meanings to those filenames, so
-RunWield can misread unrelated content or compete to update a shared file.
+RunWield currently claims root `docs/domain-language.md` as the single-context domain glossary and root
+`docs/domain-language-map.md` as the multi-context index. Matt Pocock skills and other coding harnesses may assign
+different meanings to those filenames, so RunWield can misread unrelated content or compete to update a shared file.
 
 The convention is instruction-driven rather than a runtime loader: bundled Agents, Skills, document formats, and
-`wld init` tell models where to read or write domain language. This repository also uses a 605-line root `CONTEXT.md` as
-its own glossary. The change therefore needs to update shipped guidance and documentation, move RunWield's own glossary,
-and preserve older RunWield projects through a temporary deterministic migration.
+`wld init` tell models where to read or write domain language. This repository also uses a 605-line root
+`docs/domain-language.md` as its own glossary. The change therefore needs to update shipped guidance and documentation,
+move RunWield's own glossary, and preserve older RunWield projects through a temporary deterministic migration.
 
 The settled canonical layout is:
 
@@ -60,10 +60,10 @@ The settled canonical layout is:
 - Multi-context project map: `docs/domain-language-map.md`.
 - Per-context glossary: `<context-directory>/domain-language.md`; it does not gain an additional `docs/` directory.
 
-Legacy migration applies only to directory entries whose stored names are exactly uppercase `CONTEXT.md` or
-`CONTEXT-MAP.md`. Lowercase `context.md`, lowercase `context-map.md`, and other case variants belong to other tools and
-must remain untouched. The migration is temporary compatibility behavior to be removed only through a future breaking
-change.
+Legacy migration applies only to directory entries whose stored names are exactly uppercase `docs/domain-language.md` or
+`docs/domain-language-map.md`. Lowercase `context.md`, lowercase `context-map.md`, and other case variants belong to
+other tools and must remain untouched. The migration is temporary compatibility behavior to be removed only through a
+future breaking change.
 
 ## Objective
 
@@ -80,10 +80,10 @@ keeping read-only version/help behavior non-mutating. Move the existing CLI impl
 
 For a single-context legacy file, preflight the absent destination, create `docs/`, write the destination safely, and
 remove the source only after the new file is durable. For a legacy map, parse its local Markdown links, select only
-links whose final stored path component is exactly `CONTEXT.md`, preflight all source/destination pairs, rewrite those
-links to sibling `domain-language.md` files, and migrate the map plus referenced glossaries as one logical set. A
-conflict, unrecognized unsafe link, symlink, or filesystem error leaves legacy source content intact and returns a
-concise warning; it never blocks unrelated RunWield startup or falls back to interpreting the old file as domain
+links whose final stored path component is exactly `docs/domain-language.md`, preflight all source/destination pairs,
+rewrite those links to sibling `domain-language.md` files, and migrate the map plus referenced glossaries as one logical
+set. A conflict, unrecognized unsafe link, symlink, or filesystem error leaves legacy source content intact and returns
+a concise warning; it never blocks unrelated RunWield startup or falls back to interpreting the old file as domain
 language.
 
 Update every current bundled Agent, Skill, format, command description, test assertion, and maintained product document
@@ -92,8 +92,8 @@ repository's glossary without leaving a root compatibility stub, because freeing
 
 ## Files to Modify
 
-- `CONTEXT.md` → `docs/domain-language.md` — relocate RunWield's own glossary and retitle it as RunWield Domain
-  Language; leave no root stub.
+- `docs/domain-language.md` → `docs/domain-language.md` — relocate RunWield's own glossary and retitle it as RunWield
+  Domain Language; leave no root stub.
 - `src/shared/domain-language.ts` — own canonical/legacy names, exact-case discovery, map-link rewriting, migration
   preflight, safe writes/removals, typed outcomes, and temporary-breaking-change removal documentation.
 - `src/shared/domain-language.test.ts` — exercise single-context and multi-context migration, exact-case protection,
@@ -101,14 +101,14 @@ repository's glossary without leaving a root compatibility stub, because freeing
 - `src/cli.js`, `src/cli.ts` — retain a thin stable JavaScript entrypoint while moving CLI implementation to TypeScript;
   invoke migration once before project-capable command dispatch and render migration notices on stderr without polluting
   Agent Client Protocol (ACP) stdout.
-- `src/agent-definitions/document-formats/CONTEXT-FORMAT.md` →
+- `src/agent-definitions/document-formats/domain-language-format.md` →
   `src/agent-definitions/document-formats/domain-language-format.md` — redefine canonical single- and multi-context
   layouts, exact legacy migration semantics, and lazy glossary creation under the new names.
 - `src/agent-definitions/document-formats/planner-plan-format.md` — instruct Plans to modify the applicable
   `domain-language.md` file when implementation makes proposed terms true.
 - `src/agent-definitions/planner.md`, `src/agent-definitions/ideator.md`, `src/agent-definitions/architect.md`,
   `src/agent-definitions/guide.md` — discover maps/glossaries at the new paths and stop assigning domain-language
-  meaning to any `CONTEXT.md` variant.
+  meaning to any `docs/domain-language.md` variant.
 - `src/agent-definitions/subagent-definitions/init-agent-prompt.md` — create/update `docs/domain-language.md`, use the
   renamed format, create `docs/` as needed, and limit writes to the new glossary path.
 - `src/agent-definitions/subagent-definitions/slicer-prompt.md` — put the applicable `domain-language.md` path into
@@ -179,13 +179,14 @@ repository's glossary without leaving a root compatibility stub, because freeing
 - Automated:
   `deno run -A scripts/run-tests.js src/shared/domain-language.test.ts src/cmd/init/index.test.ts src/shared/session/__tests__/session-tools-policy.test.js`
 - Automated: run any CLI/compile tests affected by the thin `src/cli.js` compatibility entrypoint, then `deno task ci`.
-- Automated: search current guidance (excluding `docs/work-records/` and `plans/`) for `CONTEXT.md`, `CONTEXT-MAP.md`,
-  or `CONTEXT-FORMAT.md`; only the migration module and its focused tests may retain those exact legacy literals.
-- Manual: in a disposable single-context project, launch RunWield once with exact root `CONTEXT.md`; confirm the content
-  appears at `docs/domain-language.md`, the old file is gone, and the migration is reported once.
+- Automated: search current guidance (excluding `docs/work-records/` and `plans/`) for `docs/domain-language.md`,
+  `docs/domain-language-map.md`, or `domain-language-format.md`; only the migration module and its focused tests may
+  retain those exact legacy literals.
+- Manual: in a disposable single-context project, launch RunWield once with exact root `docs/domain-language.md`;
+  confirm the content appears at `docs/domain-language.md`, the old file is gone, and the migration is reported once.
 - Manual: repeat with lowercase `context.md`; confirm no canonical file is created and the lowercase file is untouched.
-- Manual: in a disposable multi-context project, use `CONTEXT-MAP.md` links to two nested exact-uppercase glossaries;
-  confirm the new map path, sibling glossary paths, rewritten links, and a no-op second launch.
+- Manual: in a disposable multi-context project, use `docs/domain-language-map.md` links to two nested exact-uppercase
+  glossaries; confirm the new map path, sibling glossary paths, rewritten links, and a no-op second launch.
 - Manual: pre-create a destination with different content; confirm startup warns on stderr, preserves both files
   exactly, continues running, and never exposes the warning on ACP stdout.
 - Preserved behavior: CLI help/version, command routing, TUI startup, ACP protocol purity, init completion, and Agent
@@ -195,19 +196,19 @@ repository's glossary without leaving a root compatibility stub, because freeing
 ### Objective-Failing Checks
 
 - `OC1` —
-  `test -f docs/domain-language.md && test ! -e CONTEXT.md && test -f src/agent-definitions/document-formats/domain-language-format.md && test ! -e src/agent-definitions/document-formats/CONTEXT-FORMAT.md`
+  `test -f docs/domain-language.md && test ! -e docs/domain-language.md && test -f src/agent-definitions/document-formats/domain-language-format.md && test ! -e src/agent-definitions/document-formats/domain-language-format.md`
   — proves both this repository's glossary and the shipped format moved, without compatibility stubs under the colliding
   names.
 - `OC2` —
-  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p" "$t/h"; printf legacy >"$t/p/CONTEXT.md"; printf lower >"$t/p/context.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md"; test "$(cat "$t/p/docs/domain-language.md")" = legacy; test "$(cat "$t/p/context.md")" = lower'`
+  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p" "$t/h"; printf legacy >"$t/p/docs/domain-language.md"; printf lower >"$t/p/context.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/docs/domain-language.md"; test "$(cat "$t/p/docs/domain-language.md")" = legacy; test "$(cat "$t/p/context.md")" = lower'`
   — launches the real CLI and proves exact-uppercase single-context migration plus lowercase immunity rather than
   trusting an implementation-owned test.
 - `OC3` —
-  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p/one" "$t/h"; printf "%s\n" "# Contexts" "- [One]""(./one/CONTEXT.md)" >"$t/p/CONTEXT-MAP.md"; printf one >"$t/p/one/CONTEXT.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT-MAP.md"; test ! -e "$t/p/one/CONTEXT.md"; test "$(cat "$t/p/one/domain-language.md")" = one; grep -Fq "./one/domain-language.md" "$t/p/docs/domain-language-map.md"; ! grep -Fq "CONTEXT.md" "$t/p/docs/domain-language-map.md"'`
+  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p/one" "$t/h"; printf "%s\n" "# Contexts" "- [One]""(./one/docs/domain-language.md)" >"$t/p/docs/domain-language-map.md"; printf one >"$t/p/one/docs/domain-language.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/docs/domain-language-map.md"; test ! -e "$t/p/one/docs/domain-language.md"; test "$(cat "$t/p/one/domain-language.md")" = one; grep -Fq "./one/domain-language.md" "$t/p/docs/domain-language-map.md"; ! grep -Fq "docs/domain-language.md" "$t/p/docs/domain-language-map.md"'`
   — proves the actual startup boundary migrates a map and its referenced glossary without leaving a dangling legacy
   link.
 - `OC4` —
-  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p/docs" "$t/h"; printf source >"$t/p/CONTEXT.md"; printf existing >"$t/p/docs/domain-language.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test "$(cat "$t/p/CONTEXT.md")" = source; test "$(cat "$t/p/docs/domain-language.md")" = existing; test -s "$t/e"'`
+  `bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p "$t/p/docs" "$t/h"; printf source >"$t/p/docs/domain-language.md"; printf existing >"$t/p/docs/domain-language.md"; (cd "$t/p" && HOME="$t/h" MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.js" plans >/dev/null 2>"$t/e"); test "$(cat "$t/p/docs/domain-language.md")" = source; test "$(cat "$t/p/docs/domain-language.md")" = existing; test -s "$t/e"'`
   — proves an existing canonical destination wins without data loss and the real CLI surfaces the conflict.
 - `OC5` —
   `! grep -R -n -E 'CONTEXT\.md|CONTEXT-MAP\.md|CONTEXT-FORMAT\.md' src/agent-definitions src/skills src/cmd docs --exclude-dir=work-records`
@@ -223,7 +224,8 @@ repository's glossary without leaving a root compatibility stub, because freeing
 - A multi-context map is a logical migration unit. Known conflicts must be detected before canonical destinations are
   installed; unexpected failure after destination creation must prefer safe duplication over deleting the only source.
 - Local map links may contain `./`, `../`, anchors, or titles. Resolve paths relative to the legacy map, reject links
-  escaping the project root, preserve anchors/titles, and rewrite only an exact final `CONTEXT.md` component.
+  escaping the project root, preserve anchors/titles, and rewrite only an exact final `docs/domain-language.md`
+  component.
 - Existing canonical destinations win. Automatic content merging would make migration code an unintended domain-language
   authority and risks combining unrelated harness files.
 - `docs/` may be absent, unwritable, or a non-directory. Warn and retain sources rather than blocking RunWield or losing

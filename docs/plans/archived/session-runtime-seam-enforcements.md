@@ -106,7 +106,7 @@ Existing functions, modules, or patterns to reuse:
   Activation Lease, Durable Workflow Checkpoint, read synchronization, and Plan Workflow Lease separation semantics.
 - `docs/adr/012-segment-session-transcripts-at-execution-handoff.md` — source of truth for stable Session ownership
   across transcript segment rollover.
-- `CONTEXT.md` — canonical terminology for `Session`, `Session Control`, `Session Activation Lease`,
+- `docs/domain-language.md` — canonical terminology for `Session`, `Session Control`, `Session Activation Lease`,
   `Plan Workflow Lease`, `Session Transcript`, and `Session Transcript Segment`.
 
 ## Implementation Steps

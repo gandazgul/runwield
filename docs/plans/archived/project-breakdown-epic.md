@@ -13,7 +13,7 @@ affectedPaths:
     - "src/cmd/plans/index.js"
     - "src/tools/plan-written.js"
     - "src/agent-definitions/document-formats/planner-plan-format.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "docs/plan-lifecycle.md"
     - "docs/prd/done/project-decomposition-PRD.md"
 createdAt: "2026-06-16T16:25:04Z"
@@ -86,7 +86,7 @@ child plans, draft child plans, or explicit notes in the Epic summary.
 - `src/cmd/load-plan/index.js` - add Epic-specific actions and child FEATURE selection.
 - `src/cmd/plans/index.js` - show Epic hierarchy and child progress.
 - `src/tools/plan-written.js` - ensure approved PROJECT/Epic plans enter the new readiness/decomposition path.
-- `CONTEXT.md` - update the domain glossary to reflect Epic containers and child FEATURE plans.
+- `docs/domain-language.md` - update the domain glossary to reflect Epic containers and child FEATURE plans.
 - `docs/plan-lifecycle.md` - document Epic lifecycle behavior without confusing it with executable plan status.
 - `docs/prd/done/project-decomposition-PRD.md` - reconcile v1 scope after implementation decisions are known.
 

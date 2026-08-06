@@ -303,9 +303,9 @@ Existing functions, modules, or patterns to reuse:
 - Behavior expected to stop existing: `claude-cli/*` no longer fails as an unknown Pi provider/model, disappears from
   selectable registry/completion results, or is discarded on resume; it never appears runnable, claims API auth,
   silently keeps a stale Pi agent under Claude state, or falls through into Pi execution.
-- Glossary: no `CONTEXT.md` update is made in this child because it does not yet implement Claude execution. The child
-  02 runtime slice (or later user-facing slice) must add stable Execution Backend language when that behavior becomes
-  true.
+- Glossary: no `docs/domain-language.md` update is made in this child because it does not yet implement Claude
+  execution. The child 02 runtime slice (or later user-facing slice) must add stable Execution Backend language when
+  that behavior becomes true.
 
 ### Objective-Failing Checks
 

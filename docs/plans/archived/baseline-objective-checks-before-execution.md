@@ -13,7 +13,7 @@ affectedPaths:
     - "src/plan-store.js"
     - "src/plan-store.test.js"
     - "src/agent-definitions/planner.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
 objectiveChecks:
     - id: "OC1"
       command: "grep -q \"objectiveChecksBaseline\" src/shared/workflow/workflow.js"
@@ -135,8 +135,8 @@ only a small baseline classifier/helper if keeping the routing predicates out of
   `objectiveChecksBaseline`.
 - `src/agent-definitions/planner.md` — state that RunWield verifies redness before execution, so Planner knows an
   already-green check comes back.
-- `CONTEXT.md` — update Objective-Failing Check language to say RunWield now verifies the pre-implementation red state
-  before execution and the post-implementation green state during Mechanical Validation.
+- `docs/domain-language.md` — update Objective-Failing Check language to say RunWield now verifies the
+  pre-implementation red state before execution and the post-implementation green state during Mechanical Validation.
 
 ## Reuse Opportunities
 
@@ -183,8 +183,8 @@ only a small baseline classifier/helper if keeping the routing predicates out of
       generic execution-incomplete result that would leave the session owned by Engineer.
 - [ ] `planner.md` states that RunWield runs the checks against the unmodified tree before execution and that an
       already-green check is returned, replacing the current self-check wording.
-- [ ] `CONTEXT.md` describes Objective-Failing Checks as mechanically observed red before execution and green during
-      Mechanical Validation.
+- [ ] `docs/domain-language.md` describes Objective-Failing Checks as mechanically observed red before execution and
+      green during Mechanical Validation.
 - [ ] `src/shared/workflow/workflow.test.js` contains behavior tests named
       `baseline rejects already-met Objective-Failing Checks before Engineer starts` and
       `re-baselines Objective-Failing Checks when head or command set changes`; these tests fail against today's code

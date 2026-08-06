@@ -99,8 +99,8 @@ RunWield-owned Plan machinery.
   human-review-feedback → CI failure → Engineer Task Completion continuation regression without touching currently dirty
   test files from other active work.
 
-No `CONTEXT.md` change is required: Task Completion, Implemented Plan, Mechanical Validation, Local Human Code Review,
-and Workflow Validation retain their canonical meanings.
+No `docs/domain-language.md` change is required: Task Completion, Implemented Plan, Mechanical Validation, Local Human
+Code Review, and Workflow Validation retain their canonical meanings.
 
 ## Reuse Opportunities
 

@@ -226,5 +226,5 @@ then download the `install.sh` from that same tag
   ahead of the release being installed.
 - Replacing the current `wld` executable while it is running is acceptable on supported Unix-like platforms, but the new
   version only affects subsequent `wld` invocations.
-- No `CONTEXT.md` update is required; this adds ordinary release/update behavior and does not introduce a new RunWield
-  domain term that future agents must distinguish.
+- No `docs/domain-language.md` update is required; this adds ordinary release/update behavior and does not introduce a
+  new RunWield domain term that future agents must distinguish.

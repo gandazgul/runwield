@@ -4,7 +4,7 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add Guide/Ideator routing intents and route non-materializing conversations away from Operator."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "src/constants.js"
     - "src/tools/triage-report.js"
     - "src/agent-definitions/router.md"
@@ -37,8 +37,9 @@ The target model uses one broadened Triage enum named **Routing Intent**:
 `INQUIRY | IDEATION | QUICK_FIX | FEATURE | PROJECT`. Plan Front Matter keeps `classification` for Plan-producing work
 (`FEATURE | PROJECT`), but routing itself should not use the old user-facing “classification” language.
 
-`CONTEXT.md` already contains the desired glossary terms for Routing Intent, Guide, Ideator, Return-to-Router, and Plan
-Classification; implementation should verify those entries remain accurate rather than rewrite them unnecessarily.
+`docs/domain-language.md` already contains the desired glossary terms for Routing Intent, Guide, Ideator,
+Return-to-Router, and Plan Classification; implementation should verify those entries remain accurate rather than
+rewrite them unnecessarily.
 
 ## Objective
 
@@ -74,8 +75,8 @@ or Ideator. It must not have edit/write/materialization tools.
 
 ## Files to Modify
 
-- `CONTEXT.md` — verify existing glossary entries for Routing Intent, Guide, Ideator, Return-to-Router, and Plan
-  Classification; only adjust if they drift from the implementation.
+- `docs/domain-language.md` — verify existing glossary entries for Routing Intent, Guide, Ideator, Return-to-Router, and
+  Plan Classification; only adjust if they drift from the implementation.
 - `src/constants.js` — replace the unused `CLASSIFICATIONS` export with
   `ROUTING_INTENTS = ["INQUIRY", "IDEATION", "QUICK_FIX", "FEATURE", "PROJECT"]`; keep `COMPLEXITIES` unchanged and add
   `AGENTS.GUIDE = "guide"` to the JSDoc shape and frozen object.
@@ -212,7 +213,7 @@ or Ideator. It must not have edit/write/materialization tools.
   when a conversation becomes actionable.
 - Router should prefer Guide over Ideator unless the user explicitly asks for ideation, grilling, research, option
   analysis, current external facts, or PRD synthesis.
-- Ideator may update small durable docs such as `CONTEXT.md`/ADRs during its interview loop, but Router should not send
-  ordinary “where/how does this work?” questions there.
+- Ideator may update small durable docs such as `docs/domain-language.md`/ADRs during its interview loop, but Router
+  should not send ordinary “where/how does this work?” questions there.
 - Adding `return_to_router` to agent front matter is safe because `resolveEffectiveSessionToolNames` already hides it
   unless the session allows Router returns.

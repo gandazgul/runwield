@@ -182,8 +182,8 @@ publication, rely on `validation_passed` lifecycle updates to clear the field.
 - `docs/plan-lifecycle.md` — document `validationMergeRepairWorktree` as transient validation continuation metadata and
   distinguish it from the `worktree_merge_failed` lifecycle event.
 
-`CONTEXT.md` needs no change: merge worktree, Direct Delivery, Front Matter, Workflow Validation, and Plan Lifecycle are
-already canonical terms, and this field is implementation metadata rather than new domain language.
+`docs/domain-language.md` needs no change: merge worktree, Direct Delivery, Front Matter, Workflow Validation, and Plan
+Lifecycle are already canonical terms, and this field is implementation metadata rather than new domain language.
 
 ## Reuse Opportunities
 
@@ -289,4 +289,5 @@ The implementation must also add these underlying test scenarios:
   merge repair. A repair that cannot be rediscovered after interruption recreates the current bug.
 - Do not change `mergeExecutionWorktree`, `publishRepairedMergeWorktree`, or merge repair dispatch unless a test proves
   the existing repaired-merge contract is insufficient. The planned fix is to carry the path into the existing contract.
-- Keep the field out of `CONTEXT.md`; it is not domain language and should be documented in Plan Lifecycle docs instead.
+- Keep the field out of `docs/domain-language.md`; it is not domain language and should be documented in Plan Lifecycle
+  docs instead.

@@ -73,21 +73,21 @@ enum mandatory for future ADRs, and enforce the repository contract with an auto
 ## Approach
 
 Expand `guide.md` with a focused evidence-first project inquiry workflow and an explicit artifact map. The map must give
-Guide the conventional paths while still requiring discovery when another Project uses `CONTEXT-MAP.md` or different
-locations:
+Guide the conventional paths while still requiring discovery when another Project uses `docs/domain-language-map.md` or
+different locations:
 
-| Evidence                   | Canonical location                                                                                            | Authority in Guide answers                                                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain language            | root `CONTEXT.md`, or root `CONTEXT-MAP.md` pointing to context-specific `CONTEXT.md` files and ADR locations | Canonical terminology and context boundaries                                                                                            |
-| Product intent             | root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`                                               | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
-| Architectural decisions    | context-mapped ADR directory or `docs/adr/**/*.md`                                                            | `status: accepted` is an authoritative current rule; other or missing statuses require qualification                                    |
-| Active Plans               | `plans/**/*.md`, excluding `plans/archived/**`; Epic children may be nested under `plans/<epic-name>/`        | Prospective intent plus canonical Plan Lifecycle state                                                                                  |
-| Archived Plans             | `plans/archived/**/*.md`                                                                                      | Historical Plan evidence; archival is separate from lifecycle status                                                                    |
-| Work Records               | `docs/work-records/*.md`, retrieved through `work_record_search`/`work_record_read` when possible             | Approved/current records are authoritative retrospective outcomes; preserve all notices and completion modes                            |
-| Current implementation     | Project source, configuration, tests, and relevant ordinary documentation                                     | Source/config/tests establish current behavior; ordinary docs support claims but receive no authority solely from location              |
-| Changes                    | repository Git history via safe `git log`/`git show`; current `git diff` only when relevant                   | Commits are durable change evidence; working/index diffs are provisional and must be labeled uncommitted                                |
-| Validation and blockers    | Plan front matter and linked Work Record state                                                                | Preserve status, failure/worktree/hold/dependency fields, timestamps, review metadata, Epic done-enough state, and verification notices |
-| External demand provenance | `tickets: [{ url }]` in Plan or Work Record front matter                                                      | Navigation/provenance only; never external lifecycle truth                                                                              |
+| Evidence                   | Canonical location                                                                                                                                   | Authority in Guide answers                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain language            | root `docs/domain-language.md`, or root `docs/domain-language-map.md` pointing to context-specific `docs/domain-language.md` files and ADR locations | Canonical terminology and context boundaries                                                                                            |
+| Product intent             | root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`                                                                                      | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
+| Architectural decisions    | context-mapped ADR directory or `docs/adr/**/*.md`                                                                                                   | `status: accepted` is an authoritative current rule; other or missing statuses require qualification                                    |
+| Active Plans               | `plans/**/*.md`, excluding `plans/archived/**`; Epic children may be nested under `plans/<epic-name>/`                                               | Prospective intent plus canonical Plan Lifecycle state                                                                                  |
+| Archived Plans             | `plans/archived/**/*.md`                                                                                                                             | Historical Plan evidence; archival is separate from lifecycle status                                                                    |
+| Work Records               | `docs/work-records/*.md`, retrieved through `work_record_search`/`work_record_read` when possible                                                    | Approved/current records are authoritative retrospective outcomes; preserve all notices and completion modes                            |
+| Current implementation     | Project source, configuration, tests, and relevant ordinary documentation                                                                            | Source/config/tests establish current behavior; ordinary docs support claims but receive no authority solely from location              |
+| Changes                    | repository Git history via safe `git log`/`git show`; current `git diff` only when relevant                                                          | Commits are durable change evidence; working/index diffs are provisional and must be labeled uncommitted                                |
+| Validation and blockers    | Plan front matter and linked Work Record state                                                                                                       | Preserve status, failure/worktree/hold/dependency fields, timestamps, review metadata, Epic done-enough state, and verification notices |
+| External demand provenance | `tickets: [{ url }]` in Plan or Work Record front matter                                                                                             | Navigation/provenance only; never external lifecycle truth                                                                              |
 
 Teach Guide to first identify the claim type, retrieve the smallest relevant evidence set, distinguish intent from
 outcome/current behavior, and answer with compact inline citations. Citations should use project-relative paths plus a
@@ -180,8 +180,8 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Migrate every current file under `docs/adr/` to `status: accepted` front matter, remove each legacy `## Status`
       section, and preserve all decision content byte-for-byte aside from necessary surrounding whitespace/front matter.
 - [ ] Add `src/adr-artifacts.test.js` to recursively validate all repository ADR Markdown, including the
-      nested-directory convention supported by `CONTEXT-MAP.md`; assert allowed status values and reject prose Status
-      sections.
+      nested-directory convention supported by `docs/domain-language-map.md`; assert allowed status values and reject
+      prose Status sections.
 - [ ] Refactor `guide.md` around an evidence-first project inquiry section that lists every canonical/default artifact
       location, the authority of each source, and how to find context-mapped alternatives.
 - [ ] Add explicit Guide workflows for rationale, blocker/state, delivered-change, and current-behavior questions.
@@ -238,8 +238,8 @@ Existing functions, modules, or patterns to reuse:
 ## Edge Cases & Considerations
 
 - The bundled Guide runs in Projects that may not use RunWield's default directories. Treat the artifact map as
-  canonical RunWield conventions, but inspect `CONTEXT-MAP.md` and repository-local structure before claiming an
-  artifact is absent.
+  canonical RunWield conventions, but inspect `docs/domain-language-map.md` and repository-local structure before
+  claiming an artifact is absent.
 - A missing or unknown ADR status in another Project is not automatically accepted. Guide may cite it as an unclassified
   decision document but must not present it as a current authoritative rule.
 - `docs/prd/done/**` remains product intent and historical organization; directory placement does not prove that the
@@ -257,5 +257,5 @@ Existing functions, modules, or patterns to reuse:
   accepted ADR can override an older rule; a superseded Work Record remains historical rather than current guidance.
 - Do not expand this phase into a Project Evidence Graph, project-wide artifact parser/index, Team Memory location,
   Session identity/provenance, validation-attempt history, workflow metrics ingestion, or cross-Project search.
-- The working tree contains unrelated existing changes, including `CONTEXT.md` and other Plans/UI files. Execution must
-  preserve them and limit edits to this Plan's affected paths.
+- The working tree contains unrelated existing changes, including `docs/domain-language.md` and other Plans/UI files.
+  Execution must preserve them and limit edits to this Plan's affected paths.

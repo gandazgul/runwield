@@ -407,5 +407,5 @@ Existing functions, modules, or patterns to reuse:
 - **No takeover/recovery UI in this slice:** `uncertain` and `reconcile_required` remain visible blocked states. Future
   recovery must use explicit evidence and user judgment rather than heartbeat age alone.
 - **Language and implementation:** use canonical Session, Session Transcript, Session Activation Lease, Session
-  generation, TUI, Workspace, and ACP terms from `CONTEXT.md`/ADR-011. Implement executable code as JavaScript with
-  JSDoc typedefs; do not add TypeScript outside the permitted Workspace subtree.
+  generation, TUI, Workspace, and ACP terms from `docs/domain-language.md`/ADR-011. Implement executable code as
+  JavaScript with JSDoc typedefs; do not add TypeScript outside the permitted Workspace subtree.

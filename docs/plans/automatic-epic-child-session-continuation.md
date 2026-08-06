@@ -187,6 +187,6 @@ client-facing Session ID while remapping the internal Runtime Session.
   final-Agent restoration, or attention notifications.
 - Generic SessionRuntime consumers need a typed replacement event and new Session ID; TUI and ACP must not import
   workflow internals to infer continuation themselves.
-- `CONTEXT.md` currently says users load child FEATURE Plans independently. This feature changes that product
-  relationship; recommend that Init or Ideator update the domain context separately rather than modifying `CONTEXT.md`
-  or an ADR in this Plan.
+- `docs/domain-language.md` currently says users load child FEATURE Plans independently. This feature changes that
+  product relationship; recommend that Init or Ideator update the domain context separately rather than modifying
+  `docs/domain-language.md` or an ADR in this Plan.

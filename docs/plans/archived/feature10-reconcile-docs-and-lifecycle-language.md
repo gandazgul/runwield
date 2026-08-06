@@ -4,7 +4,7 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Update Harns docs and domain language so PROJECT, Epic, Slicer, Ready For Work, and child FEATURE behavior match the new workflow."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "docs/plan-lifecycle.md"
     - "docs/prd/done/project-decomposition-PRD.md"
     - "PRD.md"
@@ -40,11 +40,12 @@ the old all-at-once PROJECT DAG model by mistake.
 ## Approach
 
 Edit the domain glossary and lifecycle docs after implementation stabilizes. Keep the language product-facing in the
-PRD, domain-facing in `CONTEXT.md`, and operational in `docs/plan-lifecycle.md`.
+PRD, domain-facing in `docs/domain-language.md`, and operational in `docs/plan-lifecycle.md`.
 
 ## Files to Modify
 
-- `CONTEXT.md` - update terminology for PROJECT, Epic, Slicer, child FEATURE plans, and Task/DAG legacy wording.
+- `docs/domain-language.md` - update terminology for PROJECT, Epic, Slicer, child FEATURE plans, and Task/DAG legacy
+  wording.
 - `docs/plan-lifecycle.md` - document Epic lifecycle behavior and how it differs from executable FEATURE lifecycle.
 - `docs/prd/done/project-decomposition-PRD.md` - reconcile v1 scope with implementation decisions, especially deferred
   work.
@@ -54,13 +55,13 @@ PRD, domain-facing in `CONTEXT.md`, and operational in `docs/plan-lifecycle.md`.
 ## Reuse Opportunities
 
 - `docs/prd/done/project-decomposition-PRD.md` - use it as the source product vision.
-- `CONTEXT.md` - preserve existing glossary style and "avoid" language.
+- `docs/domain-language.md` - preserve existing glossary style and "avoid" language.
 - `docs/plan-lifecycle.md` - preserve the event/status table style.
 
 ## Implementation Steps
 
 - [ ] Read the completed code behavior from the preceding slices.
-- [ ] Update `CONTEXT.md` so PROJECT means Epic-scale work decomposed into FEATURE plans.
+- [ ] Update `docs/domain-language.md` so PROJECT means Epic-scale work decomposed into FEATURE plans.
 - [ ] Clarify whether "Epic" is accepted domain language or an implementation subtype of PROJECT.
 - [ ] Update `docs/plan-lifecycle.md` so `ready_for_work` does not imply direct Epic execution.
 - [ ] Remove or clearly mark old task-DAG execution as legacy/future.
@@ -69,7 +70,8 @@ PRD, domain-facing in `CONTEXT.md`, and operational in `docs/plan-lifecycle.md`.
 
 ## Verification Plan
 
-- Automated: `deno fmt CONTEXT.md docs/plan-lifecycle.md docs/prd/done/project-decomposition-PRD.md PRD.md README.md`
+- Automated:
+  `deno fmt docs/domain-language.md docs/plan-lifecycle.md docs/prd/done/project-decomposition-PRD.md PRD.md README.md`
 - Automated: `deno run ci`
 - Manual: read the updated glossary and lifecycle docs as a fresh agent and verify the intended flow is unambiguous.
 - Expected result: docs consistently describe PROJECT as a decomposition workflow, not an executable task DAG.
