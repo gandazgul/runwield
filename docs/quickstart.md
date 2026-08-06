@@ -79,7 +79,7 @@ wld init
 This bootstraps durable RunWield context:
 
 - explores the repository,
-- writes `CONTEXT.md`,
+- writes `docs/domain-language.md`,
 - stores core project memories,
 - records that initialization has run for the project.
 

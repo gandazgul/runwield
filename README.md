@@ -158,8 +158,8 @@ The agent roster:
 | Recorder          | Writes the durable Work Record after completion.                                                       |
 
 Everything RunWield owns lives under `~/.wld/` (sessions, settings, global instructions, overrides). Everything about
-_your project_ stays in your repo as plain markdown: `docs/plans/`, `.wld/`, `CONTEXT.md`. No lock-in, no database, all
-greppable.
+_your project_ stays in your repo as plain markdown: `docs/plans/`, `.wld/`, `docs/domain-language.md`. No lock-in, no
+database, all greppable.
 
 **Documentation:** [full docs index](docs/index.md) · [usage](docs/usage.md) · [plans and workflows](docs/workflows.md)
 · [settings](docs/settings.md) · [customization](docs/customization.md) · [collaboration](docs/collaboration.md) ·

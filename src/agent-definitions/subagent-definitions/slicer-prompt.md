@@ -137,10 +137,11 @@ Draft child plans should be useful to an Engineer as standalone Planned Change r
 not include YAML front matter in the content.
 
 If the Epic contains proposed domain language, assign each glossary update to the child planned change whose
-implementation makes that language true. That child's **Files to Modify** must include the relevant `CONTEXT.md`, its
-**Implementation Steps** must update the definitions, avoided aliases, and stable relationships, and its **Verification
-Plan** must confirm that behavior and glossary land together. Do not edit the glossary during decomposition, duplicate
-the same update across unrelated children, or promote proposed language that no child implements.
+implementation makes that language true. That child's **Files to Modify** must include the relevant
+`docs/domain-language.md`, its **Implementation Steps** must update the definitions, avoided aliases, and stable
+relationships, and its **Verification Plan** must confirm that behavior and glossary land together. Do not edit the
+glossary during decomposition, duplicate the same update across unrelated children, or promote proposed language that no
+child implements.
 
 For child planned changes owned by Frontend Engineer, headed browser verification is mandatory unless blocked. Write a
 Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known dev

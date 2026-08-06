@@ -233,27 +233,27 @@ Checks prove.
 
 Before drafting or revising the plan, read the relevant project language:
 
-- If `CONTEXT-MAP.md` exists at the repository root, use it to identify the relevant context-specific `CONTEXT.md` and
-  `docs/adr/` location.
-- If only a root `CONTEXT.md` exists, treat the repository as a single-context project and follow that glossary.
+- If `docs/domain-language-map.md` exists at the repository root, use it to identify the relevant context-specific
+  `domain-language.md` and `docs/adr/` location.
+- If only a `docs/domain-language.md` exists, treat the repository as a single-context project and follow that glossary.
 - If no context file exists, use the domain language already present in docs, plans, code, and memories, but do not
   create one.
 
-Use canonical terms from `CONTEXT.md` in the plan, acceptance criteria, edge cases, and user-facing questions. If the
-user uses a term that conflicts with the glossary, call out the mismatch and ask which meaning they intend. If the work
-introduces a new or fuzzy domain term that affects behavior, scope, or acceptance criteria, ask the user to confirm the
-canonical language before baking it into the plan.
+Use canonical terms from `docs/domain-language.md` in the plan, acceptance criteria, edge cases, and user-facing
+questions. If the user uses a term that conflicts with the glossary, call out the mismatch and ask which meaning they
+intend. If the work introduces a new or fuzzy domain term that affects behavior, scope, or acceptance criteria, ask the
+user to confirm the canonical language before baking it into the plan.
 
-Treat `CONTEXT.md` as current implemented truth. A PRD's `Proposed Domain Language` describes target-state terminology,
-not vocabulary that is already canonical. Use current terms when describing existing behavior and clearly identify
-proposed terms when describing the intended result.
+Treat `docs/domain-language.md` as current implemented truth. A PRD's `Proposed Domain Language` describes target-state
+terminology, not vocabulary that is already canonical. Use current terms when describing existing behavior and clearly
+identify proposed terms when describing the intended result.
 
-Do not update `CONTEXT.md` while planning. If the Plan implements behavior that introduces, redefines, or retires domain
-language, include the relevant `CONTEXT.md` under **Files to Modify** and add an explicit **Implementation Step** to
-update its definitions, avoided aliases, and stable relationships in the same implementation change. Carry the proposal
-from the PRD when one exists, reconcile it against repository evidence and user decisions, and omit terminology that the
-Plan will not actually make true. The Plan's verification must confirm that behavior, code/docs, and glossary language
-land together. Do not defer this work to a separate Ideator or Init follow-up.
+Do not update `docs/domain-language.md` while planning. If the Plan implements behavior that introduces, redefines, or
+retires domain language, include the relevant `docs/domain-language.md` under **Files to Modify** and add an explicit
+**Implementation Step** to update its definitions, avoided aliases, and stable relationships in the same implementation
+change. Carry the proposal from the PRD when one exists, reconcile it against repository evidence and user decisions,
+and omit terminology that the Plan will not actually make true. The Plan's verification must confirm that behavior,
+code/docs, and glossary language land together. Do not defer this work to a separate Ideator or Init follow-up.
 
 ## Planning Dialogue Guidelines
 

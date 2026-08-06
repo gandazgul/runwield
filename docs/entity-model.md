@@ -8,7 +8,8 @@ transient workflow objects, adapter projections, and storage authorities.
 
 These diagrams are conceptual entity relationships, not database schemas. Cardinality describes the domain relationship
 that engineers should preserve, not a required table shape or serialization format. Entity names follow
-[`CONTEXT.md`](../CONTEXT.md); diagram identifiers use underscores only so Mermaid renders predictably.
+[`docs/domain-language.md`](domain-language.md); diagram identifiers use underscores only so Mermaid renders
+predictably.
 
 ## Project and artifact model
 

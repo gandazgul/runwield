@@ -133,7 +133,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
                     assertEquals(typeof state?.doneAt, "string");
                     assertStringIncludes(assistantText.join(""), "Initialization inspection complete.");
                     assertEquals(ui.messages, [{
-                        message: "✅ Init complete. CONTEXT.md has been written to the project root.",
+                        message: "✅ Init complete. docs/domain-language.md has been written.",
                         error: undefined,
                     }]);
                 } finally {

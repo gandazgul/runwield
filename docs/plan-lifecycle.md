@@ -457,8 +457,8 @@ proof-bearing RunWield `verified` Plans. A mixed Epic can advance when every chi
 mode-appropriate Delivery Evidence or User Verified. The manual action does not start automatic next-child execution.
 Re-opening from `user_verified` returns to `feedback` and clears stale user attestation fields.
 
-Canonical domain term follow-up: `User Verified Plan` should be added to `CONTEXT.md` by Ideator/Init in a separate
-context update; this feature intentionally leaves `CONTEXT.md` and ADRs unchanged.
+Canonical domain term follow-up: `User Verified Plan` should be added to `docs/domain-language.md` by Ideator/Init in a
+separate context update; this feature intentionally leaves `docs/domain-language.md` and ADRs unchanged.
 
 ## Transactional lifecycle writes
 

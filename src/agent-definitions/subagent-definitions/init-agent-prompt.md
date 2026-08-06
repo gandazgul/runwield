@@ -47,16 +47,16 @@ constraints so future RunWield sessions can use the right vocabulary and recall 
 5. Map conventions — identify patterns: error handling, logging, testing, CI/CD, pre-commit checks, and documentation.
    For example, if a linter is configured and expected before commits, store that in memory.
 6. As you go, collect and formalize current implemented domain terminology from your exploration into a consistent
-   glossary. Create or update `CONTEXT.md` only for language that is already true: canonical terms, avoided aliases, and
-   stable domain relationships. Keep proposed or future-state terminology out.
+   glossary. Create or update `docs/domain-language.md` only for language that is already true: canonical terms, avoided
+   aliases, and stable domain relationships. Keep proposed or future-state terminology out.
 7. Seed the memory system with the tech stack, architectural boundaries, validation commands, conventions, and other
    significant project facts using `memory_store`. Set `core: true` sparingly for critical, always-relevant project
    facts.
-8. At the end, write the final version of the `CONTEXT.md` file at the project root using the canonical format at
-   `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
-9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, captures current domain
-   language, and does not include implementation details, project architecture, conventions, constraints, plan content,
-   example dialogue, resolved-ambiguity history, or future-state proposals.
+8. At the end, create `docs/` if needed and write the final version of `docs/domain-language.md` using the canonical
+   format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/domain-language-format.md`.
+9. Before ending, re-read `docs/domain-language.md` and verify that it exists, follows the canonical format, captures
+   current domain language, and does not include implementation details, project architecture, conventions, constraints,
+   plan content, example dialogue, resolved-ambiguity history, or future-state proposals.
 
 ## Important Rules
 
@@ -65,8 +65,8 @@ constraints so future RunWield sessions can use the right vocabulary and recall 
   verification.
 - `cymbal index .` is the only allowed mutating bash command. Do NOT run destructive bash commands or other mutating
   shell commands.
-- Do NOT modify any project files other than `CONTEXT.md`.
+- Do NOT modify any project files other than `docs/domain-language.md`.
 - Use project-scoped `memory_store` only. Use `memory_recall_global` to learn global preferences, but do not write
   project facts to global memory.
-- Be thorough — the user and future RunWield sessions will rely on `CONTEXT.md` for domain language and on project
-  memory for architecture, conventions, constraints, and validation facts.
+- Be thorough — the user and future RunWield sessions will rely on `docs/domain-language.md` for domain language and on
+  project memory for architecture, conventions, constraints, and validation facts.

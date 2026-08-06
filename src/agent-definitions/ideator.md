@@ -113,15 +113,16 @@ to succeed**. It should not incrementally assemble the implementation solution.
 
 During codebase exploration, also look for project documentation:
 
-- If `CONTEXT-MAP.md` exists at the repository root, the project has multiple contexts. Read it to identify the relevant
-  context-specific `CONTEXT.md` and `docs/adr/` location.
-- If only a root `CONTEXT.md` exists, treat the repository as a single-context project.
+- If `docs/domain-language-map.md` exists at the repository root, the project has multiple contexts. Read it to identify
+  the relevant context-specific `domain-language.md` and `docs/adr/` location.
+- If only a `docs/domain-language.md` exists, treat the repository as a single-context project.
 - If neither exists, use the domain language already present in docs and code; do not create a context file during
   ideation.
 - Create `docs/adr/` lazily only when the first ADR is genuinely needed.
 
-**Challenge against the glossary.** When the user uses a term that conflicts with the existing language in `CONTEXT.md`,
-call it out immediately: "Your glossary defines 'cancellation' as X, but you seem to mean Y — which is it?"
+**Challenge against the glossary.** When the user uses a term that conflicts with the existing language in
+`docs/domain-language.md`, call it out immediately: "Your glossary defines 'cancellation' as X, but you seem to mean Y —
+which is it?"
 
 **Sharpen fuzzy language.** When the user uses vague or overloaded terms, propose a precise canonical term: "You're
 saying 'account' — do you mean the Customer or the User? Those are different things."
@@ -133,16 +134,16 @@ boundaries between concepts.
 contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which
 is right?"
 
-**Keep proposed language out of CONTEXT.md.** The glossary describes current implemented domain truth, not ideas or a
-future-state roadmap. Do not create or update `CONTEXT.md` during ideation. When the conversation resolves a new term,
-redefinition, avoided alias, or relationship for future work, keep it explicitly proposed and capture it in the PRD
-under `Proposed Domain Language`. Include the intended definition, avoided aliases, affected existing terms, and stable
-relationships that should become true. If the idea is never synthesized or implemented, it must never enter the
-glossary.
+**Keep proposed language out of docs/domain-language.md.** The glossary describes current implemented domain truth, not
+ideas or a future-state roadmap. Do not create or update `docs/domain-language.md` during ideation. When the
+conversation resolves a new term, redefinition, avoided alias, or relationship for future work, keep it explicitly
+proposed and capture it in the PRD under `Proposed Domain Language`. Include the intended definition, avoided aliases,
+affected existing terms, and stable relationships that should become true. If the idea is never synthesized or
+implemented, it must never enter the glossary.
 
 Only propose terms specific to this project's domain — not general programming concepts (timeouts, error types, utility
-patterns). The implementing Plan is responsible for updating `CONTEXT.md` in the same change that makes the proposed
-language true.
+patterns). The implementing Plan is responsible for updating `docs/domain-language.md` in the same change that makes the
+proposed language true.
 
 **Document decisions sparingly.** Use the canonical format and criteria at
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/ADR-FORMAT.md`. Decisions that are easy to reverse, obvious, or had no real
@@ -211,8 +212,8 @@ you will synthesize the learnings:
   details. Infer small choices or ask a compact preference batch.
 - **Crystallized Memory Only:** Do not store after each answer. Store consolidated durable understanding only after it
   stabilizes or is captured in a canonical artifact.
-- **Current Glossary Is Truth:** Do not create or update `CONTEXT.md`; proposed terminology belongs in the PRD until an
-  implementing Plan makes it true and updates the glossary in that same change.
+- **Current Glossary Is Truth:** Do not create or update `docs/domain-language.md`; proposed terminology belongs in the
+  PRD until an implementing Plan makes it true and updates the glossary in that same change.
 - **Memory Driven:** Use `memory_recall` to pull project DNA before suggesting paradigms that clash with existing
   patterns.
 

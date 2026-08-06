@@ -72,21 +72,21 @@ inference.
 
 ### Artifact Locations and Authority
 
-Use these default RunWield locations, but inspect `CONTEXT-MAP.md` when present because it may point to context-specific
-`CONTEXT.md` files and ADR locations.
+Use these default RunWield locations, but inspect `docs/domain-language-map.md` when present because it may point to
+context-specific `domain-language.md` files and ADR locations.
 
-| Evidence                   | Default location                                                                                                      | Authority in Guide answers                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain language            | root `CONTEXT.md`, or root `CONTEXT-MAP.md` pointing to context-specific `CONTEXT.md` files and ADR locations         | Canonical terminology and context boundaries                                                                                            |
-| Product intent             | root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`                                                       | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
-| Architectural decisions    | context-mapped ADR directory, otherwise `docs/adr/**/*.md`                                                            | `status: accepted` is an authoritative current rule; other or missing statuses require qualification                                    |
-| Active Plans               | `docs/plans/**/*.md`, excluding `docs/plans/archived/**`; Epic children may be nested under `docs/plans/<epic-name>/` | Prospective intent plus canonical Plan Lifecycle state                                                                                  |
-| Archived Plans             | `docs/plans/archived/**/*.md`                                                                                         | Historical Plan evidence; archival is separate from lifecycle status                                                                    |
-| Work Records               | `docs/work-records/*.md`, preferably through `work_record_search` and `work_record_read`                              | Approved/current records are authoritative retrospective outcomes; preserve all notices and completion modes                            |
-| Current implementation     | Project source, configuration, tests, and relevant ordinary documentation                                             | Source/config/tests establish current behavior; ordinary docs support claims but receive no authority solely from location              |
-| Changes                    | repository Git history via safe `git log`/`git show`; current `git diff` only when relevant                           | Commits are durable change evidence; working/index diffs are provisional and must be labeled uncommitted                                |
-| Validation and blockers    | Plan front matter and linked Work Record state                                                                        | Preserve status, failure/worktree/hold/dependency fields, timestamps, review metadata, Epic done-enough state, and verification notices |
-| External demand provenance | `tickets: [{ url }]` in Plan or Work Record front matter                                                              | Navigation/provenance only; never external lifecycle truth                                                                              |
+| Evidence                   | Default location                                                                                                                           | Authority in Guide answers                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain language            | `docs/domain-language.md`, or root `docs/domain-language-map.md` pointing to context-specific `domain-language.md` files and ADR locations | Canonical terminology and context boundaries                                                                                            |
+| Product intent             | root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`                                                                            | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
+| Architectural decisions    | context-mapped ADR directory, otherwise `docs/adr/**/*.md`                                                                                 | `status: accepted` is an authoritative current rule; other or missing statuses require qualification                                    |
+| Active Plans               | `docs/plans/**/*.md`, excluding `docs/plans/archived/**`; Epic children may be nested under `docs/plans/<epic-name>/`                      | Prospective intent plus canonical Plan Lifecycle state                                                                                  |
+| Archived Plans             | `docs/plans/archived/**/*.md`                                                                                                              | Historical Plan evidence; archival is separate from lifecycle status                                                                    |
+| Work Records               | `docs/work-records/*.md`, preferably through `work_record_search` and `work_record_read`                                                   | Approved/current records are authoritative retrospective outcomes; preserve all notices and completion modes                            |
+| Current implementation     | Project source, configuration, tests, and relevant ordinary documentation                                                                  | Source/config/tests establish current behavior; ordinary docs support claims but receive no authority solely from location              |
+| Changes                    | repository Git history via safe `git log`/`git show`; current `git diff` only when relevant                                                | Commits are durable change evidence; working/index diffs are provisional and must be labeled uncommitted                                |
+| Validation and blockers    | Plan front matter and linked Work Record state                                                                                             | Preserve status, failure/worktree/hold/dependency fields, timestamps, review metadata, Epic done-enough state, and verification notices |
+| External demand provenance | `tickets: [{ url }]` in Plan or Work Record front matter                                                                                   | Navigation/provenance only; never external lifecycle truth                                                                              |
 
 ### Authority Hierarchy
 
@@ -131,8 +131,9 @@ Use this hierarchy when artifacts disagree or have different kinds of authority:
 - Use `write_docs` only for new ordinary Markdown documents or user-approved full rewrites. Use `edit_docs` for focused
   updates to existing Markdown.
 - The docs tools only allow `.md` paths. They do not make every Markdown file in scope.
-- Do not create or edit Plans, PRDs, ADRs, `CONTEXT.md`, Work Records, Agent Definitions, Skills, prompt templates,
-  source files, configs, issues, or commits.
+- Do not create or edit Plans, PRDs, ADRs, `docs/domain-language.md`, `docs/domain-language-map.md`, context
+  `domain-language.md`, Work Records, Agent Definitions, Skills, prompt templates, source files, configs, issues, or
+  commits.
 - Do not use docs tools to perform implementation, planning, architecture, domain-glossary, workflow-lifecycle, or code
   review work.
 - Do not call `task_completed`; Guide answers and document-preservation follow-ups are normal conversation, not

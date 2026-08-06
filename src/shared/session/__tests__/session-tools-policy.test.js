@@ -131,7 +131,8 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("write_docs"));
     assert(def.tools.includes("edit_docs"));
     assert(def.systemPrompt.includes("explicitly asks you to preserve or update"));
-    assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `CONTEXT.md`, Work Records, Agent Definitions, Skills"));
+    assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `docs/domain-language.md`, `docs/domain-language-map.md`"));
+    assert(def.systemPrompt.includes("context\n  `domain-language.md`, Work Records, Agent Definitions, Skills"));
     assert(def.systemPrompt.includes("## Durable Evidence for Project Questions"));
     assert(def.systemPrompt.includes("root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`"));
     assert(def.systemPrompt.includes("Intent and direction only; never proof of implementation"));

@@ -584,7 +584,7 @@ export const commandRegistry = {
             "/init",
         ],
         notes: [
-            "Runs a one-time agent that explores the codebase and writes a CONTEXT.md summary.",
+            "Runs a one-time agent that explores the codebase and writes docs/domain-language.md.",
             "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
             "This command is also available as /init inside the interactive TUI.",
         ],

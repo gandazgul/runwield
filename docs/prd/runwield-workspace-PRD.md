@@ -599,9 +599,9 @@ delivery evidence, and outcomes without replacing source artifacts as project tr
 Session Transcript graph, source of truth
 
 These terms remain proposed until their respective Workspace capabilities are implemented. A Plan that makes either term
-true must include the relevant `CONTEXT.md` under Files to Modify, add an implementation step that publishes the
-definition and stable relationships, and verify that the glossary update lands with the capability. A Plan implementing
-only Workspace Intelligence Search must not promote Project Evidence Graph prematurely.
+true must include the relevant `docs/domain-language.md` under Files to Modify, add an implementation step that
+publishes the definition and stable relationships, and verify that the glossary update lands with the capability. A Plan
+implementing only Workspace Intelligence Search must not promote Project Evidence Graph prematurely.
 
 ## 14. References
 

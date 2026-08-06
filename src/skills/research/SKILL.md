@@ -73,7 +73,7 @@ URL, use `ketch scrape`.
 
 ## Rules
 
-- Use local project language from `CONTEXT.md` when naming repo concepts.
+- Use local project language from `docs/domain-language.md` when naming repo concepts.
 - Respect ADRs; do not re-litigate documented decisions unless the research explicitly calls them into question.
 - Keep citations close to the claims they support.
 - Do not store secrets, private credentials, or copied proprietary content in research notes.

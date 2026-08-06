@@ -25,7 +25,7 @@ Spec Kit creates structured artifacts such as:
 RunWield already has its own durable artifacts and lifecycle:
 
 - Plans under `docs/plans/`
-- PRDs, ADRs, and `CONTEXT.md`
+- PRDs, ADRs, and `docs/domain-language.md`
 - Plan Front Matter and Plan Lifecycle events
 - execution worktrees and Workflow Validation
 - future Work Records under `docs/work-records/`
