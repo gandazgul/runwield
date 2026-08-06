@@ -19,8 +19,9 @@ simple, bounded quick fixes get mechanical validation, and larger changes get re
 An `INQUIRY` is handled by Guide. It is for answers, explanations, repository guidance, and other answer-focused help.
 Guide should answer directly and can send the user back to Router if the conversation turns into implementation work. If
 the user explicitly asks to preserve or update Guide's explanation, walkthrough, or report as an ordinary `.md`
-document, Guide may load the Documentation Skill and use docs-only Markdown tools. Plans, PRDs, ADRs, `CONTEXT.md`, Work
-Records, Agent Definitions, Skills, prompt templates, source files, and configuration remain outside Guide's scope.
+document, Guide may load the Documentation Skill and use docs-only Markdown tools. Plans, PRDs, ADRs,
+`docs/domain-language.md`, Work Records, Agent Definitions, Skills, prompt templates, source files, and configuration
+remain outside Guide's scope.
 
 ## IDEATION
 

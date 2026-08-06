@@ -33,9 +33,9 @@ The user decided that documentation work in Harns should no longer be modeled as
 PROJECT DAG/doc-writer task model is deprecated, and documentation is better represented as a reusable skill that
 writable Agents can load when a FEATURE step or direct user request includes documentation updates.
 
-A prior Ideation pass already updated `CONTEXT.md` to define **Skill** and **Documentation Skill** instead of **Doc
-Writer**. Preserve that direction and include the file in final verification, but do not reintroduce Doc Writer as a
-domain term.
+A prior Ideation pass already updated `docs/domain-language.md` to define **Skill** and **Documentation Skill** instead
+of **Doc Writer**. Preserve that direction and include the file in final verification, but do not reintroduce Doc Writer
+as a domain term.
 
 ## Objective
 
@@ -81,7 +81,8 @@ when docs are required.
   if appropriate.
 - `docs/settings.md` — remove `doc-writer` from bundled Agent model override examples/lists; keep the list aligned with
   existing bundled Agent Definition files.
-- `CONTEXT.md` — preserve/verify the already-applied Doc Writer → Skill/Documentation Skill terminology update.
+- `docs/domain-language.md` — preserve/verify the already-applied Doc Writer → Skill/Documentation Skill terminology
+  update.
 
 ## Reuse Opportunities
 
@@ -120,8 +121,8 @@ when docs are required.
 - [ ] Step 10: Run a final search for `Doc Writer`/`doc-writer` in active source/docs. Leave historical archived plans
       and completed PRDs alone unless they are active user-facing documentation, but ensure no active source, bundled
       Agent Definition, workflow prompt, README section, or settings doc advertises `doc-writer` as usable.
-- [ ] Step 11: Review `CONTEXT.md` and preserve the already-applied **Skill**/**Documentation Skill** terminology;
-      adjust only if formatting/wording conflicts with project style.
+- [ ] Step 11: Review `docs/domain-language.md` and preserve the already-applied **Skill**/**Documentation Skill**
+      terminology; adjust only if formatting/wording conflicts with project style.
 
 ## Verification Plan
 
@@ -150,5 +151,5 @@ when docs are required.
   Agent prompt verbatim if it adds workflow-only noise.
 - Do not modify historical archived plans just to remove old references; they document past work and are not active
   Harns behavior.
-- `CONTEXT.md` is already dirty from the prior design pass. Implementation should preserve that decision and avoid
-  unrelated context rewrites.
+- `docs/domain-language.md` is already dirty from the prior design pass. Implementation should preserve that decision
+  and avoid unrelated context rewrites.

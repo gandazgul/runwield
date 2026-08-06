@@ -142,8 +142,8 @@ Add a narrow deterministic Plan Review resubmission path around the existing pla
 - `src/tools/__tests__/plan-written.test.js` — adjust or extend tests around the extracted shared review helper so
   existing `plan_written` behavior remains unchanged.
 
-No `CONTEXT.md` update is required because this change does not introduce new canonical domain language; it strengthens
-existing Plan, Plan Review, and Plan Lifecycle behavior.
+No `docs/domain-language.md` update is required because this change does not introduce new canonical domain language; it
+strengthens existing Plan, Plan Review, and Plan Lifecycle behavior.
 
 ## Reuse Opportunities
 
@@ -255,8 +255,8 @@ existing Plan, Plan Review, and Plan Lifecycle behavior.
   - Approval, save-for-later, feedback, execution, and decomposition semantics match the current `plan_written`
     behavior.
 - Glossary confirmation:
-  - No `CONTEXT.md` changes are needed; existing terms Plan, Plan Review, Plan Lifecycle, PROJECT, FEATURE/legacy
-    classification, and Plan Status remain accurate.
+  - No `docs/domain-language.md` changes are needed; existing terms Plan, Plan Review, Plan Lifecycle, PROJECT,
+    FEATURE/legacy classification, and Plan Status remain accurate.
 
 ## Edge Cases & Considerations
 

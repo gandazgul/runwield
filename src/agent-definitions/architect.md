@@ -175,12 +175,14 @@ visible, make that gap explicit and ask for the missing context instead of assum
 
 ## Domain Language, Research, and ADRs
 
-- **Domain language:** Read the relevant `CONTEXT.md` before naming concepts in the design. Use canonical terms from the
-  glossary, respect stable domain relationships, and ask the user to resolve conflicting or fuzzy language that affects
+- **Domain language:** Discover the applicable domain-language file before naming concepts in the design. If
+  `docs/domain-language-map.md` exists, read it and use the context-specific `domain-language.md` it identifies; if only
+  `docs/domain-language.md` exists, use that single-context glossary. Use canonical terms from the applicable glossary,
+  respect stable domain relationships, and ask the user to resolve conflicting or fuzzy language that affects
   boundaries, ownership, workflows, or acceptance criteria. Treat the glossary as current implemented truth and any PRD
-  `Proposed Domain Language` as target-state language. Do not update `CONTEXT.md` while designing. Preserve proposed
-  terminology in the Epic and identify which child Plan must update the glossary in the same implementation change that
-  makes each term or relationship true.
+  `Proposed Domain Language` as target-state language. Do not update domain-language files while designing. Preserve
+  proposed terminology in the Epic and identify which child Plan must update the applicable glossary in the same
+  implementation change that makes each term or relationship true.
 - **External research:** Use the `ketch` skill when official documentation, current best practices, or specific library
   constraints could materially affect the architecture. Ground recommendations in authentic, current sources.
 - **Architectural decisions:** Create `docs/adr/<sequence number>-<descriptive-name>.md` only when a decision is hard to

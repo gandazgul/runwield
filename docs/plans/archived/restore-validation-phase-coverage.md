@@ -129,7 +129,7 @@ The disposition document is the deliverable that makes this Plan checkable, not 
 - `src/shared/workflow/validation-test-helpers.js` — extend only if a helper is needed by more than one file; prefer
   reusing what `validation-loop-review.test.js` already uses.
 
-`CONTEXT.md` needs no change: this introduces no domain language.
+`docs/domain-language.md` needs no change: this introduces no domain language.
 
 ## Reuse Opportunities
 

@@ -58,8 +58,8 @@ Run RunWield from the project root:
 wld init
 ```
 
-`wld init` explores the repository, writes `CONTEXT.md`, stores durable project memory, and records that the project has
-been initialized. You can also run `/init` inside the TUI.
+`wld init` explores the repository, writes `docs/domain-language.md`, stores durable project memory, and records that
+the project has been initialized. You can also run `/init` inside the TUI.
 
 ### 5. Start with Router
 

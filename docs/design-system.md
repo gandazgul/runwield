@@ -38,7 +38,7 @@ correct choice obvious:
 - keep variants explicit;
 - avoid clever styling that requires visual guessing;
 - document when to use and not use a pattern;
-- keep Workflow and Plan vocabulary aligned with `CONTEXT.md`.
+- keep Workflow and Plan vocabulary aligned with `docs/domain-language.md`.
 
 ## Source of truth
 
@@ -311,7 +311,7 @@ Rules:
 
 - group metadata by user task or workflow concept;
 - use dim labels and normal text values;
-- preserve RunWield vocabulary from `CONTEXT.md`;
+- preserve RunWield vocabulary from `docs/domain-language.md`;
 - hide implementation-only values unless they help the user make a workflow decision;
 - show unknown or missing metadata only when that absence matters.
 

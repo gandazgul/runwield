@@ -32,8 +32,8 @@ agents a different design constraint:
 - Agent 3: optimize for the common caller; make the default case trivial, while considering ports and adapters when
   cross-seam dependencies matter.
 
-Include both [SKILL.md](SKILL.md) vocabulary and `CONTEXT.md` vocabulary in the brief so each sub-agent names things
-consistently with the architecture language and the project's domain language.
+Include both [SKILL.md](SKILL.md) vocabulary and `docs/domain-language.md` vocabulary in the brief so each sub-agent
+names things consistently with the architecture language and the project's domain language.
 
 Each sub-agent outputs:
 

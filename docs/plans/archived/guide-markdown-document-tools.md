@@ -87,9 +87,9 @@ Delegated Agent Session allowlists so Guide cannot transfer the capability to a 
 Revise Guide's Agent Definition and attention nudge around an explicit-preservation rule: answer normally without
 writing; when the user asks to preserve or update the current explanation as an ordinary document/report, load the
 Documentation Skill, establish the destination when unclear, and use the docs-only tools. Continue to exclude code,
-configuration, Plans, PRDs, ADRs, `CONTEXT.md`, Work Records, Agent Definitions, Skills, prompt templates, and other
-workflow-owned artifacts even though many use `.md` paths. Requests for those artifacts or broader implementation still
-return to Router.
+configuration, Plans, PRDs, ADRs, `docs/domain-language.md`, Work Records, Agent Definitions, Skills, prompt templates,
+and other workflow-owned artifacts even though many use `.md` paths. Requests for those artifacts or broader
+implementation still return to Router.
 
 ## Files to Modify
 
@@ -182,8 +182,8 @@ return to Router.
   leaves the filesystem unchanged.
 - Manual: ask Guide to save without naming a destination; confirm it asks for or proposes a clear `.md` target before
   writing rather than silently choosing a workflow-owned artifact.
-- Manual: ask Guide to modify source code, a Plan, PRD, ADR, `CONTEXT.md`, or Agent Definition; confirm it does not use
-  the docs tools as an extension loophole and returns the broader request to Router.
+- Manual: ask Guide to modify source code, a Plan, PRD, ADR, `docs/domain-language.md`, or Agent Definition; confirm it
+  does not use the docs tools as an extension loophole and returns the broader request to Router.
 - Expected: Router classification and Operator capabilities are unchanged; bundled Guide alone gains two removable,
   Markdown-restricted Custom Tools, while layered/custom Agent Definitions may opt in through normal tool policy.
 
@@ -200,7 +200,7 @@ return to Router.
   runtime Custom Tool with the same name continues to take precedence under the existing auto-wiring convention.
 - Guide is the only bundled user-facing read-only Agent suited to this grant. Router remains Triage-only, Recorder and
   Reviewer remain workflow-scoped, and Delegated Agent Sessions do not receive these tools.
-- `CONTEXT.md` currently defines Guide as unable to materialize documentation. This Plan records the user-approved new
-  behavior but intentionally does not modify the domain glossary. After implementation, Ideator or Init should reconcile
-  the canonical Guide definition and relationships without broadening Guide beyond this explicit ordinary-doc
-  preservation exception.
+- `docs/domain-language.md` currently defines Guide as unable to materialize documentation. This Plan records the
+  user-approved new behavior but intentionally does not modify the domain glossary. After implementation, Ideator or
+  Init should reconcile the canonical Guide definition and relationships without broadening Guide beyond this explicit
+  ordinary-doc preservation exception.

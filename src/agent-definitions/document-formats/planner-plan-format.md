@@ -37,7 +37,9 @@ Recommended implementation approach (focused, practical, no long alternatives se
 - `path/to/file` — what changes here and why
 - `path/to/another-file` — what changes here and why
 
-When the implementation makes proposed domain language true, include the relevant `CONTEXT.md`.
+When the implementation makes proposed domain language true, include the applicable domain-language file:
+`docs/domain-language.md` for a single-context project, or the context-specific `domain-language.md` identified by
+`docs/domain-language-map.md` for a multi-context project.
 
 ## Reuse Opportunities
 
@@ -58,7 +60,8 @@ any step.
 - [ ] `src/parser/tokens.test.ts` covers <named behavior> against the real tokenizer and fails if `tokenize` returns a
       pass-through result.
 
-When applicable, include an explicit step that updates `CONTEXT.md` in the same change as the behavior it describes.
+When applicable, include an explicit step that updates the applicable domain-language file in the same change as the
+behavior it describes.
 
 ## Verification Plan
 

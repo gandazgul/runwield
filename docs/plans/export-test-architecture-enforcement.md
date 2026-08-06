@@ -116,9 +116,9 @@ production source globs and no approved external capabilities, then runs discove
 plain-language instructions to classify only systems outside the product boundary. It never writes candidates into the
 allowlist and never changes an existing manifest.
 
-The Init Agent remains responsible for `CONTEXT.md`; the command's deterministic setup owns the manifest. This avoids
-asking an LLM to make and persist architecture exceptions during onboarding. Re-running init is byte-for-byte idempotent
-for the manifest.
+The Init Agent remains responsible for `docs/domain-language.md`; the command's deterministic setup owns the manifest.
+This avoids asking an LLM to make and persist architecture exceptions during onboarding. Re-running init is
+byte-for-byte idempotent for the manifest.
 
 ### `wld check` is the public CI surface
 
@@ -184,8 +184,8 @@ implementation or separate baseline.
 
 ## Preserved Behavior
 
-- Existing `wld init` model setup, bundled-asset extraction, Init Agent execution, `CONTEXT.md` generation, and
-  init-state recording remain intact.
+- Existing `wld init` model setup, bundled-asset extraction, Init Agent execution, `docs/domain-language.md` generation,
+  and init-state recording remain intact.
 - Existing detector true positives and false-positive exclusions remain protected by the current test corpus.
 - No test or command reads the user's real `~/.wld`, settings, Plans, Mnemosyne database, browser, or checkout state;
   command tests use temporary project roots and isolated HOME.

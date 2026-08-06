@@ -136,7 +136,8 @@ Primary protocol sources:
       behavior, not official v1 conformance; recommend future schema/black-box conformance fixtures without expanding
       this documentation task into code changes.
 - [ ] Add the new page to `docs/index.md`, check every source path and external link, and ensure terminology follows
-      `CONTEXT.md` (`Agent Client Protocol`, `SessionRuntime`, `Session Host`, `Agent Session`, and `Plan`).
+      `docs/domain-language.md` (`Agent Client Protocol`, `SessionRuntime`, `Session Host`, `Agent Session`, and
+      `Plan`).
 
 ## Verification Plan
 

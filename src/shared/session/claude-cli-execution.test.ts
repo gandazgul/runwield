@@ -119,11 +119,12 @@ async function withClaudeExecutionFixture(
 }
 
 async function waitForLogText(logPath: string, needle: string): Promise<void> {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
         const text = await Deno.readTextFile(logPath).catch(() => "");
         if (text.includes(needle)) return;
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    throw new Error(`waitForLogText: ${JSON.stringify(needle)} did not appear in ${logPath} within 10s`);
 }
 
 function createHostedSession(cwd: string, manager: SessionManager): HostedSession {

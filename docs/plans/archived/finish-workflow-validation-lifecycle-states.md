@@ -5,7 +5,7 @@ workKind: "REFACTOR"
 complexity: "HIGH"
 summary: "Finish the Workflow Validation lifecycle-state refactor by transplanting the prior execution worktree, removing legacy multi-phase delegation, and satisfying the reviewer feedback."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "docs/plan-lifecycle.md"
     - "src/shared/workflow/plan-lifecycle.js"
     - "src/plan-store.js"
@@ -131,8 +131,8 @@ Use this lifecycle table as the authority:
 Preserve the existing user escape hatch from repeated Semantic Code Review repairs: when the automatic semantic round
 limit is reached, the user may choose another semantic round or hand the change to Local Human Code Review. If a new
 Plan Event or Front Matter field is needed to persist that choice without loop-local booleans, add the smallest explicit
-lifecycle representation and document it in `CONTEXT.md` and `docs/plan-lifecycle.md`; do not reintroduce an in-memory
-`semanticEscapeToHumanReview` driver flag.
+lifecycle representation and document it in `docs/domain-language.md` and `docs/plan-lifecycle.md`; do not reintroduce
+an in-memory `semanticEscapeToHumanReview` driver flag.
 
 For `validated_reviewer`, use existing `humanReviewMode`, `humanReviewDecision`, and `humanReviewedAt` as the durable
 human-review authority. A `validated_reviewer` Plan with undecided human-review metadata should run or request only the
@@ -141,8 +141,8 @@ publication and record either `validation_passed`, `worktree_merge_failed`, or `
 
 ## Files to Modify
 
-- `CONTEXT.md` — add `validated_ci` and `validated_reviewer` to canonical Plan Status language and describe their stable
-  relationship to Workflow Validation.
+- `docs/domain-language.md` — add `validated_ci` and `validated_reviewer` to canonical Plan Status language and describe
+  their stable relationship to Workflow Validation.
 - `docs/plan-lifecycle.md` — document the new Workflow Validation statuses, events, retry counters, and resume behavior.
 - `src/shared/workflow/plan-lifecycle.js` — add/finish Plan Status and Plan Event rows; export
   `VALIDATION_PLAN_STATUSES` and `isInValidation`; implement counter increments/resets and transition rejection tests.
@@ -201,8 +201,8 @@ Existing functions, modules, or patterns to reuse:
       `mechanical_validation_passed`, `semantic_review_feedback`, and `semantic_review_passed`; reject
       `validation_passed` and `worktree_merge_failed` from `implemented`; reset counters on repair/re-entry to
       `implemented` except for the incrementing failure event currently being recorded.
-- [ ] Update `CONTEXT.md` and `docs/plan-lifecycle.md` in the same change as the lifecycle behavior so glossary/docs do
-      not describe the old one-status validation model.
+- [ ] Update `docs/domain-language.md` and `docs/plan-lifecycle.md` in the same change as the lifecycle behavior so
+      glossary/docs do not describe the old one-status validation model.
 - [ ] Replace the semantic-review adapter path in `validation.ts` with a real `runSemanticReviewPhase` extracted from
       the legacy semantic block. It must read `validationSemanticRounds`, run one reviewer round or one persisted user
       round-limit choice, record exactly one of `semantic_review_passed`, `semantic_review_feedback`, or

@@ -219,6 +219,6 @@ Existing functions, modules, or patterns to reuse:
 - **Short names:** Keep Session Names tab-friendly. Favor 3–6 words and avoid full summaries.
 - **Continued sessions:** On `--continue`, if the resumed session already has a name, set the Terminal Title to that
   name instead of cwd fallback once the root session manager is loaded.
-- **Existing dirty working tree:** Current checkout has unrelated dirty files (`CONTEXT.md`,
+- **Existing dirty working tree:** Current checkout has unrelated dirty files (`docs/domain-language.md`,
   `docs/adr/007-local-first-workspace-plan-board.md`, and `plans/local-first-plan-management-ui.md`). Avoid modifying or
   depending on them except where this plan explicitly lists docs to update.

@@ -16,7 +16,7 @@ affectedPaths:
     - "docs/prd/attached-mode-prd.md"
     - "docs/adr/014-attached-workflow-coordination-boundary.md"
     - "docs/"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "README.md"
 createdAt: "2026-08-03T13:15:40-04:00"
 updatedAt: "2026-08-04T18:34:02-04:00"
@@ -265,9 +265,9 @@ baseline, lifecycle position, and completion contract.
 - `README.md`, `docs/`, and `docs/prd/attached-mode-prd.md` — document Preview installation, explicit activation,
   capability limits, permissions, privacy, review, recovery, update/disable/uninstall, and the Connect/Core/Workspace
   product family without implying untested host parity.
-- `CONTEXT.md` — in the implementation change that makes the relationships true, update Plan Workflow Lease language to
-  include Attached Workflow ownership and add agreed coordinator/record terms without treating generated assets or
-  compatibility projections as authorities.
+- `docs/domain-language.md` — in the implementation change that makes the relationships true, update Plan Workflow Lease
+  language to include Attached Workflow ownership and add agreed coordinator/record terms without treating generated
+  assets or compatibility projections as authorities.
 
 ## Reuse Opportunities
 
@@ -431,4 +431,4 @@ Behavior expected to stop existing:
   Preview Epics.
 - **Proposed domain language** — `Attached Workflow Coordinator`, `Attached Workflow Record`, `Role Contract`, and
   `Compatibility Matrix` are target-state terms. The implementation change establishing each concept must update
-  `CONTEXT.md`; until then, the current glossary remains implemented truth.
+  `docs/domain-language.md`; until then, the current glossary remains implemented truth.

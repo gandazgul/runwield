@@ -115,7 +115,7 @@ notification where the terminal supports that behavior, and remove the external 
 integrated-terminal support is intentionally out of scope for this Planned Change.
 
 RunWield's canonical terms remain TUI, attention events, Agent Session, and Session. This change does not introduce new
-domain language in `CONTEXT.md`.
+domain language in `docs/domain-language.md`.
 
 ## Objective
 

@@ -11,7 +11,7 @@ affectedPaths:
     - "src/shared/session/subagent-definitions.ts"
     - "src/shared/session/subagent-definitions.test.ts"
     - "src/agent-definitions/planner.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
 objectiveChecks:
     - id: "OC1"
       command: "grep -q \"verification-adversary\" src/tools/delegate-agent.js"
@@ -26,7 +26,7 @@ objectiveChecks:
       command: "grep -q \"loadSubAgentDefinition composes delegated role overlays\" src/shared/session/subagent-definitions.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/subagent-definitions.test.ts"
       rationale: "The subagent loader tests must include and pass delegated role overlay composition coverage, proving the role uses the registry/loader rather than a parallel mechanism."
     - id: "OC5"
-      command: "grep -q \"verification-adversary\" src/agent-definitions/planner.md && grep -q \"verification-adversary\" CONTEXT.md"
+      command: "grep -q \"verification-adversary\" src/agent-definitions/planner.md && grep -q \"verification-adversary\" docs/domain-language.md"
       rationale: "The role must be discoverable by Planner and named in the project glossary; otherwise the capability can ship without caller guidance or canonical language."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
@@ -115,8 +115,8 @@ contact. The overlay states a required handoff shape in prose, and the parent re
 - `src/shared/session/subagent-definitions.ts` — delegated role registration and overlay composition.
 - `src/shared/session/subagent-definitions.test.ts` — role-overlay loader tests and prompt-file inventory updates.
 - `src/agent-definitions/planner.md` — when reaching for the adversary is worth a round-trip.
-- `CONTEXT.md` — concise language for Delegated Agent Roles and the `verification-adversary` role, aligned with the
-  implemented behavior.
+- `docs/domain-language.md` — concise language for Delegated Agent Roles and the `verification-adversary` role, aligned
+  with the implemented behavior.
 
 ## Reuse Opportunities
 
@@ -154,8 +154,8 @@ contact. The overlay states a required handoff shape in prose, and the parent re
       so Planner can act on the result without re-reading the whole handoff.
 - [ ] `planner.md` describes the adversary as a recommended round for REFACTOR, structural, and migration work before
       `plan_written`, and explicitly not required for small or fully-specified changes.
-- [ ] `CONTEXT.md` defines Delegated Agent Role and `verification-adversary` in terms of implemented behavior without
-      turning the role into a mandatory Plan gate.
+- [ ] `docs/domain-language.md` defines Delegated Agent Role and `verification-adversary` in terms of implemented
+      behavior without turning the role into a mandatory Plan gate.
 - [ ] `src/tools/__tests__/delegate-agent.test.js` covers the default role, an unknown role rejected with the valid list
       before a child session starts, and the read-only ceiling holding against `mode: "write"`.
 
@@ -177,8 +177,8 @@ contact. The overlay states a required handoff shape in prose, and the parent re
 - Existing behavior to preserve: generic delegation, the `read`/`write` mode ceilings, the write-mode change snapshot
   and attribution, the delegated-agent lease, and the no-recursive-delegation rule.
 - Behavior expected to stop existing: none. This is additive.
-- Glossary verification: `CONTEXT.md` describes Delegated Agent Roles as optional delegated-session overlays, not as a
-  required planning gate or a new top-level Agent type.
+- Glossary verification: `docs/domain-language.md` describes Delegated Agent Roles as optional delegated-session
+  overlays, not as a required planning gate or a new top-level Agent type.
 
 ### Objective-Failing Checks
 
@@ -201,8 +201,8 @@ contact. The overlay states a required handoff shape in prose, and the parent re
   — the loader test suite contains and passes role-overlay composition coverage.
 - `OC5` —
   `grep -q "verification-adversary" src/agent-definitions/planner.md && grep -q "verification-adversary"
-  CONTEXT.md` —
-  Planner is told the role exists and the project glossary names the implemented concept; a capability no caller knows
+  docs/domain-language.md`
+  — Planner is told the role exists and the project glossary names the implemented concept; a capability no caller knows
   about is not delivered.
 
 ## Execution Policy

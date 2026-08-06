@@ -1,7 +1,7 @@
-# RunWield Context
+# RunWield Domain Language
 
 RunWield is collaborative software planning with AI. Its product family combines a local plan-by-default coding harness,
-plugins for external agent hosts, and a collaborative SaaS Workspace. This context defines the project language used by
+plugins for external agent hosts, and a collaborative SaaS Workspace. This glossary defines the project language used by
 agents, docs, plans, and code.
 
 ## Language

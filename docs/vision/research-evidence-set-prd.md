@@ -84,8 +84,8 @@ or create false confidence. The vision is intentionally falsifiable.
 - The Research Evidence Set itself never becomes a durable project artifact automatically.
 - Ideator may use selected evidence when writing a PRD or source-backed research note.
 - A resulting artifact should cite the original source, not a session-local evidence identifier that will disappear.
-- Durable conclusions belong in the appropriate PRD, ADR, Plan, Work Record, research note, `CONTEXT.md`, or Mnemosyne
-  Memory according to existing artifact rules.
+- Durable conclusions belong in the appropriate PRD, ADR, Plan, Work Record, research note, `docs/domain-language.md`,
+  or Mnemosyne Memory according to existing artifact rules.
 - Deleting the Agent Session must not invalidate citations already written to durable artifacts because those citations
   point to original sources.
 
@@ -101,9 +101,9 @@ or create false confidence. The vision is intentionally falsifiable.
 excerpts retained for one Ideator Agent Session. _Avoid_: Claim ledger, Work Record Provenance, project evidence store
 
 This term remains proposed while the capability is unimplemented. When an implementation Plan makes it real, Planner
-must include the relevant `CONTEXT.md` under Files to Modify, add an implementation step that publishes the definition
-and stable relationships, and verify that the glossary update lands with the capability. If the experiment is abandoned
-before implementation, the term remains in this PRD and out of canonical project language.
+must include the relevant `docs/domain-language.md` under Files to Modify, add an implementation step that publishes the
+definition and stable relationships, and verify that the glossary update lands with the capability. If the experiment is
+abandoned before implementation, the term remains in this PRD and out of canonical project language.
 
 ## Proposed Experience
 

@@ -167,5 +167,5 @@ Review and remote review callers retain their current defaults.
   Work Record retrieval semantics.
 - Keep the token in the local launch URL and existing authenticated API requests; never log artifact plaintext. If the
   browser cannot open automatically, printing the tokenized local URL is the recovery path.
-- The existing working tree contains unrelated changes, including another Plan file and `CONTEXT.md`; execution must not
-  overwrite or fold those changes into this feature.
+- The existing working tree contains unrelated changes, including another Plan file and `docs/domain-language.md`;
+  execution must not overwrite or fold those changes into this feature.

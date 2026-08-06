@@ -132,7 +132,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
 
         if (options.uiAPI) {
             options.uiAPI.appendSystemMessage(
-                "✅ Init complete. CONTEXT.md has been written to the project root.",
+                "✅ Init complete. docs/domain-language.md has been written.",
             );
         } else {
             console.log(`\n[RunWield] ✅ Init complete for ${getCwd()}.`);

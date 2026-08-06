@@ -104,22 +104,23 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T09:43:39-04:00"
-updatedAt: "2026-08-06T16:34:33.848Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-06T16:38:20.268Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-06T01:53:32.098Z"
+verifiedAt: "2026-08-06T16:38:20.268Z"
 userVerifiedAt: null
 executionReport: "- Implemented canonical domain-language paths and temporary exact-uppercase migration in `src/shared/domain-language.ts`; migrated CLI implementation to `src/cli.ts` with `src/cli.js` as the stable entrypoint and stderr-only startup notices.\n- Moved repository glossary to `docs/domain-language.md`, renamed bundled format to `domain-language-format.md`, and updated Agents, Skills, init guidance, command text, tests, README/current docs, and maintained PRDs to canonical paths.\n- Added/updated automated coverage in `src/shared/domain-language.test.ts`, `src/cmd/init/index.test.ts`, and Guide policy tests; test count delta: added new `domain-language.test.ts` with 11 tests, removed 0 tests.\n- Verification passed: targeted `deno run -A scripts/run-tests.js src/shared/domain-language.test.ts src/cmd/init/index.test.ts src/shared/session/__tests__/session-tools-policy.test.js`; CLI/compile affected tests; `deno task ci` (248 files passed / 0 failed).\n- Objective checks: OC1, OC3, OC4 passed; OC2 as written cannot pass on this case-insensitive temp filesystem because `CONTEXT.md` and `context.md` are the same stored file, so I verified exact-uppercase and lowercase scenarios separately; OC5 passes when following the Verification Plan exclusion for `docs/plans/`, but the literal OC5 command still reports historical Plan records."
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-06T16:34:33.798Z"
 executionMode: "worktree"
-executionBaselineTree: "4304e721c3a5af86b6eada6b2c2ffde5840ebf1e"
-worktreeId: "23edc06e"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-move-domain-language-out-of-context-files-23edc06e"
-worktreeBranch: "worktree/move-domain-language-out-of-context-files-23edc06e"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "5d4a75598b84efc2e46c82d9235dd93cff794cd9"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "fc2c0b2d7d2753e8e1a042d2942421eabe7ee625"
 validationCiAttempts: 0
 validationSemanticRounds: 2
 ---

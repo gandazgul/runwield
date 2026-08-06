@@ -138,7 +138,7 @@ resolution path.
 - Allowing bundles to bypass protected workflow tools.
 - Building a marketplace as part of v1.
 - Supporting arbitrary executable installer scripts without a separate security model.
-- Replacing project-specific `CONTEXT.md`, PRDs, ADRs, or Plans with generic bundle content.
+- Replacing project-specific `docs/domain-language.md`, PRDs, ADRs, or Plans with generic bundle content.
 - Guaranteeing compatibility across every external Agent or editor integration.
 
 ## Success Criteria

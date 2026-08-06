@@ -4,7 +4,7 @@ workKind: "FEATURE"
 complexity: "MEDIUM"
 summary: "Make docs/product-rules.md an optional canonical Product Rules artifact that Ideator curates lazily and Planner, execution agents, Reviewer, and Guide honor when present."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "docs/product-rules.md"
     - "docs/index.md"
     - "docs/prd/runwield-core-prd.md"
@@ -34,8 +34,8 @@ planId: "fc57f6a6-a704-4f7e-88ca-29f0e5d1af9b"
 
 I havent read therough this and want to think about it more, but I think this is a good start. I want to make sure we
 have a clear definition of what a Product Rule is and how it differs from other artifacts like PRDs, ADRs, and
-CONTEXT.md. I also want to make sure we have a clear process for how Ideator curates these rules and how Planner and
-other agents honor them.
+docs/domain-language.md. I also want to make sure we have a clear process for how Ideator curates these rules and how
+Planner and other agents honor them.
 
 # Canonical Product Rules Artifact
 
@@ -44,8 +44,9 @@ other agents honor them.
 RunWield already has `docs/product-rules.md` in this repository. It contains owner-stated rules such as PR-1 through
 PR-7 that constrain RunWield behavior, and its introduction already says reviewers should cite rule numbers. Today,
 however, Agent Definitions mostly treat it as ordinary documentation: Guide's evidence table does not name it as a
-canonical source, Planner has no Product Rules discipline parallel to `CONTEXT.md`, Engineer and Frontend Engineer do
-not check it, and Reviewer is scoped to Plan requirements plus concrete defects without explicit Product Rule authority.
+canonical source, Planner has no Product Rules discipline parallel to `docs/domain-language.md`, Engineer and Frontend
+Engineer do not check it, and Reviewer is scoped to Plan requirements plus concrete defects without explicit Product
+Rule authority.
 
 The product decision for this change is that every RunWield-managed repository may optionally define
 `docs/product-rules.md` as canonical repo-local project memory. It is not initialized automatically and it does not
@@ -78,8 +79,8 @@ absence is a valid state meaning no hard Product Rules exist.
 Add a bundled document-format guide for Product Rules so Ideator has a disciplined target shape. Update RunWield's own
 `docs/product-rules.md` introduction to explain the general artifact semantics and admission criteria while keeping the
 existing RunWield-specific PR-1 through PR-7 rules. Update canonical product docs and glossary language so users and
-agents understand that Product Rules are separate from `CONTEXT.md`, PRDs, ADRs, Plans, Work Records, tests, and style
-preferences.
+agents understand that Product Rules are separate from `docs/domain-language.md`, PRDs, ADRs, Plans, Work Records,
+tests, and style preferences.
 
 Teach all relevant Agent Definitions/prompts to use the artifact without creating noise:
 
@@ -91,8 +92,8 @@ Teach all relevant Agent Definitions/prompts to use the artifact without creatin
 
 ## Files to Modify
 
-- `CONTEXT.md` — add canonical language for Product Rule / Product Rules as optional repo-local standing product
-  constraints.
+- `docs/domain-language.md` — add canonical language for Product Rule / Product Rules as optional repo-local standing
+  product constraints.
 - `docs/product-rules.md` — update RunWield's own Product Rules file introduction with artifact semantics, entry
   criteria, and non-goals; preserve existing PR-1 through PR-7 content.
 - `docs/index.md` — update the Product Rules documentation entry to describe the artifact as optional canonical project
@@ -132,22 +133,23 @@ Teach all relevant Agent Definitions/prompts to use the artifact without creatin
 - `src/agent-definitions/planner.md` Domain Language Discipline — use the same pattern for a Product Rules Discipline
   section, with different semantics.
 - `src/agent-definitions/ideator.md` Domain Language Discipline and ADR guidance — reuse the same curatorial style for
-  deciding whether a statement belongs in Product Rules, PRD, ADR, Plan, `CONTEXT.md`, tests, or nowhere canonical.
+  deciding whether a statement belongs in Product Rules, PRD, ADR, Plan, `docs/domain-language.md`, tests, or nowhere
+  canonical.
 - `src/agent-definitions/guide.md` Durable Evidence table and Authority Hierarchy — add Product Rules as a first-class
   row/source rather than inventing a new evidence mechanism.
 - `src/agent-definitions/workflow-prompts/reviewer-prompt.md` blocking/advisory distinction — extend the existing
   "specific requirement plus changed code" standard to "specific Product Rule plus changed code".
 - `src/shared/session/__tests__/session-tools-policy.test.js` and `src/shared/workflow/validation-prompts.test.js` —
   existing prompt regression tests already assert durable-evidence and reviewer contract wording.
-- `src/agent-definitions/document-formats/ADR-FORMAT.md` and `CONTEXT-FORMAT.md` — use their concise canonical-format
-  style as a model for the new Product Rules format file.
+- `src/agent-definitions/document-formats/ADR-FORMAT.md` and `domain-language-format.md` — use their concise
+  canonical-format style as a model for the new Product Rules format file.
 
 ## Implementation Steps
 
-- [ ] `CONTEXT.md` defines `Product Rule` as an owner-confirmed, stable, cross-cutting, normative product constraint and
-      defines `docs/product-rules.md` as the optional canonical repo-local Product Rules artifact. The definition says
-      absence means no hard Product Rules and distinguishes Product Rules from glossary terms, PRDs, ADRs, Plans, Work
-      Records, tests, and preferences.
+- [ ] `docs/domain-language.md` defines `Product Rule` as an owner-confirmed, stable, cross-cutting, normative product
+      constraint and defines `docs/product-rules.md` as the optional canonical repo-local Product Rules artifact. The
+      definition says absence means no hard Product Rules and distinguishes Product Rules from glossary terms, PRDs,
+      ADRs, Plans, Work Records, tests, and preferences.
 - [ ] `src/agent-definitions/document-formats/PRODUCT-RULES-FORMAT.md` exists and specifies the canonical artifact
       shape: title, short purpose, admission criteria, optional short non-goals section, and numbered rules such as
       `PR-1 — <name>` with consequences when useful. The format forbids candidate/inferred rules and states that
@@ -231,15 +233,15 @@ Teach all relevant Agent Definitions/prompts to use the artifact without creatin
   `grep -n "product-rules\|Product Rules" src/agent-definitions/workflow-prompts/init-agent-prompt.md` must return no
   matches, proving init was not taught to create or infer rules.
 - Glossary/docs check:
-  `grep -n "Product Rule" CONTEXT.md docs/product-rules.md docs/prd/runwield-core-prd.md docs/index.md` shows aligned
-  language that Product Rules are optional canonical standing constraints and absence means no hard rules.
+  `grep -n "Product Rule" docs/domain-language.md docs/product-rules.md docs/prd/runwield-core-prd.md docs/index.md`
+  shows aligned language that Product Rules are optional canonical standing constraints and absence means no hard rules.
 - Reviewer contract check:
   `grep -n "specific Product Rule" src/agent-definitions/workflow-prompts/reviewer-prompt.md src/agent-definitions/workflow-prompts/reviewer-verify-prompt.md`
   shows Reviewer can block only with a specific rule citation and code evidence, preserving the existing
   default-approval guardrail.
 - Existing behavior still protected: Reviewer must still approve by default when only verification evidence is missing,
-  Guide must remain read-only for canonical workflow artifacts, and init must continue producing only `CONTEXT.md` plus
-  project memories.
+  Guide must remain read-only for canonical workflow artifacts, and init must continue producing only
+  `docs/domain-language.md` plus project memories.
 - Behavior expected to stop existing: Product Rules must no longer be treated only as ordinary low-authority
   documentation in Guide answers or invisible to planning/execution/review prompts.
 

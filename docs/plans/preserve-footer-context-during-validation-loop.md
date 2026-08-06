@@ -332,6 +332,6 @@ understand validation state.
 - **JavaScript/TypeScript scope:** this bug fix touches existing large legacy JavaScript runtime modules. Do not add new
   JavaScript files or new injection seams. Keep JSDoc typedefs precise in touched JS; if a new helper module is
   extracted, write it in TypeScript.
-- **No glossary change:** this bug fix does not introduce or redefine domain language; `CONTEXT.md` should not be
-  modified for this Plan. The only documentation change is an architecture note that keeps existing source-of-truth and
-  projection boundaries accurate.
+- **No glossary change:** this bug fix does not introduce or redefine domain language; `docs/domain-language.md` should
+  not be modified for this Plan. The only documentation change is an architecture note that keeps existing
+  source-of-truth and projection boundaries accurate.

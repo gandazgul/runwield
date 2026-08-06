@@ -17,7 +17,7 @@ affectedPaths:
     - "src/shared/workflow/validation-loop-repair.test.js"
     - "src/agent-definitions/planner.md"
     - "src/agent-definitions/document-formats/planner-plan-format.md"
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
@@ -119,8 +119,8 @@ The classification is three-valued, not pass/fail:
   with no `objectiveChecks`.
 - `src/agent-definitions/planner.md`, `document-formats/planner-plan-format.md` — reconcile Planner instructions and
   Plan format wording with the shipped `plan_written` parameter and Front Matter field.
-- `CONTEXT.md` — define Objective-Failing Check and clarify that executable Plan work runs these checks inside Workflow
-  Validation's Mechanical Validation phase.
+- `docs/domain-language.md` — define Objective-Failing Check and clarify that executable Plan work runs these checks
+  inside Workflow Validation's Mechanical Validation phase.
 
 ## Reuse Opportunities
 
@@ -173,9 +173,9 @@ The classification is three-valued, not pass/fail:
       a repair attempt.
 - [ ] QUICK_FIX no-plan Mechanical Validation and PROJECT Epics run no Objective-Failing Checks; an already-approved or
       external legacy Plan without `objectiveChecks` validates exactly as it does today.
-- [ ] `CONTEXT.md` defines Objective-Failing Check and its exit-0 contract in the same change, and clarifies the
-      distinction between no-plan QUICK_FIX Mechanical Validation and the Mechanical Validation phase inside Workflow
-      Validation.
+- [ ] `docs/domain-language.md` defines Objective-Failing Check and its exit-0 contract in the same change, and
+      clarifies the distinction between no-plan QUICK_FIX Mechanical Validation and the Mechanical Validation phase
+      inside Workflow Validation.
 
 ## Verification Plan
 

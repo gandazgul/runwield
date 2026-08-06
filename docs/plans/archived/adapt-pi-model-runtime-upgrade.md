@@ -90,8 +90,8 @@ Current local failures are concentrated around these mismatches:
   sentinels, but the main Pi imports are now the latest range and exact pins in `deno.json` conflict with the User
   Request.
 
-No `CONTEXT.md` update is needed: this is a dependency/runtime integration repair and does not introduce or redefine a
-RunWield domain term.
+No `docs/domain-language.md` update is needed: this is a dependency/runtime integration repair and does not introduce or
+redefine a RunWield domain term.
 
 ## Objective
 

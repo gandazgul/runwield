@@ -68,10 +68,10 @@ records. Full manual/external creation, `wld wr create`, Recorder-led interviews
 Record approval are deferred to a separate feature. Guided Review reuse is also deferred, but the V1 architecture should
 leave a clean seam for a future shared review-intelligence packet and pending-verification records.
 
-Canonical domain language is already present in `CONTEXT.md`: Work Record, Draft Work Record, Pending Verification Work
-Record, Superseded Work Record, Archived Work Record, External Work Record, Work Record Provenance, Recorder, and Work
-Record Search Tool. No context-language change is expected unless implementation discovers a vocabulary mismatch; record
-that as follow-up rather than expanding the scope of this Epic.
+Canonical domain language is already present in `docs/domain-language.md`: Work Record, Draft Work Record, Pending
+Verification Work Record, Superseded Work Record, Archived Work Record, External Work Record, Work Record Provenance,
+Recorder, and Work Record Search Tool. No context-language change is expected unless implementation discovers a
+vocabulary mismatch; record that as follow-up rather than expanding the scope of this Epic.
 
 ## Objective
 

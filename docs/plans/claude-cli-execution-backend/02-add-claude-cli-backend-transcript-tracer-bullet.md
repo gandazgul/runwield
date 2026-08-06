@@ -5,7 +5,7 @@ workKind: "FEATURE"
 complexity: "MEDIUM"
 summary: "Route `claude-cli/*` root and HostedSession-backed isolated turns through a typed `claude -p` backend, stream assistant text, and persist/replay RunWield-owned transcript entries without constructing Pi AgentSession."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "src/shared/models/model-execution.ts"
     - "src/shared/session/session.js"
     - "src/shared/session/agent-handler.ts"
@@ -21,7 +21,7 @@ objectiveChecks:
       command: "bash -lc 'set -euo pipefail; base=src/shared/session/backends/claude-cli; test -s \"$base/command.ts\"; test -s \"$base/process.ts\"; test -s \"$base/stream-parser.ts\"; test -s \"$base/execution-session.ts\"; grep -q -- \"--output-format\" \"$base/command.ts\"; grep -q \"Deno.Command\" \"$base/process.ts\"; grep -q \"runwield.execution_backend\" \"$base/execution-session.ts\"; ! grep -q -- \"--resume\" \"$base/command.ts\"; out=$(deno run -A scripts/run-tests.js \"$base/claude-cli-backend.test.ts\" 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([8-9]|[1-9][0-9]+) passed \\\\| 0 failed\"'"
       rationale: "Requires four non-empty production modules, direct Deno command and stream/persistence markers, no --resume, and at least eight passing backend behavior tests; empty test files or a placeholder module cannot satisfy it."
     - id: "OC2"
-      command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" CONTEXT.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
+      command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" docs/domain-language.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
       rationale: "Requires typed production dispatch and Agent Handler integration, retirement of the temporary rejection, glossary alignment, at least five passing vertical tests, and no new Session machinery seam."
 objectiveChecksBaseline:
     recordedAt: "2026-08-04T02:29:07.735Z"
@@ -37,7 +37,7 @@ objectiveChecksBaseline:
           durationMs: 12
           output: "\n"
         - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" CONTEXT.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
+          command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" docs/domain-language.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
           rationale: "Requires typed production dispatch and Agent Handler integration, retirement of the temporary rejection, glossary alignment, at least five passing vertical tests, and no new Session machinery seam."
           status: "unmet"
           stdout: ""
@@ -141,8 +141,9 @@ Claude-specific display format.
 
 ## Files to Modify
 
-- `CONTEXT.md` — define **Execution Backend** as the Agent-turn runtime selected by model metadata, distinguish it from
-  a model provider and Agent Session, and record that RunWield still owns Session Transcript/workflow truth.
+- `docs/domain-language.md` — define **Execution Backend** as the Agent-turn runtime selected by model metadata,
+  distinguish it from a model provider and Agent Session, and record that RunWield still owns Session
+  Transcript/workflow truth.
 - `src/shared/models/model-execution.ts` — replace the temporary Claude-only rejection boundary with typed backend
   discrimination while preserving rejection for genuinely unknown backend metadata.
 - `src/shared/session/execution-backend.ts` — add concrete TypeScript discriminated types/accessors for Pi versus Claude
@@ -186,9 +187,9 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] `CONTEXT.md` defines **Execution Backend** as the model-selected runtime that executes an Agent turn, explicitly
-      distinguishes it from provider/Agent Session, and states that changing backend does not transfer Session
-      Transcript, workflow, or lifecycle authority away from RunWield.
+- [ ] `docs/domain-language.md` defines **Execution Backend** as the model-selected runtime that executes an Agent turn,
+      explicitly distinguishes it from provider/Agent Session, and states that changing backend does not transfer
+      Session Transcript, workflow, or lifecycle authority away from RunWield.
 - [ ] `src/shared/session/execution-backend.ts` provides a concrete discriminated Pi/Claude execution-session contract;
       Claude callers no longer depend on Pi's `agent.state`, while Pi still carries the real Pi `AgentSession`. New
       TypeScript contains no `any`, `unknown`, bare `object`, `@ts-ignore`, or `@ts-nocheck`.
@@ -249,8 +250,8 @@ Existing functions, modules, or patterns to reuse:
 - Behavior expected to stop existing: a selected `claude-cli/*` HostedSession turn no longer throws the child-01
   “backend is not installed yet” error or falls through toward Pi construction; valid Claude stream text no longer waits
   until process exit to become visible.
-- Glossary: `CONTEXT.md` must describe only the now-implemented Execution Backend ownership boundary; MCP workflow
-  signals, health guarantees, and UI availability remain proposed and must not be promoted as current truth.
+- Glossary: `docs/domain-language.md` must describe only the now-implemented Execution Backend ownership boundary; MCP
+  workflow signals, health guarantees, and UI availability remain proposed and must not be promoted as current truth.
 
 ### Objective-Failing Checks
 
@@ -260,7 +261,7 @@ Existing functions, modules, or patterns to reuse:
   no-shell command, prompt file/stdin, assistant-only stream parser, final equality, sanitized metadata, and real
   SessionManager append contract.
 - `OC2` —
-  `bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q "buildExecutionSession" src/shared/session/session.js; grep -q "getRootExecutionMessages" src/shared/session/agent-handler.ts; ! grep -q "Claude CLI execution backend is not installed yet" src/shared/models/model-execution.ts; grep -q "Execution Backend" CONTEXT.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf "%s\n" "$out"; printf "%s\n" "$out" | grep -Eq "([5-9]|[1-9][0-9]+) passed \\| 0 failed"; deno task seams:check'`
+  `bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q "buildExecutionSession" src/shared/session/session.js; grep -q "getRootExecutionMessages" src/shared/session/agent-handler.ts; ! grep -q "Claude CLI execution backend is not installed yet" src/shared/models/model-execution.ts; grep -q "Execution Backend" docs/domain-language.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf "%s\n" "$out"; printf "%s\n" "$out" | grep -Eq "([5-9]|[1-9][0-9]+) passed \\| 0 failed"; deno task seams:check'`
   — fails on the current Pi-only wiring and prevents empty/zero-test counterfeits; passing requires typed backend
   dispatch through root and isolated HostedSession paths, live text, no-Pi execution, root-only persistence/replay,
   model reconfiguration, glossary integration, and no added Session machinery seam.

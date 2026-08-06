@@ -19,7 +19,7 @@ decisions the skill should not re-litigate.
 
 ### 1. Explore
 
-Read the project's `CONTEXT.md` if it exists and any ADRs in the area you're touching first. Then read
+Read the project's `docs/domain-language.md` if it exists and any ADRs in the area you're touching first. Then read
 [codebase-design](../codebase-design/SKILL.md) and its [DEEPENING.md](../codebase-design/DEEPENING.md) reference.
 
 Then use `delegate_agent` with `mode: "read"` to walk the codebase in a bounded Delegated Agent Session. Don't follow
@@ -62,9 +62,9 @@ For each candidate, render a card with:
 
 End the report with a **Top recommendation** section: which candidate to tackle first and why.
 
-**Use CONTEXT.md vocabulary for the domain and [codebase-design](../codebase-design/SKILL.md) vocabulary for the
-architecture.** If `CONTEXT.md` defines "Order," talk about "the Order intake module" — not "the FooBarHandler," and not
-"the Order service."
+**Use docs/domain-language.md vocabulary for the domain and [codebase-design](../codebase-design/SKILL.md) vocabulary
+for the architecture.** If `docs/domain-language.md` defines "Order," talk about "the Order intake module" — not "the
+FooBarHandler," and not "the Order service."
 
 **ADR conflicts**: if a candidate contradicts an existing ADR, only surface it when the friction is real enough to
 warrant revisiting the ADR. Mark it clearly (e.g. _"contradicts ADR-0007 — but worth reopening because…"_). Don't list
@@ -79,13 +79,13 @@ dependencies, the shape of the deepened module, what sits behind the seam, what 
 
 Side effects happen inline as decisions crystallize:
 
-- **Naming a deepened module after a domain concept not in `CONTEXT.md`?** Ask the user whether that term should become
-  canonical. If they confirm, update `CONTEXT.md` using the canonical CONTEXT-FORMAT.md bundled in
-  `agent-definitions/document-formats/`.
+- **Naming a deepened module after a domain concept not in `docs/domain-language.md`?** Ask the user whether that term
+  should become canonical. If they confirm, update `docs/domain-language.md` using the canonical
+  domain-language-format.md bundled in `agent-definitions/document-formats/`.
 - **Sharpening a fuzzy domain term during the conversation?** Ask the user to confirm the canonical term, avoided
-  aliases, and any stable domain relationship or durable flagged ambiguity before updating `CONTEXT.md`.
+  aliases, and any stable domain relationship or durable flagged ambiguity before updating `docs/domain-language.md`.
 - **Architecture vocabulary is not domain language.** Do not add terms such as **module**, **interface**, **seam**,
-  **adapter**, **depth**, **leverage**, or **locality** to `CONTEXT.md`.
+  **adapter**, **depth**, **leverage**, or **locality** to `docs/domain-language.md`.
 - **User rejects the candidate with a load-bearing reason?** Offer an ADR only when future architecture reviews would
   otherwise re-suggest the same candidate. Skip ephemeral reasons like "not worth it right now."
 - **Want to explore alternative interfaces for the deepened module?** Use the design-it-twice process in

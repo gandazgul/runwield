@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD): RunWield Core
 
-This is the implementation-facing PRD for **RunWield Core**. The root [CONTEXT.md](../../CONTEXT.md) describes the
-broader product architecture across RunWield Core and RunWield Workspace; this file remains the detailed source for
-local harness, TUI, routing, lifecycle, tooling, validation, and core runtime requirements.
+This is the implementation-facing PRD for **RunWield Core**. The root [docs/domain-language.md](../domain-language.md)
+describes the broader product architecture across RunWield Core and RunWield Workspace; this file remains the detailed
+source for local harness, TUI, routing, lifecycle, tooling, validation, and core runtime requirements.
 
 RunWield Core is a living product surface. This PRD distinguishes current requirements from future/open requirements so
 aspirational work remains visible without confusing it with shipped behavior.
@@ -289,7 +289,7 @@ The full collaboration and Workspace story lives in [runwield-workspace-PRD.md](
 - **Cymbal:** external semantic/structural code intelligence for search, symbol lookup, impact analysis, tracing, and
   related code queries.
 - **Snip:** optional command-output filtering for compact diagnostics.
-- **Project context:** `CONTEXT.md`, memories, settings, and Plan files provide durable project knowledge.
+- **Project context:** `docs/domain-language.md`, memories, settings, and Plan files provide durable project knowledge.
 
 ### 6.2 Future / Open
 

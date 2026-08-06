@@ -150,7 +150,7 @@
 
 - **Project context, memory, and code intelligence**
   - Initialize project context with `wld init` or `/init`.
-  - Generate a project `CONTEXT.md` during initialization.
+  - Generate a project `docs/domain-language.md` during initialization.
   - Store durable project memories during initialization.
   - Use Mnemosyne for project and global memory recall; Mnemosyne models download lazily on first semantic use.
   - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.

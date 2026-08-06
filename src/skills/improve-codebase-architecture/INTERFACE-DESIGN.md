@@ -34,8 +34,8 @@ explanation in Step 1. Give each of the three agents a different design constrai
 - Agent 3: "Optimise for the most common caller — make the default case trivial, while considering ports & adapters when
   cross-seam dependencies matter."
 
-Include both [LANGUAGE.md](LANGUAGE.md) vocabulary and CONTEXT.md vocabulary in the brief so each sub-agent names things
-consistently with the architecture language and the project's domain language.
+Include both [LANGUAGE.md](LANGUAGE.md) vocabulary and docs/domain-language.md vocabulary in the brief so each sub-agent
+names things consistently with the architecture language and the project's domain language.
 
 Each sub-agent outputs:
 

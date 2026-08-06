@@ -5,7 +5,7 @@ workKind: "MAINTENANCE"
 complexity: "MEDIUM"
 summary: "Move the canonical RunWield Plan store from ./plans/ to ./docs/plans/ as a clean breaking change with no legacy fallback."
 affectedPaths:
-    - "CONTEXT.md"
+    - "docs/domain-language.md"
     - "AGENTS.md"
     - "src/constants.js"
     - "src/plan-store.js"
@@ -70,8 +70,8 @@ from `plans/archived/` to `docs/plans/archived/`, and users are told in release 
 themselves. This Planned Change must not add compatibility scanning, migration commands, fallback reads, aliases,
 symlinks, or warnings that continue to treat `plans/` as a supported location.
 
-`CONTEXT.md` currently defines a Plan as living in `plans/`, so the implemented change also redefines canonical domain
-language. The glossary must move in the same implementation as the behavior.
+`docs/domain-language.md` currently defines a Plan as living in `plans/`, so the implemented change also redefines
+canonical domain language. The glossary must move in the same implementation as the behavior.
 
 ## Objective
 
@@ -116,8 +116,8 @@ silently moves user files. The release-note guidance is explicit manual action: 
 
 ## Files to Modify
 
-- `CONTEXT.md` — redefine Plan storage, Slicer child Plan materialization, stable relationships, and avoided aliases so
-  canonical language says `docs/plans/`.
+- `docs/domain-language.md` — redefine Plan storage, Slicer child Plan materialization, stable relationships, and
+  avoided aliases so canonical language says `docs/plans/`.
 - `AGENTS.md` — update contributor-facing references to the Plan location.
 - `src/constants.js` — change the canonical Plan store path constant from `plans` to `docs/plans`; update comments/names
   if the existing `PLANS_DIR_NAME` name becomes misleading.
@@ -199,8 +199,8 @@ silently moves user files. The release-note guidance is explicit manual action: 
 - [ ] Work Record source provenance for newly generated records points to `docs/plans/<planName>.md`.
 - [ ] Bundled Planner, Architect, Guide, Ideator, Slicer, and Plan format instructions tell Agents to create and refer
       to Plan files under `docs/plans/`.
-- [ ] `CONTEXT.md` describes a Plan as Markdown under `docs/plans/`, Slicer child Plans as materialized under
-      `docs/plans/<epic-name>/`, and stable relationships without the old `plans/` location.
+- [ ] `docs/domain-language.md` describes a Plan as Markdown under `docs/plans/`, Slicer child Plans as materialized
+      under `docs/plans/<epic-name>/`, and stable relationships without the old `plans/` location.
 - [ ] Current user/contributor/architecture/lifecycle docs describe `docs/plans/` and `docs/plans/archived/`; historical
       Work Records may keep old source paths only when they are explicitly historical evidence, not current guidance.
 - [ ] Release guidance includes explicit breaking-change copy: “RunWield now reads Plans only from `docs/plans/`. Before
@@ -240,8 +240,8 @@ silently moves user files. The release-note guidance is explicit manual action: 
   attempts that only modify Plan documents.
 - Behavior expected to stop existing: `plans/` and `plans/archived/` are no longer canonical, no longer scanned, no
   longer protected as Plan files, and no longer presented in current docs/help as valid storage locations.
-- Glossary check: `CONTEXT.md` and current docs agree that the implemented Plan store is `docs/plans/`; old `plans/`
-  references remain only in explicitly historical Work Records or release-note breaking-change instructions.
+- Glossary check: `docs/domain-language.md` and current docs agree that the implemented Plan store is `docs/plans/`; old
+  `plans/` references remain only in explicitly historical Work Records or release-note breaking-change instructions.
 
 ## Edge Cases & Considerations
 

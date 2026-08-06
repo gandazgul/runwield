@@ -10,8 +10,8 @@ A discipline for hard bugs. Skip phases only when explicitly justified.
 This skill is for the execution/debugging agent after routing. Router Diagnostic Triage stays read-only: it may gather
 evidence and route with "use diagnose", but it should not build the feedback loop, instrument, or attempt the fix.
 
-When exploring the codebase, read `CONTEXT.md` if it exists to get a clear mental model of the relevant domain language,
-and check ADRs in the area you're touching.
+When exploring the codebase, read `docs/domain-language.md` if it exists to get a clear mental model of the relevant
+domain language, and check ADRs in the area you're touching.
 
 ## Phase 1 — Build a feedback loop
 

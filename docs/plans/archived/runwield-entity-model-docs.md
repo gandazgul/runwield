@@ -47,8 +47,8 @@ transient workflow objects, ownership boundaries, and storage authorities.
 
 Repository evidence:
 
-- `CONTEXT.md` already defines the canonical domain language and relationships for Sessions, Plans, Plan Lifecycle, Work
-  Records, Workspace, Projects, Agents, Tools, Memories, Ticket References, and Forge Delivery.
+- `docs/domain-language.md` already defines the canonical domain language and relationships for Sessions, Plans, Plan
+  Lifecycle, Work Records, Workspace, Projects, Agents, Tools, Memories, Ticket References, and Forge Delivery.
 - `architecture.md` currently covers Core boundaries, Session runtime, Workflow orchestration, Plan domain,
   execution/validation/worktrees, persistence, adapters, seams, verification, and source guides.
 - `docs/prd/runwield-core-prd.md`, `docs/plan-lifecycle.md`, and `docs/sessions.md` provide current product and
@@ -92,9 +92,9 @@ Recommended diagram set:
 5. **Persistence and authority table** — a non-diagram table listing entity, stable identity, source of truth/storage,
    lifecycle authority, and notes about projections/caches.
 
-Use canonical terms from `CONTEXT.md`, and avoid introducing new domain vocabulary unless it is clearly an explanatory
-grouping rather than a new product concept. Keep diagrams source-grounded and do not model future-only PRD proposals as
-implemented truth unless the document labels them as future/open.
+Use canonical terms from `docs/domain-language.md`, and avoid introducing new domain vocabulary unless it is clearly an
+explanatory grouping rather than a new product concept. Keep diagrams source-grounded and do not model future-only PRD
+proposals as implemented truth unless the document labels them as future/open.
 
 Update `architecture.md` with a short link near the top, for example after **Architectural intent** or before **System
 at a glance**, explaining that control-flow and dependency diagrams remain in `architecture.md` while entity
@@ -113,7 +113,8 @@ these references short.
 
 Existing documents and source guides to reuse as evidence:
 
-- `CONTEXT.md` — canonical domain language and stable relationships; use this as the primary vocabulary source.
+- `docs/domain-language.md` — canonical domain language and stable relationships; use this as the primary vocabulary
+  source.
 - `architecture.md` — current Core architecture map and source guide; avoid duplicating flow diagrams already covered
   here.
 - `docs/prd/runwield-core-prd.md` — implementation-facing current Core requirements, especially routing intents, Plan
@@ -128,8 +129,8 @@ Existing documents and source guides to reuse as evidence:
 
 ## Implementation Steps
 
-- [ ] Review `CONTEXT.md`, `architecture.md`, `docs/prd/runwield-core-prd.md`, `docs/plan-lifecycle.md`, and
-      `docs/sessions.md` immediately before editing so entity names and relationship cardinality match current
+- [ ] Review `docs/domain-language.md`, `architecture.md`, `docs/prd/runwield-core-prd.md`, `docs/plan-lifecycle.md`,
+      and `docs/sessions.md` immediately before editing so entity names and relationship cardinality match current
       documented truth.
 - [ ] Create `docs/entity-model.md` with:
   - [ ] a title and short purpose statement identifying it as the entity-model companion to `architecture.md`;
@@ -162,7 +163,8 @@ Existing documents and source guides to reuse as evidence:
   - If code references or generated indexes are touched unexpectedly, run `deno task check`; otherwise this is a
     documentation-only change and full test execution is not required.
 - Manual:
-  - Read `docs/entity-model.md` end-to-end and confirm every entity name follows `CONTEXT.md` canonical language.
+  - Read `docs/entity-model.md` end-to-end and confirm every entity name follows `docs/domain-language.md` canonical
+    language.
   - Confirm every new diagram is a complete fenced Mermaid block and renders conceptually as a small, readable model.
   - Confirm `architecture.md` contains a prominent link to `docs/entity-model.md` and that the link target is correct.
   - Confirm `architecture.md` no longer describes current planned work as `FEATURE` except in an explicit
@@ -174,8 +176,8 @@ Existing documents and source guides to reuse as evidence:
 
 - **Over-modeling risk:** A single comprehensive ER diagram would be too dense and easy to misread as a database schema.
   Mitigate with multiple bounded diagrams plus caveat prose.
-- **Terminology drift risk:** `CONTEXT.md` is the current language source. Do not invent aliases such as “Task,” “Work
-  Item,” “PR mode,” or “host session.”
+- **Terminology drift risk:** `docs/domain-language.md` is the current language source. Do not invent aliases such as
+  “Task,” “Work Item,” “PR mode,” or “host session.”
 - **Future-state confusion:** PRDs may contain future/open requirements. Label future-only relationships explicitly or
   omit them from the implemented entity model.
 - **External ownership:** Tickets and Forge Change Requests are related to RunWield artifacts, but their content, state,

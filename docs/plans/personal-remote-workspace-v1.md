@@ -68,8 +68,8 @@ Product discovery rejected a central Runtime proxy as unnecessary for the intend
 remain sibling Runtime consumers. Cross-surface continuity instead uses exclusive Session activation, durable workflow
 checkpoints, automatic read synchronization, and a separate Session-owned Plan Workflow Lease, as accepted in
 [`ADR-011`](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md). The planning-to-execution
-handoff follows [`ADR-012`](../adr/012-segment-session-transcripts-at-execution-handoff.md): one stable Session
-owns ordered transcript segments that project as continuous scrollback, while only the current segment supplies model
+handoff follows [`ADR-012`](../adr/012-segment-session-transcripts-at-execution-handoff.md): one stable Session owns
+ordered transcript segments that project as continuous scrollback, while only the current segment supplies model
 context.
 
 The first deployment serves one trusted developer on their own machine over Tailscale, WireGuard, or an equivalent
