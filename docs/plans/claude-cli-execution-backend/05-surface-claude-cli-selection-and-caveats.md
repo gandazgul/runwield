@@ -18,12 +18,12 @@ devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-03T18:20:03.246Z"
 updatedAt: "2026-08-03T18:20:03.246Z"
-status: "draft"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
 order: 5
 dependencies:
     - "04-harden-claude-cli-backend-failures-and-continuations"
+status: "validated_reviewer"
 ---
 
 # Surface Claude CLI Selection and Caveats

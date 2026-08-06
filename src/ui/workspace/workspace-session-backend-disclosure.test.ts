@@ -6,7 +6,9 @@ import { deriveSessionModelDisclosure, SessionBackendDisclosure } from "./island
 
 Deno.test("^Workspace Session disclosure distinguishes Claude CLI from Pi$", () => {
     const claudeHtml = renderToStaticMarkup(
-        React.createElement(SessionBackendDisclosure, { snapshot: { model: "sonnet", provider: "claude-cli" } }),
+        React.createElement(SessionBackendDisclosure, {
+            snapshot: { activeModel: { model: "sonnet", provider: "claude-cli" } },
+        }),
     );
     assertStringIncludes(claudeHtml, "claude-cli/sonnet");
     assertStringIncludes(claudeHtml, "Claude CLI");
@@ -15,7 +17,7 @@ Deno.test("^Workspace Session disclosure distinguishes Claude CLI from Pi$", () 
 
     const piHtml = renderToStaticMarkup(
         React.createElement(SessionBackendDisclosure, {
-            snapshot: { model: "fixture-model", provider: "runtime-command-fixture" },
+            snapshot: { activeModel: { model: "fixture-model", provider: "runtime-command-fixture" } },
         }),
     );
     assertStringIncludes(piHtml, "runtime-command-fixture/fixture-model");
@@ -30,14 +32,19 @@ Deno.test("^Workspace Session disclosure distinguishes Claude CLI from Pi$", () 
 });
 
 Deno.test("Workspace Session disclosure derives read-only metadata from committed snapshot values", () => {
-    assertEquals(deriveSessionModelDisclosure({ model: "opus", provider: "claude-cli" }), {
+    assertEquals(deriveSessionModelDisclosure({ activeModel: { model: "opus", provider: "claude-cli" } }), {
         reference: "claude-cli/opus",
         backendLabel: "Claude CLI",
         showClaudeCaveat: true,
     });
-    assertEquals(deriveSessionModelDisclosure({ model: "gpt-5", provider: "openai" }), {
+    assertEquals(deriveSessionModelDisclosure({ activeModel: { model: "gpt-5", provider: "openai" } }), {
         reference: "openai/gpt-5",
         backendLabel: "openai",
+        showClaudeCaveat: false,
+    });
+    assertEquals(deriveSessionModelDisclosure({ model: "legacy-model", provider: "legacy-provider" }), {
+        reference: "legacy-provider/legacy-model",
+        backendLabel: "legacy-provider",
         showClaudeCaveat: false,
     });
     assertEquals(deriveSessionModelDisclosure(null), {

@@ -78,14 +78,23 @@ export function reduceOperationTransientItems(events) {
 }
 
 /**
- * @typedef {{ model?: string, provider?: string }} SessionModelSnapshot
+ * @typedef {{ model?: string, provider?: string }} SessionModelState
+ */
+
+/**
+ * @typedef {{ activeModel?: SessionModelState | null, model?: string, provider?: string }} SessionModelSnapshot
  */
 
 /** @param {SessionModelSnapshot | undefined | null} snapshot */
 export function deriveSessionModelDisclosure(snapshot) {
-    const model = typeof snapshot?.model === "string" && snapshot.model.trim() ? snapshot.model.trim() : "";
-    const provider = typeof snapshot?.provider === "string" && snapshot.provider.trim() ? snapshot.provider.trim() : "";
-    const reference = model ? (provider ? `${provider}/${model}` : model) : "Model not recorded";
+    const activeModel = snapshot?.activeModel;
+    const rawModel = typeof activeModel?.model === "string" ? activeModel.model : snapshot?.model;
+    const rawProvider = typeof activeModel?.provider === "string" ? activeModel.provider : snapshot?.provider;
+    const model = typeof rawModel === "string" && rawModel.trim() ? rawModel.trim() : "";
+    const provider = typeof rawProvider === "string" && rawProvider.trim() ? rawProvider.trim() : "";
+    const reference = model
+        ? (provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model)
+        : "Model not recorded";
     const isClaudeCli = provider === "claude-cli";
     return {
         reference,
