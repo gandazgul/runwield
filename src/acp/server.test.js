@@ -173,7 +173,7 @@ Deno.test("ACP server returns structured errors for unimplemented session method
 
 Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async () => {
     const child = new Deno.Command(Deno.execPath(), {
-        args: ["run", "-A", "src/cli.js", "--mode", "acp"],
+        args: ["run", "-A", "src/cli.ts", "--mode", "acp"],
         cwd: REPO_ROOT,
         stdin: "piped",
         stdout: "piped",

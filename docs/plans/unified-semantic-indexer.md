@@ -249,7 +249,7 @@ Same mechanism as today (appended to system prompt in `systemPromptOverride` cal
 Project Core Memories:
 
   [1]  Agent definitions and tool permissions use layered overrides...
-  [5]  Harns CLI architecture: cli.js is a THIN entry point...
+  [5]  Harns CLI architecture: cli.ts is a THIN entry point...
 
 Global Core Memories:
 
@@ -403,7 +403,7 @@ compiled binary checks if deps exist. If not, it prints a clear message asking t
     memories/
 ```
 
-For source-run (`deno run -A src/cli.js`), tree-sitter grammars come from `node_modules/` (managed by
+For source-run (`deno run -A src/cli.ts`), tree-sitter grammars come from `node_modules/` (managed by
 `nodeModulesDir: "auto"`). Models are still loaded from `~/.hns/models/` (or auto-downloaded by transformers.js cache).
 
 ## D8: Sleep command — manual only, updated for native LanceDB (DECIDED)

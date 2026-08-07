@@ -73,7 +73,7 @@ Deno.test("test-module detection covers every convention deno test collects", ()
         assert(isTestModulePath(path), `Expected ${path} to be treated as a test module.`);
     }
 
-    for (const path of ["/repo/src/constants.js", "/repo/src/testing.js", "/repo/src/latest.js", "/repo/src/cli.js"]) {
+    for (const path of ["/repo/src/constants.js", "/repo/src/testing.js", "/repo/src/latest.js", "/repo/src/cli.ts"]) {
         assertEquals(isTestModulePath(path), false, `Expected ${path} not to be treated as a test module.`);
     }
 });

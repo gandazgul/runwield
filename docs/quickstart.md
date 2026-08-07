@@ -28,7 +28,7 @@ WLD_INSTALL_DIR="$HOME/bin" \
 Contributors can run the CLI directly with Deno:
 
 ```bash
-deno run -A src/cli.js help
+deno run -A src/cli.ts help
 ```
 
 To build the standalone binary:

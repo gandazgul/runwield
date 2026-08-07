@@ -114,7 +114,7 @@ Deno.test("buildPlanServerRuntime removes stale output", async () => {
     const root = await makeTempRoot();
     try {
         await writeRuntimeInputs(root);
-        await writeFile(join(root, "dist/plan-server/src/cli.js"), "stale");
+        await writeFile(join(root, "dist/plan-server/src/cli.ts"), "stale");
         await writeFile(
             join(root, "dist/plan-server/src/agent-definitions/subagent-definitions/reviewer-prompt.md"),
             "stale",
@@ -129,7 +129,7 @@ Deno.test("buildPlanServerRuntime removes stale output", async () => {
         });
 
         const files = await listRuntimeFiles(join(root, "dist/plan-server"));
-        assertEquals(files.includes("src/cli.js"), false);
+        assertEquals(files.includes("src/cli.ts"), false);
         assertEquals(files.includes("src/agent-definitions/subagent-definitions/reviewer-prompt.md"), false);
     } finally {
         await Deno.remove(root, { recursive: true });

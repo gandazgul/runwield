@@ -34,7 +34,7 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
     assertEquals(args.includes("--self-extracting"), false);
     assertEquals(args.includes("--output"), true);
     assertEquals(args.includes("./bin/wld"), true);
-    assertEquals(args.at(-1), "src/cli.js");
+    assertEquals(args.at(-1), "src/cli.ts");
     assertEquals(args.includes("--include-as-is"), false);
 
     assertStringIncludes(args.join("\n"), "dist/workspace-runtime/server.mjs");
@@ -53,7 +53,7 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
 Deno.test("buildCompileArgs keeps resource includes before the script", () => {
     const args = buildCompileArgs();
 
-    assertEquals(args.at(-1), "src/cli.js");
+    assertEquals(args.at(-1), "src/cli.ts");
     assertEquals(args.includes("src/agent-definitions/subagent-definitions"), false);
 });
 

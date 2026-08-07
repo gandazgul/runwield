@@ -266,7 +266,7 @@ Deno.test("CLI startup reports domain-language migration on stderr without writi
     try {
         await Deno.writeTextFile(join(projectRoot, "CONTEXT.md"), "legacy");
         const command = new Deno.Command(Deno.execPath(), {
-            args: ["run", "-A", join(REPO_ROOT, "src", "cli.js"), "plans"],
+            args: ["run", "-A", join(REPO_ROOT, "src", "cli.ts"), "plans"],
             cwd: projectRoot,
             env: {
                 HOME: homeDir,

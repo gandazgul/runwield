@@ -27,7 +27,7 @@ tests:
           type check passed
     - name: "check success is summarized"
       input: |
-          Check src/cli.js
+          Check src/cli.ts
           Check src/shared/session/session.js
       expected: |
           type check passed

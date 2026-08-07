@@ -80,7 +80,7 @@ export function buildCompileArgs(options = {}) {
         args.push("--include", path);
     }
 
-    args.push("src/cli.js");
+    args.push("src/cli.ts");
 
     return args;
 }

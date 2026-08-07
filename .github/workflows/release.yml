@@ -166,7 +166,7 @@ jobs:
               run: deno run -A scripts/write-version.js
 
             - name: Cache dependencies
-              run: deno cache scripts/compile.js src/cli.js
+              run: deno cache scripts/compile.js src/cli.ts
 
             - name: Compile binary
               env:

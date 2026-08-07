@@ -3,7 +3,6 @@
     "src/acp/interaction-mapper.js",
     "src/acp/server.js",
     "src/acp/session-map.js",
-    "src/cli.js",
     "src/cmd/acp/index.js",
     "src/cmd/agents/getArgumentCompletions.js",
     "src/cmd/command-helpers.js",

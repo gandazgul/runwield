@@ -8,7 +8,7 @@
             "request": "launch",
             "name": "Launch Program",
             "type": "node",
-            "program": "${workspaceFolder}/src/cli.js",
+            "program": "${workspaceFolder}/src/cli.ts",
             "cwd": "${workspaceFolder}",
             "env": {},
             "runtimeExecutable": "/Users/gandazgul/.deno/bin/deno",

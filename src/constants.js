@@ -10,7 +10,7 @@ import { RUNWIELD_SOURCE_ROOT } from "../runtime-root.js";
 export const CLI_BIN = "wld";
 
 /** Fallback source-run invocation used in contributor docs and local dev. */
-export const DEV_CLI_RUN = "deno run -A --unstable-no-legacy-abort src/cli.js";
+export const DEV_CLI_RUN = "deno run -A --unstable-no-legacy-abort src/cli.ts";
 
 /**
  * Primary project root used for RunWield metadata, settings, and command state.

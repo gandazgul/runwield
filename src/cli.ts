@@ -11,11 +11,19 @@
  *   wld help
  *
  * Source-run fallback for contributors:
- *   deno run -A src/cli.js "<user request>"
+ *   deno run -A src/cli.ts "<user request>"
  */
 
+import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
 import { getCwd } from "./constants.js";
+
+if (Deno.build.standalone) {
+    Object.defineProperty(globalThis, "require", {
+        value: createRequire(import.meta.url),
+        configurable: true,
+    });
+}
 import { runVersionCommand } from "./cmd/version/index.js";
 import { formatDomainLanguageMigrationMessages, migrateDomainLanguageArtifacts } from "./shared/domain-language.ts";
 

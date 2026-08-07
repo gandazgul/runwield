@@ -25,10 +25,10 @@ objectiveChecks:
       command: "grep -q 'test-architecture.json' src/cmd/init/index.test.ts && deno run -A scripts/run-tests.js src/cmd/init/index.test.ts"
       rationale: "Init scaffolds the project policy through its real fixture flow; this fails today because init has no test-architecture behavior."
     - id: "OC3"
-      command: "test -f .wld/test-architecture.json && deno run -A src/cli.js check test-architecture"
+      command: "test -f .wld/test-architecture.json && deno run -A src/cli.ts check test-architecture"
       rationale: "RunWield consumes the same project-facing manifest and command it ships downstream; this fails today because neither exists."
     - id: "OC4"
-      command: "grep -q 'deno run -A src/cli.js check' deno.json && deno task ci"
+      command: "grep -q 'deno run -A src/cli.ts check' deno.json && deno task ci"
       rationale: "The exported command is a required RunWield CI gate rather than documentation-only advice; this fails today because CI invokes only the repository-local seam script."
 createdAt: "2026-08-04T23:55:00-0400"
 updatedAt: "2026-08-04T23:55:00-0400"
@@ -202,7 +202,7 @@ implementation or separate baseline.
 - Mutation proof: restore each forbidden form named in Step 10 and confirm that the specific focused test and
   `wld check test-architecture` go red, then revert the mutation.
 - Run `deno task check`, `deno task lint`, `deno task doc-links:check`, the focused command/analyzer tests,
-  `deno run -A src/cli.js check`, and full `deno task ci` through `scripts/run-tests.js` isolation.
+  `deno run -A src/cli.ts check`, and full `deno task ci` through `scripts/run-tests.js` isolation.
 - Confirm test-count deltas and account for every rewritten detector test; migration to the shared analyzer must not
   delete a behavioral case merely because the old script entry point disappears.
 

@@ -25,7 +25,7 @@ This document compares the current repository implementation against:
 
 The implementation evidence comes from these source files:
 
-- `src/cli.js`
+- `src/cli.ts`
 - `src/cmd/registry.js`
 - `src/cmd/acp/index.js`
 - `src/acp/server.js`
@@ -79,7 +79,7 @@ wld acp
 wld --mode acp
 ```
 
-`src/cli.js` routes `--mode acp` before normal command/TUI dispatch so stdout can remain protocol-pure. The command
+`src/cli.ts` routes `--mode acp` before normal command/TUI dispatch so stdout can remain protocol-pure. The command
 registry describes the ACP command as CLI-only and notes that stdout is reserved for ACP JSON-RPC frames. The command
 implementation in `src/cmd/acp/index.js` starts `startRunWieldAcpServer(Deno.stdin.readable, Deno.stdout.writable)` and
 writes diagnostics to stderr with a `[RunWield ACP]` prefix.

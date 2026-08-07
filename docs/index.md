@@ -23,7 +23,7 @@ then installs missing binaries to `~/.local/bin` by default. Make sure that dire
 Contributors can also run from source:
 
 ```bash
-deno run -A src/cli.js help
+deno run -A src/cli.ts help
 deno task compile
 ./bin/wld help
 ```

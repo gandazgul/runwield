@@ -62,8 +62,8 @@ wld snip-filters cleanup
 
 Use this as an orientation map, not a directory inventory:
 
-- `src/cli.js` is the executable entry point. It stays thin and delegates to command handlers registered from
-  `src/cmd/`.
+- `src/cli.ts` is the executable entry point and command dispatch module. It delegates command behavior to handlers
+  registered from `src/cmd/`.
 - `src/cmd/` owns CLI command boundaries such as `router`, `load-plan`, `plans`, `workspace`, `init`, settings, auth,
   and install/update helpers.
 - `src/shared/session/` is the live Session runtime center of gravity: hosted sessions, agent construction, transcript

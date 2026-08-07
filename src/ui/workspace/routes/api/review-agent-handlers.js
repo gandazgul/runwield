@@ -343,7 +343,7 @@ async function resolveRunWieldGuideCommand(cwd) {
     if (await commandExists("wld")) return { command: "wld", args: ["guided-review"] };
     return {
         command: Deno.execPath(),
-        args: ["run", "-A", "--unstable-no-legacy-abort", "src/cli.js", "guided-review"],
+        args: ["run", "-A", "--unstable-no-legacy-abort", "src/cli.ts", "guided-review"],
         cwd,
     };
 }
