@@ -4,6 +4,8 @@ import reAnchorExtension from "./index.ts";
 import type { ReAnchorOptions } from "./index.ts";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import type { ReviewLedger } from "../../shared/workflow/review-ledger.ts";
+import { dirname } from "@std/path";
+import { getStoredPlanPath } from "../../plan-store.js";
 
 type Handler = (event: Record<string, unknown>, ctx: unknown) => unknown;
 
@@ -58,6 +60,7 @@ function baseMessage(): { role: string; content: string; timestamp: number } {
 }
 
 const openSessions: HostedSession[] = [];
+const tempProjectRoots: string[] = [];
 
 globalThis.addEventListener("unload", () => {
     for (const session of openSessions) {
@@ -65,6 +68,13 @@ globalThis.addEventListener("unload", () => {
             session.dispose();
         } catch {
             // Best effort; a leftover session must not fail a passing run.
+        }
+    }
+    for (const projectRoot of tempProjectRoots) {
+        try {
+            Deno.removeSync(projectRoot, { recursive: true });
+        } catch {
+            // Best effort test cleanup.
         }
     }
 });
@@ -83,14 +93,23 @@ function hostedSession(
     active: { planName: string; reviewLedger?: ReviewLedger } | null,
     recordedPlanName: string | null = null,
 ): HostedSession {
-    const session = new HostedSession({ id: `re-anchor-${crypto.randomUUID()}`, cwd: Deno.cwd() });
+    const projectRoot = Deno.makeTempDirSync({ prefix: "runwield-re-anchor-" });
+    tempProjectRoots.push(projectRoot);
+    const session = new HostedSession({ id: `re-anchor-${crypto.randomUUID()}`, cwd: projectRoot });
     openSessions.push(session);
     if (recordedPlanName) session.setWorkflowPlanName(recordedPlanName);
     if (active) {
+        const planPath = getStoredPlanPath(projectRoot, active.planName);
+        Deno.mkdirSync(dirname(planPath), { recursive: true });
+        Deno.writeTextFileSync(
+            planPath,
+            `---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body for ${active.planName}\n\n## Verification Plan\n\nRun tests.`,
+        );
         session.setActiveExecutionWorkflow({
             planName: active.planName,
             triageMeta: {},
             executionAgent: "engineer",
+            projectRoot,
             ...(active.reviewLedger ? { reviewLedger: active.reviewLedger } : {}),
         });
     }
@@ -103,14 +122,16 @@ Deno.test("no compaction means no injection", () => {
     assertEquals(harness.injected(), "");
 });
 
-Deno.test("a settled compaction injects one re-anchor naming the Plan", () => {
+Deno.test("a settled compaction injects the Plan body without Front Matter", () => {
     const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
     harness.compact({ reason: "threshold" });
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "docs/plans/some-plan.md");
+    assertStringIncludes(text, "# Approved body for some-plan");
     assertStringIncludes(text, "Verification Plan");
+    assert(!text.includes("SECRET FRONT MATTER"));
+    assert(!text.includes("objectiveChecks"));
 });
 
 Deno.test("the injected message is appended without disturbing existing history", () => {
@@ -153,7 +174,7 @@ Deno.test("the active execution Plan wins over the planning workflow context", (
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "docs/plans/executing-plan.md");
+    assertStringIncludes(text, "# Approved body for executing-plan");
     assert(!text.includes("stale-planning-plan"), "the planning context must not override the executing Plan");
 });
 
@@ -210,7 +231,7 @@ Deno.test("Reviewer-Feedback Engineer carries the open Review Issue Ledger", () 
 
     const text = harness.injected();
 
-    assertStringIncludes(text, "docs/plans/repairing-plan.md");
+    assertStringIncludes(text, "# Approved body for repairing-plan");
     assertStringIncludes(text, "R1-1");
     assertStringIncludes(text, "Seam check never runs");
     assert(!text.includes("R1-2"), "resolved items must not be reopened by the re-anchor");

@@ -494,6 +494,7 @@ export async function dispatchReviewFeedbackRepair(
                 projectRoot: context.projectRoot,
                 executionCwd: context.executionCwd,
                 repairCwd: context.executionCwd,
+                planContent: args.planContent,
                 worktreeId: context.worktreeId,
                 worktreeBranch: context.worktreeBranch,
                 worktreeBaseBranch: context.worktreeBaseBranch,

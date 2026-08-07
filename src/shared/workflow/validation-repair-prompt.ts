@@ -1,5 +1,6 @@
 import { relative } from "@std/path";
 import { getStoredPlanPath } from "../../plan-store.js";
+import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 
 export type ValidationRepairPromptInput = {
     planName: string;
@@ -7,6 +8,7 @@ export type ValidationRepairPromptInput = {
     executionCwd: string;
     repairCwd: string;
     repairsNeeded: string;
+    planContent?: string;
     includePlanLink?: boolean;
     worktreeId?: string;
     worktreeBranch?: string;
@@ -18,13 +20,13 @@ export type ValidationRepairPromptInput = {
 /**
  * Build the bounded packet for an independent validation-repair session.
  *
- * The repair Agent gets durable file references and the current failure. It does
- * not inherit the implementation transcript or receive another inline copy of the
- * Plan.
+ * The repair Agent gets the parsed Plan body, durable worktree references, and
+ * the current failure. It never receives Plan Front Matter.
  */
 export function buildValidationRepairPrompt(input: ValidationRepairPromptInput): string {
     const planPath = input.includePlanLink === false ? "" : getStoredPlanPath(input.repairCwd, input.planName);
     const planLabel = planPath ? relative(input.repairCwd, planPath).replaceAll("\\", "/") : "";
+    const planBody = input.planContent ? projectEngineerPlanBody(input.planContent) : "";
     const contextLines = [
         `- Repair checkout: \`${input.repairCwd}\``,
         ...(planPath ? [`- Approved Plan file: [${planLabel}](<${planPath}>)`] : []),
@@ -39,12 +41,15 @@ export function buildValidationRepairPrompt(input: ValidationRepairPromptInput):
         "You completed the implementation, but RunWield validation found a problem. Address the repair feedback below, verify the repair, and call task_completed again when the repair is complete.",
         "",
         "This is an independent repair session. Use the existing implementation as the starting point. Do not repeat the original implementation.",
-        ...(planPath ? ["Read the Plan file only when you need its requirements or constraints."] : []),
+        ...(planBody
+            ? ["Use the approved Plan body below for requirements and constraints. Do not reread the raw Plan file; its Front Matter is orchestration metadata."]
+            : []),
         ...(input.authorityNote ? ["", input.authorityNote] : []),
         "",
         "## Work Context",
         "",
         ...contextLines,
+        ...(planBody ? ["", "## Approved Plan Body", "", planBody] : []),
         "",
         "## Repairs Needed",
         "",

@@ -4,6 +4,7 @@
  */
 
 import { AGENTS, formatPlannedWorkLabel } from "../../constants.js";
+import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 
 /**
  * @typedef {Object} TriageReportContext
@@ -224,6 +225,7 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
  * @typedef {Object} ReAnchorContext
  * @property {string} [agentName]
  * @property {string} [planName] - Normalized Plan name: no `docs/plans/` prefix, no `.md` suffix.
+ * @property {string} [planBody] - Parsed Plan body for execution agents. Never includes Front Matter.
  * @property {string} [openReviewItems] - Rendered open Review Issue Ledger items for a repair turn.
  */
 
@@ -247,11 +249,28 @@ export function buildReAnchorMessage(context = {}) {
     const planName = typeof context.planName === "string" ? context.planName.trim() : "";
     if (!planName) return null;
 
+    const executionAgent = agentName === AGENTS.ENGINEER ||
+        agentName === AGENTS.FRONTEND_ENGINEER ||
+        agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER;
+    const planBody = typeof context.planBody === "string" ? projectEngineerPlanBody(context.planBody) : "";
+    if (executionAgent && !planBody) return null;
+
     const lines = [
         "## Context Re-Anchor",
         "",
-        `Context was compacted. Your ${artifact.label} is \`docs/plans/${planName}.md\`.`,
-        `Reread it before continuing: ${artifact.sections}.`,
+        ...(executionAgent
+            ? [
+                `Context was compacted. Continue from the approved ${artifact.label} body below.`,
+                `Focus on ${artifact.sections}. Do not reread the raw Plan file; its Front Matter is orchestration metadata.`,
+                "",
+                "## Approved Plan Body",
+                "",
+                planBody,
+            ]
+            : [
+                `Context was compacted. Your ${artifact.label} is \`docs/plans/${planName}.md\`.`,
+                `Reread it before continuing: ${artifact.sections}.`,
+            ]),
     ];
 
     if (agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
@@ -320,9 +339,7 @@ export function buildEngineerRequest(planName, planBody, reviewFeedback, options
             "",
         );
     }
-    lines.push(
-        planBody,
-    );
+    lines.push(projectEngineerPlanBody(planBody));
     if (reviewFeedback) {
         lines.push(
             "",

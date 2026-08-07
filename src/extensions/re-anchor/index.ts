@@ -15,6 +15,7 @@
 
 import type { ContextEvent, ExtensionAPI, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { buildReAnchorMessage } from "../../shared/workflow/workflow-prompts.js";
+import { getStoredPlanPath, parsePlanFrontMatter } from "../../plan-store.js";
 import { normalizeWorkflowPlanName } from "../../shared/session/workflow-context-session.js";
 import { normalizeLedger, renderOpenItems } from "../../shared/workflow/review-ledger.ts";
 import type { HostedSession } from "../../shared/session/hosted-session.js";
@@ -29,7 +30,10 @@ interface ReAnchorResolution {
     agentName: string;
     planName: string;
     openReviewItems: string;
+    planBody: string;
 }
+
+const EXECUTION_AGENTS = new Set(["engineer", "frontend-engineer", "reviewer-feedback-engineer"]);
 
 /**
  * Resolve the artifact pointer from live session state.
@@ -45,12 +49,22 @@ function resolveReAnchorContext(options: ReAnchorOptions): ReAnchorResolution {
     const planName = normalizeWorkflowPlanName(activeWorkflow?.planName) ||
         normalizeWorkflowPlanName(hostedSession?.getWorkflowContext()?.planName);
 
+    let planBody = "";
+    if (planName && EXECUTION_AGENTS.has(options.agentName)) {
+        const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd || "";
+        if (projectRoot) {
+            const markdown = Deno.readTextFileSync(getStoredPlanPath(projectRoot, planName));
+            planBody = parsePlanFrontMatter(markdown).body;
+        }
+    }
+
     return {
         agentName: options.agentName,
         planName,
         openReviewItems: activeWorkflow?.reviewLedger
             ? renderOpenItems(normalizeLedger(activeWorkflow.reviewLedger))
             : "",
+        planBody,
     };
 }
 

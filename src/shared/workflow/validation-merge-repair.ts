@@ -177,6 +177,7 @@ export async function dispatchMergeRepair(
             projectRoot: context.projectRoot,
             executionCwd: context.executionCwd,
             repairCwd,
+            planContent: args.planContent,
             worktreeId: context.worktreeId,
             worktreeBranch: context.worktreeBranch,
             worktreeBaseBranch: context.worktreeBaseBranch,

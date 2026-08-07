@@ -8,6 +8,8 @@ Deno.test("independent validation repair packet links the Plan and carries workt
         executionCwd: "/worktrees/child",
         repairCwd: "/worktrees/child",
         repairsNeeded: "CI failed with TS2741.",
+        planContent:
+            "---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body\n\nDo the work.",
         worktreeId: "wt-123",
         worktreeBranch: "worktree/child",
         worktreeBaseBranch: "main",
@@ -22,6 +24,10 @@ Deno.test("independent validation repair packet links the Plan and carries workt
     assertStringIncludes(prompt, "Target branch: `main`");
     assertStringIncludes(prompt, "CI failed with TS2741.");
     assertStringIncludes(prompt, "call task_completed again");
+    assertStringIncludes(prompt, "## Approved Plan Body");
+    assertStringIncludes(prompt, "# Approved body");
+    assertEquals(prompt.includes("SECRET FRONT MATTER"), false);
+    assertEquals(prompt.includes("objectiveChecks"), false);
 });
 
 Deno.test("independent validation repair packet does not inline the approved Plan", () => {

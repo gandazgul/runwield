@@ -74,6 +74,17 @@ Deno.test("buildEngineerRequest preserves workflow completion contract", () => {
     assertStringIncludes(request, "Plan body");
 });
 
+Deno.test("buildEngineerRequest parses away Plan Front Matter", () => {
+    const request = buildEngineerRequest(
+        "feature-plan",
+        "---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body",
+    );
+
+    assertStringIncludes(request, "# Approved body");
+    assertEquals(request.includes("SECRET FRONT MATTER"), false);
+    assertEquals(request.includes("objectiveChecks"), false);
+});
+
 Deno.test("buildTriageReport preserves the Router's structured context", () => {
     const report = buildTriageReport({
         routingIntent: "PLANNED_CHANGE",
@@ -156,12 +167,19 @@ Deno.test("buildReAnchorMessage names the Epic for Architect", () => {
     assertStringIncludes(String(message), "Vertical Slice Findings");
 });
 
-Deno.test("buildReAnchorMessage points both execution agents at the Verification Plan", () => {
+Deno.test("buildReAnchorMessage gives both execution agents only the parsed Plan body", () => {
     for (const agentName of ["engineer", "frontend-engineer"]) {
-        const message = String(buildReAnchorMessage({ agentName, planName: "some-plan" }));
+        const message = String(buildReAnchorMessage({
+            agentName,
+            planName: "some-plan",
+            planBody: "---\nsummary: SECRET\n---\n# Body\n\nVerification Plan",
+        }));
 
-        assertStringIncludes(message, "Plan is `docs/plans/some-plan.md`");
+        assertStringIncludes(message, "## Approved Plan Body");
+        assertStringIncludes(message, "# Body");
         assertStringIncludes(message, "Verification Plan");
+        assertEquals(message.includes("SECRET"), false);
+        assertEquals(message.includes("docs/plans/some-plan.md"), false);
     }
 });
 
@@ -169,10 +187,11 @@ Deno.test("buildReAnchorMessage carries open review issues for a repair turn", (
     const message = String(buildReAnchorMessage({
         agentName: "reviewer-feedback-engineer",
         planName: "some-plan",
+        planBody: "# Repair body",
         openReviewItems: "[R1-1] Seam check never runs\n  Plan requirement: Verification Plan step 3",
     }));
 
-    assertStringIncludes(message, "docs/plans/some-plan.md");
+    assertStringIncludes(message, "# Repair body");
     assertStringIncludes(message, "## Open Review Issue Ledger");
     assertStringIncludes(message, "[R1-1] Seam check never runs");
 });
@@ -181,10 +200,11 @@ Deno.test("buildReAnchorMessage omits an empty Review Issue Ledger", () => {
     const message = String(buildReAnchorMessage({
         agentName: "reviewer-feedback-engineer",
         planName: "some-plan",
+        planBody: "# Repair body",
         openReviewItems: "(none)",
     }));
 
-    assertStringIncludes(message, "docs/plans/some-plan.md");
+    assertStringIncludes(message, "# Repair body");
     if (message.includes("Open Review Issue Ledger")) {
         throw new Error("An empty ledger must not add a ledger section");
     }
@@ -200,4 +220,8 @@ Deno.test("buildReAnchorMessage returns null when no Plan pointer survived", () 
     assertEquals(buildReAnchorMessage({ agentName: "engineer" }), null);
     assertEquals(buildReAnchorMessage({ agentName: "engineer", planName: "   " }), null);
     assertEquals(buildReAnchorMessage(), null);
+});
+
+Deno.test("buildReAnchorMessage refuses an execution re-anchor without a projected body", () => {
+    assertEquals(buildReAnchorMessage({ agentName: "engineer", planName: "some-plan" }), null);
 });
