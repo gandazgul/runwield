@@ -4,12 +4,6 @@ classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a RunWield extension that re-anchors the active agent on its durable artifact after compaction, so Planner rereads its draft and execution agents reread the Plan and Verification Plan."
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
-createdAt: "2026-08-01T01:18:18-04:00"
-status: "ready_for_work"
-origin: "internal"
-userVerifiedAt: null
 affectedPaths:
     - "src/extensions/re-anchor/index.ts"
     - "src/extensions/re-anchor/index.test.ts"
@@ -42,7 +36,19 @@ objectiveChecks:
     - id: "OC5"
       command: "deno run -A scripts/run-tests.js -A --no-check src/extensions/re-anchor/index.test.ts"
       rationale: "The new test must exercise retry skip, single injection, artifact resolution, and exclusions."
-updatedAt: "2026-08-04T03:55:17.834Z"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+createdAt: "2026-08-01T01:18:18-04:00"
+updatedAt: "2026-08-07T03:47:47.548Z"
+status: "user_verified"
+origin: "internal"
+userVerifiedAt: "2026-08-07T03:47:41.532Z"
+userVerificationNote: "Git has a delivery commit: 36c88963 Re-anchor agents after context compaction, which added the extension and changed the affected workflow files."
+workRecord:
+    status: "generated"
+    recordId: "d1acbedf-69be-4807-b87f-2768ef25d209"
+    path: "docs/work-records/2026-08-07-re-anchor-agents-after-compaction.md"
+    lastAttemptAt: "2026-08-07T03:47:41.660Z"
 ---
 
 # Re-Anchor Agents After Compaction
