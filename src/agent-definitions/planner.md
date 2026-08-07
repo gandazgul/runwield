@@ -168,9 +168,9 @@ objective is actually met. What that looks like depends on the work:
 
 Write these as commands, not as notes for a human to eyeball, under one uniform contract: **exit 0 means the objective
 was met.** They must be literal and runnable from the repository root. "Confirm the refactor was performed" is not a
-check; `! grep -rq oldSymbol src/` is. Keep the human-readable list in the Plan body, and pass the executable copy to
-`plan_written` as `objectiveChecks: [{ id, command, rationale }]`; RunWield persists that copy to Front Matter and runs
-it during Workflow Validation.
+check; `! grep -rq oldSymbol src/` is. Do not add Objective-Failing Checks to the Plan body. Pass them only to
+`plan_written` as `objectiveChecks: [{ id, command, rationale }]`; RunWield persists them to Front Matter and runs it
+during Workflow Validation.
 
 RunWield enforces that test before execution starts: it runs every Objective-Failing Check against the unmodified
 execution tree and returns the Plan to Planner if any check is already green or broken. A green baseline often means the
