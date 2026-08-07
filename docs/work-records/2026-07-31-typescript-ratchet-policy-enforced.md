@@ -37,22 +37,3 @@ low-risk TypeScript conversion.
 Future migrations should shrink `scripts/language-policy-baseline.json` in the same change, keep real file extensions in
 imports, and avoid expanding TypeScript canaries into high-authority lifecycle, session, validation, or worktree modules
 unless explicitly planned.
-
-## Execution Report
-
-- Implemented TypeScript ratchet policy docs: added accepted ADR-013 and amended ADR-000 to supersede only the old
-  JS+JSDoc language decision.
-- Added `scripts/check-language-policy.js` and sorted `scripts/language-policy-baseline.json`; guard reports new
-  production JS/JSX and stale baseline entries separately, supports `--update`, excludes
-  tests/fixtures/generated/dependency artifacts, and is wired into `deno task -q ci`.
-- Updated `deno task -q check` to check non-Workspace `.ts`/`.tsx` directly while preserving separate `workspace:check`
-  for Astro-owned Workspace TS/TSX.
-- Kept `boot-logo.ts` / `chat-session.js` import pattern unchanged and migrated `src/shared/collaboration/base64url`
-  plus its focused test to `.ts`; updated all repository imports to real `./base64url.ts` extensions and removed the old
-  JS path from the baseline.
-- Did not migrate optional `package-resources.js`; the required base64url canary and policy guard were clean, and the
-  optional second canary was left for a separate low-risk migration.
-- Verification passed: `deno task -q check`, `deno task -q lint`,
-  `deno test -A src/shared/collaboration/base64url.test.ts`, `deno run -A scripts/check-language-policy.js`, throwaway
-  new/stale baseline failure checks, `deno task -q ci` (1878 passed), and `deno task -q compile` (completed with
-  existing Vite warnings only).

@@ -24,13 +24,3 @@ Verification passed with check, targeted session/model tests, lint, full test, a
 
 Future Pi upgrades should treat ModelRuntime as the public integration boundary, avoid private or removed SDK APIs, and
 keep deno.json imports range-based while allowing deno.lock to record resolved package versions.
-
-## Execution Report
-
-- Implemented Pi 0.82.1 runtime integration: `ModelRuntime` creation/caching, RunWield model facade,
-  `createAgentSession({ modelRuntime })`, TUI model selector runtime wiring, and `streamFunction` temperature wrapping.
-- Updated Earendil imports to upgradeable `^0.82.1` ranges, removed latest-observed aliases, and regenerated `deno.lock`
-  resolving Pi packages to 0.82.1.
-- Added end-to-end `max` thinking-level support and coverage for HostedSession/SessionRuntime cycling.
-- Verification passed: `deno task -q check`, targeted session/model tests, `deno task -q lint`, `deno task -q test`, and
-  `deno task -q ci`.

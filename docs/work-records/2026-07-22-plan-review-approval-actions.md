@@ -25,21 +25,3 @@ checks passed.
 
 Approval intent is now captured atomically in Plan Review; future workflow changes should preserve the shared
 approval-action contract and avoid reintroducing post-approval TUI prompts.
-
-## Execution Report
-
-- Changes: added shared Plan approval-action contract (`run`/`decompose`/`later`) with safe fallback; replaced Plan
-  Review single Approve with FEATURE **Approve & Run** / PROJECT **Approve & Slice** split button plus **Approve for
-  Later** menu; threaded `approvalAction` through review API, TUI adapter metadata, `plan_written`, and loaded-Plan
-  re-review; removed obsolete post-approval TUI prompt APIs.
-- Tests/commands: focused tests passed (`plan-approval`, `plan-review`, `runtime-interaction-adapter`, `plan-written`,
-  `workspace`, `load-plan`); `deno task workspace:check` passed; `deno task workspace:build` passed; `deno task ci`
-  passed.
-- URL: `http://127.0.0.1:5173/dev/plan-review` via `deno task workspace:dev:plan-review`.
-- Headed browser checks: desktop FEATURE menu + Escape + Approve for Later completion; desktop PROJECT **Approve &
-  Slice** and menu; mobile 390x844 PROJECT/FEATURE responsive state; final URL/title, console, errors, and failed
-  fetches checked.
-- Evidence: `artifacts/plan-approval-final-desktop-feature-menu.png`,
-  `artifacts/plan-approval-final-desktop-project.png`, `artifacts/plan-approval-final-mobile-project.png`.
-- Notes/blockers: no unresolved blockers; final browser errors empty. Failed network list only showed existing dev
-  editor `POST /api/doc/exists` 404 probes, unrelated to approval flow.

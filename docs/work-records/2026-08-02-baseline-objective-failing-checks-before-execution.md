@@ -31,19 +31,3 @@ already-green rejection and normal execution paths instead.
 
 Objective-Failing Checks now need to discriminate the objective mechanically: Planner should expect already-green checks
 to be returned before execution rather than discovered after implementation.
-
-## Execution Report
-
-- Implemented baseline Objective-Failing Check support: normalized/persisted `objectiveChecksBaseline`, baseline
-  classification/matching helpers, workflow pre-execution baselining for worktree and non-Git execution, stale-baseline
-  re-run logic, and Planner rejection routing for already-met/broken checks.
-- Added/updated coverage in `objective-checks.test.ts`, `workflow.test.js`, and `plan-store.test.js`, including the
-  required tests `baseline rejects already-met Objective-Failing Checks before Engineer starts` and
-  `re-baselines Objective-Failing Checks when head or command set changes`.
-- Updated Planner and context docs to describe mechanically observed red-before-execution and green-during-validation
-  checks.
-- Verification passed: `deno task ci`;
-  `deno run -A scripts/run-tests.js -A --no-check src/shared/workflow/objective-checks.test.ts src/shared/workflow/workflow.test.js src/plan-store.test.js`;
-  `deno task test:golden-tui` (first attempt timed out at 180s, rerun with 360s passed).
-- Manual verification from the plan was not performed interactively; automated workflow/golden coverage exercises the
-  same already-green rejection and normal execution paths.

@@ -36,26 +36,3 @@ Remaining intermittent failures appear tied to HOME/cwd shared-state races in `s
 
 Parallelizing the suite exposed hidden process-global state coupling; future test optimization work should budget time
 for HOME/cwd/env locking or fixture isolation outside the initially suspected files.
-
-## Execution Report
-
-- Implemented parallel-test-run changes: `deno task test`/`workspace:test` use `--parallel`; source runs read bundled
-  agent defs/skills from `src/`; standalone extraction smoke script added to release check; docs updated with
-  `DENO_JOBS` guidance.
-- Refactored planned shared-state hazards: session catalog/tool-policy tests no longer mutate repository `.wld`; ACP CLI
-  smoke no longer runs `scripts/write-version.js` inside a worker; standalone probe verifies extracted agent
-  definitions/skills.
-- Added/used process-global locking and fixed several additional parallel/shuffle flakes discovered during verification
-  (install script cwd/input, plan-server runtime fixture paths, workspace subprocess stderr filtering, selected HOME/cwd
-  tests).
-- Passing verification: targeted affected tests passed; `deno task workspace:test` passed after
-  `deno task workspace:build`; `DENO_JOBS=1 deno task test` passed with 1646 tests; `DENO_JOBS=2 deno task test` passed
-  with 1646 tests; shuffle seeds 101, 202, 303, and 404 passed after fixes.
-- Failing verification remains: default `deno task test` still fails intermittently under parallelism; latest failures
-  were `src/cmd/init/init-state_test.js`, `src/shared/session/__tests__/session-tools-policy.test.js`, and
-  `src/shared/session/root-session.test.js`, consistent with remaining HOME/cwd shared-state races outside the original
-  planned files.
-- Not completed because default tests still fail: release check, full CI, and performance median benchmark were not run
-  to completion after the default test failure.
-- Repository-state check: `git diff -- .wld src/shared/version.js` is empty; only implementation/test/doc changes remain
-  modified.

@@ -28,17 +28,3 @@ Manual TUI/ACP end-to-end scenarios from the plan were not run in an interactive
 
 Future Epic workflow changes should build on the typed validation result and core-owned `session_replaced` event rather
 than inferring continuation from low-level Plan Events or adapter-specific behavior.
-
-## Execution Report
-
-- Implemented typed Workflow Validation results and propagated verified/paused/failed outcomes through validation,
-  orchestrator, agent handler, Runtime, `/load-plan`, TUI, and ACP paths.
-- Added strict Epic child continuation resolver/runner with canonical ordering, terminal-sibling skipping, dependency
-  blocking, readiness execution, fresh Session replacement event, TUI rebinding, and ACP stable-ID remapping.
-- Updated `docs/workflows.md` and `docs/usage.md` for default Epic auto-continuation and fresh Session boundary.
-- Added focused tests for Epic continuation resolution, `session_replaced` event validation, and ACP runtime-session
-  remapping.
-- Verification passed:
-  `deno test -A src/shared/workflow/epic-continuation.test.js src/shared/session/session-runtime-events.test.js src/acp/session-map.test.js`;
-  `deno check ...`; `deno task ci`.
-- Manual TUI/ACP end-to-end scenarios from the plan were not run in an interactive client; automated CI passed.

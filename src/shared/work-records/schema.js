@@ -25,7 +25,6 @@ export const WORK_RECORD_OPTIONAL_SECTION_TITLES = Object.freeze([
     "Deviations from Plan",
     "Deferred Work",
     "Future Planning Notes",
-    "Execution Report",
     "Objective Check Waivers",
 ]);
 

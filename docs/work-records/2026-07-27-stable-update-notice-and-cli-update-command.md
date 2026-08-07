@@ -29,20 +29,3 @@ fake-installer tests covered those behaviors instead.
 
 Keep update availability as cached release metadata recomputed against the current binary version, not as durable
 availability truth, and continue keeping installer execution CLI-only rather than exposing it as a slash command.
-
-## Execution Report
-
-- Implemented shared Stable update-check module with version comparison, global cache helpers, GitHub latest-release
-  fetch, tag-pinned installer URL, and install-dir detection.
-- Added CLI-only `wld update` command plus `wld upgrade` alias; command fetches latest Stable tag, skips already-current
-  installs, downloads matching `install.sh`, derives/preserves `WLD_INSTALL_DIR`, runs installer, and propagates
-  failures.
-- Integrated TUI boot update notice placeholder directly under the title line with cached immediate rendering and
-  non-awaited background refresh; update/upgrade remain absent from slash commands by registry coverage.
-- Added unit/behavior coverage for shared update checks, update command, registry CLI-only alias behavior, and TUI
-  source-order/rendering.
-- Verification passed: requested `deno fmt --check`, `deno lint`, targeted `deno test -A ...`, and full `deno task ci`
-  (1897 passed, 0 failed).
-- Manual CLI help check passed: `deno task cli help update` shows `wld update`, `wld upgrade`, Stable channel, and
-  `WLD_INSTALL_DIR`; interactive TUI/manual installer checks were covered by automated
-  source-order/registry/fake-installer tests rather than executed against a live installer.

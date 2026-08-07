@@ -27,15 +27,3 @@ The initial focused test run failed without environment permissions and was reru
 ## Deferred Work
 
 Manual interactive TUI checks were not run because completion occurred in a non-interactive API session.
-
-## Execution Report
-
-- Implemented `compactionFinished` notification event with default-enabled settings, schema, docs, and tests.
-- Wired TUI slash dispatch to pass notification callbacks into commands; `/compact` now sends one best-effort generic
-  notification after success, failure, cancellation, or no-op outcomes.
-- Added coverage for event settings, dispatch dependency injection, and `/compact` terminal-outcome notifications.
-- Verification:
-  `deno test src/ui/tui/system-notifications.test.js src/ui/tui/slash-dispatch.test.js src/cmd/compact/index.test.js`
-  initially failed without env permissions; reran with `deno test -A --no-check ...` and passed.
-- Verification: `deno task ci` passed (1822 tests, 0 failed).
-- Manual interactive TUI checks were not run in this non-interactive API session.

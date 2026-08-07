@@ -27,13 +27,3 @@ checks were not run because the change was documentation-only.
 For future architecture docs, keep entity relationships separate from control-flow/dependency diagrams and explicitly
 distinguish durable sources of truth from projections, caches, transient workflow objects, and externally owned
 lifecycle state.
-
-## Execution Report
-
-- Created `docs/entity-model.md` with four small Mermaid ER diagrams plus identity/ownership/lifecycle/source-of-truth
-  notes and a persistence/authority table.
-- Updated `architecture.md` with prominent and targeted links to the entity model, and replaced current-workflow
-  `FEATURE` wording with `PLANNED_CHANGE` while preserving only explicit legacy/Work Kind references.
-- Verified formatting with `deno fmt --check architecture.md docs/entity-model.md` (passed).
-- Manually checked Mermaid fence completeness, link target presence, canonical terminology, legacy `FEATURE` usage, and
-  source-of-truth caveats; `deno task check` was not run because only Markdown docs were changed.

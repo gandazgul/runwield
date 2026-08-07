@@ -420,7 +420,7 @@ Deno.test("Work Record generation preserves canonical state when the external in
     }
 });
 
-Deno.test("Work Record generation includes the task completion report", async () => {
+Deno.test("Work Record generation distills the task completion report into the summary", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         const executionReport = "- Implemented the settings save action.\n- Verification passed: deno task ci.";
@@ -448,8 +448,10 @@ Deno.test("Work Record generation includes the task completion report", async ()
         assertEquals(outcome.status, "generated");
         const record = await findWorkRecordById(cwd, "77777777-7777-4777-8777-777777777777");
         assertStringIncludes(record?.summary || "", "Completed with evidence");
-        assertStringIncludes(record?.sections["Execution Report"] || "", "Implemented the settings save action.");
-        assertStringIncludes(record?.sections["Execution Report"] || "", "Verification passed: deno task ci.");
+        assertStringIncludes(record?.summary || "", "Implemented the settings save action.");
+        assertStringIncludes(record?.summary || "", "Verification passed: deno task ci.");
+        assertEquals(record?.sections["Execution Report"], undefined);
+        assertEquals(record?.body.includes("## Execution Report"), false);
     } finally {
         await cleanupTempProject(cwd);
     }

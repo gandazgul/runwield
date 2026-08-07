@@ -26,18 +26,3 @@ Validation passed, including targeted Plan/workflow/Work Record/Workspace tests,
 Ticket References are demand provenance only: RunWield preserves user-supplied URLs for navigation and delivery history
 without fetching provider data, syncing status, or treating external trackers as lifecycle owners. Epic Work Records
 aggregate Epic and child Ticket References deterministically while child Plans retain only direct references.
-
-## Execution Report
-
-- Implemented provider-neutral Ticket References across Plan front matter, Slicer descriptors/prompts, Work Record
-  schema/generation/index/search/read surfaces, and Workspace Plan detail rendering.
-- Updated Planner/Architect/Slicer guidance plus PRD and design-system docs for demand-provenance boundaries and
-  metadata-reference link styling.
-- Added regression coverage for Plan round-trips/child preservation, Work Record snapshot/aggregation/search hydration,
-  and Workspace safe link rendering.
-- Verification passed: `deno test -A src/plan-store.test.js`; workflow prompt/tests; Work Record/tool/CLI tests;
-  `deno task workspace:test`; and full `deno task ci` (1583 passed, release smoke passed).
-- Headed browser check: ran Workspace at `http://127.0.0.1:5173`, opened standalone and child Ticket fixture details
-  with `agent-browser --headed`; verified direct vs Epic inherited groups, long URL rendering, safe external
-  href/target/rel, non-HTTP value not linked, no `example.com` network request before activation; screenshots saved at
-  `/tmp/ticket-standalone.png` and `/tmp/ticket-child.png`.

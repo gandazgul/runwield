@@ -29,16 +29,3 @@ automated tests cover BEL emission, opt-out, disabled events, fallback behavior,
 
 Keep terminal feedback owned by the TUI boundary and user terminal configuration; avoid native desktop notification
 sound options so BEL and desktop alerts do not create duplicate sound behavior.
-
-## Execution Report
-
-- Implemented portable TUI terminal BEL for enabled RunWield attention notifications, with `notifications.terminalBell`
-  defaulting to `true` and literal `false` suppressing BEL only.
-- Preserved existing macOS desktop notification delivery/click behavior and kept `terminal-notifier`/`osascript`
-  commands free of native sound options to avoid duplicate alerts.
-- Updated config schema, settings docs, and marked the notification sound TODO complete.
-- Verified: `deno test -A src/ui/tui/system-notifications.test.js` passed;
-  `deno fmt --check src/ui/tui/system-notifications.js src/ui/tui/system-notifications.test.js docs/settings.md TODO.md config.schema.json`
-  passed; `deno run ci` passed (1717 tests).
-- Manual terminal-emulator checks were not run in this non-interactive session; automated tests cover injected BEL
-  emission, opt-out, disabled events, fallback, and failure isolation.

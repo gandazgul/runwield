@@ -33,16 +33,3 @@ The broader canonical Guide/domain-context reconciliation noted in the Plan rema
 
 The `.md` guard is intentionally lexical and not a sandbox; future expansion to `.markdown` or `.mdx` should be a
 deliberate validator-policy change with regression coverage.
-
-## Execution Report
-
-- Implemented `write_docs` / `edit_docs` Markdown-restricted Custom Tools and auto-wiring; non-`.md` targets are
-  rejected before mutation.
-- Updated Guide policy/tools and docs so Guide can only preserve/update ordinary `.md` docs on explicit follow-up;
-  Router and Operator behavior remain unchanged.
-- Added regression coverage for tool behavior, Guide tool policy, Runtime titles, metrics, and delegated-agent
-  exclusion.
-- Verification passed: `deno test -A src/tools/__tests__/docs-file-tools.test.js`; targeted session/runtime tests;
-  `deno test -A src/tools/__tests__/delegate-agent.test.js`; `deno task ci`.
-- Manual model-backed Guide conversation flows were not run; equivalent tool and policy behavior was covered by
-  automated tests.

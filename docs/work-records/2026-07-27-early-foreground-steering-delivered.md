@@ -27,15 +27,3 @@ One `deno task ci` run hit a transient cwd cleanup failure in `settings.test.js`
 
 Foreground steering now intentionally trades parallel tool throughput for earlier responsiveness by forcing sequential
 tool boundaries and skipping later requested tools when steering is pending.
-
-## Execution Report
-
-- Implemented foreground steering target stack in `HostedSession`, root/isolated session push-pop lifetimes, and
-  active-target steering while preserving root-only helpers.
-- Added early steering interruption guard that forces sequential tool execution and skips later requested tools when
-  steering is pending.
-- Updated `SessionRuntime` steering/queue source handling, documentation terminology, and targeted session tests.
-- Verification passed:
-  `deno test -A src/shared/session/early-steering.test.js src/shared/session/session-runtime.test.js src/shared/session/session-prompt.test.js src/shared/session/session-catalog.test.js`.
-- Verification passed: `deno task ci` (one intermediate run hit a transient cwd cleanup failure in `settings.test.js`;
-  immediate rerun passed cleanly).

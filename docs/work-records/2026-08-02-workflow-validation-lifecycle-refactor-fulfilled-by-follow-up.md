@@ -33,17 +33,3 @@ completion happened in the follow-up verified Plan.
 
 For large lifecycle refactors, preserve explicit follow-up links when completion is achieved by a later verified Plan so
 partial original execution history is not mistaken for verified delivery.
-
-## Execution Report
-
-- Removed the dead `createExecutionWorktree` seam path from `startActiveExecutionWorkflow`: no
-  `__deps?.createExecutionWorktree` alias remains in `src/` or `scripts/`.
-- Updated workflow/load-plan tests to use `createWorktreeGitArtifacts` instead of the removed zombie seam name, and kept
-  registry settlement identity explicit for injected artifacts.
-- Tightened seam enforcement by removing `createExecutionWorktree` from `MACHINERY_SEAMS` and
-  `scripts/injection-seam-baseline.json`; `deno task seams:check` passes
-  (`150 seam(s) across 13 module(s), 24 machinery`).
-- Verification attempted: `deno task ci` does not pass in the current worktree; failures are in the in-progress
-  validation lifecycle refactor (`plan-lifecycle`/handoff tests rejecting `validation_passed` from `implemented`, plus
-  related golden timeout). Targeted `workflow.test.js` passed once after the fix, but later reruns in this dirty
-  worktree hit leftover duplicate worktree registry entries from failed attempts.

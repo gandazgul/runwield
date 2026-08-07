@@ -29,15 +29,3 @@ session ids, stdio MCP server support, cancellation settlement ordering, and val
 
 Use the new ACP implementation reference as the baseline for future conformance-fix Plans; current repository ACP tests
 prove MVP behavior, not official ACP v1 conformance.
-
-## Execution Report
-
-- Added `docs/acp-implementation-details.md` with ACP v1 audit baseline, current stdio/SessionRuntime implementation
-  details, method/capability/event/interaction mappings, and prioritized required vs optional gaps.
-- Updated `docs/index.md` to link the new ACP reference under RunWield reference docs.
-- Key documented verdict: RunWield is an ACP v1 stdio MVP, not fully v1-conformant; required gaps include version
-  negotiation, reloadable session ids, stdio MCP server support, cancellation settlement ordering, and
-  `usage_update.cost` shape.
-- Verified docs formatting with `deno fmt --check docs/acp-implementation-details.md docs/index.md`.
-- Verified full repository with `deno task ci` (passed; only expected warnings about missing `.env`, chunk size, and
-  package/build-script notices).

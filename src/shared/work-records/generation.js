@@ -525,9 +525,6 @@ function buildBody(source, sections) {
     if (nonEmptyString(sections.futurePlanningNotes)) {
         lines.push("", "## Future Planning Notes", "", nonEmptyString(sections.futurePlanningNotes));
     }
-    if (nonEmptyString(source.executionReport)) {
-        lines.push("", "## Execution Report", "", nonEmptyString(source.executionReport));
-    }
     const waiverText = formatObjectiveCheckWaivers(source);
     if (waiverText) {
         lines.push("", "## Objective Check Waivers", "", waiverText);

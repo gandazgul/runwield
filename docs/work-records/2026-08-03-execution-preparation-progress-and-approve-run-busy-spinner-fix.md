@@ -42,21 +42,3 @@ and busy ownership stays with `SessionRuntime`'s reference-counted workflow busy
 should keep that boundary and reuse `emitSystemStatus` rather than adding new UI event paths. Reused-worktree and
 non-Git paths must keep distinct, truthful wording (never `creating worktree`). Manual TUI spot-checks of the Approve &
 Run spinner resume and reused-worktree wording remain worth doing interactively since they were not exercised live here.
-
-## Execution Report
-
-- Implemented execution-preparation progress: added typed `execution-preparation-progress.ts` helpers and wired
-  `workflow.js` to emit truthful RunWield system statuses for fresh worktree creation, reused worktrees, non-Git
-  in-place execution, Objective-Failing Check baseline runs, Plan materialization/restoration/reconciliation, Plan
-  status update, and Engineer/Frontend Engineer launch.
-- Fixed Approve & Run busy feedback: `runtime-interaction-adapter.js` now restores the TUI busy spinner only after
-  approved `run` Plan Reviews, avoiding stuck-busy behavior for approve-for-later flows.
-- Added/updated tests with test-count delta +5: new `execution-progress.test.ts` has 4 new behavior tests;
-  `session-runtime.test.js` adds 1 busy workflow-operation test; existing `runtime-interaction-adapter.test.js` and
-  `load-plan-execution.test.js` were rewritten/strengthened for the new behavior, with no tests removed.
-- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/execution-progress.test.ts`; targeted suite
-  for runtime interaction/session/load-plan; all three Objective-Failing Checks; `deno task test` passed on retry after
-  an initial transient npm node_modules lock-message failure in `src/cmd/help/index.test.ts` was rerun cleanly;
-  `deno task seams:check` passed.
-- Manual TUI checks from the Verification Plan were not performed because this API session is non-interactive/no live
-  TUI; automated coverage exercises the corresponding status and busy-state flows.

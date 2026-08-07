@@ -35,18 +35,3 @@ Resolve the existing seams baseline failures in `engineer-runner.ts`, `epic-cont
 
 For TypeScript migrations, keep behavior suites intact and update imports/baselines directly; do not use `seams:update`
 to loosen existing seam regressions.
-
-## Execution Report
-
-- Migrated the eight direct Custom Tool implementations to non-empty `.ts` modules and removed their `.js`
-  implementations: `delegate-agent`, `multi_file_edit`, `pair-checkpoint`, `review-complete`, `see-image`,
-  `task-completed`, `triage-report`, and `user-interview`.
-- Updated live imports/type references and `scripts/language-policy-baseline.json`; remaining `.js` references are
-  historical `src/plan-store.test.js` fixture strings only.
-- Preserved focused behavior coverage; no tests were deleted or replaced, only import specifiers were updated.
-- Verification passed: OC1 shape check; `deno task check`; `deno task language-policy:check`; OC2 direct tool suite
-  (`84 passed`); focused suite excluding the plan-listed missing `src/shared/workflow/agent-runners.integration.test.ts`
-  (`118 passed`).
-- Verification failed: `deno task seams:check` and therefore `deno task ci` fail on existing injection-seam regressions
-  in `engineer-runner.ts`, `epic-continuation.ts`, `execution-start.ts`, `plan-executor.ts`, and `planning-agent.ts`;
-  `deno task seams:update` also refused to loosen the baseline.

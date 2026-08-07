@@ -37,24 +37,6 @@ still reports legacy names in `docs/plans/`.
 Case-sensitive filename migration checks must account for the host filesystem. Future checks that require distinct paths
 differing only by case need a case-sensitive fixture or separate scenario assertions.
 
-## Execution Report
-
-- Implemented canonical domain-language paths and temporary exact-uppercase migration in
-  `src/shared/domain-language.ts`; migrated CLI implementation to `src/cli.ts` with `src/cli.js` as the stable
-  entrypoint and stderr-only startup notices.
-- Moved repository glossary to `docs/domain-language.md`, renamed bundled format to `domain-language-format.md`, and
-  updated Agents, Skills, init guidance, command text, tests, README/current docs, and maintained PRDs to canonical
-  paths.
-- Added/updated automated coverage in `src/shared/domain-language.test.ts`, `src/cmd/init/index.test.ts`, and Guide
-  policy tests; test count delta: added new `domain-language.test.ts` with 11 tests, removed 0 tests.
-- Verification passed: targeted
-  `deno run -A scripts/run-tests.js src/shared/domain-language.test.ts src/cmd/init/index.test.ts src/shared/session/__tests__/session-tools-policy.test.js`;
-  CLI/compile affected tests; `deno task ci` (248 files passed / 0 failed).
-- Objective checks: OC1, OC3, OC4 passed; OC2 as written cannot pass on this case-insensitive temp filesystem because
-  `CONTEXT.md` and `context.md` are the same stored file, so I verified exact-uppercase and lowercase scenarios
-  separately; OC5 passes when following the Verification Plan exclusion for `docs/plans/`, but the literal OC5 command
-  still reports historical Plan records.
-
 ## Objective Check Waivers
 
 - 2026-08-06T15:39:17.607Z (mechanical_validation) OC2: Objective check requires a case-sensitive filesystem path
