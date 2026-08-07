@@ -121,6 +121,8 @@ repos that RunWield works on so they dont fall into this pattern either.
 
 ### Others
 
+- [ ] collapse the tool calls between thinking to 1 block with 1 line per tool call the current header. On click on that
+      block expand them to separate blocks with the full tool call result.
 - [ ] Upgrade PI docs/plans/upgrade-pi-0-84-and-latex-rendering.md
 - [ ] Grab Matt Pockock wizard skill.
 - [ ] Plans should have optional dependencies on other plans, where an Epic is overkill but you need 2 or 3 sequencial
