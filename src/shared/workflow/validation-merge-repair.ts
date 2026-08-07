@@ -7,6 +7,7 @@
 import { runPlanFrontMatterTransition } from "./state-transition.ts";
 import type { PhaseContext, PublicationOutcome, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
+import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
 
 /**
  * Where a merge failure has to be repaired.
@@ -169,10 +170,19 @@ export async function dispatchMergeRepair(
     emitStatus(args, `Merge failed while publishing ${args.planName}: ${reason}`, "warning");
     emitStatus(args, `Dispatching ${context.executionAgent} to resolve the conflict in ${repairCwd}.`);
     args.session.setActiveWorkflow({ ...context.workflowBase });
-    const outcome = await args.session.runActiveAgentTurn({
+    const outcome = await args.session.runIndependentRepairTurn({
         agentName: context.executionAgent,
-        userRequest:
-            `Worktree merge failed while publishing ${args.planName}. Repair the merge/integration failure, then call task_completed. Reason:\n\n${reason}`,
+        userRequest: buildValidationRepairPrompt({
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            executionCwd: context.executionCwd,
+            repairCwd,
+            worktreeId: context.worktreeId,
+            worktreeBranch: context.worktreeBranch,
+            worktreeBaseBranch: context.worktreeBaseBranch,
+            repairsNeeded:
+                `Worktree merge failed while publishing ${args.planName}. Repair the merge or integration failure.\n\n${reason}`,
+        }),
         cwd: repairCwd,
     });
     return outcome.completed;

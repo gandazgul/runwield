@@ -1,9 +1,10 @@
 /**
  * First half of the repaired-merge publication Golden test.
  *
- * The execution Agent resolves a real detached merge conflict and then kills this
- * isolated Golden child before its tool can return. A second process imports the
- * resume scenario and must publish solely from durable Project state.
+ * A real detached merge conflict is staged, then this isolated Golden child
+ * completes the repair merge and is killed before publication resumes. A second
+ * process imports the resume scenario and must publish solely from durable Project
+ * state.
  */
 
 import { assert } from "@std/assert";
@@ -122,31 +123,10 @@ export const repairedMergeInterruptionScenario = {
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },
     timeoutMs: 60000,
-    script: [{
-        id: "engineer-repairs-detached-merge-then-process-stops",
-        agent: "engineer",
-        phase: "engineer",
+    actions: [{
+        type: "repairStoredMergeWorktreeAndKill",
         planName,
-        ordinal: 1,
-        requiredTools: ["bash"],
-        thinking: "Resolve the real detached merge conflict before the process is interrupted.",
-        toolCalls: [{
-            name: "bash",
-            arguments: {
-                command:
-                    `printf 'repaired version\\n' > golden-repaired-merge.txt && git add golden-repaired-merge.txt && git -c core.editor=true merge --continue && kill -KILL ${Deno.pid}`,
-            },
-        }],
+        path: "golden-repaired-merge.txt",
+        text: "repaired version\n",
     }],
-    scriptedInteractions: [{
-        type: "select",
-        promptIncludes: "Plan recovery (validated_reviewer)",
-        value: "validate",
-    }],
-    actions: [
-        { type: "type", text: `/load-plan ${planName}` },
-        { type: "enter" },
-        { type: "enter" },
-        { type: "waitForEvent", event: "runtime:tool:start:bash", timeoutMs: 30000 },
-    ],
 };

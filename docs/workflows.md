@@ -40,8 +40,9 @@ self-verifies.
 
 A `QUICK_FIX` is handled directly by the Engineer for bounded no-plan code changes. It creates no saved executable plan.
 After Engineer calls `task_completed`, RunWield runs no-plan Mechanical Validation using the configured local CI
-command, sends CI failures back to Engineer, and stops after three total repair attempts. It does not run Reviewer,
-Plannotator code review, Plan Events, Plan Status changes, or worktree merge-back.
+command. Each CI repair runs as an independent Engineer session with a bounded failure packet, then RunWield stops after
+three total repair attempts. It does not run Reviewer, Plannotator code review, Plan Events, Plan Status changes, or
+worktree merge-back.
 
 ## FEATURE
 
@@ -74,7 +75,8 @@ recovery derives the style from the current Plan recommendation and current host
 with `collaborationRecommendation: "pair"` uses Pair only in a capable TUI, while ACP, headless, and other incapable
 hosts run autonomously without writing a fallback style to the Plan. If runtime context is lost, recovery re-derives
 from the Plan and host instead of restoring or asking for a stored selection. Validation repairs preserve the original
-execution owner and expose the active repair context only for that repair turn.
+execution owner but run in an independent Agent session. The repair packet names the checkout, worktree identity when
+available, Plan file path, and current feedback. It does not copy the implementation transcript or inline the Plan.
 
 Pair checkpoints are implementation-time steering points only. They may approve an increment, request revision, switch
 the remaining work to autonomous execution, or stop the run in progress; they are not Task Completion, Manual QA,
@@ -166,10 +168,10 @@ Workflow validation applies to executable saved plan work: standalone FEATURE pl
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
 run local validation, semantic review, delivery evidence capture, and merge-back proof before being marked verified.
 Semantic review runs in narrowing rounds — two full Plan reviews, then verification-only rounds — with findings carried
-across rounds in a Review Issue Ledger and repaired by the Reviewer-Feedback Engineer in fresh context. See
-`docs/plan-lifecycle.md` for the full sequence. Missing worktree context for a Git-backed FEATURE is a hard validation
-failure unless RunWield can recover the exact plan/worktree identity from durable plan metadata, the worktree registry,
-and Git facts.
+across rounds in a Review Issue Ledger and repaired by the Reviewer-Feedback Engineer in an independent repair session.
+The repair Agent reads the Plan from the linked worktree path when needed. See `docs/plan-lifecycle.md` for the full
+sequence. Missing worktree context for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the
+exact plan/worktree identity from durable plan metadata, the worktree registry, and Git facts.
 
 ## Completion-time Work Records
 

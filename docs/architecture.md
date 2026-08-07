@@ -780,6 +780,9 @@ flowchart TD
 - A Git-backed Plan becomes canonically `verified` through the worktree merge, so Plan verification evidence and code
   changes land together.
 - Merge and validation failures preserve worktree/Plan metadata for recovery instead of discarding the execution state.
+- CI, Objective Check, semantic-review, and merge repairs run in independent Agent sessions. Each repair receives a
+  bounded packet with the repair checkout, Plan path, available worktree identity, and current feedback instead of the
+  implementation transcript or an inline Plan copy.
 
 ### Worktree ownership
 
@@ -794,8 +797,8 @@ registry tracks local operational state.
 
 ### Validation modes
 
-Mechanical Validation is the narrow QUICK_FIX path: configured local CI plus up to three completion-gated Engineer
-repair attempts. It has no Plan lifecycle, semantic review, review UI, worktree merge, or registry mutation.
+Mechanical Validation is the narrow QUICK_FIX path: configured local CI plus up to three completion-gated, independent
+Engineer repair attempts. It has no Plan lifecycle, semantic review, review UI, worktree merge, or registry mutation.
 
 Workflow Validation is the Plan path: local CI, implementation-diff checks, semantic review, repair loops, optional
 human code review, and merge-back. Browser code review is an adapter at one point in this larger core workflow; the

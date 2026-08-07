@@ -144,8 +144,8 @@ export type AgentTurnOutcome = {
     brokenObjectiveChecks: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
 };
 
-/** What the engine asks for when it dispatches a completion-gated active Agent turn. */
-export type ActiveAgentTurnRequest = {
+/** What the engine asks for when it dispatches an independent completion-gated repair turn. */
+export type IndependentRepairTurnRequest = {
     agentName: string;
     userRequest: string;
     cwd: string;
@@ -273,8 +273,8 @@ export type ValidationSessionPort = {
     /** Escape-cancel registration for Objective-Failing Checks. */
     registerActiveInteraction(id: string, abortController: AbortController): void;
     unregisterActiveInteraction(id: string): void;
-    /** Completion-gated repair turns (runActiveAgentTurn + claim/acknowledge behind the port). */
-    runActiveAgentTurn(request: ActiveAgentTurnRequest): Promise<AgentTurnOutcome>;
+    /** Completion-gated validation repair in a fresh Agent session. */
+    runIndependentRepairTurn(request: IndependentRepairTurnRequest): Promise<AgentTurnOutcome>;
     /** Isolated Agent sessions: Semantic Reviewer and Reviewer-Feedback Engineer. */
     createInMemorySessionManager(cwd: string): SessionManagerHandle;
     runIsolatedAgentSession<K extends IsolatedAgentSessionRequest["kind"]>(

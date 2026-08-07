@@ -7,13 +7,7 @@ import { loadPlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
-import {
-    attachRecorder,
-    makeUi,
-    makeValidationProjectRoot,
-    NO_ISOLATED_AGENT_PORT,
-    runValidationLoop,
-} from "./validation-test-helpers.js";
+import { attachRecorder, makeUi, makeValidationProjectRoot, runValidationLoop } from "./validation-test-helpers.js";
 
 type RepairRunOptions = {
     reportCompletion: boolean;
@@ -63,7 +57,6 @@ async function runCiRepair({ reportCompletion }: RepairRunOptions) {
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", humanReviewMode: "none" },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => {
                         ciRuns += 1;
@@ -128,7 +121,6 @@ async function runBrokenObjectiveCheck(selection = "stop") {
                     humanReviewMode: "none",
                     objectiveChecks,
                 },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -190,7 +182,6 @@ async function runWaivedBrokenObjectiveCheckAgain() {
                 planName: "p",
                 planContent: "# p",
                 triageMeta,
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -257,7 +248,6 @@ async function runEngineerReportedBrokenRepairThatNowPasses() {
                     humanReviewMode: "none",
                     objectiveChecks,
                 },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => {
                         ciRuns += 1;
@@ -330,7 +320,6 @@ async function runObjectiveRepair({ reportCompletion }: RepairRunOptions) {
                     humanReviewMode: "none",
                     objectiveChecks,
                 },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => {
                         ciRuns += 1;
@@ -425,7 +414,7 @@ Deno.test("Engineer-reported broken objective check passes validation when rerun
     assertEquals(run.plan?.attrs.objectiveCheckWaivers, undefined);
 });
 
-Deno.test("validation session adapter returns empty brokenObjectiveChecks array without report", async () => {
+Deno.test("validation repair runs independently and returns structured completion", async () => {
     await withRuntimeCommandFixture(
         "validation-adapter-empty-broken-objective-checks-",
         async ({ setModelResponseFactory }) => {
@@ -438,7 +427,6 @@ Deno.test("validation session adapter returns empty brokenObjectiveChecks array 
             setModelResponseFactory(() =>
                 fauxAssistantMessage(fauxToolCall("task_completed", { message: "- Repair complete." }))
             );
-            await primeRepairRoot(hostedSession, projectRoot);
             hostedSession.setActiveExecutionWorkflow({
                 planName: "p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", humanReviewMode: "none" },
@@ -451,7 +439,7 @@ Deno.test("validation session adapter returns empty brokenObjectiveChecks array 
             });
 
             const port = createValidationSessionPort(hostedSession);
-            const outcome = await port.runActiveAgentTurn({
+            const outcome = await port.runIndependentRepairTurn({
                 agentName: "engineer",
                 userRequest: "Complete repair.",
                 cwd: projectRoot,
@@ -460,6 +448,7 @@ Deno.test("validation session adapter returns empty brokenObjectiveChecks array 
             assertEquals(outcome.completed, true);
             assertEquals(outcome.report, "- Repair complete.");
             assertEquals(outcome.brokenObjectiveChecks, []);
+            assertEquals(hostedSession.getRootAgentSession(), null);
             hostedSession.dispose();
         },
     );

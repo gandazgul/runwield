@@ -91,6 +91,14 @@ export type PublicationOutcome = {
     recorded: boolean;
 };
 
+export type UserActionChoice = "engineer_follow_up" | "retry" | "stop";
+
+export type UserActionOption = {
+    value: UserActionChoice;
+    label: string;
+    description?: string;
+};
+
 /** A pause for a decision only the user can make. */
 export type UserActionPause = {
     /** One sentence, past tense: the thing that stopped. */
@@ -99,6 +107,8 @@ export type UserActionPause = {
     doThis: string;
     /** Optional paths or names the sentences refer to. */
     details?: string[];
+    /** Optional choices. Defaults to Retry and Stop. */
+    options?: UserActionOption[];
 };
 
 export type ReviewFeedbackImage = { base64: string; mimeType: string };

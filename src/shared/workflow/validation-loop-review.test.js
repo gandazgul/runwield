@@ -411,7 +411,8 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(Boolean(repairSession), true);
     assertStringIncludes(repairSession.userRequest, "Missing guard");
     assertStringIncludes(repairSession.userRequest, "R1-1");
-    assertStringIncludes(repairSession.userRequest, "validation fixture");
+    assertStringIncludes(repairSession.userRequest, "[docs/plans/p.md]");
+    assertEquals(repairSession.userRequest.includes("Approved Plan body"), false);
     assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext]);
     assertEquals(repairWorkflowContexts, [expectedWorkflowContext]);
     assertEquals(repairActiveOwners, ["frontend-engineer"]);

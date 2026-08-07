@@ -260,6 +260,10 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     // signal a real model has, and it decides who to answer as, not what the
     // scenario asserts about the workflow.
     if (systemPrompt.includes("You are the Recorder")) return { agent: "recorder", phase: "work_record" };
+    // Validation repairs now run in an independent Engineer session. The composed
+    // TUI snapshot can still name Guide (or another prior Agent), so use the
+    // isolated session's system prompt to match the scripted repair turn.
+    if (systemPrompt.includes("You are the Software Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };
     // Workflow Validation runs the Semantic Reviewer in an isolated session while
@@ -1049,6 +1053,19 @@ async function runComposedTuiScenario(scenario, options) {
                     await Deno.mkdir(join(path, ".."), { recursive: true });
                     await Deno.writeTextFile(path, String(typed.text || ""));
                     events.push(`project:write:${typed.path || ""}`);
+                } else if (typed.type === "repairStoredMergeWorktreeAndKill") {
+                    const planName = String(typed.planName || "");
+                    const filePath = String(typed.path || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    const repairWorktreePath = loaded?.attrs.validationMergeRepairWorktree;
+                    if (typeof repairWorktreePath !== "string" || !repairWorktreePath) {
+                        throw new Error(`Expected ${planName} to have a validationMergeRepairWorktree.`);
+                    }
+                    await Deno.writeTextFile(join(repairWorktreePath, filePath), String(typed.text || ""));
+                    await runGoldenGit(["add", filePath], repairWorktreePath);
+                    await runGoldenGit(["-c", "core.editor=true", "merge", "--continue"], repairWorktreePath);
+                    events.push(`project:merge-repair-complete:${planName}`);
+                    Deno.kill(Deno.pid, "SIGKILL");
                 } else if (typed.type === "assertProjectFile") {
                     const path = join(Deno.cwd(), typed.path || "");
                     const exists = await Deno.stat(path).then(() => true).catch(() => false);

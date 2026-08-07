@@ -18,10 +18,8 @@
 import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { HostedSession } from "../session/hosted-session.js";
-import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { runIsolatedAgentSession } from "../session/session.js";
 import { requestHostedSessionInteraction } from "../session/session-runtime-interactions.js";
-import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
 import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
 import { SUBAGENTS } from "../../constants.js";
@@ -79,9 +77,9 @@ export const SYSTEM_SEMANTIC_REVIEW_PORT: SemanticReviewPort = Object.freeze({
 /**
  * Build the engine's session port over a real HostedSession.
  *
- * `sessionManager` and `semanticReviewPort` are optional composition-root inputs:
- * the active repair-turn manager and the isolated-session implementation (defaults
- * to the system one). Both are closed over here so the engine never sees them.
+ * `semanticReviewPort` is an optional external Agent-session boundary used by
+ * tests. Production uses the system implementation. Every repair session owns an
+ * in-memory manager so it cannot inherit or extend the root execution transcript.
  */
 /**
  * Run one isolated Agent session and translate the returned Pi messages into the
@@ -135,15 +133,12 @@ async function runIsolatedRequest(
 export function createValidationSessionPort(
     hostedSession: HostedSession,
     {
-        sessionManager,
         semanticReviewPort,
     }: {
-        sessionManager?: SessionManager;
         semanticReviewPort?: SemanticReviewPort;
     } = {},
 ): ValidationSessionPort {
     const isolatedSessions = semanticReviewPort || SYSTEM_SEMANTIC_REVIEW_PORT;
-    const turnSessionManager = sessionManager;
     return {
         cwd: hostedSession.cwd,
         getActiveWorkflow: () => hostedSession.getActiveExecutionWorkflow?.() || null,
@@ -164,23 +159,18 @@ export function createValidationSessionPort(
         requestInteraction: (request) => requestHostedSessionInteraction(hostedSession, request),
         registerActiveInteraction: (id, abortController) => hostedSession.addActiveInteraction(id, { abortController }),
         unregisterActiveInteraction: (id) => hostedSession.removeActiveInteraction(id),
-        runActiveAgentTurn: async ({ agentName, userRequest, cwd }) => {
-            // Runs the turn, then claims and acknowledges task completion
-            // internally: the adapter owns `hostedSession.getRootAgentSession()`,
-            // so the engine never sees Pi messages or the claim/acknowledge pair.
-            await runActiveAgentTurn({
+        runIndependentRepairTurn: async ({ agentName, userRequest, cwd }) => {
+            const messages = await isolatedSessions.runIsolatedAgentSession({
                 hostedSession,
                 agentName,
                 userRequest,
-                ...(turnSessionManager ? { sessionManager: turnSessionManager } : {}),
                 cwd,
+                sessionManager: SessionManager.inMemory(cwd),
             });
-            const completion = claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession());
-            if (!completion) return { completed: false, report: "", brokenObjectiveChecks: [] };
-            acknowledgeTaskCompletion(hostedSession, completion);
+            const completion = readLatestTaskCompletedReport(messages);
             return {
-                completed: true,
-                report: completion.report,
+                completed: completion.completed,
+                report: completion.message,
                 brokenObjectiveChecks: completion.brokenObjectiveChecks || [],
             };
         },

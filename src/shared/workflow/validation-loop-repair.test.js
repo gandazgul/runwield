@@ -20,6 +20,22 @@ function makeValidationUi(cwd = Deno.cwd()) {
     return { uiAPI, hostedSession: attachRecorder(new HostedSession({ id: "validation-repair-test", cwd }), uiAPI) };
 }
 
+/** @typedef {{ label: string }} PromptOption */
+/** @typedef {{ promptSelections: string[], promptSelect: (prompt: string, options: PromptOption[]) => Promise<string> }} ValidationPromptUi */
+
+/**
+ * @param {ValidationPromptUi} uiAPI
+ * @param {string[]} labels
+ * @param {string} value
+ */
+function selectAndCaptureOptions(uiAPI, labels, value) {
+    uiAPI.promptSelect = (_prompt, options) => {
+        uiAPI.promptSelections.push("prompted");
+        labels.splice(0, labels.length, ...options.map((option) => option.label));
+        return Promise.resolve(value);
+    };
+}
+
 /**
  * @param {import("../session/hosted-session.js").HostedSession} hostedSession
  * @param {"engineer" | "frontend-engineer"} agentName
@@ -88,7 +104,6 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI: {
                 run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
             },
@@ -116,7 +131,6 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -127,6 +141,8 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
             assertEquals(prompts.length, 1);
             assertStringIncludes(prompts[0], "Objective-Failing Checks");
             assertStringIncludes(prompts[0], "OC1: unmet");
+            assertStringIncludes(prompts[0], "test filter selects zero tests");
+            assertStringIncludes(prompts[0], "brokenObjectiveChecks");
             assertEquals(plan?.attrs.validationCiAttempts, 1);
         },
     );
@@ -143,7 +159,6 @@ Deno.test("runValidationLoop sends rejected broken Objective-Failing Check waive
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
                 },
@@ -173,7 +188,6 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
                 planName: "p",
                 planContent: "# p",
                 triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
                 localCI: {
                     run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
                 },
@@ -196,6 +210,8 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
         validationCiAttempts: 2,
     });
     const { hostedSession, uiAPI } = makeValidationUi();
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "stop");
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
@@ -221,10 +237,60 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
     assertEquals(uiAPI.promptSelections.length, 1);
     assertEquals(result.kind, "failed");
     assertStringIncludes(result.reason || "", "still failing");
-    assertStringIncludes(result.reason || "", "pick Retry");
+    assertStringIncludes(result.reason || "", "Pick Engineer follow-up");
+    assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
     assertEquals(plan?.attrs.status, "implemented");
     // Cleared, so the Retry the message promises actually gets rounds to spend.
     assertEquals(plan?.attrs.validationCiAttempts, 0);
+});
+
+Deno.test("Objective-Failing Checks after spent rounds can return control to Engineer", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        validationCiAttempts: 2,
+        objectiveChecks,
+    });
+    const { hostedSession, uiAPI } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            validationCiAttempts: 2,
+            objectiveChecks,
+        },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "engineer_follow_up");
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            validationCiAttempts: 2,
+            objectiveChecks,
+        },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
+    });
+
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "Engineer follow-up");
+    assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
 Deno.test("Retry after the CI rounds run out runs the tests again and carries on", async () => {
@@ -305,6 +371,39 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
+Deno.test("stopped validation can return control to the Engineer session", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", { classification: "QUICK_FIX", status: "implemented" });
+    const { hostedSession, uiAPI } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "engineer_follow_up");
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "implemented" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
+        },
+    });
+
+    assertEquals(result.kind, "paused");
+    assertStringIncludes(result.reason || "", "Engineer follow-up");
+    assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
+});
+
 Deno.test("runValidationPhase re-runs CI after a repair even when the Plan status jumped ahead", async () => {
     await withIncompleteRepairModel("validation-repair-rerun-", {}, async ({ projectRoot, hostedSession }) => {
         /** @type {number[]} */
@@ -321,7 +420,6 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "implemented" },
-            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI,
         });
         assertEquals(first.kind, "paused");
@@ -346,7 +444,6 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
-            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI,
         });
 

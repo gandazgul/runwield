@@ -24,10 +24,17 @@ import {
     recordMetric,
     resolvePhaseContext,
 } from "./validation-context.ts";
-import { AUTOMATIC_ROUNDS } from "./validation-types.ts";
+import { AUTOMATIC_ROUNDS, type UserActionOption } from "./validation-types.ts";
 import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { type AgentTurnOutcome, ValidationInteractionTypes } from "./validation-ports.ts";
+import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+
+const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
+    { value: "engineer_follow_up", label: "Engineer follow-up" },
+    { value: "retry", label: "Retry" },
+    { value: "stop", label: "Stop" },
+];
 
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -68,9 +75,16 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             const pause: UserActionPause = {
                 whatHappened:
                     `The tests for "${args.planName}" were stopped before they finished, so RunWield cannot tell yet whether the work is good.`,
-                doThis: "Pick Retry to run them again, or Stop to come back to this later.",
+                doThis: `Pick Engineer follow-up to return to the ${
+                    args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                } session, Retry to run them again now, or Stop to come back to this later.`,
+                options: ENGINEER_FOLLOW_UP_OPTIONS,
             };
-            if (await pauseForUserAction(args, pause) === "retry") continue;
+            const action = await pauseForUserAction(args, pause);
+            if (action === "retry") continue;
+            if (action === "engineer_follow_up") {
+                return pauseForEngineerFollowUp(args, phase.context, pause.whatHappened);
+            }
             return {
                 kind: "paused",
                 planName: args.planName,
@@ -86,9 +100,16 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 const pause: UserActionPause = {
                     whatHappened:
                         `The Objective-Failing Checks for "${args.planName}" were stopped before they finished, so RunWield cannot tell yet whether the work is good.`,
-                    doThis: "Pick Retry to run them again, or Stop to come back to this later.",
+                    doThis: `Pick Engineer follow-up to return to the ${
+                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                    } session, Retry to run them again now, or Stop to come back to this later.`,
+                    options: ENGINEER_FOLLOW_UP_OPTIONS,
                 };
-                if (await pauseForUserAction(args, pause) === "retry") continue;
+                const action = await pauseForUserAction(args, pause);
+                if (action === "retry") continue;
+                if (action === "engineer_follow_up") {
+                    return pauseForEngineerFollowUp(args, phase.context, pause.whatHappened);
+                }
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -230,13 +251,19 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     whatHappened: `The Objective-Failing Checks for "${args.planName}" are still unmet. ${
                         args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
                     } tried ${AUTOMATIC_ROUNDS} times and could not satisfy them.`,
-                    doThis:
-                        `Take a look yourself in ${phase.context.executionCwd}. When you think it is fixed, pick Retry and RunWield will run validation again and carry on from there.`,
-                    details: [objectiveCheckOutcome.reason],
+                    doThis: `Pick Engineer follow-up to return to the ${
+                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                    } session, Retry only after you fixed the checks outside RunWield, or Stop to come back to this later.`,
+                    details: [summarizeObjectiveChecks(objectiveCheckOutcome.results).compactBlock],
+                    options: ENGINEER_FOLLOW_UP_OPTIONS,
                 };
-                if (await pauseForUserAction(args, pause) === "retry") {
+                const action = await pauseForUserAction(args, pause);
+                if (action === "retry") {
                     attempts = 0;
                     continue;
+                }
+                if (action === "engineer_follow_up") {
+                    return pauseForEngineerFollowUp(args, phase.context, objectiveCheckOutcome.reason);
                 }
                 return {
                     kind: "failed",
@@ -367,14 +394,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 whatHappened: `The tests for "${args.planName}" are still failing. ${
                     args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
                 } tried ${AUTOMATIC_ROUNDS} times and could not get them passing.`,
-                doThis:
-                    `Take a look yourself in ${phase.context.executionCwd}. When you think it is fixed, pick Retry and RunWield will run the tests again and carry on from there.`,
+                doThis: `Pick Engineer follow-up to return to the ${
+                    args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                } session, Retry only after you fixed the tests outside RunWield, or Stop to come back to this later.`,
                 details: failureReason ? [failureReason] : undefined,
+                options: ENGINEER_FOLLOW_UP_OPTIONS,
             };
-            if (await pauseForUserAction(args, pause) === "retry") {
+            const action = await pauseForUserAction(args, pause);
+            if (action === "retry") {
                 attempts = 0;
                 continue;
             }
+            if (action === "engineer_follow_up") return pauseForEngineerFollowUp(args, phase.context, failureReason);
             return {
                 kind: "failed",
                 planName: args.planName,
@@ -415,6 +446,29 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             reason: "Mechanical Validation failed; repair required.",
         };
     }
+}
+
+function pauseForEngineerFollowUp(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    reason: string,
+): ValidationPhaseResult {
+    args.session.setActiveWorkflow({ ...context.workflowBase });
+    emitStatus(
+        args,
+        `Validation is paused. Send follow-up instructions to ${
+            args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
+        } in this session when you are ready.`,
+        "warning",
+    );
+    return {
+        kind: "paused",
+        planName: args.planName,
+        projectRoot: context.projectRoot,
+        reason: `Mechanical Validation paused for ${
+            args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
+        } follow-up. ${reason}`,
+    };
 }
 
 export async function runPlanObjectiveChecks(
@@ -476,7 +530,7 @@ export async function runPlanObjectiveChecks(
         emitStatus(args, "Objective-Failing Checks canceled.", "warning");
         return { kind: "canceled" };
     }
-    emitStatus(args, summary.block, summary.broken || summary.unmet ? "warning" : "success");
+    emitStatus(args, summary.compactBlock, summary.broken || summary.unmet ? "warning" : "success");
     if (summary.broken > 0) {
         return { kind: "broken", reason: `Objective-Failing Check defect.\n\n${summary.block}`, results };
     }
@@ -578,11 +632,23 @@ export async function dispatchObjectiveCheckRepair(
         } to satisfy them...`,
         "warning",
     );
-    return await args.session.runActiveAgentTurn({
+    return await args.session.runIndependentRepairTurn({
         agentName: context.executionAgent,
-        userRequest:
-            "The Plan failed Objective-Failing Checks during Mechanical Validation. Fix the implementation so these checks exit 0, then call task_completed when the repair is complete. Do not edit the Plan checks unless the user explicitly asks for a new Plan review. If you determine a check is broken, report it in task_completed.brokenObjectiveChecks with id and explanation. If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
-            (feedback ? `User feedback:\n${feedback}\n\n` : "") + summary.block,
+        userRequest: buildValidationRepairPrompt({
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            executionCwd: context.executionCwd,
+            repairCwd: context.executionCwd,
+            includePlanLink: isPlannedChangeClassification(args.triageMeta.classification),
+            worktreeId: context.worktreeId,
+            worktreeBranch: context.worktreeBranch,
+            worktreeBaseBranch: context.worktreeBaseBranch,
+            repairsNeeded: [
+                "First diagnose each failed Objective-Failing Check. Classify it as either an implementation defect or a defective check. A check is defective when its command cannot prove the objective, including when a test filter selects zero tests, a named test or file does not exist, the command is invalid, or the environment cannot run it reliably. For an implementation defect, repair the implementation and rerun the check. For a defective check, do not change unrelated implementation or repeatedly rerun it: call task_completed with a brokenObjectiveChecks entry that includes the check id, its command when known, and the concrete evidence that makes the check defective. RunWield will ask the user whether to waive it. Do not edit the approved Plan check unless the user explicitly asks for Plan review. If the repair involves tests, follow the write-tests skill for sound testing behavior.",
+                ...(feedback ? [`User feedback:\n${feedback}`] : []),
+                summary.block,
+            ].join("\n\n"),
+        }),
         cwd: context.executionCwd,
     });
 }
@@ -593,10 +659,9 @@ export async function dispatchCiRepair(
     ciResult: ValidationLocalCIResult,
 ): Promise<boolean> {
     args.session.setActiveWorkflow({ ...context.workflowBase });
-    // Pin the loop here before the Agent runs. The repair reports `task_completed`
-    // into the root transcript, which is also what marks a Plan implemented — so
-    // without this the next phase reads an advanced status and jumps past the CI
-    // that has not passed yet.
+    // Pin the loop before the independent repair runs. Plan state can advance while
+    // the repair is active, but this CI attempt has not passed. The remembered phase
+    // prevents a later dispatch from trusting that newer status and skipping CI.
     args.session.rememberPosition(args.planName, {
         phase: "mechanical",
         awaiting: "ci_repair",
@@ -609,11 +674,21 @@ export async function dispatchCiRepair(
         "warning",
         { outcome: "running", stage: "engineer_repair", checks: { ci: "failed" } },
     );
-    const outcome = await args.session.runActiveAgentTurn({
+    const outcome = await args.session.runIndependentRepairTurn({
         agentName: context.executionAgent,
-        userRequest:
-            "The project failed CI validation. Fix the following build errors, then call task_completed when the repair is complete. If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
-            getCiFailureReason(ciResult),
+        userRequest: buildValidationRepairPrompt({
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            executionCwd: context.executionCwd,
+            repairCwd: context.executionCwd,
+            includePlanLink: isPlannedChangeClassification(args.triageMeta.classification),
+            worktreeId: context.worktreeId,
+            worktreeBranch: context.worktreeBranch,
+            worktreeBaseBranch: context.worktreeBaseBranch,
+            repairsNeeded:
+                "The project failed CI validation. Fix the build errors below. If the repair involves tests, follow the write-tests skill for sound testing behavior.\n\n" +
+                getCiFailureReason(ciResult),
+        }),
         cwd: context.executionCwd,
     });
     return outcome.completed;

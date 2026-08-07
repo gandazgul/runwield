@@ -106,7 +106,6 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
  */
 function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
     const session: ValidationSessionPort = createValidationSessionPort(args.hostedSession, {
-        sessionManager: args.sessionManager,
         semanticReviewPort: args.semanticReviewPort,
     });
     return {

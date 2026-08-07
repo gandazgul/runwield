@@ -42,6 +42,7 @@ export interface ObjectiveCheckSummary {
     met: number;
     unmet: number;
     broken: number;
+    compactBlock: string;
     block: string;
 }
 
@@ -263,15 +264,23 @@ function formatResult(result: ObjectiveCheckResult): string {
     return lines.join("\n");
 }
 
+function formatCompactResult(result: ObjectiveCheckResult): string {
+    const detail = result.reason || result.output.trim();
+    const firstLine = detail.split("\n", 1)[0]?.trim();
+    return `- ${result.id}: ${result.status}${firstLine ? ` — ${firstLine}` : ""}`;
+}
+
 export function summarizeObjectiveChecks(results: ObjectiveCheckResult[]): ObjectiveCheckSummary {
     const met = results.filter((result) => result.status === "met").length;
     const unmet = results.filter((result) => result.status === "unmet").length;
     const broken = results.filter((result) => result.status === "broken").length;
     const statusLine =
         `Objective-Failing Checks: ${met} met, ${unmet} unmet, ${broken} broken (${results.length} total).`;
+    const compactResultLines = results.map(formatCompactResult).join("\n");
+    const compactBlock = compactResultLines ? `${statusLine}\n\n${compactResultLines}` : statusLine;
     const resultLines = results.map(formatResult).join("\n\n");
     const block = resultLines ? `${statusLine}\n\n${resultLines}` : statusLine;
-    return { total: results.length, met, unmet, broken, block };
+    return { total: results.length, met, unmet, broken, compactBlock, block };
 }
 
 export function classifyObjectiveChecksBaseline(

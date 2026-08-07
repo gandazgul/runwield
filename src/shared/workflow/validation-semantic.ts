@@ -41,6 +41,7 @@ import { runHumanReviewPhase } from "./validation-human-review.ts";
 import { persistHumanReviewMetadata } from "./validation-human-review.ts";
 import { runPublicationPhase } from "./validation-publication.ts";
 import { UserActionPause } from "./validation-types.ts";
+import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
 
 export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -488,23 +489,26 @@ export async function dispatchReviewFeedbackRepair(
         const sessionOutcome = await args.session.runIsolatedAgentSession({
             kind: "feedback_engineer",
             agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
-            userRequest: [
-                packet.repairKind === "human_feedback"
-                    ? "A human reviewed this change and asked for the following. Their feedback is authoritative."
-                    : "A code reviewer found the following issues with this implementation. Fix every one of them.",
-                "",
-                "### Findings",
-                "",
-                packet.findingsSection || "(no findings text supplied)",
-                "",
-                buildDiffInspectionSection(packet.diffText),
-                "",
-                "### Approved Plan",
-                "",
-                args.planContent,
-                "",
-                "Report a disposition for every finding in your task_completed message.",
-            ].join("\n"),
+            userRequest: buildValidationRepairPrompt({
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                executionCwd: context.executionCwd,
+                repairCwd: context.executionCwd,
+                worktreeId: context.worktreeId,
+                worktreeBranch: context.worktreeBranch,
+                worktreeBaseBranch: context.worktreeBaseBranch,
+                authorityNote: packet.repairKind === "human_feedback"
+                    ? "A human reviewed this change. Their feedback is authoritative."
+                    : "A code reviewer found these issues. Fix every finding.",
+                repairsNeeded: [
+                    "### Findings",
+                    "",
+                    packet.findingsSection || "(no findings text supplied)",
+                    "",
+                    buildDiffInspectionSection(packet.diffText),
+                ].join("\n"),
+                completionInstruction: "Report a disposition for every finding, then call task_completed.",
+            }),
             images: packet.images,
             cwd: context.executionCwd,
             customTools: [createReviewDiffTool({ full: packet.diffText }) as unknown as OpaqueToolDefinition],
