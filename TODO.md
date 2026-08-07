@@ -256,7 +256,7 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
     universal pressure-detection + intent-preserving compaction loop from the PRD is still open.
 
 - [ ] Finish/verify Session Host + ACP external-client work:
-      [docs/prd/runwield-acp-session-host-PRD.md](docs/prd/runwield-acp-session-host-PRD.md).
+      [docs/prd/runwield-acp-protocol-prd.md](docs/prd/runwield-acp-protocol-prd.md).
   - Runtime/ACP event contract is largely consumer-ready; remaining gaps are external UX/integration (see also the
     `claude --resume` item).
 
@@ -282,7 +282,7 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
 ### P5 - Collaboration and Workspace
 
 - [ ] Build Attached Mode starting with the Claude Code PLANNED_CHANGE Preview:
-      [docs/prd/attached-mode-prd.md](docs/prd/attached-mode-prd.md).
+      [docs/prd/runwield-connect-prd.md](docs/prd/runwield-connect-prd.md).
   - BLOCKED on the session-independent validation-engine refactor (see Bugs → P0).
   - Keep all model calls host-owned while RunWield owns Plan Lifecycle, review, worktrees, validation, recovery, Work
     Records, and memory truth.
@@ -333,7 +333,8 @@ headed-browser checks, user checkpoints, and switch-to-AFK are live.
     checkpoints, and reconcile accepted Trusted Branch Team Memories back into local Mnemosyne state.
   - Never commit database/index state or activate Team Memories from untrusted branches.
 
-- [ ] Groom remaining Work Records v1 resume points: [docs/prd/work-records-prd.md](docs/prd/work-records-prd.md).
+- [ ] Groom remaining Work Records v1 resume points:
+      [docs/prd/done/work-records-prd.md](docs/prd/done/work-records-prd.md).
   - Decide headless/backfill flags, edit governance, Workspace integration, external Plan import behavior, richer
     authorship/audit direction, and any deferred `wld wr` subcommands.
 

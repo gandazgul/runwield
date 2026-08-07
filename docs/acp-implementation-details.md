@@ -370,6 +370,6 @@ cancellation ordering, and usage updates.
 
 ## Related documents
 
-- [RunWield Session Host and ACP Integration PRD](prd/runwield-acp-session-host-PRD.md)
+- [RunWield Session Host and ACP Integration PRD](prd/runwield-acp-protocol-prd.md)
 - [ADR-010: SessionRuntime Sibling Adapter Boundary for ACP](adr/010-session-runtime-sibling-adapters-and-acp.md)
 - [SessionRuntime and ACP v1 stdio MVP Work Record](work-records/2026-07-17-sessionruntime-and-acp-v1-stdio-mvp.md)

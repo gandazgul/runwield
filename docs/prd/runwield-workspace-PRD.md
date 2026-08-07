@@ -606,7 +606,7 @@ implementing only Workspace Intelligence Search must not promote Project Evidenc
 ## 14. References
 
 - [RunWield Core PRD](./runwield-core-prd.md)
-- [Session Host and ACP PRD](./runwield-acp-session-host-PRD.md)
+- [Session Host and ACP PRD](./runwield-acp-protocol-prd.md)
 - [Cymbal multi-Project federation research](../research/cymbal-multiproject-search-federation.md)
 - [Sourcebot integration research](../research/sourcebot-workspace-integration.md)
 - [Local-First Plan Management UI PRD](./done/local-first-plan-management-ui-PRD.md)

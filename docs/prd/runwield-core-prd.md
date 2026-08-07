@@ -456,7 +456,7 @@ coordination risks stale context, unintended branches, or duplicated side effect
 
 Personal Remote Workspace v1 adds the cross-process coordination layer accepted in
 [ADR-011](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md) while preserving the sibling
-Runtime boundary described in [runwield-acp-session-host-PRD.md](./runwield-acp-session-host-PRD.md).
+Runtime boundary described in [runwield-acp-protocol-prd.md](./runwield-acp-protocol-prd.md).
 
 Core requirements for that layer:
 
