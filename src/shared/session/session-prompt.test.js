@@ -11,7 +11,9 @@ import {
     assembleFinalSystemPromptWithContextProjection,
     deduplicateUnansweredRequest,
     ensureRootAgentSession,
+    getEngineerCompactionThreshold,
     getGlobalAgentMdPaths,
+    installEngineerAutoCompactionThreshold,
     readGlobalAgentMd,
     runIsolatedAgentSession,
     runNonInteractiveAgentPrompt,
@@ -342,13 +344,20 @@ sessionPromptTest("task_completed assistant messages bypass post-turn auto-compa
     );
 });
 
-sessionPromptTest("runPrompt proactively compacts before a prompt that would exceed the safe threshold", async () => {
+sessionPromptTest("Engineer compaction uses 50 percent of context or 80K tokens", () => {
+    assertEquals(getEngineerCompactionThreshold(AGENTS.ENGINEER, 128_000), 64_000);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.FRONTEND_ENGINEER, 200_000), 80_000);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.REVIEWER_FEEDBACK_ENGINEER, 1_000_000), 80_000);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.PLANNER, 128_000), null);
+});
+
+sessionPromptTest("runPrompt compacts Engineer before Pi's configured threshold", async () => {
     const calls = /** @type {string[]} */ ([]);
     const session = /** @type {any} */ ({
         model: { provider: "test", id: "model", input: ["text"], contextWindow: 100 },
         modelRegistry: { hasConfiguredAuth: () => true },
         settingsManager: {
-            getCompactionSettings: () => ({ enabled: true, reserveTokens: 40, keepRecentTokens: 10 }),
+            getCompactionSettings: () => ({ enabled: true, reserveTokens: 10, keepRecentTokens: 10 }),
         },
         sessionManager: {
             buildSessionContext: () => ({ messages: [], thinkingLevel: "", model: null }),
@@ -381,12 +390,60 @@ sessionPromptTest("runPrompt proactively compacts before a prompt that would exc
             systemPrompt: "system",
         },
         agentName: "engineer",
-        userRequest: "large incoming prompt ".repeat(60),
+        userRequest: "next task",
         finalSystemPrompt: "system",
         subscriberState,
     });
 
     assertEquals(calls, ["compact:threshold:false", "prompt"]);
+});
+
+sessionPromptTest("Engineer post-response compaction re-arms after new context growth", async () => {
+    const calls = /** @type {string[]} */ ([]);
+    let tokens = 50;
+    const session = /** @type {any} */ ({
+        model: { contextWindow: 100 },
+        settingsManager: {
+            getCompactionSettings: () => ({ enabled: true, reserveTokens: 10, keepRecentTokens: 10 }),
+        },
+        getContextUsage: () => ({ tokens, contextWindow: 100, percent: tokens }),
+        _checkCompaction: () => Promise.resolve(false),
+        _runAutoCompaction: (/** @type {string} */ reason, /** @type {boolean} */ willRetry) => {
+            calls.push(`compact:${reason}:${willRetry}`);
+            return Promise.resolve(true);
+        },
+    });
+
+    installEngineerAutoCompactionThreshold(session, AGENTS.ENGINEER);
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+    tokens = 54;
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+    tokens = 55;
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+
+    assertEquals(calls, ["compact:threshold:false", "compact:threshold:false"]);
+});
+
+sessionPromptTest("Engineer threshold respects disabled automatic compaction", async () => {
+    const calls = /** @type {string[]} */ ([]);
+    const session = /** @type {any} */ ({
+        model: { contextWindow: 100 },
+        settingsManager: {
+            getCompactionSettings: () => ({ enabled: false, reserveTokens: 10, keepRecentTokens: 10 }),
+        },
+        getContextUsage: () => ({ tokens: 75, contextWindow: 100, percent: 75 }),
+        _checkCompaction: () => Promise.resolve(false),
+        _runAutoCompaction: () => {
+            calls.push("compact");
+            return Promise.resolve(true);
+        },
+    });
+
+    installEngineerAutoCompactionThreshold(session, AGENTS.ENGINEER);
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+
+    assertEquals(calls, []);
 });
 
 sessionPromptTest("runPrompt sends fallback image markers without raw image content to text-only model", async () => {

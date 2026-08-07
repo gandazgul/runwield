@@ -1918,6 +1918,7 @@ export async function buildAgentSession({
     });
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     installEarlySteeringInterruption(/** @type {any} */ (session));
+    installEngineerAutoCompactionThreshold(session, agentName);
     installTaskCompletedAutoCompactionExclusion(session);
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
@@ -2219,8 +2220,140 @@ function estimateAgentMessagesTokens(messages) {
 /**
  * @typedef {Object} AutoCompactionSessionPatch
  * @property {(assistantMessage: unknown, skipAbortedCheck?: boolean) => Promise<boolean> | boolean} [_checkCompaction]
+ * @property {(reason: string, willRetry: boolean) => Promise<boolean>} [_runAutoCompaction]
  * @property {boolean} [__runWieldTaskCompletedAutoCompactionExcluded]
+ * @property {boolean} [__runWieldEngineerAutoCompactionInstalled]
  */
+
+/**
+ * @typedef {Object} EngineerCompactionState
+ * @property {boolean} armed
+ * @property {number | null} postCompactionBaselineTokens
+ */
+
+const ENGINEER_COMPACTION_CONTEXT_RATIO = 0.5;
+const ENGINEER_COMPACTION_MAX_TOKENS = 80_000;
+const ENGINEER_COMPACTION_REARM_GROWTH_RATIO = 0.05;
+const ENGINEER_COMPACTION_REARM_MAX_GROWTH_TOKENS = 8_000;
+const ENGINEER_AGENT_NAMES = new Set([
+    AGENTS.ENGINEER,
+    AGENTS.FRONTEND_ENGINEER,
+    AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+]);
+
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, EngineerCompactionState>} */
+const engineerCompactionStates = new WeakMap();
+
+/**
+ * Return the early compaction threshold for an Engineer execution session.
+ * Other agents use Pi's configured reserve-token threshold.
+ *
+ * @param {string} agentName
+ * @param {number} contextWindow
+ * @returns {number | null}
+ */
+export function getEngineerCompactionThreshold(agentName, contextWindow) {
+    if (!ENGINEER_AGENT_NAMES.has(agentName) || !Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+    return Math.min(Math.floor(contextWindow * ENGINEER_COMPACTION_CONTEXT_RATIO), ENGINEER_COMPACTION_MAX_TOKENS);
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @returns {EngineerCompactionState}
+ */
+function getEngineerCompactionState(session) {
+    let state = engineerCompactionStates.get(session);
+    if (!state) {
+        state = { armed: true, postCompactionBaselineTokens: null };
+        engineerCompactionStates.set(session, state);
+    }
+    return state;
+}
+
+/**
+ * Prevent repeated compaction when a summary itself remains above the early
+ * threshold. Re-arm immediately below the threshold. Above it, require new
+ * context equal to 5% of the window, capped at 8K tokens.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {number} currentTokens
+ * @param {number} totalTokens
+ * @param {number} threshold
+ * @param {number} contextWindow
+ * @returns {boolean}
+ */
+function shouldRunEngineerCompaction(session, currentTokens, totalTokens, threshold, contextWindow) {
+    const state = getEngineerCompactionState(session);
+    if (!state.armed) {
+        if (currentTokens < threshold) {
+            state.armed = true;
+            state.postCompactionBaselineTokens = null;
+        } else if (state.postCompactionBaselineTokens === null) {
+            state.postCompactionBaselineTokens = currentTokens;
+            return false;
+        } else {
+            const requiredGrowth = Math.min(
+                Math.max(1, Math.floor(contextWindow * ENGINEER_COMPACTION_REARM_GROWTH_RATIO)),
+                ENGINEER_COMPACTION_REARM_MAX_GROWTH_TOKENS,
+            );
+            if (currentTokens - state.postCompactionBaselineTokens < requiredGrowth) return false;
+            state.armed = true;
+            state.postCompactionBaselineTokens = null;
+        }
+    }
+    return totalTokens >= threshold;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ */
+function markEngineerCompactionComplete(session) {
+    const state = getEngineerCompactionState(session);
+    state.armed = false;
+    state.postCompactionBaselineTokens = null;
+}
+
+/**
+ * Add the Engineer threshold to Pi's normal post-response compaction check.
+ * Pi runs first so overflow recovery and its configured threshold stay intact.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {string} agentName
+ */
+export function installEngineerAutoCompactionThreshold(session, agentName) {
+    if (!ENGINEER_AGENT_NAMES.has(agentName)) return;
+
+    const target = /** @type {AutoCompactionSessionPatch} */ (/** @type {unknown} */ (session));
+    if (target.__runWieldEngineerAutoCompactionInstalled || typeof target._checkCompaction !== "function") return;
+
+    const originalCheckCompaction = target._checkCompaction;
+    target._checkCompaction = async function (assistantMessage, skipAbortedCheck = true) {
+        const compactedByPi = await originalCheckCompaction.call(this, assistantMessage, skipAbortedCheck);
+        if (compactedByPi) {
+            markEngineerCompactionComplete(session);
+            return true;
+        }
+
+        const message = /** @type {{ stopReason?: string }} */ (assistantMessage);
+        if (skipAbortedCheck && message.stopReason === "aborted") return false;
+        if (!session.settingsManager?.getCompactionSettings?.()?.enabled) return false;
+
+        const contextWindow = session.model?.contextWindow ?? 0;
+        const activeThreshold = getEngineerCompactionThreshold(agentName, contextWindow);
+        const usage = session.getContextUsage?.();
+        const currentTokens = typeof usage?.tokens === "number" ? usage.tokens : null;
+        if (activeThreshold === null || currentTokens === null) return false;
+        if (!shouldRunEngineerCompaction(session, currentTokens, currentTokens, activeThreshold, contextWindow)) {
+            return false;
+        }
+        if (typeof target._runAutoCompaction !== "function") return false;
+
+        const compacted = await target._runAutoCompaction.call(this, "threshold", false);
+        if (compacted) markEngineerCompactionComplete(session);
+        return compacted;
+    };
+    target.__runWieldEngineerAutoCompactionInstalled = true;
+}
 
 /**
  * @param {unknown} message
@@ -2269,9 +2402,10 @@ function installTaskCompletedAutoCompactionExclusion(session) {
  *
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {PreparedPromptContent} prepared
+ * @param {string} agentName
  * @returns {Promise<boolean>} true when a compaction attempt was started and succeeded
  */
-async function compactBeforePromptIfNeeded(session, prepared) {
+async function compactBeforePromptIfNeeded(session, prepared, agentName) {
     const settings = session.settingsManager?.getCompactionSettings?.();
     if (!settings?.enabled) return false;
     if (session.isStreaming || session.isCompacting) return false;
@@ -2295,12 +2429,18 @@ async function compactBeforePromptIfNeeded(session, prepared) {
         timestamp: Date.now(),
     };
     const totalTokens = currentTokens + estimateTokens(/** @type {any} */ (pendingUserMessage));
-    if (!shouldCompact(totalTokens, contextWindow, settings)) return false;
+    const engineerThreshold = getEngineerCompactionThreshold(agentName, contextWindow);
+    const needsCompaction = engineerThreshold === null
+        ? shouldCompact(totalTokens, contextWindow, settings)
+        : shouldRunEngineerCompaction(session, currentTokens, totalTokens, engineerThreshold, contextWindow);
+    if (!needsCompaction) return false;
 
     const runAutoCompaction = /** @type {{ _runAutoCompaction?: (reason: string, willRetry: boolean) => Promise<boolean> }} */
         (/** @type {unknown} */ (session))._runAutoCompaction;
     if (typeof runAutoCompaction !== "function") return false;
-    return await runAutoCompaction.call(session, "threshold", false);
+    const compacted = await runAutoCompaction.call(session, "threshold", false);
+    if (compacted && engineerThreshold !== null) markEngineerCompactionComplete(session);
+    return compacted;
 }
 
 /**
@@ -2781,7 +2921,7 @@ export async function runPrompt({
         await compactBeforePromptIfNeeded(session, {
             text: preparedImages.text,
             images: preparedImages.images,
-        });
+        }, agentName);
         await session.prompt(preparedImages.text, requestOptions);
         await session.agent.waitForIdle();
     } catch (error) {
