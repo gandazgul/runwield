@@ -66,6 +66,24 @@ delivered, and what the team should remember.
 This is done, but we need to do some better detection and guard against the pattern re-emerging. And apply this to the
 repos that RunWield works on so they dont fall into this pattern either.
 
+7 — ValidationSessionPort
+
+That was the question you did not have context for; my fault for compressing it. Concretely:
+src/shared/workflow/validation-ports.ts:253 defines one interface with 16 members that the validation engine uses to
+reach session machinery. Its own docstring lists what it carries: active workflow state, phase position memory, the
+progress panel, status emission, user interactions, escape-cancel registration, repair turns, isolated agent sessions,
+agent display names, post-verification handoffs.
+
+Under your rule, four of those are real — running an agent turn, isolated agent sessions, the in-memory session manager,
+user interaction. The other twelve are RunWield's own machinery, and an interface built per collaborator is the
+dependency bag with nicer syntax. It is exactly the shape your rule exists to prevent, and it is the largest surviving
+example in the tree.
+
+My recommendation stands: flag, do not fix here. Redesigning it means changing validation behavior, and folding that
+into a 93k-line move makes the diff impossible to review. Instead this plan adds a ratchet — an allowlist test naming
+every legitimate port file, so a new machinery port fails CI the way seams:check does — and a follow-up plan does the
+redesign. Say the word if you would rather do it inside this move.
+
 ## Bugs
 
 ### P0
