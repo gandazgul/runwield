@@ -42,8 +42,12 @@ own release policy and automation.
        what changed between RCs.
      - For Candidate promotion, remove Candidate/testing warnings and do not treat the shared Candidate source commit as
        an empty release; present the cumulative Stable notes for the promoted version.
-     - Start with **What's New** for important user-facing outcomes in plain language.
-     - Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
+     - Start with **⚠️Breaking⚠️** for any breaking changes, for release candates, carry the same breaking changes
+       notice from the previous Candidate, and for Stable releases, carry the same breaking changes notice from the
+       candidate being promoted if any.
+     - Then following the breaking changes notie add **What's New** for important user-facing outcomes in plain
+       language.
+     - Then Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
        **Breaking Changes** when relevant.
    - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
      behavior.
