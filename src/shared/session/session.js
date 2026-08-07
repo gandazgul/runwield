@@ -3107,8 +3107,10 @@ export async function runRootTurn({
         );
     }
 
+    const priorMessages = getRootExecutionMessages(session);
+    const requestToSend = deduplicateUnansweredRequest(priorMessages, userRequest);
     meta.rootTurnCount += 1;
-    const finalRequest = applyAttentionNudge(agentName, userRequest, meta.rootTurnCount);
+    const finalRequest = applyAttentionNudge(agentName, requestToSend, meta.rootTurnCount);
     if (isExecutionSession(session) && session.kind === "claude-cli") {
         return await session.session.runTurn({ userRequest: finalRequest, images });
     }
@@ -3121,6 +3123,42 @@ export async function runRootTurn({
         images,
         subscriberState: meta.subscriberState,
     });
+}
+
+/**
+ * @typedef {Object} TextMessage
+ * @property {string} [role]
+ * @property {string | Array<{type: string, text?: string}>} [content]
+ */
+
+/**
+ * Replace only an immediately repeated, unanswered request. This occurs when a
+ * backend recorded the request and then failed before it produced an answer.
+ *
+ * @param {TextMessage[]} priorMessages
+ * @param {string} userRequest
+ * @returns {string}
+ */
+export function deduplicateUnansweredRequest(priorMessages, userRequest) {
+    const lastMessage = priorMessages.at(-1);
+    if (lastMessage?.role !== "user") return userRequest;
+    return extractMessageText(lastMessage) === userRequest
+        ? "Continue the existing request. The full request is already present once in this conversation."
+        : userRequest;
+}
+
+/**
+ * @param {TextMessage} message
+ * @returns {string}
+ */
+function extractMessageText(message) {
+    const content = message.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+        .filter((block) => block && block.type === "text" && typeof block.text === "string")
+        .map((block) => block.text || "")
+        .join("");
 }
 
 /**
