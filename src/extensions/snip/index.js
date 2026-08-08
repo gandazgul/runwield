@@ -62,13 +62,54 @@ const SNIP_NO_FILTER_STDERR_PATTERN = '^snip: no filter for ".+", passing throug
  * and later command segments retain their original behavior.
  *
  * @param {string} command
+ * @param {string | null} [failureLabel]
  * @returns {string}
  */
-function withFilteredSnipStderr(command) {
+function withFilteredSnipStderr(command, failureLabel = null) {
+    if (failureLabel) {
+        const ignoredFailureLines =
+            `^(Check .+|Checked [0-9]+ files?|running [0-9]+ tests? from .+|.+ \\.\\.\\. ok( \\(.+\\))?|ok \\| [0-9]+ passed \\| 0 failed.*|snip: tracking error:.*|snip: no filter for .*)$`;
+        return `( runwield_snip_stdout="$(mktemp -t runwield-snip-stdout.XXXXXX)" || exit 1; ` +
+            `runwield_snip_stderr="$(mktemp -t runwield-snip-stderr.XXXXXX)" || exit 1; ` +
+            `trap 'rm -f "$runwield_snip_stdout" "$runwield_snip_stderr"' EXIT; ` +
+            `SNIP_TEE=0 ${command} >"$runwield_snip_stdout" 2>"$runwield_snip_stderr"; ` +
+            `runwield_snip_status=$?; if [ "$runwield_snip_status" -eq 0 ]; then ` +
+            `cat "$runwield_snip_stdout"; grep -vE '${SNIP_NO_FILTER_STDERR_PATTERN}' "$runwield_snip_stderr" >&2; ` +
+            `else runwield_snip_log="$(mktemp -t runwield-${
+                failureLabel.replaceAll(" ", "-")
+            }-failure.XXXXXX)" || exit 1; ` +
+            `{ cat "$runwield_snip_stdout"; grep -vE '${SNIP_NO_FILTER_STDERR_PATTERN}' "$runwield_snip_stderr"; } | ` +
+            `grep -vE '${ignoredFailureLines}' | ` +
+            `sed -E 's/^FAILED \\| [0-9]+ passed \\| ([1-9][0-9]*) failed/FAILED | \\1 failed/' >"$runwield_snip_log"; ` +
+            `if [ ! -s "$runwield_snip_log" ]; then printf '%s failed with exit code %s.\\n' '${failureLabel}' "$runwield_snip_status" >"$runwield_snip_log"; fi; ` +
+            `printf '${failureLabel} failed, read the failure log here: %s\\n' "$runwield_snip_log" >&2; fi; ` +
+            `exit "$runwield_snip_status" )`;
+    }
     return `( runwield_snip_stderr="$(mktemp -t runwield-snip-stderr.XXXXXX)" || exit 1; ` +
         `trap 'rm -f "$runwield_snip_stderr"' EXIT; ${command} 2>"$runwield_snip_stderr"; ` +
         `runwield_snip_status=$?; grep -vE '${SNIP_NO_FILTER_STDERR_PATTERN}' "$runwield_snip_stderr" >&2; ` +
         `exit "$runwield_snip_status" )`;
+}
+
+/**
+ * @param {string} commandText
+ * @returns {string | null}
+ */
+function getDenoValidationFailureLabel(commandText) {
+    const words = splitWords(commandText).map((word) => word.replace(/^['"]|['"]$/g, ""));
+    if (words.length < 2 || baseCommand(words[0]) !== "deno") return null;
+    switch (words[1]) {
+        case "test":
+            return "tests";
+        case "check":
+            return "type checks";
+        case "lint":
+            return "lint";
+        case "fmt":
+            return "format checks";
+        default:
+            return null;
+    }
 }
 
 /**
@@ -273,7 +314,7 @@ function rewriteCommand(originalCommand) {
     if (NO_REWRITE_PREFIXES.some((prefix) => parsed.commandText.startsWith(prefix))) return null;
 
     const snipCommand = `${parsed.envPrefix}snip run -- ${parsed.commandText.trimEnd()}`;
-    return `${withFilteredSnipStderr(snipCommand)}${rest}`;
+    return `${withFilteredSnipStderr(snipCommand, getDenoValidationFailureLabel(parsed.commandText))}${rest}`;
 }
 
 /**
@@ -300,4 +341,10 @@ export default function snipExtension(pi) {
     });
 }
 
-export const __testing = { findFirstSegmentEnd, parseSimpleSegment, rewriteCommand, withFilteredSnipStderr };
+export const __testing = {
+    findFirstSegmentEnd,
+    getDenoValidationFailureLabel,
+    parseSimpleSegment,
+    rewriteCommand,
+    withFilteredSnipStderr,
+};

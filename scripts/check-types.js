@@ -16,14 +16,13 @@
  */
 
 import { walkSourceFiles } from "./source-files.js";
+import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
 if (import.meta.main) {
     const files = await walkSourceFiles();
-    const { code } = await new Deno.Command(Deno.execPath(), {
-        args: ["check", "--doc", ...files],
-        stdout: "inherit",
-        stderr: "inherit",
-    }).output();
-    if (code === 0) console.log(`Type-checked ${files.length} source file(s).`);
-    Deno.exit(code);
+    const result = await runWithSnip("deno", ["check", "--doc", ...files], {
+        failureLabel: "type checks",
+    });
+    await writeSnipCommandResult(result);
+    Deno.exit(result.code);
 }

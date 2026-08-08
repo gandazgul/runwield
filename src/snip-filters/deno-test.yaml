@@ -1,6 +1,6 @@
 name: "deno-test"
-version: 2
-description: "Suppress successful deno test output while preserving failures"
+version: 3
+description: "Summarize successful deno test output and keep only failure diagnostics"
 
 match:
     command: "deno"
@@ -12,14 +12,28 @@ streams:
     - stderr
 
 pipeline:
+    - action: "strip_ansi"
     - action: "match_output"
       pattern: "(?s)(?:\\x1b\\[[0-9;]*m)*[1-9][0-9]*(?:\\x1b\\[[0-9;]*m)*\\s*(?:\\x1b\\[[0-9;]*m)*passed(?:\\x1b\\[[0-9;]*m)*\\s*\\|\\s*(?:\\x1b\\[[0-9;]*m)*0(?:\\x1b\\[[0-9;]*m)*\\s*(?:\\x1b\\[[0-9;]*m)*failed"
       unless: "(?mi)^(?:\\x1b\\[[0-9;]*m)*(FAILED|ERRORS|FAILURES)|error:|[1-9][0-9]*(?:\\x1b\\[[0-9;]*m)*\\s*(?:\\x1b\\[[0-9;]*m)*failed"
       message: "all tests passed"
+    - action: "remove_lines"
+      pattern: "^Check .+$"
+    - action: "remove_lines"
+      pattern: "^running [0-9]+ tests? from .+$"
+    - action: "remove_lines"
+      pattern: "^.+ \\.\\.\\. ok(?: \\(.+\\))?$"
+    - action: "remove_lines"
+      pattern: "^ok \\| [0-9]+ passed \\| 0 failed.*$"
+    - action: "replace"
+      pattern: "^FAILED \\| [0-9]+ passed \\| ([1-9][0-9]*) failed(.*)$"
+      replacement: "FAILED | $1 failed$2"
+    - action: "remove_lines"
+      pattern: "^\\s*$"
     - action: "on_empty"
       message: "all tests passed"
 
-on_error: "passthrough"
+on_error: "fail"
 
 tests:
     - name: "empty output means success"
@@ -28,30 +42,31 @@ tests:
           all tests passed
     - name: "test success is summarized"
       input: |
-          Check src/extensions/snip/index.test.js
-          running 3 tests from ./src/extensions/snip/index.test.js
-          snip extension rewrites bash tool calls in place ... ok (5ms)
-          snip extension ignores non-bash, empty, already snip, and setup failures ... ok (0ms)
-          snip extension handles shell safety and env prefixes ... ok (0ms)
+          Check src/example.test.ts
+          running 3 tests from ./src/example.test.ts
+          creates a record ... ok (5ms)
+          reads a record ... ok (0ms)
+          removes a record ... ok (0ms)
 
           ok | 3 passed | 0 failed (7ms)
       expected: |
           all tests passed
     - name: "test success with post-test check output is summarized"
       input: |
-          running 1 test from ./scripts/compile.test.js
-          compile script includes workflow-only prompt assets ... ok (11ms)
+          running 1 test from ./src/example.test.ts
+          compiles an example ... ok (11ms)
 
           ok | 638 passed | 0 failed (29s)
 
-          Check scripts/compile.test.js
-          Check scripts/curate-router-judgement-csv.test.js
-          Check src/tools/see-image.test.js
+          Check src/example.test.ts
+          Check src/second.test.ts
       expected: |
           all tests passed
-    - name: "test failure passes through unchanged"
+    - name: "test failure excludes passing tests and checks"
       input: |
-          running 1 test from ./sample.test.js
+          Check ./sample.test.js
+          running 2 tests from ./sample.test.js
+          passing ... ok (1ms)
           failure ... FAILED (3ms)
 
           ERRORS
@@ -66,17 +81,11 @@ tests:
 
           FAILED | 0 passed | 1 failed (5ms)
       expected: |
-          running 1 test from ./sample.test.js
           failure ... FAILED (3ms)
-
           ERRORS
-
           failure => ./sample.test.js:1:6
           AssertionError: Values are not equal.
               at assertEquals (asserts.ts:1:1)
-
           FAILURES
-
           failure => ./sample.test.js:1:6
-
-          FAILED | 0 passed | 1 failed (5ms)
+          FAILED | 1 failed (5ms)

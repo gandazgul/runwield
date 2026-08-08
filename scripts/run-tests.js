@@ -40,10 +40,12 @@
  * gate is `deno task check`, not these sandboxed executions.
  */
 import { join, relative } from "@std/path";
+import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
 const TEST_FILE_PATTERN = /(^|\/)(test|.+[._]test)\.(js|mjs|jsx|ts|tsx|mts)$/;
 const SKIP_DIRS = new Set(["node_modules", "third_party", "dist", "bin", "_fresh", ".git", ".astro", ".history"]);
+const DENO_SNIP_FILTER_FILES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
 
 /** @param {string} dir @returns {AsyncGenerator<string>} */
 async function* findTestFiles(dir) {
@@ -65,12 +67,22 @@ async function* findTestFiles(dir) {
  */
 async function createSandboxEnv(sandboxRoot, name, denoDir) {
     const home = join(sandboxRoot, name);
-    await Deno.mkdir(join(home, ".wld"), { recursive: true });
+    const snipFiltersDir = join(home, ".config", "snip", "filters");
+    await Promise.all([
+        Deno.mkdir(join(home, ".wld"), { recursive: true }),
+        Deno.mkdir(snipFiltersDir, { recursive: true }),
+    ]);
+    await Promise.all(
+        DENO_SNIP_FILTER_FILES.map((fileName) =>
+            Deno.copyFile(join(REPO_ROOT, "src", "snip-filters", fileName), join(snipFiltersDir, fileName))
+        ),
+    );
     // WLD_TEST_SANDBOX_HOME is the marker src/constants.js refuses to run without.
     return {
         HOME: home,
         WLD_TEST_SANDBOX_HOME: home,
         MNEMOSYNE_DB_PATH: join(home, "mnemosyne-test.db"),
+        SNIP_DB_PATH: join(home, "snip-tracking.db"),
         DENO_DIR: denoDir,
     };
 }
@@ -120,7 +132,7 @@ async function runIsolatedSuite(sandboxRoot, denoDir) {
         ? Math.floor(configured)
         : Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
     const queue = [...files];
-    /** @type {Array<{ file: string, output: string }>} */
+    /** @type {Array<{ file: string, failureLogPath: string }>} */
     const failures = [];
     let completed = 0;
     const startedAt = Date.now();
@@ -132,30 +144,25 @@ async function runIsolatedSuite(sandboxRoot, denoDir) {
             const file = queue.shift();
             if (!file) return;
             const name = relative(REPO_ROOT, file);
-            const result = await new Deno.Command(Deno.execPath(), {
-                args: ["test", "-A", "--no-check", "--quiet", file],
+            const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", file], {
                 cwd: REPO_ROOT,
                 env,
-                stdout: "piped",
-                stderr: "piped",
-            }).output();
+                failureLabel: "tests",
+            });
             completed += 1;
-            if (!result.success) {
-                const decoder = new TextDecoder();
+            if (result.code !== 0) {
                 failures.push({
                     file: name,
-                    output: `${decoder.decode(result.stdout)}${decoder.decode(result.stderr)}`,
+                    failureLogPath: result.failureLogPath || "failure log unavailable",
                 });
-                console.log(`FAIL ${name}`);
             }
         }
     };
 
     await Promise.all(Array.from({ length: concurrency }, (_unused, slot) => worker(slot)));
 
-    for (const failure of failures) {
-        console.log(`\n${"=".repeat(78)}\n${failure.file}\n${"=".repeat(78)}\n${failure.output}`);
-    }
+    failures.sort((left, right) => left.file.localeCompare(right.file));
+    for (const failure of failures) console.log(`FAIL ${failure.file} — failure log: ${failure.failureLogPath}`);
     const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
         `\n${failures.length === 0 ? "ok" : "FAILED"} | ${completed - failures.length} files passed | ` +
@@ -193,14 +200,13 @@ try {
         // sandboxed executions, not the type gate.
         if (!testArgs.includes("--no-check")) testArgs.push("--no-check");
         await prewarmDenoDir(env, testArgs);
-        const child = new Deno.Command(Deno.execPath(), {
-            args: ["test", ...testArgs],
+        const result = await runWithSnip("deno", ["test", ...testArgs], {
             env,
             stdin: "inherit",
-            stdout: "inherit",
-            stderr: "inherit",
-        }).spawn();
-        exitCode = (await child.status).code;
+            failureLabel: "tests",
+        });
+        await writeSnipCommandResult(result);
+        exitCode = result.code;
     } else {
         exitCode = await runIsolatedSuite(sandboxRoot, denoDir);
     }

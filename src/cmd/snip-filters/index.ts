@@ -30,6 +30,9 @@ export async function runSnipFiltersCommand(argv: string[]): Promise<void> {
             const result = await installRunWieldSnipFiltersForUser();
             console.log(`Installed RunWield Snip filters into ${result.filtersDir}`);
             console.log(`Updated:\n${formatPathList(result.installed)}`);
+            if (result.removedLegacy.length > 0) {
+                console.log(`Removed obsolete Harns filters:\n${formatPathList(result.removedLegacy)}`);
+            }
             if (result.skipped.length > 0) {
                 console.log(`Skipped:\n${formatSkipped(result.skipped)}`);
             }
@@ -40,6 +43,9 @@ export async function runSnipFiltersCommand(argv: string[]): Promise<void> {
             const result = await cleanupRunWieldSnipFiltersForUser();
             console.log(`Cleaned up RunWield Snip filters from ${result.filtersDir}`);
             console.log(`Removed:\n${formatPathList(result.removed)}`);
+            if (result.removedLegacy.length > 0) {
+                console.log(`Removed obsolete Harns filters:\n${formatPathList(result.removedLegacy)}`);
+            }
             if (result.skipped.length > 0) {
                 console.log(`Skipped:\n${formatSkipped(result.skipped)}`);
             }

@@ -1,6 +1,6 @@
 name: "deno-check"
-version: 1
-description: "Suppress successful deno check output while preserving failures"
+version: 2
+description: "Summarize successful deno check output and keep only failure diagnostics"
 
 match:
     command: "deno"
@@ -11,14 +11,19 @@ streams:
     - stderr
 
 pipeline:
+    - action: "strip_ansi"
     - action: "match_output"
       pattern: "(?s).+"
       unless: "(?i)(error:|failed)"
       message: "type check passed"
+    - action: "remove_lines"
+      pattern: "^Check .+$"
+    - action: "remove_lines"
+      pattern: "^\\s*$"
     - action: "on_empty"
       message: "type check passed"
 
-on_error: "passthrough"
+on_error: "fail"
 
 tests:
     - name: "empty output means success"
@@ -27,11 +32,11 @@ tests:
           type check passed
     - name: "check success is summarized"
       input: |
-          Check src/cli.ts
-          Check src/shared/session/session.js
+          Check src/main.ts
+          Check src/lib/example.ts
       expected: |
           type check passed
-    - name: "check failure passes through unchanged"
+    - name: "check failure excludes successful checks"
       input: |
           Check src/file.js
           error: TS2322 [ERROR]: Type 'string' is not assignable to type 'number'.
@@ -39,7 +44,6 @@ tests:
                 ~~~~~
               at file:///repo/src/file.js:1:7
       expected: |
-          Check src/file.js
           error: TS2322 [ERROR]: Type 'string' is not assignable to type 'number'.
           const value = "nope";
                 ~~~~~

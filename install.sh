@@ -478,8 +478,16 @@ prompt_install_snip_filters() {
   [[ -x "$snip_bin" ]] || return 0
   [[ "${WLD_NONINTERACTIVE:-}" != "1" ]] || return 0
 
-  # Skip if snip filters are already installed
-  if [[ -d "${HOME}/.config/snip/filters" ]] && ls "${HOME}/.config/snip/filters/"*.yaml >/dev/null 2>&1; then
+  # Skip only when all current RunWield filters are installed. Old Harns files
+  # must go through the install command so it can replace and remove them.
+  if [[ -f "${HOME}/.config/snip/filters/deno-check.yaml" ]] &&
+     [[ -f "${HOME}/.config/snip/filters/deno-fmt.yaml" ]] &&
+     [[ -f "${HOME}/.config/snip/filters/deno-lint.yaml" ]] &&
+     [[ -f "${HOME}/.config/snip/filters/deno-test.yaml" ]] &&
+     grep -q '^# Managed by RunWield\.' "${HOME}/.config/snip/filters/deno-check.yaml" &&
+     grep -q '^# Managed by RunWield\.' "${HOME}/.config/snip/filters/deno-fmt.yaml" &&
+     grep -q '^# Managed by RunWield\.' "${HOME}/.config/snip/filters/deno-lint.yaml" &&
+     grep -q '^# Managed by RunWield\.' "${HOME}/.config/snip/filters/deno-test.yaml"; then
     echo "[wld installer] RunWield snip filters already installed in ${HOME}/.config/snip/filters."
     return 0
   fi

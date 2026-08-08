@@ -1,14 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import snipExtension, { __testing } from "./index.js";
 
-const SNIP_NO_FILTER_STDERR_PATTERN = `^snip: no filter for ".+", passing through -- you can run ".+" directly$`;
-
-/** @param {string} command */
-function expectedRewrite(command) {
-    return `( runwield_snip_stderr="$(mktemp -t runwield-snip-stderr.XXXXXX)" || exit 1; ` +
-        `trap 'rm -f "$runwield_snip_stderr"' EXIT; ${command} 2>"$runwield_snip_stderr"; ` +
-        `runwield_snip_status=$?; grep -vE '${SNIP_NO_FILTER_STDERR_PATTERN}' "$runwield_snip_stderr" >&2; ` +
-        `exit "$runwield_snip_status" )`;
+/** @param {string} command @param {string | null} [failureLabel] */
+function expectedRewrite(command, failureLabel = null) {
+    return __testing.withFilteredSnipStderr(command, failureLabel);
 }
 
 function setup() {
@@ -37,7 +32,7 @@ Deno.test("snip extension rewrites bash tool calls in place", async () => {
     const event = { toolName: "bash", input: { command: "deno test" } };
     await handler(event, {});
 
-    assertEquals(event.input.command, expectedRewrite("snip run -- deno test"));
+    assertEquals(event.input.command, expectedRewrite("snip run -- deno test", "tests"));
 });
 
 Deno.test("snip extension ignores non-bash, empty, and already snip commands", async () => {
@@ -83,18 +78,18 @@ Deno.test("snip extension handles shell safety and env prefixes", async () => {
 
     const envEvent = { toolName: "bash", input: { command: "FOO=1 deno test" } };
     await handler(envEvent, {});
-    assertEquals(envEvent.input.command, expectedRewrite("FOO=1 snip run -- deno test"));
+    assertEquals(envEvent.input.command, expectedRewrite("FOO=1 snip run -- deno test", "tests"));
 
     const chainEvent = { toolName: "bash", input: { command: "deno test && echo done" } };
     await handler(chainEvent, {});
-    assertEquals(chainEvent.input.command, `${expectedRewrite("snip run -- deno test")}&& echo done`);
+    assertEquals(chainEvent.input.command, `${expectedRewrite("snip run -- deno test", "tests")}&& echo done`);
 
     const extraEnvEvent = {
         toolName: "bash",
         input: { command: "BAR=/tmp/custom deno lint" },
     };
     await handler(extraEnvEvent, {});
-    assertEquals(extraEnvEvent.input.command, expectedRewrite("BAR=/tmp/custom snip run -- deno lint"));
+    assertEquals(extraEnvEvent.input.command, expectedRewrite("BAR=/tmp/custom snip run -- deno lint", "lint"));
 
     const snippetEvent = { toolName: "bash", input: { command: "snippets list" } };
     await handler(snippetEvent, {});
@@ -155,4 +150,31 @@ Deno.test("snip extension filters the no-filter notice without changing output o
     assertEquals(failure.code, 1);
     assertEquals(new TextDecoder().decode(failure.stdout), "");
     assertEquals(new TextDecoder().decode(failure.stderr), "");
+});
+
+Deno.test("snip extension stores only filtered Deno failure diagnostics", async () => {
+    const command = __testing.rewriteCommand("deno test sample.test.ts");
+    if (!command) throw new Error("Expected Deno test command to be rewritten.");
+    const fakeSnip =
+        `snip() { printf '%s\\n' 'Check sample.test.ts' 'running 2 tests from ./sample.test.ts' 'passing ... ok (1ms)' 'failure ... FAILED (2ms)' 'AssertionError: expected true' 'FAILED | 1 passed | 1 failed (3ms)'; return 1; }; `;
+    const result = await new Deno.Command("/bin/bash", {
+        args: ["-c", `${fakeSnip}${command}`],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    const stderr = new TextDecoder().decode(result.stderr);
+    const logPath = stderr.match(/read the failure log here: (.+)\n/)?.[1] || "";
+    try {
+        assertEquals(result.code, 1);
+        assertEquals(new TextDecoder().decode(result.stdout), "");
+        assertStringIncludes(stderr, "tests failed, read the failure log here:");
+        const failureLog = await Deno.readTextFile(logPath);
+        assertStringIncludes(failureLog, "failure ... FAILED");
+        assertStringIncludes(failureLog, "AssertionError: expected true");
+        assertEquals(failureLog.includes("Check sample.test.ts"), false);
+        assertEquals(failureLog.includes("passing ... ok"), false);
+        assertEquals(failureLog.includes("passed"), false);
+    } finally {
+        if (logPath) await Deno.remove(logPath).catch(() => {});
+    }
 });

@@ -9,6 +9,7 @@ import { getHomeDir, SNIP_FILTERS_DIR } from "../constants.js";
 const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
 const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
 const RUNWIELD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
+const HARNS_MANAGED_SNIP_FILTER_MARKER = "# Managed by Harns. Remove with: hns snip-filters cleanup";
 
 /**
  * @param {string} path
@@ -35,6 +36,42 @@ function withManagedMarker(content) {
         : `${RUNWIELD_MANAGED_SNIP_FILTER_MARKER}\n${content}`;
 }
 
+/** @param {string} content @returns {boolean} */
+function isRunWieldOrHarnsManaged(content) {
+    return content.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER) ||
+        content.startsWith(HARNS_MANAGED_SNIP_FILTER_MARKER);
+}
+
+/**
+ * Remove the obsolete Harns-only filter directory by exact file name. The
+ * directory removals are non-recursive, so unrelated files cannot be lost.
+ *
+ * @param {string} homeDir
+ * @returns {Promise<string[]>}
+ */
+async function removeLegacyHarnsFilterDirectory(homeDir) {
+    const legacyFiltersDir = join(homeDir, ".config", "snip", "harns", "filters");
+    const removed = [];
+    for (const fileName of FILTER_FILE_NAMES) {
+        const path = join(legacyFiltersDir, fileName);
+        try {
+            await Deno.remove(path);
+            removed.push(path);
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    }
+    for (const path of [legacyFiltersDir, join(homeDir, ".config", "snip", "harns")]) {
+        try {
+            await Deno.remove(path);
+        } catch {
+            // Leave a non-empty or unavailable legacy directory intact. Only
+            // the four exact filter files above are owned by this cleanup.
+        }
+    }
+    return removed;
+}
+
 /**
  * @param {{ homeDir?: string, bundledDir?: string }} [options]
  * @returns {{ userFiltersDir: string }}
@@ -51,7 +88,7 @@ export function getRunWieldSnipPaths(options = {}) {
  * plain `snip run -- deno ...` can find them.
  *
  * @param {{ homeDir?: string, bundledDir?: string }} [options]
- * @returns {Promise<{ filtersDir: string, installed: string[], skipped: Array<{ path: string, reason: string }> }>}
+ * @returns {Promise<{ filtersDir: string, installed: string[], removedLegacy: string[], skipped: Array<{ path: string, reason: string }> }>}
  */
 export async function installRunWieldSnipFiltersForUser(options = {}) {
     const bundledDir = options.bundledDir || BUNDLED_SNIP_FILTERS_DIR;
@@ -67,7 +104,7 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
         const content = withManagedMarker(await Deno.readTextFile(sourcePath));
         try {
             const existing = await Deno.readTextFile(targetPath);
-            if (!existing.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER)) {
+            if (!isRunWieldOrHarnsManaged(existing)) {
                 skipped.push({ path: targetPath, reason: "existing non-RunWield filter" });
                 continue;
             }
@@ -78,7 +115,9 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
         if (await writeIfChanged(targetPath, content)) installed.push(targetPath);
     }
 
-    return { filtersDir: paths.userFiltersDir, installed, skipped };
+    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
+    const removedLegacy = await removeLegacyHarnsFilterDirectory(homeDir);
+    return { filtersDir: paths.userFiltersDir, installed, removedLegacy, skipped };
 }
 
 /**
@@ -86,7 +125,7 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
  * Non-RunWield files with the same names are left untouched.
  *
  * @param {{ homeDir?: string }} [options]
- * @returns {Promise<{ filtersDir: string, removed: string[], skipped: Array<{ path: string, reason: string }> }>}
+ * @returns {Promise<{ filtersDir: string, removed: string[], removedLegacy: string[], skipped: Array<{ path: string, reason: string }> }>}
  */
 export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
     const paths = getRunWieldSnipPaths(options);
@@ -97,7 +136,7 @@ export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
         const targetPath = join(paths.userFiltersDir, fileName);
         try {
             const existing = await Deno.readTextFile(targetPath);
-            if (!existing.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER)) {
+            if (!isRunWieldOrHarnsManaged(existing)) {
                 skipped.push({ path: targetPath, reason: "existing non-RunWield filter" });
                 continue;
             }
@@ -109,7 +148,9 @@ export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
         }
     }
 
-    return { filtersDir: paths.userFiltersDir, removed, skipped };
+    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
+    const removedLegacy = await removeLegacyHarnsFilterDirectory(homeDir);
+    return { filtersDir: paths.userFiltersDir, removed, removedLegacy, skipped };
 }
 
 /**

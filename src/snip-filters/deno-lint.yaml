@@ -1,6 +1,6 @@
 name: "deno-lint"
-version: 2
-description: "Suppress successful deno lint output while preserving failures"
+version: 3
+description: "Summarize successful deno lint output and keep only failure diagnostics"
 
 match:
     command: "deno"
@@ -11,14 +11,19 @@ streams:
     - stderr
 
 pipeline:
+    - action: "strip_ansi"
     - action: "match_output"
-      pattern: "(?m)^Checked [0-9]+ files?$"
+      pattern: "(?s).+"
       unless: "(?i)(error|warning|Found [1-9][0-9]* problems?|problem|failed)"
       message: "no lint errors"
+    - action: "remove_lines"
+      pattern: "^Checked [0-9]+ files?$"
+    - action: "remove_lines"
+      pattern: "^\\s*$"
     - action: "on_empty"
       message: "no lint errors"
 
-on_error: "passthrough"
+on_error: "fail"
 
 tests:
     - name: "empty output means success"
@@ -30,8 +35,9 @@ tests:
           Checked 2 files
       expected: |
           no lint errors
-    - name: "lint error passes through unchanged"
+    - name: "lint error excludes successful checks"
       input: |
+          Checked 40 files
           error[no-unused-vars]: `value` is never used
             --> /repo/src/file.js:1:7
              |

@@ -1,6 +1,6 @@
 name: "deno-fmt"
-version: 2
-description: "Suppress successful deno fmt output while preserving failures"
+version: 3
+description: "Summarize successful deno fmt output and keep only failure diagnostics"
 
 match:
     command: "deno"
@@ -11,6 +11,7 @@ streams:
     - stderr
 
 pipeline:
+    - action: "strip_ansi"
     - action: "match_output"
       pattern: "(?s).+"
       unless: "(?i)(error:|Found [1-9][0-9]* not formatted|not formatted|failed)"
@@ -18,7 +19,7 @@ pipeline:
     - action: "on_empty"
       message: "all files formatted"
 
-on_error: "passthrough"
+on_error: "fail"
 
 tests:
     - name: "empty output means success"
