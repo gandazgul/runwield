@@ -4,6 +4,12 @@ import { runQuitCommand } from "./index.ts";
 
 const decoder = new TextDecoder();
 
+function removeDenoLockNotice(stderr: string): string {
+    return stderr.split("\n")
+        .filter((line) => line !== "Blocking waiting for file lock on node_modules directory")
+        .join("\n");
+}
+
 async function runQuitChild(): Promise<Deno.CommandOutput> {
     const fixtureRoot = await Deno.makeTempDir({ prefix: "runwield-quit-command-" });
     const homeDir = join(fixtureRoot, "home");
@@ -49,5 +55,5 @@ Deno.test("quit command clears external UI surfaces and performs real delayed TU
     assertStringIncludes(stdout, 'editor:""');
     assertStringIncludes(stdout, "rendered");
     assertStringIncludes(stdout, "\x1b]0;\x07");
-    assertEquals(decoder.decode(result.stderr), "");
+    assertEquals(removeDenoLockNotice(decoder.decode(result.stderr)), "");
 });

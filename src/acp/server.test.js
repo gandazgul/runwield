@@ -282,7 +282,7 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
 
 Deno.test("ACP rejects overlapping prompts and cancels the real in-flight Runtime turn", async () => {
     await withRuntimeCommandFixture("runwield-acp-cancel-", async (fixture) => {
-        fixture.setModelResponse("working ".repeat(20_000));
+        fixture.setModelResponse("working ".repeat(1_000));
         const handle = startTestServer();
         try {
             const created = await createSession(handle, fixture.projectRoot);
@@ -313,7 +313,7 @@ Deno.test("ACP rejects overlapping prompts and cancels the real in-flight Runtim
                 method: "session/cancel",
                 params: { sessionId: created.sessionId },
             });
-            const cancelled = await readThroughResponse(handle, "prompt-1");
+            const cancelled = await readThroughResponse(handle, "prompt-1", 1_000);
             assertEquals(cancelled.response.result.stopReason, "cancelled");
         } finally {
             await closeTestServer(handle);
