@@ -42,6 +42,7 @@ export async function runEngineerWithPlan(
             sessionManager,
             cwd: executionCwd,
             allowReturnToRouter: false,
+            dispatchKind: "plan_execution",
             ...(customTools ? { customTools } : {}),
         });
     } catch (error) {

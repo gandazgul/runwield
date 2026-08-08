@@ -162,6 +162,7 @@ export async function switchActiveAgent(hostedSession, options) {
  * @property {string} [projectStateContext]
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
+ * @property {import('./request-dispatch.ts').RequestDispatchKind} [dispatchKind]
  */
 
 /**
@@ -189,6 +190,7 @@ export async function runActiveAgentTurn(options) {
         projectStateContext,
         includeEditFallback,
         debugLogPath,
+        dispatchKind,
     } = options;
 
     const switchOptions = {
@@ -212,5 +214,6 @@ export async function runActiveAgentTurn(options) {
         agentName,
         userRequest,
         images,
+        dispatchKind,
     });
 }

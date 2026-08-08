@@ -3,6 +3,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
+import { HostedSession } from "../../hosted-session.js";
+import { RuntimeEventTypes } from "../../session-runtime-events.js";
 import { CLAUDE_CLI_MCP_PROVENANCE, startWorkflowMcpBridge } from "./workflow-mcp-bridge.ts";
 
 interface RecordedCall {
@@ -19,8 +21,12 @@ function makeTestTools() {
         parameters: Type.Object({
             planName: Type.String({ description: "Plan filename without extension." }),
         }),
-        execute(_toolCallId, params) {
+        execute(_toolCallId, params, _signal, onUpdate) {
             calls.push({ name: "plan_written", args: { ...params } });
+            onUpdate?.({
+                content: [{ type: "text", text: `plan pending for ${params.planName}` }],
+                details: { planName: params.planName, reviewUrl: "http://127.0.0.1/review" },
+            });
             return Promise.resolve({
                 content: [{ type: "text", text: `plan feedback for ${params.planName}` }],
                 details: { outcome: "feedback", feedback: "revise" },
@@ -85,6 +91,7 @@ interface BridgeTestContext {
     client: Client;
     transport: StreamableHTTPClientTransport;
     mirrored: unknown[];
+    runtimeEvents: Array<Record<string, unknown>>;
 }
 
 async function withBridge(
@@ -94,9 +101,16 @@ async function withBridge(
     const cwd = await Deno.makeTempDir({ prefix: "runwield-mcp-bridge-" });
     const manager = SessionManager.inMemory(cwd);
     const mirrored: unknown[] = [];
+    const runtimeEvents: Array<Record<string, unknown>> = [];
+    const hostedSession = new HostedSession({
+        id: crypto.randomUUID(),
+        cwd,
+        eventSink: (event: Record<string, unknown>) => runtimeEvents.push(event),
+    });
     const bridge = await startWorkflowMcpBridge({
         tools,
         cwd,
+        hostedSession,
         sessionManager: manager,
         onMessage: (message) => {
             mirrored.push(message);
@@ -109,7 +123,7 @@ async function withBridge(
     const client = new Client({ name: "runwield-bridge-test", version: "1.0.0" });
     try {
         await client.connect(transport);
-        await callback({ manager, bridge, client, transport, mirrored });
+        await callback({ manager, bridge, client, transport, mirrored, runtimeEvents });
     } finally {
         try {
             await client.close();
@@ -191,6 +205,35 @@ Deno.test("workflow MCP bridge records canonical messages, provenance, and a rej
         assertEquals("outcome" in (result.details || {}), false);
         assertEquals(result.details?.provenance, CLAUDE_CLI_MCP_PROVENANCE);
         assertEquals(tools.taskInvocations(), 0);
+    });
+});
+
+Deno.test("workflow MCP bridge emits live Runtime tool events for delegated plan_written updates", async () => {
+    await withBridge(makeTestTools().tools, async (context) => {
+        const result = await context.client.callTool({
+            name: "runwield_plan_written",
+            arguments: { planName: "runtime-boundary" },
+        });
+        assertEquals(result.isError, false);
+
+        const toolEvents = context.runtimeEvents.filter((event) =>
+            event.type === RuntimeEventTypes.TOOL_START ||
+            event.type === RuntimeEventTypes.TOOL_UPDATE ||
+            event.type === RuntimeEventTypes.TOOL_END
+        );
+        assertEquals(toolEvents.map((event) => event.type), [
+            RuntimeEventTypes.TOOL_START,
+            RuntimeEventTypes.TOOL_UPDATE,
+            RuntimeEventTypes.TOOL_END,
+        ]);
+        assertEquals(toolEvents[0].toolName, "plan_written");
+        assertEquals(toolEvents[0].title, "plan_written docs/plans/runtime-boundary.md");
+        assertEquals(toolEvents[1].output, "plan pending for runtime-boundary");
+        assertEquals(
+            (toolEvents[1].details as Record<string, unknown> | null)?.reviewUrl,
+            "http://127.0.0.1/review",
+        );
+        assertEquals(toolEvents[2].output, "plan feedback for runtime-boundary");
     });
 });
 

@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { join } from "@std/path";
 
@@ -452,4 +452,41 @@ Deno.test("validation repair runs independently and returns structured completio
             hostedSession.dispose();
         },
     );
+});
+
+Deno.test("failed validation repair keeps its private manager for backend continuation", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        humanReviewMode: "none",
+    });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    const managers: object[] = [];
+    let calls = 0;
+    const port = createValidationSessionPort(hostedSession, {
+        semanticReviewPort: {
+            runIsolatedAgentSession: (options) => {
+                managers.push(options.sessionManager || {});
+                calls += 1;
+                if (calls === 1) return Promise.reject(new Error("backend failed"));
+                return Promise.resolve([
+                    fauxAssistantMessage(fauxToolCall("task_completed", { message: "repair continued" })),
+                ]);
+            },
+        },
+    });
+    const request = {
+        agentName: "engineer",
+        userRequest: "Stable repair packet",
+        cwd: projectRoot,
+    };
+
+    await assertRejects(() => port.runIndependentRepairTurn(request), Error, "backend failed");
+    const outcome = await port.runIndependentRepairTurn(request);
+
+    assertEquals(managers.length, 2);
+    assertStrictEquals(managers[0], managers[1]);
+    assertEquals(outcome.completed, false);
+    assertEquals(hostedSession.getRootAgentSession(), null);
+    hostedSession.dispose();
 });

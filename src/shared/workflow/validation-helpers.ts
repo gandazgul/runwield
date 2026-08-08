@@ -267,6 +267,7 @@ async function runCompletionGatedRepair({
         sessionManager,
         cwd,
         allowReturnToRouter: false,
+        dispatchKind: "validation_repair",
         ...(customTools ? { customTools } : {}),
     });
 

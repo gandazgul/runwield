@@ -425,6 +425,7 @@ export async function dispatchPostTriage({
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,
             images,
+            dispatchKind: "quick_fix",
         });
         const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
         if (routerHandoff) {

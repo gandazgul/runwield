@@ -30,6 +30,13 @@ import { validateToolCall } from "@earendil-works/pi-ai";
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types";
+import {
+    emitHostedSessionRuntimeEvent,
+    normalizeRuntimeToolResult,
+    RuntimeEventTypes,
+} from "../../session-runtime-events.js";
+import type { HostedSession } from "../../hosted-session.js";
+import { describeRuntimeTool } from "../../tool-event-title.js";
 import { buildBackendStatusEntry, emitBackendStatus } from "./failure.ts";
 
 /** Concrete JSON shapes crossing the MCP boundary. */
@@ -79,6 +86,8 @@ export interface WorkflowMcpBridgeOptions {
     tools: ToolDefinition[];
     sessionManager: SessionManager;
     cwd: string;
+    /** Hosted Session that receives live Runtime events for TUI tool blocks. */
+    hostedSession?: HostedSession;
     /** Mirror of recorded messages into the execution-session message list. */
     onMessage?: (message: BridgeRecordedMessage) => void;
     /** Model fields stamped onto the canonical assistant toolCall messages. */
@@ -211,10 +220,52 @@ export async function startWorkflowMcpBridge(
     let terminal = false;
     let callQueue: Promise<void> = Promise.resolve();
     const toolContext = createToolContext(options.cwd);
+    const toolStartedAt = new Map<string, number>();
+    const toolArgs = new Map<string, JsonObject>();
 
     function appendMessage(message: BridgeRecordedMessage): void {
         options.sessionManager.appendMessage(message);
         options.onMessage?.(message);
+    }
+
+    function emitToolStart(internalName: string, callId: string, args: JsonObject): void {
+        toolStartedAt.set(callId, Date.now());
+        emitHostedSessionRuntimeEvent(options.hostedSession, {
+            type: RuntimeEventTypes.TOOL_START,
+            toolCallId: callId,
+            ...describeRuntimeTool(internalName, args),
+            args,
+        });
+    }
+
+    function emitToolUpdate(
+        internalName: string,
+        callId: string,
+        result: Pick<DelegatedToolResult, "content" | "details">,
+    ): void {
+        const toolResult = normalizeRuntimeToolResult(result);
+        emitHostedSessionRuntimeEvent(options.hostedSession, {
+            type: RuntimeEventTypes.TOOL_UPDATE,
+            toolCallId: callId,
+            ...describeRuntimeTool(internalName, toolArgs.get(callId)),
+            ...toolResult,
+        });
+    }
+
+    function emitToolEnd(internalName: string, callId: string, result: DelegatedToolResult): void {
+        const toolResult = normalizeRuntimeToolResult(result);
+        const startedAt = toolStartedAt.get(callId);
+        const args = toolArgs.get(callId);
+        toolStartedAt.delete(callId);
+        toolArgs.delete(callId);
+        emitHostedSessionRuntimeEvent(options.hostedSession, {
+            type: RuntimeEventTypes.TOOL_END,
+            toolCallId: callId,
+            ...describeRuntimeTool(internalName, args),
+            ...toolResult,
+            isError: result.isError === true,
+            durationMs: startedAt === undefined ? null : Math.max(0, Date.now() - startedAt),
+        });
     }
 
     function recordToolCall(internalName: string, callId: string, args: JsonObject): void {
@@ -228,6 +279,8 @@ export async function startWorkflowMcpBridge(
             usage: { ...ZERO_USAGE },
             stopReason: "toolUse",
         });
+        toolArgs.set(callId, args);
+        emitToolStart(internalName, callId, args);
     }
 
     function recordToolResult(
@@ -244,6 +297,7 @@ export async function startWorkflowMcpBridge(
             isError: result.isError === true,
             timestamp: Date.now(),
         });
+        emitToolEnd(internalName, callId, result);
     }
 
     function rejectedResult(
@@ -307,7 +361,7 @@ export async function startWorkflowMcpBridge(
                 callId,
                 params,
                 undefined,
-                undefined,
+                (update) => emitToolUpdate(entry.internalName, callId, update as DelegatedToolResult),
                 toolContext,
             );
             result = {

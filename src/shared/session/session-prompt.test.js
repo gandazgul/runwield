@@ -9,7 +9,6 @@ import {
     applyAttentionNudge,
     assembleFinalSystemPrompt,
     assembleFinalSystemPromptWithContextProjection,
-    deduplicateUnansweredRequest,
     ensureRootAgentSession,
     getEngineerCompactionThreshold,
     getGlobalAgentMdPaths,
@@ -27,18 +26,6 @@ import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
 
-Deno.test("deduplicateUnansweredRequest continues without repeating a failed backend payload", () => {
-    const request = "## Approved Plan\n\nLarge Plan body";
-    const unanswered = [{ role: "user", content: [{ type: "text", text: request }], timestamp: 1 }];
-    const answered = [...unanswered, fauxAssistantMessage(fauxText("Working"))];
-
-    assertEquals(
-        deduplicateUnansweredRequest(unanswered, request),
-        "Continue the existing request. The full request is already present once in this conversation.",
-    );
-    assertEquals(deduplicateUnansweredRequest(answered, request), request);
-    assertEquals(deduplicateUnansweredRequest(unanswered, "Different request"), "Different request");
-});
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 /**

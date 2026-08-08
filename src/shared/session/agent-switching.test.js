@@ -4,6 +4,12 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import { HostedSession } from "./hosted-session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import {
+    BACKEND_CONTINUATION_REQUEST,
+    failRequestDispatch,
+    prepareRequestDispatch,
+    readRequestAttemptEntries,
+} from "./request-dispatch.ts";
 
 /**
  * @param {string} projectRoot
@@ -157,4 +163,74 @@ Deno.test("switchActiveAgent rebuilds a real same-Agent root when root policy ch
         assertEquals(hostedSession.getRootAgentSession() === previousRoot, false);
         hostedSession.dispose();
     });
+});
+
+Deno.test("provider switch continues a failed request without changing execution ownership or worktree", async () => {
+    await withRuntimeCommandFixture(
+        "agent-switch-backend-continuation-",
+        async ({ projectRoot, setModelResponse }) => {
+            setModelResponse("Continuation completed.");
+            const { hostedSession, sessionManager } = makeSession(projectRoot);
+            /** @type {import('./hosted-session.js').ActiveExecutionWorkflow} */
+            const workflow = {
+                planName: "stable-plan",
+                triageMeta: { classification: "FEATURE", worktreeId: "wt-stable" },
+                executionAgent: "engineer",
+                executionStarted: true,
+                executionCwd: `${projectRoot}/worktrees/wt-stable`,
+            };
+            hostedSession.setActiveExecutionWorkflow(workflow);
+            await switchActiveAgent(hostedSession, {
+                agentName: "engineer",
+                model: "claude-cli/sonnet",
+                sessionManager,
+            });
+
+            const planBody = "# Stable Plan\n\nOnly one copy belongs in the transcript.";
+            const failed = prepareRequestDispatch(sessionManager, {
+                userRequest: planBody,
+                dispatchKind: "plan_execution",
+                backend: "claude-cli",
+            });
+            sessionManager.appendMessage({
+                role: "user",
+                timestamp: Date.now(),
+                content: [{ type: "text", text: planBody }],
+            });
+            failRequestDispatch(sessionManager, failed, true);
+
+            await switchActiveAgent(hostedSession, {
+                agentName: "engineer",
+                model: "runtime-command-fixture/fixture-model",
+                forceRebuild: true,
+                sessionManager,
+            });
+            await runActiveAgentTurn({
+                hostedSession,
+                agentName: "engineer",
+                userRequest: planBody,
+                sessionManager,
+                dispatchKind: "plan_execution",
+            });
+
+            const transcript = sessionManager.getBranch()
+                .filter((entry) => entry.type === "message")
+                .flatMap((entry) =>
+                    /** @type {{ message?: { content?: Array<{ type: string, text?: string }> } }} */ (entry)
+                        .message?.content || []
+                )
+                .filter((block) => block.type === "text")
+                .map((block) => block.text || "")
+                .join("\n");
+            assertEquals(transcript.split(planBody).length - 1, 1);
+            assertEquals(transcript.split(BACKEND_CONTINUATION_REQUEST).length - 1, 1);
+            assertEquals(hostedSession.getActiveExecutionWorkflow(), workflow);
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionCwd, workflow.executionCwd);
+            const attempts = readRequestAttemptEntries(sessionManager);
+            assertEquals(attempts.at(-2)?.requestId, failed.requestId);
+            assertEquals(attempts.at(-2)?.backend, "pi");
+            hostedSession.dispose();
+        },
+    );
 });

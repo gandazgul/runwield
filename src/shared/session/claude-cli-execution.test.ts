@@ -48,6 +48,10 @@ interface BranchMessageEntry {
 
 interface BranchCustomData {
     kind?: string;
+    requestId?: string;
+    attemptId?: string;
+    phase?: string;
+    dispatchKind?: string;
 }
 
 interface BranchCustomEntry {
@@ -385,7 +389,12 @@ Deno.test("^Claude CLI root turn abort reaches the subprocess and preserves work
             executionCwd: cwd,
         });
         await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
-        const run = runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "slow" });
+        const run = runRootTurn({
+            hostedSession,
+            agentName: AGENTS.ENGINEER,
+            userRequest: "slow",
+            dispatchKind: "quick_fix",
+        });
         await waitForLogText(logPath, "slow");
         assertEquals(abortActiveSession(hostedSession), true);
         const error = await assertRejects(() => run, ClaudeCliBackendError);
@@ -404,6 +413,16 @@ Deno.test("^Claude CLI root turn abort reaches the subprocess and preserves work
             ),
             true,
         );
+        const failedAttempt = manager.getBranch().findLast((entry) =>
+            entry.type === "custom" && entry.customType === "runwield.request_attempt" &&
+            (entry as BranchCustomEntry).data?.phase === "failed"
+        ) as BranchCustomEntry | undefined;
+        const backendFailure = manager.getBranch().findLast((entry) =>
+            entry.type === "custom" && entry.customType === "runwield.backend_status"
+        ) as BranchCustomEntry | undefined;
+        assertEquals(failedAttempt?.data?.dispatchKind, "quick_fix");
+        assertEquals(failedAttempt?.data?.requestId, backendFailure?.data?.requestId);
+        assertEquals(failedAttempt?.data?.attemptId, backendFailure?.data?.attemptId);
         const log = await Deno.readTextFile(logPath);
         assertStringIncludes(log, "slow");
     });

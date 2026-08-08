@@ -17,11 +17,15 @@ export interface ClaudeCliBackendStatusEntry {
     kind: ClaudeCliBackendErrorKind;
     exitCode: number | null;
     message: string;
+    requestId?: string;
+    attemptId?: string;
 }
 
 export interface BackendStatusOptions {
     exitCode?: number | null;
     message?: string;
+    requestId?: string;
+    attemptId?: string;
 }
 
 const DEFAULT_MESSAGES: Record<ClaudeCliBackendErrorKind, string> = {
@@ -64,6 +68,8 @@ export function buildBackendStatusEntry(
         kind,
         exitCode: options.exitCode ?? null,
         message: sanitizePersistedMessage(options.message || DEFAULT_MESSAGES[kind], kind),
+        ...(options.requestId ? { requestId: options.requestId } : {}),
+        ...(options.attemptId ? { attemptId: options.attemptId } : {}),
     };
 }
 

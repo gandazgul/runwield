@@ -75,6 +75,7 @@ import {
     isExecutionSession,
 } from "./execution-backend.ts";
 import { ClaudeCliExecutionSession } from "./backends/claude-cli/execution-session.ts";
+import { completeRequestDispatch, failRequestDispatch, prepareRequestDispatch } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
@@ -3212,6 +3213,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runRootTurn({
@@ -3220,6 +3222,7 @@ export async function runRootTurn({
     userRequest,
     images,
     customTools,
+    dispatchKind = "interactive",
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
     const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
@@ -3248,57 +3251,39 @@ export async function runRootTurn({
     }
 
     const priorMessages = getRootExecutionMessages(session);
-    const requestToSend = deduplicateUnansweredRequest(priorMessages, userRequest);
+    const sessionManager = isExecutionSession(session) ? session.session.sessionManager : session.sessionManager;
+    const backend = isExecutionSession(session) ? session.kind : "pi";
+    const dispatch = prepareRequestDispatch(sessionManager, { userRequest, dispatchKind, backend });
     meta.rootTurnCount += 1;
-    const finalRequest = applyAttentionNudge(agentName, requestToSend, meta.rootTurnCount);
-    if (isExecutionSession(session) && session.kind === "claude-cli") {
-        return await session.session.runTurn({ userRequest: finalRequest, images });
+    const finalRequest = dispatch.promptMode === "continuation"
+        ? dispatch.userRequest
+        : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
+    try {
+        let messages;
+        if (isExecutionSession(session) && session.kind === "claude-cli") {
+            messages = await session.session.runTurn({
+                userRequest: finalRequest,
+                images,
+                requestId: dispatch.requestId,
+                attemptId: dispatch.attemptId,
+            });
+        } else {
+            messages = await runPrompt({
+                session: isExecutionSession(session) ? session.session : session,
+                agentDef: meta.agentDef,
+                agentName,
+                userRequest: finalRequest,
+                finalSystemPrompt: meta.promptState.text,
+                images,
+                subscriberState: meta.subscriberState,
+            });
+        }
+        completeRequestDispatch(sessionManager, dispatch);
+        return messages;
+    } catch (error) {
+        failRequestDispatch(sessionManager, dispatch, getRootExecutionMessages(session).length > priorMessages.length);
+        throw error;
     }
-    return await runPrompt({
-        session: isExecutionSession(session) ? session.session : session,
-        agentDef: meta.agentDef,
-        agentName,
-        userRequest: finalRequest,
-        finalSystemPrompt: meta.promptState.text,
-        images,
-        subscriberState: meta.subscriberState,
-    });
-}
-
-/**
- * @typedef {Object} TextMessage
- * @property {string} [role]
- * @property {string | Array<{type: string, text?: string}>} [content]
- */
-
-/**
- * Replace only an immediately repeated, unanswered request. This occurs when a
- * backend recorded the request and then failed before it produced an answer.
- *
- * @param {TextMessage[]} priorMessages
- * @param {string} userRequest
- * @returns {string}
- */
-export function deduplicateUnansweredRequest(priorMessages, userRequest) {
-    const lastMessage = priorMessages.at(-1);
-    if (lastMessage?.role !== "user") return userRequest;
-    return extractMessageText(lastMessage) === userRequest
-        ? "Continue the existing request. The full request is already present once in this conversation."
-        : userRequest;
-}
-
-/**
- * @param {TextMessage} message
- * @returns {string}
- */
-function extractMessageText(message) {
-    const content = message.content;
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content
-        .filter((block) => block && block.type === "text" && typeof block.text === "string")
-        .map((block) => block.text || "")
-        .join("");
 }
 
 /**
@@ -3389,6 +3374,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
+ * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runIsolatedAgentSession(opts) {
@@ -3439,26 +3425,47 @@ export async function runIsolatedAgentSession(opts) {
         steeringTargetId = hostedSession.pushSteeringTargetSession(steeringTarget);
         opts.signal?.addEventListener("abort", abortChild, { once: true });
         opts.signal?.throwIfAborted();
-        if (executionSession?.kind === "claude-cli") {
-            return await executionSession.session.runTurn({
-                userRequest: opts.userRequest,
-                images: opts.images,
-                signal: opts.signal,
-            });
-        }
-        return await runPrompt({
-            session,
-            agentDef,
-            agentName: opts.agentName,
+        const dispatch = prepareRequestDispatch(session.sessionManager, {
             userRequest: opts.userRequest,
-            finalSystemPrompt: promptState.text,
-            images: opts.images,
-            subscriberState,
-            resolvedModel,
-            resolvedThinkingLevel,
-            cwd: opts.cwd || hostedSession.cwd,
-            debugLogPath: opts.debugLogPath,
+            dispatchKind: opts.dispatchKind || "interactive",
+            backend: executionSession?.kind || "pi",
         });
+        const beforeCount = getRootExecutionMessages(executionRoot).length;
+        try {
+            let messages;
+            if (executionSession?.kind === "claude-cli") {
+                messages = await executionSession.session.runTurn({
+                    userRequest: dispatch.userRequest,
+                    images: opts.images,
+                    signal: opts.signal,
+                    requestId: dispatch.requestId,
+                    attemptId: dispatch.attemptId,
+                });
+            } else {
+                messages = await runPrompt({
+                    session,
+                    agentDef,
+                    agentName: opts.agentName,
+                    userRequest: dispatch.userRequest,
+                    finalSystemPrompt: promptState.text,
+                    images: opts.images,
+                    subscriberState,
+                    resolvedModel,
+                    resolvedThinkingLevel,
+                    cwd: opts.cwd || hostedSession.cwd,
+                    debugLogPath: opts.debugLogPath,
+                });
+            }
+            completeRequestDispatch(session.sessionManager, dispatch);
+            return messages;
+        } catch (error) {
+            failRequestDispatch(
+                session.sessionManager,
+                dispatch,
+                getRootExecutionMessages(executionRoot).length > beforeCount,
+            );
+            throw error;
+        }
     } finally {
         opts.signal?.removeEventListener("abort", abortChild);
         if (steeringTargetId) {

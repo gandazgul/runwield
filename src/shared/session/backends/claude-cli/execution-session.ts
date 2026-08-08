@@ -57,6 +57,8 @@ export interface ClaudeCliRunOptions {
     userRequest: string;
     images?: { base64: string; mimeType: string }[];
     signal?: AbortSignal;
+    requestId?: string;
+    attemptId?: string;
 }
 
 export class ClaudeCliExecutionSession {
@@ -121,7 +123,15 @@ export class ClaudeCliExecutionSession {
             // emitBackendStatus persists the sanitized runwield.backend_status transcript entry.
             if (statusEmitted) return;
             statusEmitted = true;
-            emitBackendStatus(this.hostedSession, this.sessionManager, buildBackendStatusEntry(kind, { exitCode }));
+            emitBackendStatus(
+                this.hostedSession,
+                this.sessionManager,
+                buildBackendStatusEntry(kind, {
+                    exitCode,
+                    requestId: options.requestId,
+                    attemptId: options.attemptId,
+                }),
+            );
         };
 
         try {
@@ -133,6 +143,7 @@ export class ClaudeCliExecutionSession {
                     bridge = await startWorkflowMcpBridge({
                         tools: this.workflowTools,
                         cwd: this.cwd,
+                        hostedSession: this.hostedSession,
                         sessionManager: this.sessionManager,
                         onMessage: (message) => {
                             this.messages.push(message);
@@ -173,6 +184,8 @@ export class ClaudeCliExecutionSession {
                 provider: this.model.provider,
                 model: selector,
                 outputFormat: "stream-json",
+                ...(options.requestId ? { requestId: options.requestId } : {}),
+                ...(options.attemptId ? { attemptId: options.attemptId } : {}),
             });
 
             const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
@@ -264,6 +277,8 @@ export class ClaudeCliExecutionSession {
                 provider: this.model.provider,
                 model: selector,
                 outputFormat: "stream-json",
+                ...(options.requestId ? { requestId: options.requestId } : {}),
+                ...(options.attemptId ? { attemptId: options.attemptId } : {}),
                 ...(parsed.metadata.externalSessionId ? { externalSessionId: parsed.metadata.externalSessionId } : {}),
             });
             this.messages.push(assistantMessage as AgentMessage);
