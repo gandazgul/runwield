@@ -9,10 +9,10 @@
   - test that dont fail if you change how the function is called (mutation checks)
 - All things into 1 file
   - massive files with 1 deep module responsibility but many submodules all cramed into 1 file
-- Bad types
-  - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
 - Huge nested loops using continue and break for control instead function calling or event driven state machines
 - Very long functions, see huge loops and all in the same file, similar symptoms
+- Bad types
+  - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
 
 ## Idea sources for better engineering, testing and refactoring practices
 
@@ -88,6 +88,7 @@ redesign. Say the word if you would rather do it inside this move.
 
 ### P0
 
+- [ ] Claude CLI sessions the plan_written tool doesnt add a block on the TUI it should
 - [ ] Confirm claude has access to our skills, to write and edit files, EnterWorktree.
 
 - [ ] Already started work that's being continued shouldn't execute the OC again:

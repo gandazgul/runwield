@@ -77,7 +77,8 @@ objectiveChecksBaseline:
           command: "! grep -R -n -E 'CONTEXT\\.md|CONTEXT-MAP\\.md|CONTEXT-FORMAT\\.md' src/agent-definitions src/skills src/cmd docs --exclude-dir=work-records"
           rationale: "Proves current shipped guidance and maintained documentation no longer assign RunWield semantics to the colliding filenames."
           status: "unmet"
-                    stderr: ""
+          stdout: ""
+          stderr: ""
           exitCode: 1
           durationMs: 152
 objectiveCheckWaivers:
