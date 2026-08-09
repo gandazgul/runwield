@@ -368,16 +368,34 @@ export async function settlePublishedWorktree(
     if (context.worktreeId) {
         await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, { status: "merged" });
     }
-    if (context.worktreeId) {
-        await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
-    }
+
+    let cleanupFinished = cleanupMergedWorktrees;
     if (cleanupMergedWorktrees && context.executionCwd) {
-        await removeWorktreeGitArtifacts({ projectRoot: context.projectRoot, path: context.executionCwd, force: false })
-            .catch(() => {});
-        if (context.worktreeBranch) {
-            await deleteMergedWorktreeBranch({ projectRoot: context.projectRoot, branch: context.worktreeBranch })
-                .catch(() => {});
+        try {
+            await removeWorktreeGitArtifacts({
+                projectRoot: context.projectRoot,
+                path: context.executionCwd,
+                force: false,
+            });
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) cleanupFinished = true;
+            else cleanupFinished = false;
         }
+    }
+    if (cleanupMergedWorktrees && context.worktreeBranch) {
+        try {
+            const branchCleanup = await deleteMergedWorktreeBranch({
+                projectRoot: context.projectRoot,
+                branch: context.worktreeBranch,
+            });
+            cleanupFinished = cleanupFinished && branchCleanup.deleted;
+        } catch {
+            cleanupFinished = false;
+        }
+    }
+
+    if (context.worktreeId && cleanupFinished) {
+        await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
     }
 }
 

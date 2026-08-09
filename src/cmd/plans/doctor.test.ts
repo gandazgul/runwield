@@ -9,11 +9,14 @@ import {
     runValidationOutcomeTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
+import { settlePublishedWorktree } from "../../shared/workflow/validation-publication.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 type WorktreeRegistryEntry = import("../../shared/worktree-registry.js").WorktreeRegistryEntry;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
+type SettlePublishedWorktreeArgs = Parameters<typeof settlePublishedWorktree>[0];
+type SettlePublishedWorktreeContext = Parameters<typeof settlePublishedWorktree>[1];
 
 interface DoctorCommandFixture {
     projectRoot: string;
@@ -114,6 +117,49 @@ const ancestryRepo = defineGitFixture(async (repo) => {
     await Deno.writeTextFile(join(repo, "file.txt"), "unpublished\n");
     await git(repo, ["commit", "-am", "unpublished"]);
     await git(repo, ["checkout", "main"]);
+});
+
+Deno.test("published worktree settlement keeps registry proof when branch cleanup cannot finish", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-settle-" });
+    const branch = "worktree/unpublished-wt";
+    try {
+        await git(cwd, ["branch", branch, "side"]);
+        await savePlan(cwd, "published-cleanup", "# Published cleanup", {
+            planId: "plan-published-cleanup",
+            classification: "FEATURE",
+            status: "verified",
+        });
+        await addEntry(cwd, {
+            id: "unpublished-wt",
+            planName: "published-cleanup",
+            planId: "plan-published-cleanup",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc",
+            branch,
+            path: join(cwd, "already-removed-worktree"),
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        await settlePublishedWorktree(
+            {} as SettlePublishedWorktreeArgs,
+            {
+                projectRoot: cwd,
+                executionCwd: join(cwd, "already-removed-worktree"),
+                worktreeBranch: branch,
+                worktreeId: "unpublished-wt",
+            } as SettlePublishedWorktreeContext,
+            true,
+        );
+
+        assertEquals((await findById(cwd, "unpublished-wt"))?.status, "merged");
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(report.issues.some((issue) => issue.kind === "orphan_worktree_branch"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("plans doctor reports missing worktree paths without abandoning attempts automatically", async () => {
