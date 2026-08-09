@@ -289,7 +289,7 @@ export function getStoredPlanPath(cwd, planName) {
 
 /**
  * Default front matter for plans.
- * @type {PlanFrontMatter}
+ * @type     {PlanFrontMatter}
  */
 const DEFAULT_FRONT_MATTER = {
     classification: "PLANNED_CHANGE",

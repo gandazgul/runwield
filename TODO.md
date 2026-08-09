@@ -13,6 +13,16 @@
 - Very long functions, see huge loops and all in the same file, similar symptoms
 - Bad types
   - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
+- Locally reasonable changes create system-level unknown unknowns.
+
+### Antislop
+
+- deep modules with small interfaces;
+- explicit information ownership;
+- complexity absorbed at the lowest appropriate layer;
+- alternatives considered before implementation;
+- design quality reviewed separately from test correctness;
+- removal of unnecessary concepts, not only removal of duplicate code.
 
 ## Idea sources for better engineering, testing and refactoring practices
 
