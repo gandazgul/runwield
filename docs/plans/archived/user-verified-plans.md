@@ -53,9 +53,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "4691dd8ea9c35af11e51e2fedcd7f95b295c20b0"
+    executionCommit: "9ab0033bc9f20adb60a1190f07adfa1488eb87f3"
     targetBranch: "main"
-    targetHeadBeforeMerge: "d8941368adb82800db15dbfe2773a3f4e93d8623"
+    targetHeadBeforeMerge: "29647399a57c1837e13e72a2ba001d1f482393bb"
 ---
 
 # User Verified Plans

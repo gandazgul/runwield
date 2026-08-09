@@ -40,9 +40,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "528192213d0eb086eec530743899acbf42141b24"
+    executionCommit: "e380936a7fd5548f7bf2facd32a1d059290f3873"
     targetBranch: "main"
-    targetHeadBeforeMerge: "d2bd4b581e78cc09e1466fd4c8a052c5d49c3ed5"
+    targetHeadBeforeMerge: "39cfd3895c1b5de4b19b0fa13a3e40ace37f1283"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "documentation work kind"
 ---

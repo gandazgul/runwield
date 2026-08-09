@@ -38,9 +38,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "2f43f58fefbdd77aaf8c6d38abfd4cee7e875c9e"
+    executionCommit: "3ef31fabd2d76768e665ef06693c9c7b6a4bbe4d"
     targetBranch: "main"
-    targetHeadBeforeMerge: "2898b4ee20bfee3834515c968f48dacf092b8db2"
+    targetHeadBeforeMerge: "ac976f24935c6995031211d25eef3dc16c967fcf"
 ---
 
 # Adapt Pi ModelRuntime Upgrade

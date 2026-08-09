@@ -29,9 +29,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "6f3a61aca5653b55cc44b3f68cb331ea9a7a317c"
+    executionCommit: "5c9406a00fa47e5ef362531b6737bfee193efb2f"
     targetBranch: "main"
-    targetHeadBeforeMerge: "080f4b1a24a0fdbd794b770d2552a4e2e7278df1"
+    targetHeadBeforeMerge: "5f6c58ad99dae73fc9d1b0d27e456aa87df38420"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "entity model docs"
 ---

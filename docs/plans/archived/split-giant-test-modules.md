@@ -41,9 +41,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "52cda96cd02b1986d7126eaabc27e4368c4c134f"
+    executionCommit: "c05e3cd766e7fef1540e39d8c9a6b795e89c8477"
     targetBranch: "main"
-    targetHeadBeforeMerge: "621ab0279cd2f162333f059fbf82a16ef27ad322"
+    targetHeadBeforeMerge: "482fcb3297802f13fca7c619407d7bda4709e018"
 ---
 
 # Split Serial-Heavy Test Modules

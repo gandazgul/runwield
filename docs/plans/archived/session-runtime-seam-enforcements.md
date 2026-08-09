@@ -27,9 +27,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "8bfaaf37daf4d4d14e74cb425696b85658712bfc"
+    executionCommit: "8b9f90d0010602cadb2553c19906d0b1f38defe6"
     targetBranch: "main"
-    targetHeadBeforeMerge: "947cca6956fce807ba9a3eba289d65a1a2b0e933"
+    targetHeadBeforeMerge: "9772fdbd5d7f6544dca3d41b38d20bcccc83e034"
 ---
 
 # SessionRuntime Seam Enforcement Tests

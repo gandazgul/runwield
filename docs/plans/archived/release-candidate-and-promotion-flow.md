@@ -40,9 +40,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "3a4e25b6ac0e990965f76dfdff0cab25a208562f"
+    executionCommit: "3088000d6ea417de453375cfdd25234f0ace007c"
     targetBranch: "main"
-    targetHeadBeforeMerge: "fd02d82eda1a6fb4cbff5dc9505fb452710c14c4"
+    targetHeadBeforeMerge: "5e6a001d2a02cdd0655e597ec194a8acb3e15583"
 ---
 
 # Release Candidate and Promotion Flow

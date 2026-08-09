@@ -34,9 +34,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "1bab526ee378a6cc4f72d2952040dd3f7142762b"
+    executionCommit: "a96a3de0cc7848e626d710812ed37f5d7568fc25"
     targetBranch: "main"
-    targetHeadBeforeMerge: "ee217fe81af2e8e94e726b2799ed6a4d519c362a"
+    targetHeadBeforeMerge: "9e7264dd4227b48d81c63ec06bf105a5737c820a"
 ---
 
 # Compact Completion Notification

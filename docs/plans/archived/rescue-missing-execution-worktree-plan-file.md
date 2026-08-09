@@ -37,9 +37,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "796580ee0771637687459b44887bab824f51dca4"
+    executionCommit: "714cb403453b221cd1522c1eed49907a213a20a3"
     targetBranch: "main"
-    targetHeadBeforeMerge: "35febc1bbd1d362445795ec4c799ede5b4fe6885"
+    targetHeadBeforeMerge: "cf122ff20204a76753082ac48c670e43252d4555"
 ---
 
 # Rescue Missing Execution Worktree Plan Files

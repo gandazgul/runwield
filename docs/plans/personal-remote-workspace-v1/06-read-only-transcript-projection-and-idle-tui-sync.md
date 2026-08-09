@@ -33,9 +33,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "d0b7e553d401c5abf0ff52c39659310a972255ab"
+    executionCommit: "e25285dcb7e1b32f4ec9361f8e307937aa44fd30"
     targetBranch: "main"
-    targetHeadBeforeMerge: "cd842cac92c9e6647f688f85b505704d41053f67"
+    targetHeadBeforeMerge: "fe1b80ae97af5484f7379f4f800f2fd7a1294814"
 ---
 
 # Read-Only Transcript Projection and Idle TUI Sync

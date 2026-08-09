@@ -30,9 +30,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "7536808280a3cf09053d4f61882961fe37c66882"
+    executionCommit: "018abc465a7e68e6b2323aad6bd014e6afa2db32"
     targetBranch: "main"
-    targetHeadBeforeMerge: "a95e0cad4df8e789a3f9e8548556832a3aad73c8"
+    targetHeadBeforeMerge: "760d283bf43717c3f2ed0638229d47ecebbe2404"
 ---
 
 # Add Design Discipline to the Frontend Framework Skill

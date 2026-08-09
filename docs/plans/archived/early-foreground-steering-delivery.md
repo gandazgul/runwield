@@ -34,9 +34,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "afcba678c644bf77254b8bc5d309f8f6f0ea8257"
+    executionCommit: "759d305fb4e5873d1cf126b7231fdf2f210b7603"
     targetBranch: "main"
-    targetHeadBeforeMerge: "209632a099444fb09eb694d807fc9e6bcd273f3b"
+    targetHeadBeforeMerge: "0a0ffe25a7263db9658a16f1404352fb90e28624"
 ---
 
 # Early Foreground Steering Delivery

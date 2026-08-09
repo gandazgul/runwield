@@ -34,9 +34,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "83bf3a9ae6558259ec7df4a170115ae4d9a47be6"
+    executionCommit: "50e63c06e8465c2aee16f83583ec97f627cc496c"
     targetBranch: "main"
-    targetHeadBeforeMerge: "81c5bcc0926448ee5775d6f07460ce99ef469b92"
+    targetHeadBeforeMerge: "5288ba143ccf9f8f45b1ed374c400423abb1cf55"
 ---
 
 # Auto Update Notice and Update Command

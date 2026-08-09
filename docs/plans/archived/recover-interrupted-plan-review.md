@@ -38,9 +38,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "5d4a4d5b570665e99024e892d1a7ebce37ac5191"
+    executionCommit: "5ff0bf12a7762bfb09ef389232ce541ee4b8b579"
     targetBranch: "main"
-    targetHeadBeforeMerge: "38538fd74d3f91964a7882ee321aff9937db3e28"
+    targetHeadBeforeMerge: "ad3ee13773fea4a4b917e8f7306c7d8127abf976"
 ---
 
 # Recover Interrupted Plan Review

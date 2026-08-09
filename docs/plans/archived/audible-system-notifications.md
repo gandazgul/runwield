@@ -29,9 +29,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "05c3ab7887deb4bb8abc4e3d091d46b7b058f338"
+    executionCommit: "4ea17428fda84631b015adba82e33e6b3daf118e"
     targetBranch: "main"
-    targetHeadBeforeMerge: "c38b4ddfdbb6fb8a5da4b228132520cc7d6fd128"
+    targetHeadBeforeMerge: "965af817d70f7a2f723190b3aeb2ca776ac30373"
 ---
 
 # Terminal Bell for TUI Notifications
