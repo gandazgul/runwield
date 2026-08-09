@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import {
     assertBinaryVersionOutput,
+    assertBinaryWorkspaceHtml,
     assertExtractedBundledAgentReferenceFiles,
     assertRequiredBundledAssetsConfigured,
     assertReviewAssetsLoad,
@@ -11,6 +12,7 @@ import {
     collectReviewAssetUrls,
     parseReleaseCheckOptions,
     readReviewUrl,
+    readWorkspaceUrl,
     runReleaseCheck,
 } from "./release-check.js";
 
@@ -72,12 +74,16 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
             remove: () => Promise.resolve(),
             async run(command, args, options = {}) {
                 calls.push({ command, args, env: options.env });
-                if (command === "deno") {
+                if (command === "deno" && args.includes("scripts/compile.js")) {
                     stages.push("compile");
                     await Deno.writeTextFile(
                         join(root, "src", "shared", "version.js"),
                         'export const VERSION = "compiled";\n',
                     );
+                    return { success: true, code: 0, stdout: "", stderr: "" };
+                }
+                if (command === "deno") {
+                    stages.push("workspace-review-routes");
                     return { success: true, code: 0, stdout: "", stderr: "" };
                 }
                 stages.push("version");
@@ -92,13 +98,17 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
                 stages.push("references");
                 return Promise.resolve();
             },
+            smokeTestBinaryPlansUiSurface() {
+                stages.push("plans-ui");
+                return Promise.resolve();
+            },
             smokeTestBinaryReviewSurface() {
                 stages.push("review");
                 return Promise.resolve();
             },
         });
 
-        assertEquals(stages, ["compile", "version", "references", "review"]);
+        assertEquals(stages, ["compile", "workspace-review-routes", "version", "references", "plans-ui", "review"]);
         assertEquals(calls[0].env, { WLD_BUILD_VERSION: "v1.2.3-rc.1" });
         assertEquals(
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
@@ -158,13 +168,17 @@ Deno.test("runReleaseCheck restores generated version after binary version misma
                     rootDir: root,
                     makeTempDir: () => Promise.resolve("release-temp"),
                     remove: () => Promise.resolve(),
-                    async run(command) {
-                        if (command === "deno") {
+                    async run(command, args) {
+                        if (command === "deno" && args.includes("scripts/compile.js")) {
                             stages.push("compile");
                             await Deno.writeTextFile(
                                 join(root, "src", "shared", "version.js"),
                                 'export const VERSION = "compiled";\n',
                             );
+                            return { success: true, code: 0, stdout: "", stderr: "" };
+                        }
+                        if (command === "deno") {
+                            stages.push("workspace-review-routes");
                             return { success: true, code: 0, stdout: "", stderr: "" };
                         }
                         stages.push("version");
@@ -183,7 +197,7 @@ Deno.test("runReleaseCheck restores generated version after binary version misma
             "wrong version",
         );
 
-        assertEquals(stages, ["compile", "version"]);
+        assertEquals(stages, ["compile", "workspace-review-routes", "version"]);
         assertEquals(
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
             'export const VERSION = "original";\n',
@@ -199,6 +213,24 @@ Deno.test("readReviewUrl extracts Plan review URL from command output", () => {
     assertEquals(
         readReviewUrl("[RunWield] Plan read-only view: http://127.0.0.1:1234/review/plan?token=abc-123\n"),
         "http://127.0.0.1:1234/review/plan?token=abc-123",
+    );
+});
+
+Deno.test("readWorkspaceUrl extracts Plans UI URL from command output", () => {
+    assertEquals(
+        readWorkspaceUrl("[RunWield] Workspace: http://127.0.0.1:1234/?token=abc-123\n"),
+        "http://127.0.0.1:1234/?token=abc-123",
+    );
+});
+
+Deno.test("assertBinaryWorkspaceHtml requires the real built Workspace shell", () => {
+    assertBinaryWorkspaceHtml(
+        '<main data-astro-workspace-shell><astro-island component-url="/_astro/Workspace.js"></astro-island></main>',
+    );
+    assertThrows(
+        () => assertBinaryWorkspaceHtml("Workspace Astro build unavailable"),
+        Error,
+        "Workspace build-unavailable",
     );
 });
 

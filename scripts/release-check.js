@@ -98,6 +98,23 @@ export function readReviewUrl(output) {
     return output.match(/http:\/\/127\.0\.0\.1:\d+\/review\/plan\?token=[^\s]+/)?.[0] || "";
 }
 
+/** @param {string} output */
+export function readWorkspaceUrl(output) {
+    return output.match(/http:\/\/127\.0\.0\.1:\d+\/?\?token=[^\s]+/)?.[0] || "";
+}
+
+/** @param {string} html */
+export function assertBinaryWorkspaceHtml(html) {
+    if (html.includes("Workspace Astro build unavailable")) {
+        throw new Error("Standalone binary rendered the Workspace build-unavailable error.");
+    }
+    if (!html.includes("data-astro-workspace-shell")) {
+        throw new Error("Standalone binary Workspace shell did not render.");
+    }
+    if (!html.includes("astro-island")) throw new Error("Standalone binary Workspace page lacks Astro island markup.");
+    if (!html.includes("/_astro/")) throw new Error("Standalone binary Workspace page lacks built Astro asset links.");
+}
+
 /** @param {string} html */
 export function assertBinaryReviewHtml(html) {
     if (html.includes("Workspace review UI assets are unavailable")) {
@@ -347,9 +364,73 @@ export async function smokeTestBundledAgentReferenceExtraction(binaryPath, root)
  * @param {string} binaryPath
  * @param {string} root
  */
+export async function smokeTestBinaryPlansUiSurface(binaryPath, root) {
+    console.log("\n==> Smoke test standalone Plans UI surface");
+    const projectDir = join(root, "plans-ui-project");
+    await Deno.mkdir(join(projectDir, "docs", "plans"), { recursive: true });
+    await Deno.writeTextFile(
+        join(projectDir, "docs", "plans", "release-plans-ui-smoke.md"),
+        `---\nplanId: release-plans-ui-smoke\nclassification: FEATURE\nstatus: draft\n---\n# Release binary Plans UI smoke\n`,
+    );
+
+    const child = new Deno.Command(binaryPath, {
+        args: ["plans", "ui", "--no-open"],
+        cwd: projectDir,
+        stdin: "null",
+        stdout: "piped",
+        stderr: "piped",
+    }).spawn();
+
+    let output = "";
+    /** @param {string} text */
+    const append = (text) => {
+        output += text;
+    };
+    const stdoutDone = collectStream(child.stdout, append);
+    const stderrDone = collectStream(child.stderr, append);
+
+    let url = "";
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+        url = readWorkspaceUrl(output);
+        if (url) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!url) {
+        try {
+            child.kill("SIGTERM");
+        } catch {
+            // Process may have exited before printing a URL.
+        }
+        await Promise.allSettled([child.status, stdoutDone, stderrDone]);
+        throw new Error(`Standalone binary did not print a Workspace URL. Output:\n${output}`);
+    }
+
+    try {
+        const response = await fetch(url);
+        const html = await response.text();
+        if (response.status !== 200) {
+            throw new Error(`Plans UI URL returned ${response.status}: ${html.slice(0, 200)}\nOutput:\n${output}`);
+        }
+        assertBinaryWorkspaceHtml(html);
+        await assertReviewAssetsLoad(url, html);
+    } finally {
+        try {
+            child.kill("SIGTERM");
+        } catch {
+            // Process is expected to stay alive until terminated by release-check.
+        }
+        await Promise.allSettled([child.status, stdoutDone, stderrDone]);
+    }
+}
+
+/**
+ * @param {string} binaryPath
+ * @param {string} root
+ */
 export async function smokeTestBinaryReviewSurface(binaryPath, root) {
-    console.log("\n==> Smoke test standalone review surface");
-    const projectDir = join(root, "project");
+    console.log("\n==> Smoke test standalone Plan review surface");
+    const projectDir = join(root, "plan-review-project");
     await Deno.mkdir(join(projectDir, "docs", "plans"), { recursive: true });
     await Deno.writeTextFile(
         join(projectDir, "docs", "plans", "release-review-smoke.md"),
@@ -494,6 +575,7 @@ async function restoreFile(path, snapshot) {
  * @property {(options?: { prefix?: string }) => Promise<string>} [makeTempDir]
  * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} [remove]
  * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBundledAgentReferenceExtraction]
+ * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryPlansUiSurface]
  * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryReviewSurface]
  */
 
@@ -510,6 +592,7 @@ export async function runReleaseCheck(options = {}) {
     const runner = options.run || run;
     const bundledReferenceSmoke = options.smokeTestBundledAgentReferenceExtraction ||
         smokeTestBundledAgentReferenceExtraction;
+    const plansUiSmoke = options.smokeTestBinaryPlansUiSurface || smokeTestBinaryPlansUiSurface;
     const reviewSmoke = options.smokeTestBinaryReviewSurface || smokeTestBinaryReviewSurface;
 
     try {
@@ -519,12 +602,24 @@ export async function runReleaseCheck(options = {}) {
             cwd: rootDir,
             env: compileEnv,
         }, runner);
+        await mustRun(
+            "Smoke test Workspace code and Plan review routes",
+            "deno",
+            [
+                "run",
+                "-A",
+                "scripts/assert-workspace-review-runtime.js",
+            ],
+            { cwd: rootDir },
+            runner,
+        );
         const smoke = await mustRun("Smoke test release binary", output, ["--version"], {
             stdout: "piped",
             stderr: "piped",
         }, runner);
         if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
         await bundledReferenceSmoke(output, tempDir);
+        await plansUiSmoke(output, tempDir);
         await reviewSmoke(output, tempDir);
     } finally {
         await restoreFile(versionPath, versionSnapshot);
