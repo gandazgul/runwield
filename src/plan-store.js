@@ -2618,6 +2618,22 @@ const TERMINAL_ARCHIVABLE_STATUSES = new Set(["verified", "user_verified", "clos
 const RECOVERABLE_WORKTREE_STATUSES = new Set(["active", "execution_failed", "validation_failed", "merge_conflict"]);
 
 /**
+ * @param {string | undefined | null} status
+ * @returns {boolean}
+ */
+export function isTerminalArchivableStatus(status) {
+    return Boolean(status) && TERMINAL_ARCHIVABLE_STATUSES.has(String(status));
+}
+
+/**
+ * @param {string | undefined | null} worktreeStatus
+ * @returns {boolean}
+ */
+export function isRecoverableWorktreeStatus(worktreeStatus) {
+    return Boolean(worktreeStatus) && RECOVERABLE_WORKTREE_STATUSES.has(String(worktreeStatus));
+}
+
+/**
  * @typedef {Object} ArchivePlanOptions
  * @property {string} [reason]
  * @property {boolean} [force]
@@ -2737,14 +2753,14 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     }
 
     const worktreeStatus = source.attrs.worktreeStatus;
-    if (worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
+    if (isRecoverableWorktreeStatus(worktreeStatus)) {
         throw new Error(
             `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree before archiving; --force does not bypass recoverable worktree guards.`,
         );
     }
 
     const status = source.attrs.status;
-    if (!TERMINAL_ARCHIVABLE_STATUSES.has(status) && !options.force) {
+    if (!isTerminalArchivableStatus(status) && !options.force) {
         throw new Error(
             `Cannot archive ${source.name} with status ${status} without --force. Only verified, user_verified, and closed_without_verification archive by default.`,
         );

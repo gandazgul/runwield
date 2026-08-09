@@ -8,13 +8,19 @@
  */
 
 import { isPlannedChangeClassification } from "../../constants.js";
-import { compareChildPlansByOrder, findPlansByParent, resolvePlan } from "../../plan-store.js";
+import {
+    compareChildPlansByOrder,
+    findPlansByParent,
+    isTerminalArchivableStatus,
+    resolvePlan,
+} from "../../plan-store.js";
 import { isEpicPlan, isInValidation, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
+import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "./plan-presentation.ts";
 import {
     buildEpicDoneEnoughSummary,
@@ -145,6 +151,9 @@ export async function handleEpicPlan({
                 }]
                 : []),
             ...(isHoldableStatus(plan.attrs.status) ? [{ value: "hold", label: "Put Epic on hold" }] : []),
+            ...(isTerminalArchivableStatus(plan.attrs.status)
+                ? [{ value: "archive_epic", label: "Archive Epic" }]
+                : []),
             { value: "view", label: "View Epic details" },
             { value: "cancel", label: "Cancel" },
         ];
@@ -169,6 +178,12 @@ export async function handleEpicPlan({
                 uiAPI,
             });
             return "handled";
+        }
+
+        if (answer === "archive_epic") {
+            const archived = await archiveEpicWithChildren({ projectRoot, plan, uiAPI });
+            if (archived) return "handled";
+            continue;
         }
 
         if (answer === "review") {
