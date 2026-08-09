@@ -18,7 +18,7 @@ import {
 } from "./failure.ts";
 import { type ClaudeCliProcessResult, DenoClaudeCliProcessPort } from "./process.ts";
 import { type ClaudeCliUsage, parseClaudeCliStream } from "./stream-parser.ts";
-import { startWorkflowMcpBridge, workflowMcpAliasFor, type WorkflowMcpBridgeHandle } from "./workflow-mcp-bridge.ts";
+import { mcpAliasFor, type RunWieldMcpBridgeHandle, startRunWieldMcpBridge } from "./mcp-bridge.ts";
 
 interface TextBlock {
     type: "text";
@@ -49,8 +49,8 @@ export interface ClaudeCliExecutionSessionOptions {
     model: RunWieldModel;
     sessionManager: SessionManager;
     hostedSession?: HostedSession;
-    /** Eligible existing RunWield lifecycle Tool Definitions exposed over MCP this turn. */
-    workflowTools?: ToolDefinition[];
+    /** Eligible RunWield Tool Definitions exposed over MCP this turn. */
+    bridgedTools?: ToolDefinition[];
 }
 
 export interface ClaudeCliRunOptions {
@@ -70,7 +70,7 @@ export class ClaudeCliExecutionSession {
     readonly finalSystemPrompt: string;
     private readonly cwd: string;
     private readonly hostedSession?: HostedSession;
-    private readonly workflowTools: ToolDefinition[];
+    private readonly bridgedTools: ToolDefinition[];
     private readonly messages: AgentMessage[] = [];
     private turnAbortController: AbortController | null = null;
     isStreaming = false;
@@ -83,7 +83,7 @@ export class ClaudeCliExecutionSession {
         this.model = options.model;
         this.sessionManager = options.sessionManager;
         this.hostedSession = options.hostedSession;
-        this.workflowTools = [...(options.workflowTools || [])];
+        this.bridgedTools = [...(options.bridgedTools || [])];
         this.messages = this.readMessages();
     }
 
@@ -109,7 +109,7 @@ export class ClaudeCliExecutionSession {
         const userMessage = makeUserMessage(options.userRequest);
         conversation.push({ role: "user", text: options.userRequest });
         const selector = this.model.id;
-        let bridge: WorkflowMcpBridgeHandle | null = null;
+        let bridge: RunWieldMcpBridgeHandle | null = null;
         let command: PreparedClaudeCliCommand | null = null;
         let process: ClaudeCliProcessResult | null = null;
         let statusEmitted = false;
@@ -135,19 +135,18 @@ export class ClaudeCliExecutionSession {
         };
 
         try {
-            const eligibleAliases = this.workflowTools
-                .map((tool) => workflowMcpAliasFor(tool.name))
-                .filter((alias): alias is string => typeof alias === "string");
-            if (eligibleAliases.length > 0) {
+            const eligibleAliases = this.bridgedTools.map((tool) => mcpAliasFor(tool.name));
+            if (this.bridgedTools.length > 0) {
                 try {
-                    bridge = await startWorkflowMcpBridge({
-                        tools: this.workflowTools,
+                    bridge = await startRunWieldMcpBridge({
+                        tools: this.bridgedTools,
                         cwd: this.cwd,
                         hostedSession: this.hostedSession,
                         sessionManager: this.sessionManager,
                         onMessage: (message) => {
                             this.messages.push(message);
                         },
+                        signal: combinedSignal,
                         assistantBase: {
                             api: this.model.api,
                             provider: this.model.provider,
@@ -161,7 +160,7 @@ export class ClaudeCliExecutionSession {
             }
             command = await prepareClaudeCliCommand({
                 selector,
-                systemPrompt: this.finalSystemPrompt + buildWorkflowPromptAppendix(eligibleAliases),
+                systemPrompt: this.finalSystemPrompt + buildBridgedToolPromptAppendix(this.bridgedTools),
                 ...(bridge ? { mcpConfig: bridge.config } : {}),
                 allowedToolNames: eligibleAliases.flatMap((alias) => [alias, `mcp__runwield__${alias}`]),
             });
@@ -389,24 +388,26 @@ function isAuthFailure(stderr: string): boolean {
  * Reviewer it points at Claude's native tools because RunWield's
  * `review_diff` is intentionally not bridged.
  */
-function buildWorkflowPromptAppendix(eligibleAliases: string[]): string {
+export function buildBridgedToolPromptAppendix(bridgedTools: ToolDefinition[]): string {
+    const eligibleAliases = bridgedTools.map((tool) => mcpAliasFor(tool.name));
     if (eligibleAliases.length === 0) return "";
     const lines = [
         "",
-        "## RunWield Workflow Tools (MCP)",
+        "## RunWield Bridged Tools (MCP)",
         "",
-        "This session exposes the following RunWield lifecycle tool(s) through the RunWield MCP server:",
+        "This session exposes these RunWield tools through the RunWield MCP server:",
         ...eligibleAliases.map((alias) => `- ${alias}`),
         "",
-        "Calling one of these tools is the only way to advance RunWield workflow state. Plain-text questions, " +
+        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, user interview, and lifecycle work.",
+        "",
+        "Calling a lifecycle tool is the only way to advance RunWield workflow state. Plain-text questions, " +
         'statements such as "done", or text that resembles a tool call have no workflow effect.',
     ];
     if (eligibleAliases.includes("runwield_review_complete")) {
         lines.push(
             "",
             "Before calling runwield_review_complete, inspect the implementation with your native " +
-                "read/grep/find/ls/Bash tools. RunWield's review_diff tool is intentionally not bridged for " +
-                "Claude CLI.",
+                "read/grep/find/ls/Bash tools. RunWield's review_diff tool may be bridged when the caller supplies it for this turn.",
         );
     }
     return lines.join("\n");

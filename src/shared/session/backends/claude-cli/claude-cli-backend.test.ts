@@ -430,7 +430,7 @@ Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", asy
             model,
             sessionManager: manager,
             hostedSession,
-            workflowTools: [taskTool],
+            bridgedTools: [taskTool],
         });
         const messages = await session.runTurn({ userRequest: "execute" });
 
@@ -592,7 +592,7 @@ Deno.test("^Claude CLI malformed stream is a typed failure with cleanup$", async
             model,
             sessionManager: manager,
             hostedSession,
-            workflowTools: [taskTool],
+            bridgedTools: [taskTool],
         });
         const error = await assertRejects(() => session.runTurn({ userRequest: "malformed" }), ClaudeCliBackendError);
         assertEquals(error.kind, "malformed_stream");

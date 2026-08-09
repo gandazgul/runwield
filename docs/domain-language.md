@@ -469,6 +469,12 @@ increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-de
 
 **Custom Tool**: A RunWield-defined tool registered alongside built-in pi tools. _Avoid_: Internal tool, RunWield tool
 
+**Bridged Tool**: A RunWield Tool exposed to one Claude CLI turn over the authenticated loopback MCP bridge. Lifecycle
+Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases for `plan_written`, `task_completed`,
+`review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, Work Record,
+interview, edit, or caller-supplied work and use their internal names, avoiding new aliases such as
+`runwield_memory_recall` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
+
 **Triage-Report Tool**: The `triage_report` Custom Tool that emits a Triage Report and ends the current Agent turn.
 _Avoid_: Classification tool, triage result tool
 

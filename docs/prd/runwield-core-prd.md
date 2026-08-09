@@ -394,9 +394,10 @@ executable or authentication state is reported by the first-turn backend preflig
 onboarding.
 
 In the MVP Claude CLI transcript projection, Claude Code owns its internal file/Bash/tool activity. That internal
-file/Bash/tool activity can affect the worktree, but RunWield persists final assistant/workflow Session Transcript
-history rather than native RunWield tool events for Claude's internal tools. RunWield Connect remains the separate
-product mode where Claude Code is the External Agent Host and owns the user conversation and model calls.
+file/Bash/tool activity can affect the worktree, but RunWield persists native RunWield tool events for Bridged Tools
+exposed through the loopback MCP bridge. Claude Code's internal file, Bash, and native tool activity stays unrecorded as
+native RunWield tool events. RunWield Connect remains the separate product mode where Claude Code is the External Agent
+Host and owns the user conversation and model calls.
 
 Future/open requirements:
 

@@ -1,4 +1,5 @@
 import { assertArrayIncludes, assertEquals, assertMatch } from "@std/assert";
+import { basename } from "@std/path";
 import mnemosyneExtension from "./index.js";
 
 /**
@@ -97,7 +98,7 @@ Deno.test("memory_recall searches project memory and escapes quotes", async () =
     assertEquals(call?.args, [
         "search",
         "--name",
-        "default",
+        basename(Deno.cwd()),
         "--format",
         "plain",
         '"he said ""hello"""',
@@ -144,7 +145,7 @@ Deno.test("memory_store adds project memory with optional core tag", async () =>
     assertEquals(calls.at(-1)?.args, [
         "add",
         "--name",
-        "default",
+        basename(Deno.cwd()),
         "--tag",
         "core",
         "Use deno task ci",
