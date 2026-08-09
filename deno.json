@@ -60,7 +60,7 @@
         "react": "npm:react@^19.2.7",
         "react-dom": "npm:react-dom@^19.2.7",
         "react-dom/client": "npm:react-dom@^19.2.7/client",
-        "@types/react": "npm:@types/react@^19.2.17",
+        "@types/react": "npm:@types/react@^19.2.18",
         "@types/react-dom": "npm:@types/react-dom@^19.2.3",
         "@base-ui/react/": "npm:@base-ui/react@^1.6.0/",
         "@zag-js/dialog": "npm:@zag-js/dialog@^1.42.0",
