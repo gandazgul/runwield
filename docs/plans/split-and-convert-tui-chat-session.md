@@ -48,6 +48,7 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
+planId: "f3183b8c-58e3-4070-af6f-67807f653cac"
 ---
 
 # Split and Convert the TUI Chat Session

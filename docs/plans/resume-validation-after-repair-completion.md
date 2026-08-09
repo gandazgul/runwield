@@ -26,6 +26,7 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation repair resume"
+planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
 ---
 
 # Resume Validation After Repair Completion

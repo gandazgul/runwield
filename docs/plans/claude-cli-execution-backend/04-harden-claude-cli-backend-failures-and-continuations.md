@@ -56,6 +56,7 @@ deliveryEvidence:
     targetHeadBeforeMerge: "e561fa8603adb3979589787f49f9d9019f9c15f2"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+planId: "c00cde83-4a76-4e9a-8192-6acfcd6bcdab"
 ---
 
 # Harden Claude CLI Backend Failures and Continuations

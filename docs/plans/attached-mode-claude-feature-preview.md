@@ -23,6 +23,7 @@ updatedAt: "2026-08-04T18:34:02-04:00"
 status: "ready_for_decomposition"
 origin: "internal"
 userVerifiedAt: null
+planId: "7bf7ec07-2212-4bca-b5c5-3d4ac863025e"
 ---
 
 # RunWield Connect for Claude Code: FEATURE Preview
