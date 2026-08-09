@@ -23,7 +23,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T21:10:30-04:00"
-updatedAt: "2026-07-27T22:19:00.904Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-27T19:46:02.671Z"
@@ -42,9 +41,13 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "58d9e695e1c3aff7d8e23e840cd503ec4c052084"
+    executionCommit: "e282725f17314210e8a4ec297282221252cc30ef"
     targetBranch: "main"
-    targetHeadBeforeMerge: "1845c936f08f6ef835f60030c463201046475268"
+    targetHeadBeforeMerge: "909341dee5adb260cad2747b5257eaed8eb45515"
+updatedAt: "2026-08-09T05:04:11.272Z"
+archivedAt: "2026-08-09T05:04:11.272Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/planned-change-work-kind-transition.md"
 ---
 
 # Planned Change and Work Kind Transition

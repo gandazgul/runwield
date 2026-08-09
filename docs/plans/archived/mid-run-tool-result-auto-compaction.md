@@ -33,7 +33,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:10:26-04:00"
-updatedAt: "2026-07-27T13:15:16.684Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-27T13:15:03.654Z"
@@ -49,10 +48,14 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "4a9c7e40ebebc21fc136fbaaf9010787145d4e3c"
+    executionCommit: "0e535fe6c0909a2d1529afd7be8b2aff8ec7692e"
     targetBranch: "main"
-    targetHeadBeforeMerge: "e12e080c25f565854ed39a433f0e53db94399b3f"
+    targetHeadBeforeMerge: "da6a488a0a11bc8ae1859c66adc7d471d8a3a954"
 routingIntent: "FEATURE"
+updatedAt: "2026-08-09T05:05:45.017Z"
+archivedAt: "2026-08-09T05:05:45.017Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/mid-run-tool-result-auto-compaction.md"
 ---
 
 # Mid-run Tool-result Auto-compaction

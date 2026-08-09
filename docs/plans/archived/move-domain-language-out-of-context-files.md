@@ -103,7 +103,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T09:43:39-04:00"
-updatedAt: "2026-08-06T16:38:55.246Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-06T01:53:32.098Z"
@@ -126,6 +125,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "fc2c0b2d7d2753e8e1a042d2942421eabe7ee625"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-09T05:04:27.763Z"
+archivedAt: "2026-08-09T05:04:27.763Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/move-domain-language-out-of-context-files.md"
 ---
 
 # Move Domain Language Out of CONTEXT Files

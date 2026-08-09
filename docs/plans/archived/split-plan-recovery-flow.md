@@ -81,10 +81,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "plan recovery split"
 validationCiAttempts: 0
 validationSemanticRounds: 0
-updatedAt: "2026-08-05T14:51:45.698Z"
-archivedAt: "2026-08-05T14:51:45.698Z"
+updatedAt: "2026-08-09T04:59:50.134Z"
+archivedAt: "2026-08-09T04:59:50.134Z"
 archivedFromStatus: "verified"
-archivedFromPath: "plans/split-plan-recovery-flow.md"
+archivedFromPath: "docs/plans/split-plan-recovery-flow.md"
 ---
 
 # Split Plan Recovery Flow

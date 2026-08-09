@@ -68,7 +68,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T00:42:15-04:00"
-updatedAt: "2026-08-07T03:49:12.057Z"
 status: "user_verified"
 origin: "internal"
 failureReason: "Objective-Failing Checks unmet.\n\nObjective-Failing Checks: 0 met, 3 unmet, 0 broken (3 total).\n\n- OC1: unmet\n  command: bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^runValidationLoop asks the user to waive Engineer-reported broken Objective-Failing Checks and preserves other passed validation$\" src/shared/workflow/validation-loop-repair.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"; grep -q \"objectiveCheckWaivers\" src/shared/workflow/validation-mechanical.ts; grep -q \"brokenObjectiveChecks\" src/shared/workflow/validation-mechanical.ts'\n  rationale: The validation loop must prove the user judgement path exists in production, not only in a helper.\n  exitCode: 1\n  output:\n    \u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 8 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n\n- OC2: unmet\n  command: bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^task_completed captures Objective-Failing Check broken reports from execution agents$\" src/tools/__tests__/task-completed.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"; grep -q \"brokenObjectiveChecks\" src/tools/task-completed.ts; grep -q \"brokenObjectiveChecks\" src/shared/session/task-completion-session.ts; grep -q \"brokenObjectiveChecks\" src/shared/workflow/validation-session-adapter.ts'\n  rationale: The completion path must expose, persist, and return structured broken-check reports.\n  exitCode: 1\n  output:\n    \u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 13 filtered out \u001b[0m\u001b[38;5;245m(3ms)\u001b[0m\n\n- OC3: unmet\n  command: bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Plan front matter and Work Records preserve Objective Check Waivers$\" src/plan-store.test.js src/shared/work-records/work-records.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"2 passed \\\\| 0 failed\"; grep -q \"objectiveCheckWaivers\" src/plan-front-matter.js; grep -q \"objectiveCheckWaivers\" src/plan-store.js; grep -q \"objectiveCheckWaivers\\|Objective Check Waiver\" src/shared/work-records/generation.js'\n  rationale: Durable Plan metadata and Work Record generation must carry waiver evidence.\n  exitCode: 1\n  output:\n    \u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 140 filtered out \u001b[0m\u001b[38;5;245m(330ms)\u001b[0m"
@@ -85,13 +84,15 @@ humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
 executionBaselineTree: "c53913749f640882b82b1b23e74cee148a49f87d"
-worktreeId: "b894af27"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-objective-check-waivers-b894af27"
-worktreeBranch: "worktree/objective-check-waivers-b894af27"
 worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+worktreeStatus: "abandoned"
+updatedAt: "2026-08-09T04:56:46.592Z"
+archivedAt: "2026-08-09T04:56:46.592Z"
+archiveReason: "User approved after manual merge; stale validation_failed worktree metadata was abandoned before archival."
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/objective-check-waivers.md"
 ---
 
 # Objective Check Waivers

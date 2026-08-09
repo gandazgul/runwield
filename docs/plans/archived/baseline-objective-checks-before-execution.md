@@ -62,7 +62,7 @@ validationSemanticRounds: 1
 
 ## Context
 
-[`run-objective-checks-in-mechanical-validation`](../run-objective-checks-in-mechanical-validation.md) makes Mechanical
+[`run-objective-checks-in-mechanical-validation`](run-objective-checks-in-mechanical-validation.md) makes Mechanical
 Validation execute each Plan's Objective-Failing Checks and fail when one is unmet. That closes the hole where nobody
 ran the checks, but it leaves one open: **a check that was already green before any work started still passes.**
 

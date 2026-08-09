@@ -109,7 +109,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T21:38:25-04:00"
-updatedAt: "2026-08-05T04:20:51.521Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-05T02:56:04.615Z"
@@ -135,6 +134,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "remove triage affected paths"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-09T05:03:54.209Z"
+archivedAt: "2026-08-09T05:03:54.209Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/remove-affected-paths-from-triage-report.md"
 ---
 
 # Remove affectedPaths from triage_report

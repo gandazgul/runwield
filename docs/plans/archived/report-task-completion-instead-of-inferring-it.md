@@ -29,7 +29,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:47:01-04:00"
-updatedAt: "2026-08-02T23:16:07.520Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T02:37:54.851Z"
@@ -52,6 +51,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "8573882b72b4ae4c318b0c446e072591aa70d646"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-09T05:03:48.623Z"
+archivedAt: "2026-08-09T05:03:48.623Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/report-task-completion-instead-of-inferring-it.md"
 ---
 
 # Report Task Completion Instead of Inferring It

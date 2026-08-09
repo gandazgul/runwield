@@ -86,10 +86,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "workflow module split"
 validationCiAttempts: 0
 validationSemanticRounds: 1
-updatedAt: "2026-08-05T14:25:27.314Z"
-archivedAt: "2026-08-05T14:25:27.314Z"
+updatedAt: "2026-08-09T04:59:39.304Z"
+archivedAt: "2026-08-09T04:59:39.304Z"
 archivedFromStatus: "verified"
-archivedFromPath: "plans/split-workflow-entrypoint-modules.md"
+archivedFromPath: "docs/plans/split-workflow-entrypoint-modules.md"
 ---
 
 # Split Workflow Entrypoint Modules

@@ -48,7 +48,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:17:36-04:00"
-updatedAt: "2026-08-03T21:07:20.498Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-03T18:54:18.626Z"
@@ -74,6 +73,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "custom tools TypeScript"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-09T05:04:46.665Z"
+archivedAt: "2026-08-09T05:04:46.665Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/migrate-custom-tools-to-typescript.md"
 ---
 
 # Migrate Direct Custom Tools to TypeScript

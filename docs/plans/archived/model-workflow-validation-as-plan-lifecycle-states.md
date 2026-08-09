@@ -17,7 +17,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T00:05:05-04:00"
-updatedAt: "2026-08-05T15:34:12.135Z"
 status: "user_verified"
 origin: "internal"
 implementedAt: "2026-07-31T04:24:40.791Z"
@@ -35,9 +34,10 @@ executionMode: "worktree"
 executionBaselineTree: "047bcecc31d797d70da563fffa3152385c032e8c"
 worktreeBaseBranch: "main"
 worktreeStatus: "abandoned"
-archivedAt: "2026-08-05T14:24:27.899Z"
+updatedAt: "2026-08-09T04:58:52.593Z"
+archivedAt: "2026-08-09T04:58:52.593Z"
 archivedFromStatus: "user_verified"
-archivedFromPath: "plans/model-workflow-validation-as-plan-lifecycle-states.md"
+archivedFromPath: "docs/plans/model-workflow-validation-as-plan-lifecycle-states.md"
 ---
 
 # Model Workflow Validation as Plan Lifecycle States

@@ -40,10 +40,10 @@ workRecord:
     recordId: "12b7ea26-672e-43f5-9d61-a058e25dbdce"
     path: "docs/work-records/2026-08-03-delegated-verification-adversary-role-added.md"
     lastAttemptAt: "2026-08-03T18:30:25.038Z"
-updatedAt: "2026-08-05T14:24:20.816Z"
-archivedAt: "2026-08-05T14:24:20.816Z"
+updatedAt: "2026-08-09T04:59:09.406Z"
+archivedAt: "2026-08-09T04:59:09.406Z"
 archivedFromStatus: "user_verified"
-archivedFromPath: "plans/delegate-agent-roles.md"
+archivedFromPath: "docs/plans/delegate-agent-roles.md"
 ---
 
 # Delegate Agent Roles

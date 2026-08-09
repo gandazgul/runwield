@@ -87,7 +87,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T09:29:36-04:00"
-updatedAt: "2026-08-04T21:29:16.331Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-04T16:51:49.883Z"
@@ -110,6 +109,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "9225834d2498625ad039e56a8d39eed11ef1aad8"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-09T05:04:38.032Z"
+archivedAt: "2026-08-09T05:04:38.032Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/model-welcome-auth-deps-refactor.md"
 ---
 
 # Model Welcome and Auth Dependency-Seam Refactor

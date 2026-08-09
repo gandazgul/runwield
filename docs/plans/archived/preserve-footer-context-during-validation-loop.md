@@ -27,7 +27,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-27T23:43:58-04:00"
-updatedAt: "2026-07-31T14:25:28.256Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-31T04:41:51.222Z"
@@ -51,6 +50,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "e5f07f4386b99b6ff48ee34c0d9c8078bb3e3ddf"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "footer workflow context"
+updatedAt: "2026-08-09T05:04:02.951Z"
+archivedAt: "2026-08-09T05:04:02.951Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/preserve-footer-context-during-validation-loop.md"
 ---
 
 # Preserve Footer Context During Validation Loop

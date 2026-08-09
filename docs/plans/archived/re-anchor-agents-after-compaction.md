@@ -39,7 +39,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:18:18-04:00"
-updatedAt: "2026-08-07T03:47:47.548Z"
 status: "user_verified"
 origin: "internal"
 userVerifiedAt: "2026-08-07T03:47:41.532Z"
@@ -49,6 +48,10 @@ workRecord:
     recordId: "d1acbedf-69be-4807-b87f-2768ef25d209"
     path: "docs/work-records/2026-08-07-re-anchor-agents-after-compaction.md"
     lastAttemptAt: "2026-08-07T03:47:41.660Z"
+updatedAt: "2026-08-09T04:50:11.605Z"
+archivedAt: "2026-08-09T04:50:11.605Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/re-anchor-agents-after-compaction.md"
 ---
 
 # Re-Anchor Agents After Compaction

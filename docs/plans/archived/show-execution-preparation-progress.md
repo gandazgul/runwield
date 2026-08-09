@@ -80,10 +80,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "plan execution progress"
 validationCiAttempts: 0
 validationSemanticRounds: 1
-updatedAt: "2026-08-05T14:51:53.687Z"
-archivedAt: "2026-08-05T14:51:53.687Z"
+updatedAt: "2026-08-09T04:59:56.783Z"
+archivedAt: "2026-08-09T04:59:56.783Z"
 archivedFromStatus: "verified"
-archivedFromPath: "plans/show-execution-preparation-progress.md"
+archivedFromPath: "docs/plans/show-execution-preparation-progress.md"
 ---
 
 # Show Execution Preparation Progress

@@ -21,7 +21,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
-updatedAt: "2026-08-02T15:21:28.304Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-01T18:51:26.646Z"
@@ -43,6 +42,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "586b5a3a4700fbe188bb5c5239dbdf419db59c0c"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-09T05:03:37.680Z"
+archivedAt: "2026-08-09T05:03:37.680Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/run-objective-checks-in-mechanical-validation.md"
 ---
 
 # Run Objective-Failing Checks in Mechanical Validation

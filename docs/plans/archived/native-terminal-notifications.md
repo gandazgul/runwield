@@ -74,7 +74,6 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T09:29:18-04:00"
-updatedAt: "2026-08-02T21:46:41.881Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T14:12:11.124Z"
@@ -98,6 +97,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "9c1ab9fd4f1cf13515351c674409ba1c6249b6c3"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-09T05:04:21.078Z"
+archivedAt: "2026-08-09T05:04:21.078Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/native-terminal-notifications.md"
 ---
 
 # Native Terminal Notifications
