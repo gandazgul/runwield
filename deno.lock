@@ -58,7 +58,7 @@
     "npm:@plannotator/markdown-editor@0.4": "0.4.0_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+state@6.7.1_@plannotator+atomic-editor@0.8.0__@codemirror+autocomplete@6.20.3__@codemirror+commands@6.10.4__@codemirror+lang-javascript@6.2.5__@codemirror+lang-json@6.0.2__@codemirror+lang-markdown@6.5.0__@codemirror+lang-python@6.2.1__@codemirror+lang-yaml@6.1.3__@codemirror+language@6.12.4__@codemirror+legacy-modes@6.5.3__@codemirror+merge@6.12.2__@codemirror+search@6.7.1__@codemirror+state@6.7.1__@codemirror+view@6.43.6__@lezer+common@1.5.2__@lezer+highlight@1.2.3__@lezer+markdown@1.7.2__react@19.2.7__react-dom@19.2.7___react@19.2.7__typescript@5.9.3_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@plannotator/web-highlighter@~0.8.1": "0.8.1",
     "npm:@preact/signals@^2.9.4": "2.10.0_preact@10.29.7",
-    "npm:@radix-ui/react-checkbox@^1.3.3": "1.3.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+    "npm:@radix-ui/react-checkbox@^1.3.11": "1.3.11_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-collapsible@^1.1.16": "1.1.16_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-context-menu@^2.3.3": "2.3.5_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-dialog@^1.1.19": "1.1.19_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -84,6 +84,7 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
+    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^7.0.2": "7.0.4_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -216,7 +217,7 @@
     "@agentclientprotocol/sdk@1.2.1_zod@4.4.3": {
       "integrity": "sha512-jwYUdOQR7tc+Zfch53VL4JJyUNK/46q03uUTYb+PjECsmnNl94XFXOfYLJ8RBpMNidXd1rpOAVgb0vqD98xImA==",
       "dependencies": [
-        "zod@4.4.3"
+        "zod"
       ]
     },
     "@antfu/install-pkg@1.1.0": {
@@ -230,10 +231,10 @@
       "integrity": "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw==",
       "dependencies": [
         "json-schema-to-ts",
-        "zod@4.4.3"
+        "zod"
       ],
       "optionalPeers": [
-        "zod@4.4.3"
+        "zod"
       ],
       "bin": true
     },
@@ -1739,7 +1740,7 @@
         "@opentelemetry/api",
         "@opentelemetry/semantic-conventions",
         "ws",
-        "zod@4.4.3",
+        "zod",
         "zod-to-json-schema"
       ],
       "optionalPeers": [
@@ -1764,7 +1765,7 @@
         "json-schema-typed",
         "pkce-challenge",
         "raw-body",
-        "zod@4.4.3",
+        "zod",
         "zod-to-json-schema"
       ]
     },
@@ -1955,17 +1956,16 @@
         "@types/react-dom"
       ]
     },
-    "@radix-ui/react-checkbox@1.3.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
-      "integrity": "sha512-JroKHfQBfh+fDuzpPsBC+pESkhuq8ql4hljTguz8MWnS35cISr3d/Jhl9kYrB44FlDtxCArYdDvTx+BSsJ64rQ==",
+    "@radix-ui/react-checkbox@1.3.11_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
+      "integrity": "sha512-Gnptr9pDDQxD3hgq2dtPbtrp/c2qH1mBwIzw3X/ivrMb2e1t0jMTi606fVEqFPaQR1ggXIVQWKj3P2WW9v7zGQ==",
       "dependencies": [
-        "@radix-ui/primitive@1.1.5",
-        "@radix-ui/react-compose-refs@1.1.3_@types+react@19.2.17_react@19.2.7",
-        "@radix-ui/react-context@1.2.0_@types+react@19.2.17_react@19.2.7",
-        "@radix-ui/react-presence@1.1.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
-        "@radix-ui/react-primitive@2.1.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
-        "@radix-ui/react-use-controllable-state@1.2.3_@types+react@19.2.17_react@19.2.7",
-        "@radix-ui/react-use-previous",
-        "@radix-ui/react-use-size@1.1.2_@types+react@19.2.17_react@19.2.7",
+        "@radix-ui/primitive@1.1.7",
+        "@radix-ui/react-compose-refs@1.1.5_@types+react@19.2.17_react@19.2.7",
+        "@radix-ui/react-context@1.2.2_@types+react@19.2.17_react@19.2.7",
+        "@radix-ui/react-presence@1.1.10_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+        "@radix-ui/react-primitive@2.1.10_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+        "@radix-ui/react-use-controllable-state@1.2.6_@types+react@19.2.17_react@19.2.7",
+        "@radix-ui/react-use-size@1.1.4_@types+react@19.2.17_react@19.2.7",
         "@types/react",
         "@types/react-dom",
         "react",
@@ -2900,16 +2900,6 @@
     },
     "@radix-ui/react-use-layout-effect@1.1.4_@types+react@19.2.17_react@19.2.7": {
       "integrity": "sha512-K20DkRkUwDnxEYMBPcg3Y6voLkEy5p5QQmszZgLngKKiC7dzBR/aEuK3w1qlx2JWDUNH6FluahYdgR3BP+QbYw==",
-      "dependencies": [
-        "@types/react",
-        "react"
-      ],
-      "optionalPeers": [
-        "@types/react"
-      ]
-    },
-    "@radix-ui/react-use-previous@1.1.2_@types+react@19.2.17_react@19.2.7": {
-      "integrity": "sha512-IGBQPtRFdhN6MQ8dbegVmBq1LVZluya3F1jWY+puIcQC3MHctRwTDSBWCkL/3ZcnMJLTMJ++Z+ktmvg0F89iCw==",
       "dependencies": [
         "@types/react",
         "react"
@@ -3960,7 +3950,7 @@
         "vitefu",
         "xxhash-wasm",
         "yargs-parser@22.0.0",
-        "zod@4.4.3"
+        "zod"
       ],
       "optionalDependencies": [
         "sharp"
@@ -5634,10 +5624,10 @@
     "openai@6.26.0_zod@4.4.3": {
       "integrity": "sha512-zd23dbWTjiJ6sSAX6s0HrCZi41JwTA1bQVs0wLQPZ2/5o2gxOJA5wh7yOAUgwYybfhDXyhwlpeQf7Mlgx8EOCA==",
       "dependencies": [
-        "zod@4.4.3"
+        "zod"
       ],
       "optionalPeers": [
-        "zod@4.4.3"
+        "zod"
       ],
       "bin": true
     },
@@ -6681,7 +6671,7 @@
     "zod-to-json-schema@3.25.2_zod@4.4.3": {
       "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
       "dependencies": [
-        "zod@4.4.3"
+        "zod"
       ]
     },
     "zod@4.4.3": {
@@ -6724,7 +6714,7 @@
       "npm:@plannotator/markdown-editor@0.4",
       "npm:@plannotator/web-highlighter@~0.8.1",
       "npm:@preact/signals@^2.9.4",
-      "npm:@radix-ui/react-checkbox@^1.3.3",
+      "npm:@radix-ui/react-checkbox@^1.3.11",
       "npm:@radix-ui/react-collapsible@^1.1.16",
       "npm:@radix-ui/react-context-menu@^2.3.3",
       "npm:@radix-ui/react-dialog@^1.1.19",
@@ -6771,6 +6761,11 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:diff@8.0.4"
+      ]
+    }
   }
 }
