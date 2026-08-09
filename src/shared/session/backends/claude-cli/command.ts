@@ -16,6 +16,8 @@ export interface PreparedClaudeCliCommand {
     mcpConfigPath?: string;
 }
 
+const CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS = 600_000;
+
 const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
     "Read",
     "Write",
@@ -33,6 +35,14 @@ const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
     "NotebookEdit",
     "EnterWorktree",
 ];
+
+function resolveMcpToolIdleTimeoutEnv(): string {
+    const inherited = Number(Deno.env.get("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"));
+    if (Number.isFinite(inherited) && inherited > CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS) {
+        return String(Math.trunc(inherited));
+    }
+    return String(CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS);
+}
 
 async function writeOwnerOnlyTempFile(prefix: string, suffix: string, content: string): Promise<string> {
     const path = await Deno.makeTempFile({ prefix, suffix });
@@ -81,7 +91,7 @@ export async function prepareClaudeCliCommand(request: ClaudeCliCommandRequest):
         command: "claude",
         args,
         promptFilePath,
-        env: { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "600000" },
+        env: { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: resolveMcpToolIdleTimeoutEnv() },
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
 }

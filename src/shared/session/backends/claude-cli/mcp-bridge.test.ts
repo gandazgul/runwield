@@ -344,7 +344,10 @@ Deno.test("RunWield MCP bridge lists capability aliases and exposes timeout conf
         description: "Recall memory.",
         parameters: Type.Object({ query: Type.String() }),
         execute(_toolCallId, params) {
-            return Promise.resolve({ content: [{ type: "text" as const, text: `hit ${params.query}` }], details: params });
+            return Promise.resolve({
+                content: [{ type: "text" as const, text: `hit ${params.query}` }],
+                details: params,
+            });
         },
     });
     await withBridge([capability], async (context) => {
@@ -364,30 +367,67 @@ Deno.test("RunWield MCP bridge rejects duplicate aliases", async () => {
         label: "Memory Recall A",
         description: "A.",
         parameters: Type.Object({}),
-        execute() { return Promise.resolve({ content: [], details: {} }); },
+        execute() {
+            return Promise.resolve({ content: [], details: {} });
+        },
     });
     const toolB = defineTool({
         name: "memory_recall",
         label: "Memory Recall B",
         description: "B.",
         parameters: Type.Object({}),
-        execute() { return Promise.resolve({ content: [], details: {} }); },
+        execute() {
+            return Promise.resolve({ content: [], details: {} });
+        },
     });
     const cwd = await Deno.makeTempDir();
     try {
         await assertRejects(
-            () => startRunWieldMcpBridge({
-                tools: [toolA, toolB],
-                cwd,
-                sessionManager: SessionManager.inMemory(cwd),
-                assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
-            }),
+            () =>
+                startRunWieldMcpBridge({
+                    tools: [toolA, toolB],
+                    cwd,
+                    sessionManager: SessionManager.inMemory(cwd),
+                    assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
+                }),
             Error,
             "duplicate MCP alias",
         );
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
     }
+});
+
+Deno.test("RunWield MCP bridge gates return_to_router as a lifecycle tool", async () => {
+    let invocations = 0;
+    const returnToRouter = defineTool({
+        name: "return_to_router",
+        label: "Return to Router",
+        description: "Hand back to Router.",
+        parameters: Type.Object({ reason: Type.String() }),
+        execute(_toolCallId, params) {
+            invocations += 1;
+            return Promise.resolve({
+                content: [{ type: "text" as const, text: `handoff ${params.reason}` }],
+                details: { reason: params.reason },
+                terminate: true,
+            });
+        },
+    });
+    await withBridge([returnToRouter], async (context) => {
+        const accepted = await context.client.callTool({
+            name: "return_to_router",
+            arguments: { reason: "need-router" },
+        });
+        const rejected = await context.client.callTool({ name: "return_to_router", arguments: { reason: "again" } });
+        assertEquals(accepted.isError, false);
+        assertEquals(rejected.isError, true);
+        assertStringIncludes(
+            resultText(rejected as { content: Array<{ type: string; text?: string }> }),
+            "runwield lifecycle call rejected",
+        );
+        assertEquals(invocations, 1);
+    });
 });
 
 Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle result", async () => {
@@ -406,15 +446,30 @@ Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle 
         description: "Recall memory.",
         parameters: Type.Object({ query: Type.String() }),
         execute(_toolCallId, params) {
-            return Promise.resolve({ content: [{ type: "text" as const, text: `hit ${params.query}` }], details: params });
+            return Promise.resolve({
+                content: [{ type: "text" as const, text: `hit ${params.query}` }],
+                details: params,
+            });
         },
     });
     await withBridge([lifecycle, capability], async (context) => {
         await context.client.callTool({ name: "runwield_task_completed", arguments: { message: "done" } });
-        const rejected = await context.client.callTool({ name: "runwield_task_completed", arguments: { message: "again" } });
-        const capabilityResult = await context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
-        assertStringIncludes(resultText(rejected as { content: Array<{ type: string; text?: string }> }), "runwield lifecycle call rejected");
-        assertStringIncludes(resultText(capabilityResult as { content: Array<{ type: string; text?: string }> }), "hit plans");
+        const rejected = await context.client.callTool({
+            name: "runwield_task_completed",
+            arguments: { message: "again" },
+        });
+        const capabilityResult = await context.client.callTool({
+            name: "memory_recall",
+            arguments: { query: "plans" },
+        });
+        assertStringIncludes(
+            resultText(rejected as { content: Array<{ type: string; text?: string }> }),
+            "runwield lifecycle call rejected",
+        );
+        assertStringIncludes(
+            resultText(capabilityResult as { content: Array<{ type: string; text?: string }> }),
+            "hit plans",
+        );
     });
 });
 
@@ -433,7 +488,10 @@ Deno.test("RunWield MCP bridge passes abort signal to a running bridged tool", a
         async execute(_toolCallId, _params, signal, _onUpdate, context) {
             observedSignal = signal || context.signal || null;
             await wait;
-            return { content: [{ type: "text" as const, text: observedSignal?.aborted ? "aborted" : "active" }], details: {} };
+            return {
+                content: [{ type: "text" as const, text: observedSignal?.aborted ? "aborted" : "active" }],
+                details: {},
+            };
         },
     });
     await withBridgeWithSignal([capability], controller.signal, async (context) => {

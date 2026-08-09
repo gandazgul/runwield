@@ -1,8 +1,8 @@
 /**
  * @module shared/session/backends/claude-cli/mcp-bridge
  *
- * Per-turn loopback MCP adapter that exposes exactly the RunWield lifecycle
- * completion tools eligible for the current Claude CLI Agent.
+ * Per-turn loopback MCP adapter that exposes the RunWield Bridged Tools
+ * eligible for the current Claude CLI Agent.
  *
  * Claude CLI owns its internal read/Bash tool loop and RunWield deliberately
  * does not ingest that internal transcript, so lifecycle truth must not come
@@ -73,6 +73,10 @@ export function workflowMcpAliasFor(internalName: string): string | undefined {
 
 export function mcpAliasFor(internalName: string): string {
     return workflowMcpAliasFor(internalName) ?? internalName;
+}
+
+function isLifecycleTool(internalName: string): boolean {
+    return workflowMcpAliasFor(internalName) !== undefined || internalName === "return_to_router";
 }
 
 /** Model fields the recorded assistant toolCall message carries from the current model. */
@@ -191,7 +195,7 @@ function rejectionText(reason: string): string {
 
 /**
  * Start a per-turn authenticated loopback MCP server advertising only the
- * supplied eligible lifecycle aliases, and return the Claude config content
+ * supplied eligible RunWield tool aliases, and return the Claude config content
  * plus a close operation.
  *
  * The caller writes the returned `config` to an owner-only temporary file and
@@ -210,7 +214,7 @@ export async function startRunWieldMcpBridge(
         if (!alias.trim()) {
             throw new Error(`startRunWieldMcpBridge: "${internalName}" resolved to an empty MCP alias`);
         }
-        const kind = workflowMcpAliasFor(internalName) ? "lifecycle" as const : "capability" as const;
+        const kind = isLifecycleTool(internalName) ? "lifecycle" as const : "capability" as const;
         return { alias, internalName, definition, kind };
     });
     const byAlias = new Map<string, BridgeToolEntry>();
