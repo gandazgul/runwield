@@ -22,7 +22,7 @@ workRecord:
     recordId: "a79d1b44-18ab-40d3-87c0-4bead5630979"
     path: "docs/work-records/2026-07-25-fast-submodule-ci-split-from-release-checks.md"
     lastAttemptAt: "2026-07-25T22:08:59.081Z"
-worktreeStatus: "completed"
+worktreeStatus: "abandoned"
 ---
 
 # Fast Submodule CI and Release Fetchability Check

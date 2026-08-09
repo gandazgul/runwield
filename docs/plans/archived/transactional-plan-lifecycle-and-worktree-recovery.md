@@ -79,8 +79,8 @@ workRecord:
     recordId: "9e59ce1c-a1aa-45de-92d3-1ed2c5a54151"
     path: "docs/work-records/2026-07-31-transactional-plan-lifecycle-and-worktree-recovery.md"
     lastAttemptAt: "2026-07-31T04:10:22.075Z"
-worktreeId: "a999678c"
-worktreeStatus: "validation_failed"
+worktreeId: null
+worktreeStatus: "abandoned"
 ---
 
 # Transactional Plan Lifecycle and Worktree Recovery

@@ -35,7 +35,7 @@ order: 4
 dependencies:
     - "03-tui-pair-host-and-autonomous-host-boundaries"
 implementedAt: "2026-07-23T22:05:38.735Z"
-worktreeStatus: "completed"
+worktreeStatus: "abandoned"
 verifiedAt: "2026-07-24T03:58:41.281Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
