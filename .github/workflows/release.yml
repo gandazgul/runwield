@@ -92,6 +92,7 @@ jobs:
                     chmod +x "$RUNNER_TEMP/runwield-ci-bin/$binary"
                   done
                   GOBIN="$RUNNER_TEMP/runwield-ci-bin" go install github.com/edouard-claude/snip/cmd/snip@v0.24.1
+                  deno run -A scripts/write-version.js
                   PATH="$RUNNER_TEMP/runwield-ci-bin:$PATH" deno run -A src/cli.ts snip-filters install
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
