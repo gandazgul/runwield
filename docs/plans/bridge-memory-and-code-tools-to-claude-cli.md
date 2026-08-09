@@ -27,7 +27,6 @@ affectedPaths:
     - "docs/domain-language.md"
     - "docs/prd/runwield-core-prd.md"
 createdAt: "2026-08-08T00:47:12-04:00"
-status: "feedback"
 origin: "internal"
 objectiveChecks:
     - id: "OC1"
@@ -57,6 +56,7 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 updatedAt: "2026-08-09T04:37:11.176Z"
+status: "ready_for_work"
 ---
 
 # Bridge RunWield Tools to Claude CLI Turns

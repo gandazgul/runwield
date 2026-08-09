@@ -1,11 +1,11 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
+import { defineTool, SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
 import { HostedSession } from "../../hosted-session.js";
 import { RuntimeEventTypes } from "../../session-runtime-events.js";
-import { CLAUDE_CLI_MCP_PROVENANCE, startWorkflowMcpBridge } from "./workflow-mcp-bridge.ts";
+import { CLAUDE_CLI_MCP_PROVENANCE, mcpAliasFor, startRunWieldMcpBridge } from "./mcp-bridge.ts";
 
 interface RecordedCall {
     name: string;
@@ -87,7 +87,7 @@ function makeTestTools() {
 
 interface BridgeTestContext {
     manager: SessionManager;
-    bridge: Awaited<ReturnType<typeof startWorkflowMcpBridge>>;
+    bridge: Awaited<ReturnType<typeof startRunWieldMcpBridge>>;
     client: Client;
     transport: StreamableHTTPClientTransport;
     mirrored: unknown[];
@@ -95,7 +95,15 @@ interface BridgeTestContext {
 }
 
 async function withBridge(
-    tools: ReturnType<typeof makeTestTools>["tools"],
+    tools: ToolDefinition[],
+    callback: (context: BridgeTestContext) => Promise<void>,
+): Promise<void> {
+    await withBridgeWithSignal(tools, undefined, callback);
+}
+
+async function withBridgeWithSignal(
+    tools: ToolDefinition[],
+    signal: AbortSignal | undefined,
     callback: (context: BridgeTestContext) => Promise<void>,
 ): Promise<void> {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-mcp-bridge-" });
@@ -107,7 +115,7 @@ async function withBridge(
         cwd,
         eventSink: (event: Record<string, unknown>) => runtimeEvents.push(event),
     });
-    const bridge = await startWorkflowMcpBridge({
+    const bridge = await startRunWieldMcpBridge({
         tools,
         cwd,
         hostedSession,
@@ -115,6 +123,7 @@ async function withBridge(
         onMessage: (message) => {
             mirrored.push(message);
         },
+        signal,
         assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
     });
     const transport = new StreamableHTTPClientTransport(new URL(bridge.url), {
@@ -319,5 +328,120 @@ Deno.test("workflow MCP bridge rejects an unknown tool and closes the listener d
         assertEquals(context.bridge.closed, true);
         await context.bridge.close(); // idempotent
         await assertRejects(() => fetch(url), TypeError);
+    });
+});
+
+Deno.test("mcpAliasFor keeps lifecycle aliases and leaves capability names unchanged", () => {
+    assertEquals(mcpAliasFor("task_completed"), "runwield_task_completed");
+    assertEquals(mcpAliasFor("return_to_router"), "return_to_router");
+    assertEquals(mcpAliasFor("review_diff"), "review_diff");
+});
+
+Deno.test("RunWield MCP bridge lists capability aliases and exposes timeout config", async () => {
+    const capability = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall",
+        description: "Recall memory.",
+        parameters: Type.Object({ query: Type.String() }),
+        execute(_toolCallId, params) {
+            return Promise.resolve({ content: [{ type: "text" as const, text: `hit ${params.query}` }], details: params });
+        },
+    });
+    await withBridge([capability], async (context) => {
+        const listed = await context.client.listTools();
+        assertEquals(listed.tools.map((tool) => tool.name), ["memory_recall"]);
+        assertEquals(context.bridge.advertisedToolNames, ["memory_recall"]);
+        const config = JSON.parse(context.bridge.config) as { mcpServers: { runwield: { timeout: number } } };
+        assertEquals(config.mcpServers.runwield.timeout >= 600000, true);
+        const result = await context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
+        assertStringIncludes(resultText(result as { content: Array<{ type: string; text?: string }> }), "hit plans");
+    });
+});
+
+Deno.test("RunWield MCP bridge rejects duplicate aliases", async () => {
+    const toolA = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall A",
+        description: "A.",
+        parameters: Type.Object({}),
+        execute() { return Promise.resolve({ content: [], details: {} }); },
+    });
+    const toolB = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall B",
+        description: "B.",
+        parameters: Type.Object({}),
+        execute() { return Promise.resolve({ content: [], details: {} }); },
+    });
+    const cwd = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () => startRunWieldMcpBridge({
+                tools: [toolA, toolB],
+                cwd,
+                sessionManager: SessionManager.inMemory(cwd),
+                assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
+            }),
+            Error,
+            "duplicate MCP alias",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle result", async () => {
+    const lifecycle = defineTool({
+        name: "task_completed",
+        label: "Task Completed",
+        description: "Done.",
+        parameters: Type.Object({ message: Type.String() }),
+        execute() {
+            return Promise.resolve({ content: [], details: { outcome: "task_completed" }, terminate: true });
+        },
+    });
+    const capability = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall",
+        description: "Recall memory.",
+        parameters: Type.Object({ query: Type.String() }),
+        execute(_toolCallId, params) {
+            return Promise.resolve({ content: [{ type: "text" as const, text: `hit ${params.query}` }], details: params });
+        },
+    });
+    await withBridge([lifecycle, capability], async (context) => {
+        await context.client.callTool({ name: "runwield_task_completed", arguments: { message: "done" } });
+        const rejected = await context.client.callTool({ name: "runwield_task_completed", arguments: { message: "again" } });
+        const capabilityResult = await context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
+        assertStringIncludes(resultText(rejected as { content: Array<{ type: string; text?: string }> }), "runwield lifecycle call rejected");
+        assertStringIncludes(resultText(capabilityResult as { content: Array<{ type: string; text?: string }> }), "hit plans");
+    });
+});
+
+Deno.test("RunWield MCP bridge passes abort signal to a running bridged tool", async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | null = null;
+    let release: (() => void) | null = null;
+    const wait = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const capability = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall",
+        description: "Recall memory.",
+        parameters: Type.Object({ query: Type.String() }),
+        async execute(_toolCallId, _params, signal, _onUpdate, context) {
+            observedSignal = signal || context.signal || null;
+            await wait;
+            return { content: [{ type: "text" as const, text: observedSignal?.aborted ? "aborted" : "active" }], details: {} };
+        },
+    });
+    await withBridgeWithSignal([capability], controller.signal, async (context) => {
+        const pending = context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
+        await Promise.resolve();
+        controller.abort();
+        release?.();
+        const result = await pending;
+        assertStringIncludes(resultText(result as { content: Array<{ type: string; text?: string }> }), "aborted");
     });
 });

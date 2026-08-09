@@ -25,6 +25,7 @@ export class DenoClaudeCliProcessPort {
                 stdin: "piped",
                 stdout: "piped",
                 stderr: "piped",
+                env: command.env,
                 signal,
             }).spawn();
         } catch (error) {

@@ -2026,41 +2026,95 @@ export async function buildAgentSession({
  *   agentName: string,
  *   hostedSession: import('./hosted-session.js').HostedSession | null,
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
+ *   cwd: string,
+ *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   allowReturnToRouter?: boolean,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
-async function composeClaudeCliWorkflowTools({ agentDef, agentName, hostedSession, triageMeta }) {
+export async function composeClaudeCliBridgedTools({
+    agentDef,
+    agentName,
+    hostedSession,
+    triageMeta,
+    cwd,
+    customTools = [],
+    allowReturnToRouter = true,
+}) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-    const finalCustomTools = [];
-    if (!hostedSession) return finalCustomTools;
-    const declared = new Set(Array.isArray(agentDef.tools) ? agentDef.tools : []);
-    if (declared.has("plan_written") && !finalCustomTools.find((t) => t.name === "plan_written")) {
+    const finalCustomTools = [...customTools];
+    const declaredTools = resolveEffectiveSessionToolNames(
+        agentDef.tools,
+        undefined,
+        customTools.map((tool) => tool.name),
+        { allowReturnToRouter },
+    );
+    const declared = new Set(declaredTools);
+    /** @param {string} name */
+    const hasTool = (name) => finalCustomTools.find((tool) => tool.name === name);
+
+    const { createClaudeCliCapabilityTools, CLAUDE_CLI_CAPABILITY_TOOL_NAMES } = await import(
+        "./backends/claude-cli/capability-tools.ts"
+    );
+    const capabilityNameSet = new Set(/** @type {readonly string[]} */ (CLAUDE_CLI_CAPABILITY_TOOL_NAMES));
+    for (const tool of createClaudeCliCapabilityTools({ cwd })) {
+        if (declared.has(tool.name) && capabilityNameSet.has(tool.name) && !hasTool(tool.name)) {
+            finalCustomTools.push(tool);
+        }
+    }
+
+    if (declared.has("return_to_router") && hostedSession && !hasTool("return_to_router")) {
+        const returnToRouterHostedSession = hostedSession;
+        finalCustomTools.push({
+            ...returnToRouterTool,
+            execute(_toolCallId, params, _signal, _onUpdate, _context) {
+                return executeReturnToRouter(
+                    /** @type {{ reason: string }} */ (params),
+                    returnToRouterHostedSession,
+                );
+            },
+        });
+    }
+    if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
-        finalCustomTools.push(
-            createPlanWrittenTool({
-                triageMeta,
-                agentName,
-                hostedSession,
-            }),
-        );
+        finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
     }
-    if (declared.has("task_completed") && !finalCustomTools.find((t) => t.name === "task_completed")) {
+    if (declared.has("task_completed") && hostedSession && !hasTool("task_completed")) {
         const { createTaskCompletedTool } = await import("../../tools/task-completed.ts");
-        finalCustomTools.push(
-            createTaskCompletedTool({ hostedSession, agentName: agentDef.displayName }),
-        );
+        finalCustomTools.push(createTaskCompletedTool({ hostedSession, agentName: agentDef.displayName }));
     }
-    if (declared.has("review_complete") && !finalCustomTools.find((t) => t.name === "review_complete")) {
+    if (declared.has("review_complete") && hostedSession && !hasTool("review_complete")) {
         const { createReviewCompletedTool } = await import("../../tools/review-complete.ts");
-        finalCustomTools.push(
-            createReviewCompletedTool({ hostedSession, agentName: agentDef.displayName }),
-        );
+        finalCustomTools.push(createReviewCompletedTool({ hostedSession, agentName: agentDef.displayName }));
     }
-    if (declared.has("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
+    if (declared.has("triage_report") && hostedSession && !hasTool("triage_report")) {
         const { createTriageReportTool } = await import("../../tools/triage-report.ts");
         finalCustomTools.push(createTriageReportTool({ hostedSession }));
     }
-    return finalCustomTools;
+    if (declared.has("user_interview") && hostedSession && !hasTool("user_interview")) {
+        finalCustomTools.push(createUserInterviewTool({ hostedSession }));
+    }
+
+    const workRecordAccessMode = [AGENTS.GUIDE, AGENTS.RECORDER].includes(agentName) ? "all" : "current";
+    if (declared.has("work_record_search") && !hasTool("work_record_search")) {
+        const { createWorkRecordSearchTool } = await import("../../tools/work-record-search.ts");
+        const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
+        finalCustomTools.push(createWorkRecordSearchTool({
+            cwd,
+            accessMode: workRecordAccessMode,
+            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+        }));
+    }
+    if (declared.has("work_record_read") && !hasTool("work_record_read")) {
+        const { createWorkRecordReadTool } = await import("../../tools/work-record-read.ts");
+        finalCustomTools.push(createWorkRecordReadTool({ cwd, accessMode: workRecordAccessMode }));
+    }
+    if (declared.has("multi_file_edit") && !hasTool("multi_file_edit")) {
+        const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.ts");
+        finalCustomTools.push(createMultiFileEditTool(cwd));
+    }
+
+    return finalCustomTools.filter((tool) => tool.name !== "delegate_agent");
 }
 
 /**
@@ -2116,24 +2170,30 @@ export async function buildExecutionSession(opts) {
         );
     }
     const effectiveSessionManager = opts.sessionManager || SessionManager.inMemory(sessionCwd);
-    const rebuildToolNames = resolveEffectiveSessionToolNames(agentDef.tools, opts.toolNames, [], {
-        allowReturnToRouter: opts.allowReturnToRouter ?? true,
-    });
-    const { prompt: finalSystemPrompt, projection: contextProjection } =
-        await assembleFinalSystemPromptWithContextProjection(
-            agentDef,
-            [],
-            [],
-            sessionCwd,
-            opts.projectStateContext,
-        );
-    const promptState = { text: finalSystemPrompt };
-    const finalCustomTools = await composeClaudeCliWorkflowTools({
+    const finalCustomTools = await composeClaudeCliBridgedTools({
         agentDef,
         agentName: opts.agentName,
         hostedSession: targetHostedSession,
         triageMeta: opts.triageMeta,
+        cwd: sessionCwd,
+        customTools: opts.customTools || [],
+        allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
+    const rebuildToolNames = resolveEffectiveSessionToolNames(
+        agentDef.tools,
+        opts.toolNames,
+        finalCustomTools.map((tool) => tool.name),
+        { allowReturnToRouter: opts.allowReturnToRouter ?? true },
+    );
+    const { prompt: finalSystemPrompt, projection: contextProjection } =
+        await assembleFinalSystemPromptWithContextProjection(
+            agentDef,
+            rebuildToolNames,
+            finalCustomTools,
+            sessionCwd,
+            opts.projectStateContext,
+        );
+    const promptState = { text: finalSystemPrompt };
     const session = new ClaudeCliExecutionSession({
         cwd: sessionCwd,
         agentName: opts.agentName,
@@ -2141,7 +2201,7 @@ export async function buildExecutionSession(opts) {
         model: resolvedModel,
         sessionManager: effectiveSessionManager,
         hostedSession: targetHostedSession || undefined,
-        workflowTools: finalCustomTools,
+        bridgedTools: finalCustomTools,
     });
     await recordWorkflowMetric({
         category: "model_selection",

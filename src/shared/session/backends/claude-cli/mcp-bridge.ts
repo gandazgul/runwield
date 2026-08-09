@@ -1,5 +1,5 @@
 /**
- * @module shared/session/backends/claude-cli/workflow-mcp-bridge
+ * @module shared/session/backends/claude-cli/mcp-bridge
  *
  * Per-turn loopback MCP adapter that exposes exactly the RunWield lifecycle
  * completion tools eligible for the current Claude CLI Agent.
@@ -71,8 +71,12 @@ export function workflowMcpAliasFor(internalName: string): string | undefined {
     return WORKFLOW_MCP_ALIASES[internalName as WorkflowInternalToolName];
 }
 
+export function mcpAliasFor(internalName: string): string {
+    return workflowMcpAliasFor(internalName) ?? internalName;
+}
+
 /** Model fields the recorded assistant toolCall message carries from the current model. */
-export interface WorkflowMcpBridgeAssistantBase {
+export interface RunWieldMcpBridgeAssistantBase {
     api: Api;
     provider: ProviderId;
     model: string;
@@ -81,9 +85,11 @@ export interface WorkflowMcpBridgeAssistantBase {
 /** Message shapes this bridge records (assistant toolCall + toolResult). */
 type BridgeRecordedMessage = Parameters<SessionManager["appendMessage"]>[0];
 
-export interface WorkflowMcpBridgeOptions {
-    /** Eligible existing Tool Definitions; names must be one of the three supported tools. */
+export interface RunWieldMcpBridgeOptions {
+    /** Eligible existing Tool Definitions exposed to this Claude CLI turn. */
     tools: ToolDefinition[];
+    /** Abort signal for the current Claude CLI turn. */
+    signal?: AbortSignal;
     sessionManager: SessionManager;
     cwd: string;
     /** Hosted Session that receives live Runtime events for TUI tool blocks. */
@@ -91,10 +97,10 @@ export interface WorkflowMcpBridgeOptions {
     /** Mirror of recorded messages into the execution-session message list. */
     onMessage?: (message: BridgeRecordedMessage) => void;
     /** Model fields stamped onto the canonical assistant toolCall messages. */
-    assistantBase: WorkflowMcpBridgeAssistantBase;
+    assistantBase: RunWieldMcpBridgeAssistantBase;
 }
 
-export interface WorkflowMcpBridgeHandle {
+export interface RunWieldMcpBridgeHandle {
     /** Loopback URL of the temporary server (in-process only; never logged). */
     readonly url: string;
     /** Random Bearer token required on every request (in-process only; never logged). */
@@ -103,6 +109,7 @@ export interface WorkflowMcpBridgeHandle {
     readonly config: string;
     readonly closed: boolean;
     readonly acceptedTerminal: boolean;
+    readonly advertisedToolNames: string[];
     /** Stop the listener, close active streams, and release all resources. Idempotent. */
     close(): Promise<void>;
 }
@@ -111,6 +118,7 @@ interface BridgeToolEntry {
     alias: string;
     internalName: string;
     definition: ToolDefinition;
+    kind: "lifecycle" | "capability";
 }
 
 interface McpToolInputSchema {
@@ -147,7 +155,7 @@ function generateBearerToken(): string {
 }
 
 /** Minimal extension context: the bridged tools capture HostedSession state at factory time. */
-function createToolContext(cwd: string): ExtensionContext {
+function createToolContext(cwd: string, signal?: AbortSignal): ExtensionContext {
     return {
         ui: {} as ExtensionUIContext,
         mode: "print",
@@ -158,7 +166,7 @@ function createToolContext(cwd: string): ExtensionContext {
         model: undefined,
         isIdle: () => true,
         isProjectTrusted: () => true,
-        signal: undefined,
+        signal,
         abort: () => {},
         hasPendingMessages: () => false,
         shutdown: () => {},
@@ -190,36 +198,41 @@ function rejectionText(reason: string): string {
  * passes it to Claude with additive `--mcp-config`; `close()` must run in the
  * `finally` of the turn, after the prompt file and config file are removed.
  */
-export async function startWorkflowMcpBridge(
-    options: WorkflowMcpBridgeOptions,
-): Promise<WorkflowMcpBridgeHandle> {
+export async function startRunWieldMcpBridge(
+    options: RunWieldMcpBridgeOptions,
+): Promise<RunWieldMcpBridgeHandle> {
     if (!options.tools || options.tools.length === 0) {
-        throw new Error("startWorkflowMcpBridge: at least one eligible Tool Definition is required");
+        throw new Error("startRunWieldMcpBridge: at least one eligible Tool Definition is required");
     }
     const entries: BridgeToolEntry[] = options.tools.map((definition) => {
         const internalName = definition.name;
-        const alias = workflowMcpAliasFor(internalName);
-        if (!alias) {
-            throw new Error(
-                `startWorkflowMcpBridge: "${internalName}" is not an eligible RunWield lifecycle tool`,
-            );
+        const alias = mcpAliasFor(internalName);
+        if (!alias.trim()) {
+            throw new Error(`startRunWieldMcpBridge: "${internalName}" resolved to an empty MCP alias`);
         }
-        return { alias, internalName, definition };
+        const kind = workflowMcpAliasFor(internalName) ? "lifecycle" as const : "capability" as const;
+        return { alias, internalName, definition, kind };
     });
-    const byAlias = new Map(entries.map((entry) => [entry.alias, entry]));
+    const byAlias = new Map<string, BridgeToolEntry>();
+    for (const entry of entries) {
+        if (byAlias.has(entry.alias)) {
+            throw new Error(`startRunWieldMcpBridge: duplicate MCP alias "${entry.alias}"`);
+        }
+        byAlias.set(entry.alias, entry);
+    }
 
     const token = generateBearerToken();
     const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
     });
     const mcpServer = new Server(
-        { name: "runwield-workflow", version: "1.0.0" },
+        { name: "runwield", version: "1.0.0" },
         { capabilities: { tools: {} } },
     );
 
     let terminal = false;
     let callQueue: Promise<void> = Promise.resolve();
-    const toolContext = createToolContext(options.cwd);
+    const toolContext = createToolContext(options.cwd, options.signal);
     const toolStartedAt = new Map<string, number>();
     const toolArgs = new Map<string, JsonObject>();
 
@@ -329,7 +342,7 @@ export async function startWorkflowMcpBridge(
             const text = rejectionText(`unknown tool "${alias}"`);
             return { content: [{ type: "text", text }], isError: true };
         }
-        if (terminal) {
+        if (entry.kind === "lifecycle" && terminal) {
             return rejectedResult(
                 "the accepted completion already closed the lifecycle gate for this turn",
                 entry,
@@ -360,7 +373,7 @@ export async function startWorkflowMcpBridge(
             const executed = await entry.definition.execute(
                 callId,
                 params,
-                undefined,
+                options.signal,
                 (update) => emitToolUpdate(entry.internalName, callId, update as DelegatedToolResult),
                 toolContext,
             );
@@ -372,13 +385,13 @@ export async function startWorkflowMcpBridge(
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             result = {
-                content: [{ type: "text", text: `runwield lifecycle call failed: ${reason}` }],
+                content: [{ type: "text", text: `runwield ${entry.kind} call failed: ${reason}` }],
                 details: { reason: "execution_error" },
                 isError: true,
             };
         }
 
-        if (result.terminate === true) terminal = true;
+        if (entry.kind === "lifecycle" && result.terminate === true) terminal = true;
         recordToolResult(entry.internalName, callId, result);
         return { content: result.content, isError: result.isError === true };
     }
@@ -427,7 +440,7 @@ export async function startWorkflowMcpBridge(
     );
     if (!url) {
         await serveServer.shutdown();
-        throw new Error("startWorkflowMcpBridge: loopback listener did not report its port");
+        throw new Error("startRunWieldMcpBridge: loopback listener did not report its port");
     }
     const config = buildMcpConfigJson(url, token);
 
@@ -476,6 +489,7 @@ export async function startWorkflowMcpBridge(
         url,
         token,
         config,
+        advertisedToolNames: entries.map((entry) => entry.internalName),
         get closed() {
             return closed;
         },
@@ -493,6 +507,7 @@ function buildMcpConfigJson(url: string, token: string): string {
                 type: "http",
                 url,
                 headers: { Authorization: `Bearer ${token}` },
+                timeout: 600_000,
             },
         },
     });

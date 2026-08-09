@@ -11,6 +11,7 @@ export interface PreparedClaudeCliCommand {
     command: "claude";
     args: string[];
     promptFilePath: string;
+    env: Record<string, string>;
     /** Owner-only temporary MCP config file path, when mcpConfig was supplied. */
     mcpConfigPath?: string;
 }
@@ -80,6 +81,7 @@ export async function prepareClaudeCliCommand(request: ClaudeCliCommandRequest):
         command: "claude",
         args,
         promptFilePath,
+        env: { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "600000" },
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
 }

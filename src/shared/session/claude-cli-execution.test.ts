@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../../constants.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { HostedSession } from "./hosted-session.js";
@@ -13,13 +14,14 @@ import {
     runRootTurn,
 } from "./session.js";
 import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
-import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/workflow-mcp-bridge.ts";
-import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
+import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/mcp-bridge.ts";
+import { readLatestReturnToRouterOutcome, readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 
 interface ToolResultDetails {
     outcome?: string;
     message?: string;
+    reason?: string;
     provenance?: string;
 }
 
@@ -148,7 +150,7 @@ Deno.test("Claude CLI selected root turn dispatches without Pi AgentSession", as
         const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
         assertEquals((root as never as RootSessionRef).kind, "claude-cli");
         await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "hello" });
-        const log = JSON.parse((await Deno.readTextFile(logPath)).trim());
+        const log = JSON.parse((await Deno.readTextFile(logPath)).trim().split("\n")[0]);
         assertEquals(log.args.includes("--model"), true);
         assertEquals(log.args[log.args.indexOf("--model") + 1], "sonnet");
         assertEquals("agent" in root, false);
@@ -161,7 +163,7 @@ Deno.test("Claude CLI root turn advertises RunWield skills and project tool perm
         const hostedSession = createHostedSession(cwd, manager);
         await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
         await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "lookup current docs" });
-        const log = JSON.parse((await Deno.readTextFile(logPath)).trim());
+        const log = JSON.parse((await Deno.readTextFile(logPath)).trim().split("\n")[0]);
         const allowedIndex = log.args.indexOf("--allowedTools");
         assertEquals(allowedIndex >= 0, true);
         const allowedTools = log.args.slice(allowedIndex + 1);
@@ -291,9 +293,11 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
         assertEquals(lines[0].promptText.includes("Custom Tools are not exposed to Claude CLI"), false);
         assertStringIncludes(lines[0].promptText, "only way to advance RunWield workflow state");
 
-        // The fake Claude listed only its Agent-eligible alias over real MCP.
+        // The fake Claude listed Agent-eligible bridged tools over real MCP.
         const toolsLine = lines.find((line) => line.mcp?.tools);
-        assertEquals(toolsLine.mcp.tools, ["runwield_task_completed"]);
+        assertEquals(toolsLine.mcp.tools.includes("runwield_task_completed"), true);
+        assertEquals(toolsLine.mcp.tools.includes("memory_recall"), true);
+        assertEquals(toolsLine.mcp.tools.includes("delegate_agent"), false);
         const callsLine = lines.find((line) => line.mcp?.calls);
         assertEquals(callsLine.mcp.calls[0].isError, true);
         assertEquals(callsLine.mcp.calls[1].isError, false);
@@ -473,5 +477,59 @@ Deno.test("^Claude CLI post-terminal output stays display-only after accepted si
         const serialized = JSON.stringify(manager.getBranch());
         assertStringIncludes(serialized, "final text post-terminal prose");
         assertEquals(serialized.includes("terminal result did not match"), false);
+    });
+});
+
+Deno.test("Claude CLI return_to_router bridged call creates a router handoff outcome", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const callsPath = join(cwd, "mcp-calls.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "return_to_router", arguments: { reason: "Need fresh triage" } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "handoff" });
+        const outcome = readLatestReturnToRouterOutcome(messages);
+
+        assertEquals(outcome?.reason, "Need fresh triage");
+        assertEquals(
+            messages.some((message) =>
+                message.role === "toolResult" && message.toolName === "return_to_router" &&
+                typeof (message as ToolResultMessage).details?.reason === "string"
+            ),
+            true,
+        );
+    });
+});
+
+Deno.test("Claude CLI caller-supplied review_diff reaches the bridged tool list", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const reviewDiffTool = defineTool({
+            name: "review_diff",
+            label: "Review Diff",
+            description: "Return review diff.",
+            parameters: Type.Object({}),
+            execute() {
+                return Promise.resolve({ content: [{ type: "text" as const, text: "diff text" }], details: {} });
+            },
+        });
+
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER, customTools: [reviewDiffTool] });
+        await runRootTurn({
+            hostedSession,
+            agentName: AGENTS.ENGINEER,
+            userRequest: "review",
+            customTools: [reviewDiffTool],
+        });
+
+        const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+        const toolsLine = lines.find((line) => line.mcp?.tools);
+        assertEquals(toolsLine.mcp.tools.includes("review_diff"), true);
     });
 });
