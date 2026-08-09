@@ -106,7 +106,6 @@
     "npm:strip-ansi@^7.2.0": "7.2.0",
     "npm:tailwind-merge@^3.6.0": "3.6.0",
     "npm:tailwindcss@^4.3.3": "4.3.3",
-    "npm:tidewave@~0.8.1": "0.8.2_typescript@5.9.3",
     "npm:typescript@^5.9.3": "5.9.3",
     "npm:unique-username-generator@^1.5.1": "1.5.1",
     "npm:vite@^8.1.5": "8.2.0_esbuild@0.28.1"
@@ -6276,17 +6275,6 @@
     "tapable@2.3.3": {
       "integrity": "sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A=="
     },
-    "tidewave@0.8.2_typescript@5.9.3": {
-      "integrity": "sha512-jStQ5VijrNuD/C2GHKy17Qz2bdBSf8gz72TPhFZ/TNYzbj10Mq9HI1QoIGewR6vi2wojQ1/MpuKDSZywtONAnw==",
-      "dependencies": [
-        "@modelcontextprotocol/sdk",
-        "body-parser",
-        "typescript",
-        "ws",
-        "zod@3.25.76"
-      ],
-      "bin": true
-    },
     "tiny-inflate@1.0.3": {
       "integrity": "sha512-pkY1fj1cKHb2seWDy0B16HeWyczlJA9/WW3u3c4z/NiWDsO3DOU5D7nhTLE9CF0yXv/QZFY7sEJmj24dK+Rrqw=="
     },
@@ -6758,9 +6746,6 @@
         "zod@4.4.3"
       ]
     },
-    "zod@3.25.76": {
-      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
-    },
     "zod@4.4.3": {
       "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="
     },
@@ -6845,7 +6830,6 @@
       "npm:strip-ansi@^7.2.0",
       "npm:tailwind-merge@^3.6.0",
       "npm:tailwindcss@^4.3.3",
-      "npm:tidewave@~0.8.1",
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
