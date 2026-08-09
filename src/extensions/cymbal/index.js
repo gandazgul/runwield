@@ -3,7 +3,7 @@
  * Cymbal code search extension for RunWield agent invocations.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
 const MAX_CODE_BATCH_OPERATIONS = 5;

@@ -2,7 +2,7 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { AgentSession, createAgentSession, estimateTokens } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "@earendil-works/pi-ai";
 
 /** @returns {import('@earendil-works/pi-ai').Usage} */
 function zeroUsage() {

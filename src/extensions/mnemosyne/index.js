@@ -4,7 +4,7 @@
  */
 
 import { basename, dirname, isAbsolute, join, normalize } from "@std/path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
 const MISSING_BINARY_MSG =

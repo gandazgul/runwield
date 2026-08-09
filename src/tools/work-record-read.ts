@@ -1,6 +1,6 @@
 /** Agent Custom Tool for canonical Work Record reads by stable ID. */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { formatWorkRecordReadResult, readWorkRecordById } from "../shared/work-records/index.ts";
