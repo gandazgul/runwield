@@ -5,6 +5,8 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
+import { dirname, join } from "@std/path";
+import { getHomeDir } from "../src/constants.js";
 import {
     indexRowsByDecisionId,
     parseCsv,
@@ -14,7 +16,14 @@ import {
 } from "./router-eval-utils.js";
 
 const DEFAULT_INPUT = "/private/tmp/runwield-router-decisions.jsonl";
-const DEFAULT_OUTPUT = "router-judgements.csv";
+const DEFAULT_OUTPUT_NAME = "router-judgements.csv";
+
+/**
+ * @returns {string}
+ */
+export function getDefaultRouterJudgementCsvPath() {
+    return join(getHomeDir(), ".wld", "router-eval", DEFAULT_OUTPUT_NAME);
+}
 
 export const JUDGEMENT_COLUMNS = ROUTER_JUDGEMENT_COLUMNS;
 
@@ -91,16 +100,17 @@ export async function main(argv) {
             "",
             "Options:",
             `  --in, -i <path>       Extracted Router decisions JSONL (default: ${DEFAULT_INPUT})`,
-            `  --out, -o <path>      CSV output (default: ${DEFAULT_OUTPUT})`,
+            `  --out, -o <path>      CSV output (default: ${getDefaultRouterJudgementCsvPath()})`,
             "  --no-preserve         Do not preserve existing humanJudgement/humanNotes values from the output CSV",
         ].join("\n"));
         return;
     }
 
     const inputPath = args.in || DEFAULT_INPUT;
-    const outputPath = args.out || DEFAULT_OUTPUT;
+    const outputPath = args.out || getDefaultRouterJudgementCsvPath();
     const reviewedRows = parseJsonlRows(await Deno.readTextFile(inputPath));
     const existingRows = args["no-preserve"] ? [] : await readExistingCsv(outputPath);
+    await Deno.mkdir(dirname(outputPath), { recursive: true });
     await Deno.writeTextFile(outputPath, buildJudgementCsv(reviewedRows, existingRows));
     console.log(`Wrote ${reviewedRows.length} row(s) to ${outputPath}.`);
 }

@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import {
     buildRouterGoldenReport,
     createBenchmarkBashNudgeTool,
+    mergeGoldenRowsWithResultRows,
     normalizeGoldenRow,
     runRouterForGoldenRequest,
     runRouterGoldenSet,
@@ -79,6 +80,8 @@ Deno.test("benchmark bash tool nudges without executing commands", async () => {
     if (content.type !== "text") throw new Error("expected text content");
     assertEquals(content.text.includes("bash is disabled"), true);
     assertEquals(content.text.includes("call triage_report"), true);
+    assertEquals(content.text.includes("OPERATION"), false);
+    assertEquals(content.text.includes("QUICK_FIX"), false);
 });
 
 Deno.test("runRouterForGoldenRequest accepts injected triage outcome", async () => {
@@ -163,7 +166,7 @@ Deno.test("runRouterGoldenSetWithSelection returns selected indexes for limited 
     });
 });
 
-Deno.test("runRouterGoldenSet clears stale decisions before rerunning rows", async () => {
+Deno.test("runRouterGoldenSet clears stale decisions only when rerunning rows", async () => {
     /** @type {Array<Array<Record<string, unknown>>>} */
     const checkpoints = [];
     const rows = await runRouterGoldenSet([
@@ -176,6 +179,7 @@ Deno.test("runRouterGoldenSet clears stale decisions before rerunning rows", asy
             routerAffectedPaths: "old.js",
         },
     ], {
+        resume: false,
         runAgentSession: () => new Promise(() => {}),
         rowTimeoutMs: 1,
         onRowComplete: (checkpointRows) => {
@@ -187,6 +191,84 @@ Deno.test("runRouterGoldenSet clears stale decisions before rerunning rows", asy
     assertEquals(rows[0].routerSummary, "ERROR: Router golden row timed out after 1ms.");
     assertEquals(rows[0].routerAffectedPaths, "");
     assertEquals(checkpoints[0][0].routerDecision, "");
+});
+
+Deno.test("runRouterGoldenSet resume skips completed rows and runs unfinished rows", async () => {
+    /** @type {string[]} */
+    const requests = [];
+    const result = await runRouterGoldenSetWithSelection([
+        {
+            decisionId: "d1",
+            requestText: "hi",
+            humanJudgement: "INQUIRY",
+            routerDecision: "INQUIRY",
+            routerSummary: "done",
+        },
+        {
+            decisionId: "d2",
+            requestText: "fix it",
+            humanJudgement: "QUICK_FIX",
+            routerDecision: "",
+            routerSummary: "ERROR: timed out",
+        },
+    ], {
+        resume: true,
+        runAgentSession: (opts) => {
+            requests.push(opts.userRequest);
+            return Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "triage_report",
+                    details: {
+                        routingIntent: "QUICK_FIX",
+                        complexity: "LOW",
+                        summary: "fixed route",
+                    },
+                }]),
+            );
+        },
+    });
+
+    assertEquals(result.selectedIndexes, [1]);
+    assertEquals(requests, ["fix it"]);
+    assertEquals(result.rows[0].routerDecision, "INQUIRY");
+    assertEquals(result.rows[0].routerSummary, "done");
+    assertEquals(result.rows[1].routerDecision, "QUICK_FIX");
+    assertEquals(result.rows[1].routerSummary, "fixed route");
+});
+
+Deno.test("mergeGoldenRowsWithResultRows keeps labels from the golden rows and completed router results", () => {
+    const rows = mergeGoldenRowsWithResultRows([
+        { decisionId: "d1", requestText: "hi", humanJudgement: "INQUIRY" },
+        { decisionId: "d2", requestText: "fix it", humanJudgement: "QUICK_FIX" },
+    ], [
+        {
+            decisionId: "d1",
+            requestText: "old",
+            humanJudgement: "PROJECT",
+            routerDecision: "INQUIRY",
+            routerSummary: "done",
+        },
+    ]);
+
+    assertEquals(rows, [
+        {
+            decisionId: "d1",
+            requestText: "hi",
+            humanJudgement: "INQUIRY",
+            routerDecision: "INQUIRY",
+            routerSummary: "done",
+            routerAffectedPaths: "",
+        },
+        {
+            decisionId: "d2",
+            requestText: "fix it",
+            humanJudgement: "QUICK_FIX",
+            routerDecision: "",
+            routerSummary: "",
+            routerAffectedPaths: "",
+        },
+    ]);
 });
 
 Deno.test("runRouterGoldenSet records row errors and continues", async () => {

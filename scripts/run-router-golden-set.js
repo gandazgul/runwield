@@ -8,7 +8,8 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { AGENTS } from "../src/constants.js";
+import { dirname, join } from "@std/path";
+import { AGENTS, getHomeDir } from "../src/constants.js";
 import { createSessionRuntime } from "../src/shared/session/session-runtime.js";
 import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.ts";
 import {
@@ -19,10 +20,33 @@ import {
     withRouterJudgementMetrics,
 } from "./router-eval-utils.js";
 
-const DEFAULT_CSV = "router-judgements.csv";
+const ROUTER_EVAL_DIRNAME = "router-eval";
+const DEFAULT_GOLDEN_CSV_NAME = "router-judgements.csv";
+const DEFAULT_RESULT_CSV_NAME = "router-judgements-results.csv";
 const DEFAULT_ROW_TIMEOUT_MS = 60_000;
-const BENCHMARK_BASH_NUDGE =
-    "Benchmark Router note: bash is disabled in this golden-set run, and the command below was not executed. Read-only shell commands such as git status, git diff, find, grep, ls, or deno task checks are valid discovery in the real Router, but this benchmark cannot provide bash output. Do not call bash again for this row. Use the available read/grep/find/ls/code tools for more discovery if needed, then call triage_report. If the request is operational, such as committing, running commands, dependency upgrades by explicit request, or checking git state, OPERATION is often the right routing intent; bounded no-plan code edits are QUICK_FIX. Do not try to complete the user's task in this benchmark.";
+const BENCHMARK_BASH_NUDGE = "bash is disabled in this run, and the command below was not executed.";
+
+/**
+ * @returns {string}
+ */
+export function getDefaultRouterEvalDir() {
+    return join(getHomeDir(), ".wld", ROUTER_EVAL_DIRNAME);
+}
+
+/**
+ * @returns {string}
+ */
+export function getDefaultRouterGoldenCsvPath() {
+    return join(getDefaultRouterEvalDir(), DEFAULT_GOLDEN_CSV_NAME);
+}
+
+/**
+ * @returns {string}
+ */
+export function getDefaultRouterResultCsvPath() {
+    return join(getDefaultRouterEvalDir(), DEFAULT_RESULT_CSV_NAME);
+}
+
 const BENCHMARK_ROUTER_TOOLS = [
     "read",
     "grep",
@@ -165,6 +189,47 @@ function shouldRunRow(row) {
 }
 
 /**
+ * @param {Record<string, unknown>} row
+ * @returns {boolean}
+ */
+function hasCompletedRouterDecision(row) {
+    return Boolean(String(row.routerDecision || "").trim());
+}
+
+/**
+ * @param {Array<Record<string, string>>} goldenRows
+ * @param {Array<Record<string, string>>} resultRows
+ * @returns {Array<Record<string, string>>}
+ */
+export function mergeGoldenRowsWithResultRows(goldenRows, resultRows) {
+    const resultById = new Map(resultRows.map((row) => [row.decisionId, row]));
+    return goldenRows.map((goldenRow, index) => {
+        const decisionId = getDecisionId(goldenRow, index);
+        const resultRow = resultById.get(decisionId);
+        return {
+            ...goldenRow,
+            decisionId,
+            routerDecision: resultRow?.routerDecision || goldenRow.routerDecision || "",
+            routerSummary: resultRow?.routerSummary || goldenRow.routerSummary || "",
+            routerAffectedPaths: resultRow?.routerAffectedPaths || goldenRow.routerAffectedPaths || "",
+        };
+    });
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<Array<Record<string, string>>>}
+ */
+async function readExistingCsv(path) {
+    try {
+        return parseCsv(await Deno.readTextFile(path));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return [];
+        throw error;
+    }
+}
+
+/**
  * @param {string} requestText
  * @param {{
  *   cwd?: string,
@@ -230,6 +295,7 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,
+ *   resume?: boolean,
  * }} [options]
  * @returns {Promise<Array<Record<string, unknown>>>}
  */
@@ -249,6 +315,7 @@ export async function runRouterGoldenSet(rows, options = {}) {
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,
+ *   resume?: boolean,
  * }} [options]
  * @returns {Promise<{ rows: Array<Record<string, unknown>>, selectedIndexes: number[] }>}
  */
@@ -256,17 +323,20 @@ export async function runRouterGoldenSetWithSelection(rows, options = {}) {
     const normalized = rows.map(normalizeGoldenRow);
     const runnableIndexes = normalized
         .map((row, index) => ({ row, index }))
-        .filter(({ row }) => shouldRunRow(/** @type {Record<string, string>} */ (row)));
+        .filter(({ row }) => shouldRunRow(/** @type {Record<string, string>} */ (row)))
+        .filter(({ row }) => !options.resume || !hasCompletedRouterDecision(row));
     const selected = options.limit ? runnableIndexes.slice(0, options.limit) : runnableIndexes;
     const selectedIndexes = selected.map(({ index }) => index);
 
-    for (const { row, index } of selected) {
-        normalized[index] = withRouterJudgementMetrics({
-            ...row,
-            routerDecision: "",
-            routerSummary: "",
-            routerAffectedPaths: "",
-        });
+    if (!options.resume) {
+        for (const { row, index } of selected) {
+            normalized[index] = withRouterJudgementMetrics({
+                ...row,
+                routerDecision: "",
+                routerSummary: "",
+                routerAffectedPaths: "",
+            });
+        }
     }
 
     for (let selectedIndex = 0; selectedIndex < selected.length; selectedIndex++) {
@@ -326,7 +396,7 @@ export function buildRouterGoldenReport(rows) {
 export async function main(argv) {
     const args = parseArgs(argv, {
         string: ["csv", "out", "limit", "model", "cwd", "row-timeout-ms"],
-        boolean: ["help"],
+        boolean: ["help", "rerun"],
         alias: { h: "help", o: "out", m: "model" },
     });
 
@@ -334,27 +404,33 @@ export async function main(argv) {
         console.log([
             "Usage: deno run -A scripts/run-router-golden-set.js [options]",
             "",
-            "Runs the real Router against labelled router-judgements.csv rows.",
+            "Runs the real Router against labelled Router judgement rows.",
             "",
             "Options:",
-            `  --csv <path>          Golden CSV input (default: ${DEFAULT_CSV})`,
-            "  --out, -o <path>     CSV output (default: same as --csv)",
-            "  --limit <n>          Run only the first n labelled rows",
+            `  --csv <path>          Golden CSV input (default: ${getDefaultRouterGoldenCsvPath()})`,
+            `  --out, -o <path>     CSV output (default: ${getDefaultRouterResultCsvPath()})`,
+            "  --limit <n>          Run only the first n selected rows",
             "  --model, -m <ref>    Override Router model, e.g. provider/model",
             "  --cwd <path>         Cwd for Router discovery tools",
             `  --row-timeout-ms <n> Per-row timeout (default: ${DEFAULT_ROW_TIMEOUT_MS})`,
+            "  --rerun              Rerun selected rows instead of resuming unfinished rows",
         ].join("\n"));
         return;
     }
 
-    const csvPath = args.csv || DEFAULT_CSV;
-    const outputPath = args.out || csvPath;
-    const rows = parseCsv(await Deno.readTextFile(csvPath));
+    const csvPath = args.csv || getDefaultRouterGoldenCsvPath();
+    const outputPath = args.out || getDefaultRouterResultCsvPath();
+    const resume = !args.rerun;
+    const goldenRows = parseCsv(await Deno.readTextFile(csvPath));
+    const priorResultRows = resume ? await readExistingCsv(outputPath) : [];
+    const rows = resume ? mergeGoldenRowsWithResultRows(goldenRows, priorResultRows) : goldenRows;
+    await Deno.mkdir(dirname(outputPath), { recursive: true });
     const result = await runRouterGoldenSetWithSelection(rows, {
         limit: parsePositiveInt(args.limit),
         cwd: args.cwd,
         modelOverride: args.model,
         rowTimeoutMs: parsePositiveInt(args["row-timeout-ms"]) || DEFAULT_ROW_TIMEOUT_MS,
+        resume,
         onRowComplete: async (checkpointRows) => {
             await Deno.writeTextFile(outputPath, toCsv(ROUTER_JUDGEMENT_COLUMNS, checkpointRows));
         },

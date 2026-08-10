@@ -5,9 +5,18 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
+import { dirname, join } from "@std/path";
+import { getHomeDir } from "../src/constants.js";
 import { parseCsv, scoreAgainstHuman } from "./router-eval-utils.js";
 
-const DEFAULT_CSV = "router-judgements.csv";
+const DEFAULT_CSV_NAME = "router-judgements.csv";
+
+/**
+ * @returns {string}
+ */
+export function getDefaultRouterJudgementCsvPath() {
+    return join(getHomeDir(), ".wld", "router-eval", DEFAULT_CSV_NAME);
+}
 
 /**
  * @param {unknown} value
@@ -96,7 +105,7 @@ export async function main(argv) {
             "  INQUIRY, IDEATION, OPERATION, QUICK_FIX, FEATURE, PROJECT",
             "",
             "Options:",
-            `  --csv <path>                       Judgement CSV (default: ${DEFAULT_CSV})`,
+            `  --csv <path>                       Judgement CSV (default: ${getDefaultRouterJudgementCsvPath()})`,
             "  --baseline <path>                  Read thresholds from a previous baseline JSON",
             "  --baseline-out <path>              Write current metrics and suggested thresholds",
             "  --min-router-agreement <number>    Fail if Router agreement is below this rate, e.g. 0.90",
@@ -105,7 +114,7 @@ export async function main(argv) {
         return;
     }
 
-    const csvPath = args.csv || DEFAULT_CSV;
+    const csvPath = args.csv || getDefaultRouterJudgementCsvPath();
     const rows = parseCsv(await Deno.readTextFile(csvPath));
     const summary = summarizeJudgements(rows);
 
@@ -131,6 +140,7 @@ export async function main(argv) {
     };
 
     if (args["baseline-out"]) {
+        await Deno.mkdir(dirname(args["baseline-out"]), { recursive: true });
         await Deno.writeTextFile(args["baseline-out"], `${JSON.stringify(buildBaseline(summary, csvPath), null, 2)}\n`);
     }
 
