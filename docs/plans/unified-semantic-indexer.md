@@ -417,7 +417,7 @@ operator agent (which runs sleep) so the LLM can see everything and make consoli
 
 `memory_list` parameters: `{ scope: "local" | "global" }` — returns all memories with their IDs, content, and tags.
 
-Auto-triggering (at session end with threshold heuristic) is a future enhancement tracked in TODO.md.
+Auto-triggering at session end with a threshold heuristic remains a future enhancement.
 
 ---
 

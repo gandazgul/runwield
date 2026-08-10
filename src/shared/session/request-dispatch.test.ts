@@ -57,6 +57,28 @@ Deno.test("Plan backend retry keeps one Plan body and uses a stable request ID",
     assertEquals(attempts[2].backend, "pi");
 });
 
+Deno.test("backend retry continuation does not name a specific active agent", () => {
+    const manager = SessionManager.inMemory(Deno.cwd());
+    const userRequest = "Design the implementation boundary.";
+    const first = prepareRequestDispatch(manager, {
+        userRequest,
+        dispatchKind: "interactive",
+        backend: "claude-cli",
+    });
+    appendUserMessage(manager, first.userRequest);
+    failRequestDispatch(manager, first, true);
+
+    const retry = prepareRequestDispatch(manager, {
+        userRequest,
+        dispatchKind: "interactive",
+        backend: "pi",
+    });
+
+    assertEquals(retry.promptMode, "continuation");
+    assertEquals(retry.userRequest.includes("Engineer"), false);
+    assertEquals(retry.userRequest.includes("Architect"), false);
+});
+
 Deno.test("validation repair retry keeps one original repair packet", () => {
     const manager = SessionManager.inMemory(Deno.cwd());
     const repairPacket = "Validation repair packet\nFailure: expected 1, got 2";

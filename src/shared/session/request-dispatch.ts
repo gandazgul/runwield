@@ -1,6 +1,6 @@
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
-export const BACKEND_CONTINUATION_REQUEST = "Continue the active Engineer task after the previous backend failed.";
+export const BACKEND_CONTINUATION_REQUEST = "Continue the active agent task after the previous backend failed.";
 
 export type RequestDispatchKind =
     | "interactive"
