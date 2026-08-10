@@ -1,4 +1,5 @@
 ---
+planId: "9c81e9a0-c2f4-47eb-ae13-285d3ae04c42"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -21,19 +22,69 @@ objectiveChecks:
     - id: "OC4"
       command: "grep -q \"export function isTerminalArchivableStatus\" src/plan-store.js && grep -q \"isTerminalArchivableStatus\" src/cmd/load-plan/plan-epic-flow.ts"
       rationale: "Forces the menu gate to reuse the Plan store's single definition of the terminal archivable statuses instead of re-listing them, so archivePlan's guard and the menu can never disagree. Red today because the predicate is not exported."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-09T14:27:12.063Z"
+    head: "77256582dbfcb77bd2098273420bc41c4a8c9912"
+    results:
+        - id: "OC1"
+          command: "grep -q \"load-plan archives a verified Epic with every child Plan and keeps the folder structure\" src/cmd/load-plan/index.integration.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts --filter \"load-plan archives a verified Epic with every child Plan and keeps the folder structure\""
+          rationale: "Proves the end-to-end outcome: a verified Epic and both children move to docs/plans/archived with the nested layout intact and the source directory removed. Red today because the test name does not exist. The grep guard is required because a --filter matching nothing exits 0 (verified empirically), which would give a falsely green baseline."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 16
+          output: "\n"
+        - id: "OC2"
+          command: "grep -q '\"archive_epic\"' src/cmd/load-plan/plan-epic-flow.ts && grep -q '\"Archive Epic\"' src/cmd/load-plan/plan-epic-flow.ts && grep -q \"archiveEpicWithChildren\" src/cmd/load-plan/plan-epic-flow.ts && grep -q \"runArchiveTransition\" src/cmd/load-plan/plan-epic-archive.ts && grep -q \"isRecoverableWorktreeStatus\" src/cmd/load-plan/plan-epic-archive.ts"
+          rationale: "Pins the wiring the behavioral tests cannot distinguish: the menu entry exists with the exact label \"Archive Epic\" (the closing quote in the pattern rejects any longer label), it dispatches to the new module, and that module goes through the archive transaction and the recoverable-worktree pre-flight rather than calling archivePlan bare. Red today because plan-epic-archive.ts does not exist."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q \"load-plan refuses to archive an Epic whose child has a recoverable worktree\" src/cmd/load-plan/index.integration.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts --filter \"load-plan refuses to archive an Epic whose child has a recoverable worktree\""
+          rationale: "Proves the guard actually blocks before any move, so a child with a live worktree cannot be half-archived. Red today because the test name does not exist. Same grep guard rationale as OC1."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+        - id: "OC4"
+          command: "grep -q \"export function isTerminalArchivableStatus\" src/plan-store.js && grep -q \"isTerminalArchivableStatus\" src/cmd/load-plan/plan-epic-flow.ts"
+          rationale: "Forces the menu gate to reuse the Plan store's single definition of the terminal archivable statuses instead of re-listing them, so archivePlan's guard and the menu can never disagree. Red today because the predicate is not exported."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 14
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-09T10:04:14-0400"
-updatedAt: "2026-08-09T14:26:40.167Z"
+updatedAt: "2026-08-10T00:08:03.613Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-09T19:42:11.786Z"
+verifiedAt: "2026-08-10T00:08:03.613Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-worktreeStatus: "abandoned"
+executionReport: "- Implemented `Archive Epic` for terminal Epics, gated by exported archive-status predicates in `src/plan-store.js`.\n- Added `archiveEpicWithChildren`: child-first transactional archives, pre-flight recoverable-worktree block, confirmation with child summary and unfinished count, non-recursive active child-dir cleanup, and success restore guidance.\n- Added +2 integration tests; removed/replaced 0 tests. Mutation check proved the new menu-offer test fails when `archive_epic` is not offered, then restored the implementation.\n- Fixed a broken archived-doc relative link found by CI in `docs/plans/archived/run-objective-checks-in-mechanical-validation.md`.\n- Verification passed: `deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts`; `deno run -A scripts/run-tests.js src/cmd/plans/archive.test.ts`; `deno task ci`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "7ada1b0478ec1f60182217a3cede0277cddccf15"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "2b9e5225b3f002ee9d0f63e8cae73e9b989f48e3"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "archive epic option"
-planId: "9c81e9a0-c2f4-47eb-ae13-285d3ae04c42"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Archive an Epic With Its Child Plans
