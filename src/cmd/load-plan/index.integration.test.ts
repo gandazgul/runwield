@@ -90,6 +90,16 @@ async function captureLogs(run: () => Promise<void>): Promise<string[]> {
     return logs;
 }
 
+async function pathExists(path: string): Promise<boolean> {
+    try {
+        await Deno.stat(path);
+        return true;
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    }
+}
+
 Deno.test("load-plan prints its real command help", async () => {
     const logs = await captureLogs(() => runLoadPlanCommand(["--help"]));
 
@@ -183,6 +193,70 @@ Deno.test("load-plan archives a verified Plan through the real Plan store", asyn
             assertEquals(await loadPlan(projectRoot, "finished"), null);
             assertEquals((await loadArchivedPlan(projectRoot, "finished"))?.attrs.archivedFromStatus, "verified");
             assertStringIncludes(ui.messages.join("\n"), "Archived finished");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan archives a verified Epic with every child Plan and keeps the folder structure", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "verified" });
+        await writePlan(projectRoot, "epic/01-first", { status: "verified", parentPlan: "epic", order: 1 });
+        await writePlan(projectRoot, "epic/02-second", { status: "ready_for_work", parentPlan: "epic", order: 2 });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive_epic", "confirm"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(await loadPlan(projectRoot, "epic"), null);
+            assertEquals(await loadPlan(projectRoot, "epic/01-first"), null);
+            assertEquals(await loadPlan(projectRoot, "epic/02-second"), null);
+            assertEquals((await loadArchivedPlan(projectRoot, "epic"))?.attrs.archivedFromStatus, "verified");
+            assertEquals((await loadArchivedPlan(projectRoot, "epic/01-first"))?.attrs.archivedFromStatus, "verified");
+            assertEquals(
+                (await loadArchivedPlan(projectRoot, "epic/02-second"))?.attrs.archivedFromStatus,
+                "ready_for_work",
+            );
+            await Deno.stat(`${projectRoot}/docs/plans/archived/epic.md`);
+            await Deno.stat(`${projectRoot}/docs/plans/archived/epic/01-first.md`);
+            await Deno.stat(`${projectRoot}/docs/plans/archived/epic/02-second.md`);
+            assertEquals(await pathExists(`${projectRoot}/docs/plans/epic`), false);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan refuses to archive an Epic whose child has a recoverable worktree", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "verified" });
+        await writePlan(projectRoot, "epic/child", {
+            status: "ready_for_work",
+            parentPlan: "epic",
+            worktreeStatus: "active",
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive_epic", "cancel"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "epic"))?.attrs.status, "verified");
+            assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.worktreeStatus, "active");
+            assertEquals(await loadArchivedPlan(projectRoot, "epic"), null);
+            assertEquals(await loadArchivedPlan(projectRoot, "epic/child"), null);
+            assertStringIncludes(ui.messages.join("\n"), "epic/child");
+            assertStringIncludes(ui.messages.join("\n"), "active");
         } finally {
             runtime.closeAllSessions();
         }

@@ -65,21 +65,22 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-09T10:04:14-0400"
-updatedAt: "2026-08-09T19:55:23.584Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-10T00:08:03.613Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-09T19:42:11.786Z"
+verifiedAt: "2026-08-10T00:08:03.613Z"
 userVerifiedAt: null
 executionReport: "- Implemented `Archive Epic` for terminal Epics, gated by exported archive-status predicates in `src/plan-store.js`.\n- Added `archiveEpicWithChildren`: child-first transactional archives, pre-flight recoverable-worktree block, confirmation with child summary and unfinished count, non-recursive active child-dir cleanup, and success restore guidance.\n- Added +2 integration tests; removed/replaced 0 tests. Mutation check proved the new menu-offer test fails when `archive_epic` is not offered, then restored the implementation.\n- Fixed a broken archived-doc relative link found by CI in `docs/plans/archived/run-objective-checks-in-mechanical-validation.md`.\n- Verification passed: `deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts`; `deno run -A scripts/run-tests.js src/cmd/plans/archive.test.ts`; `deno task ci`."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "b5037ad15e138498bb8cfa89a7720025fd92b35e"
-worktreeId: "a23eb890"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-archive-epic-with-child-plans-a23eb890"
-worktreeBranch: "worktree/archive-epic-with-child-plans-a23eb890"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "7ada1b0478ec1f60182217a3cede0277cddccf15"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "2b9e5225b3f002ee9d0f63e8cae73e9b989f48e3"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "archive epic option"
 validationCiAttempts: 0
