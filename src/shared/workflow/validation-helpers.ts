@@ -175,6 +175,7 @@ export async function runFeaturePostVerificationHandoffs({
         context: planContent,
         cwd: projectRoot,
     });
+    emitRunWieldSystemStatus(hostedSession, `Creating work record for plan ${planName}...`, "info");
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
         cwd: projectRoot,
         planName,
@@ -190,6 +191,9 @@ export async function runFeaturePostVerificationHandoffs({
         };
     });
     const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
+    if (workRecordResult.status === "generated" || workRecordResult.status === "linked") {
+        emitRunWieldSystemStatus(hostedSession, "Work record created.", "success");
+    }
     emitRunWieldSystemStatus(
         hostedSession,
         workRecordResult.message || formatWorkRecordAutoGenerationResult(workRecordResult),

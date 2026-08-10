@@ -189,6 +189,7 @@ export const concurrentPlansIdentityScenario = {
         { type: "waitForPlanStatus", planName: "concurrent-a", statuses: ["verified"], timeoutMs: 120000 },
         { type: "waitForPlanStatus", planName: "concurrent-b", statuses: ["verified"], timeoutMs: 120000 },
         { type: "waitForConcurrentIdle", name: "plan-b", timeoutMs: 120000 },
+        { type: "waitForIdle", timeoutMs: 120000 },
         { type: "captureConcurrentScreens" },
         { type: "captureGitState", paths: ["golden-concurrent-a.txt", "golden-concurrent-b.txt"] },
         { type: "captureProjectState", planNames: ["concurrent-a", "concurrent-b"] },

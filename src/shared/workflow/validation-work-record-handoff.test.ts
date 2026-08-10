@@ -69,6 +69,12 @@ Deno.test("post-verification handoffs run real Work Record machinery through the
             if (checklist?.type === "custom") {
                 assertStringIncludes(JSON.stringify(checklist.data), "Exercise the verified feature");
             }
+            const creationStartIndex = ui.messages.findIndex((message: string) =>
+                message === "Creating work record for plan verified-feature..."
+            );
+            const creationDoneIndex = ui.messages.findIndex((message: string) => message === "Work record created.");
+            assertEquals(creationStartIndex >= 0, true);
+            assertEquals(creationDoneIndex > creationStartIndex, true);
             assertEquals(ui.messages.some((message: string) => message.includes("Work Record generated")), true);
             hostedSession.dispose();
         },
