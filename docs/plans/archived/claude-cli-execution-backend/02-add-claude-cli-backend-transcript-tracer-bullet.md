@@ -48,7 +48,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T22:07:46-04:00"
-updatedAt: "2026-08-04T04:08:11.956Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -70,6 +69,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "3ddb9c651cc50e88a76465752b43e43a48d330a4"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend/02-add-claude-cli-backend-transcript-tracer-bullet.md"
 ---
 
 # Add Claude CLI Backend Transcript Tracer Bullet

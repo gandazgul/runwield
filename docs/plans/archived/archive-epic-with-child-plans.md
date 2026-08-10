@@ -65,13 +65,17 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-09T10:04:14-0400"
-updatedAt: "2026-08-10T00:08:03.613Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-09T19:42:11.786Z"
 verifiedAt: "2026-08-10T00:08:03.613Z"
 userVerifiedAt: null
 executionReport: "- Implemented `Archive Epic` for terminal Epics, gated by exported archive-status predicates in `src/plan-store.js`.\n- Added `archiveEpicWithChildren`: child-first transactional archives, pre-flight recoverable-worktree block, confirmation with child summary and unfinished count, non-recursive active child-dir cleanup, and success restore guidance.\n- Added +2 integration tests; removed/replaced 0 tests. Mutation check proved the new menu-offer test fails when `archive_epic` is not offered, then restored the implementation.\n- Fixed a broken archived-doc relative link found by CI in `docs/plans/archived/run-objective-checks-in-mechanical-validation.md`.\n- Verification passed: `deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts`; `deno run -A scripts/run-tests.js src/cmd/plans/archive.test.ts`; `deno task ci`."
+workRecord:
+    status: "generated"
+    recordId: "d78e2b72-b74a-4f99-bb82-35ab1e1aaf5f"
+    path: "docs/work-records/2026-08-10-archive-epic-with-child-plans.md"
+    lastAttemptAt: "2026-08-10T00:08:11.281Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
@@ -85,6 +89,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "archive epic option"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:10:45.927Z"
+archivedAt: "2026-08-10T00:10:45.927Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/archive-epic-with-child-plans.md"
 ---
 
 # Archive an Epic With Its Child Plans

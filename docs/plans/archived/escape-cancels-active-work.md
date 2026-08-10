@@ -60,7 +60,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T15:07:34-04:00"
-updatedAt: "2026-08-04T12:24:59.085Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-04T04:54:13.461Z"
@@ -85,6 +84,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "escape cancellation reliability"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:10:19.176Z"
+archivedAt: "2026-08-10T00:10:19.176Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/escape-cancels-active-work.md"
 ---
 
 # Escape Cancels Active Work

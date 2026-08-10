@@ -58,7 +58,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T13:58:11-04:00"
-updatedAt: "2026-08-03T02:00:44.036Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T23:19:44.641Z"
@@ -81,6 +80,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "bb11ce0630fd8a5dae820872ccab18192cb3ed60"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:10:08.345Z"
+archivedAt: "2026-08-10T00:10:08.345Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/finish-repaired-merge-instead-of-restarting-it.md"
 ---
 
 # Finish a Repaired Merge Instead of Restarting It

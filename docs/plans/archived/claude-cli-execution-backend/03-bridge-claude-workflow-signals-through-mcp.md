@@ -61,7 +61,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T11:29:21-0400"
-updatedAt: "2026-08-04T17:55:10.695Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -83,6 +82,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "617e5c3b1a28e020e0ce5e5452208737b21e5f58"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend/03-bridge-claude-workflow-signals-through-mcp.md"
 ---
 
 # Bridge Claude Workflow Signals Through MCP

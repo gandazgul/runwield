@@ -19,7 +19,6 @@ affectedPaths:
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/attached-mode-prd.md"
 createdAt: "2026-08-02T12:25:40-04:00"
-updatedAt: "2026-08-06T02:18:55.649Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-08-06T02:18:40.996Z"
@@ -32,6 +31,10 @@ workRecord:
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-08-06T02:18:40.996Z"
 epicDoneEnoughSummary: "All 5 child plans are completed after claude-cli-execution-backend/05-surface-claude-cli-selection-and-caveats."
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend.md"
 ---
 
 # Claude CLI Execution Backend

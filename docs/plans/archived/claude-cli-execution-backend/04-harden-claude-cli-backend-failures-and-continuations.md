@@ -34,7 +34,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T09:32:26-04:00"
-updatedAt: "2026-08-05T22:01:23.382Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -57,6 +56,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationSemanticRounds: 0
 planId: "c00cde83-4a76-4e9a-8192-6acfcd6bcdab"
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend/04-harden-claude-cli-backend-failures-and-continuations.md"
 ---
 
 # Harden Claude CLI Backend Failures and Continuations

@@ -79,7 +79,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T00:32:24-04:00"
-updatedAt: "2026-08-02T15:21:18.877Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-02T13:23:57.923Z"
@@ -103,6 +102,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "92bf9a7eac8132f04cfa62755bf7ae210d059f0d"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-10T00:09:59.504Z"
+archivedAt: "2026-08-10T00:09:59.504Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/formalize-subagent-definitions.md"
 ---
 
 # Formalize Subagent Definitions

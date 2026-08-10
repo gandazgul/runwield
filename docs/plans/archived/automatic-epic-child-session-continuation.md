@@ -20,7 +20,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-22T08:32:40-04:00"
-updatedAt: "2026-07-23T02:48:01.126Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-23T02:42:14.284Z"
@@ -33,6 +32,10 @@ workRecord:
     lastAttemptAt: "2026-07-23T02:47:51.669Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-10T00:10:38.726Z"
+archivedAt: "2026-08-10T00:10:38.726Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/automatic-epic-child-session-continuation.md"
 ---
 
 # Automatic Epic Child Session Continuation

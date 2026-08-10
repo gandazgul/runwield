@@ -67,7 +67,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-04T01:38:19.716Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -89,6 +88,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "f43e61e33f33b2cdf21913cab817a6890fafd9f9"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend/01-register-claude-cli-backend-models.md"
 ---
 
 # Register Claude CLI Backend Models

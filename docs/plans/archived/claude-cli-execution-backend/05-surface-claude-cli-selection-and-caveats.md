@@ -62,7 +62,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-03T14:20:03-04:00"
-updatedAt: "2026-08-06T02:18:40.966Z"
 status: "verified"
 origin: "internal"
 parentPlan: "claude-cli-execution-backend"
@@ -84,6 +83,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "bca1ec866721a7d07540546c8e9213ba49bbfca9"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-10T00:09:47.489Z"
+archivedAt: "2026-08-10T00:09:47.489Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/claude-cli-execution-backend/05-surface-claude-cli-selection-and-caveats.md"
 ---
 
 # Surface Claude CLI Selection and Caveats
