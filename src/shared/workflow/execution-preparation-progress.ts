@@ -57,6 +57,20 @@ export function emitRunningObjectiveChecksBaseline(hostedSession: HostedSession 
     return emitExecutionPreparationStatus(hostedSession, "running Plan Objective-Failing Check baseline...");
 }
 
+export function emitIndexingExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
+    return emitExecutionPreparationStatus(hostedSession, "indexing execution worktree for code search...");
+}
+
+export function emitExecutionWorktreeIndexWarning(
+    hostedSession: HostedSession | undefined,
+    reason: string,
+): boolean {
+    return emitSystemStatus(hostedSession, `Cymbal index did not complete: ${reason}`, {
+        header: "RunWield",
+        level: "warning",
+    });
+}
+
 export function emitMaterializingPlanInExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
     return emitExecutionPreparationStatus(hostedSession, "materializing Plan in execution worktree...");
 }

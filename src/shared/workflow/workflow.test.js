@@ -20,6 +20,7 @@ import { getTransitionJournalDir } from "./state-transition.ts";
 import { loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
 import { createExecutionStartPorts } from "./execution-start.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     findById as findWorktreeRegistryEntryById,
     listEntries as listWorktreeRegistryEntries,
@@ -33,7 +34,10 @@ function makeHostedSession(id = "workflow-test", cwd = Deno.cwd()) {
     return new HostedSession({ id, cwd, sessionManager: null });
 }
 
-/** @param {string} id @param {string} cwd */
+/**
+ * @param {string} id @param {string} cwd
+ * @param {string} cwd
+ */
 function makeAgentHostedSession(id, cwd) {
     const sessionManager = SessionManager.inMemory(cwd);
     const hostedSession = new HostedSession({ id, cwd });
@@ -224,6 +228,51 @@ Deno.test("re-baselines Objective-Failing Checks when head or command set change
         ],
     );
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "stale-baseline-plan");
+});
+
+Deno.test("startActiveExecutionWorkflow indexes a newly created execution worktree", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const projectRoot = await makeWorkflowProject([{ name: "indexed-plan", status: "ready_for_work" }]);
+        const hostedSession = makeHostedSession("indexed-workflow", projectRoot);
+        const events = [];
+        hostedSession.setEventSink((event) => events.push(event));
+        const binDir = await Deno.makeTempDir({ prefix: "runwield-fake-cymbal-bin-" });
+        const markerPath = `${binDir}/cymbal-marker.txt`;
+        const cymbalPath = `${binDir}/cymbal`;
+        const previousPath = Deno.env.get("PATH") || "";
+        const previousMarker = Deno.env.get("RUNWIELD_CYMBAL_MARKER");
+        await Deno.writeTextFile(
+            cymbalPath,
+            '#!/bin/sh\nprintf "%s\\n" "$PWD" > "$RUNWIELD_CYMBAL_MARKER"\nprintf "%s\\n" "$*" >> "$RUNWIELD_CYMBAL_MARKER"\n',
+        );
+        await Deno.chmod(cymbalPath, 0o755);
+        Deno.env.set("PATH", `${binDir}:${previousPath}`);
+        Deno.env.set("RUNWIELD_CYMBAL_MARKER", markerPath);
+        try {
+            const result = await startActiveExecutionWorkflow({
+                planName: "indexed-plan",
+                triageMeta: { planId: PLAN_UNDER_TEST, classification: "FEATURE" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                ports: createExecutionStartPorts(),
+            });
+
+            const marker = (await Deno.readTextFile(markerPath)).trim().split("\n");
+            assertEquals(marker, [await Deno.realPath(result.executionCwd), "index ."]);
+            assertEquals(
+                events.some((event) => event.message === "indexing execution worktree for code search..."),
+                true,
+            );
+        } finally {
+            Deno.env.set("PATH", previousPath);
+            if (previousMarker === undefined) {
+                Deno.env.delete("RUNWIELD_CYMBAL_MARKER");
+            } else {
+                Deno.env.set("RUNWIELD_CYMBAL_MARKER", previousMarker);
+            }
+            await Deno.remove(binDir, { recursive: true }).catch(() => {});
+        }
+    });
 });
 
 Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requested target branch", async () => {

@@ -23,6 +23,8 @@ import { ensureExecutionPlanFile, loadCanonicalExecutionPlanSource } from "./exe
 import {
     emitCreatedExecutionWorktree,
     emitCreatingExecutionWorktree,
+    emitExecutionWorktreeIndexWarning,
+    emitIndexingExecutionWorktree,
     emitMaterializingPlanInExecutionWorktree,
     emitPreparingExecutionTarget,
     emitPreparingInPlaceExecution,
@@ -42,6 +44,30 @@ export function normalizeExecutionTargetBranch(value) {
     if (typeof value !== "string") return undefined;
     const target = value.trim();
     return target && target !== "HEAD" ? target : undefined;
+}
+
+async function runCymbalIndexForExecutionWorktree(hostedSession, worktreePath) {
+    emitIndexingExecutionWorktree(hostedSession);
+    let output;
+    try {
+        output = await new Deno.Command("cymbal", {
+            args: ["index", "."],
+            cwd: worktreePath,
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+            emitExecutionWorktreeIndexWarning(hostedSession, "the cymbal executable was not found.");
+            return;
+        }
+        throw error;
+    }
+    if (output.code === 0) return;
+    const decoder = new TextDecoder();
+    const stderr = decoder.decode(output.stderr).trim();
+    const stdout = decoder.decode(output.stdout).trim();
+    emitExecutionWorktreeIndexWarning(hostedSession, stderr || stdout || `cymbal exited with code ${output.code}.`);
 }
 
 /**
@@ -379,6 +405,11 @@ export async function startActiveExecutionWorkflow(
                 emitCreatedExecutionWorktree(hostedSession, {
                     worktreeBranch: worktreeArtifacts.branch,
                     baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,
+                });
+                await runCymbalIndexForExecutionWorktree(hostedSession, worktreeArtifacts.path);
+                await markEffect("cymbal_index_ran", {
+                    worktreeId: worktreeArtifacts.id,
+                    path: worktreeArtifacts.path,
                 });
                 await markEffect("git_worktree_created", {
                     worktreeId: worktreeArtifacts.id,

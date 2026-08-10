@@ -79,7 +79,7 @@ Deno.test("benchmark bash tool nudges without executing commands", async () => {
     assertEquals(content.type, "text");
     if (content.type !== "text") throw new Error("expected text content");
     assertEquals(content.text.includes("bash is disabled"), true);
-    assertEquals(content.text.includes("call triage_report"), true);
+    assertEquals(content.text.includes("and the command below was not executed"), true);
     assertEquals(content.text.includes("OPERATION"), false);
     assertEquals(content.text.includes("QUICK_FIX"), false);
 });
