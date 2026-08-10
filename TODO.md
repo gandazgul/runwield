@@ -15,7 +15,7 @@
   - any, unknown, object, Record<string, any>, Record<string, unknown>, Record<string, object>
 - Locally reasonable changes create system-level unknown unknowns.
 
-### Antislop
+### Anti-slop
 
 - deep modules with small interfaces;
 - explicit information ownership;
@@ -76,57 +76,25 @@ delivered, and what the team should remember.
 This is done, but we need to do some better detection and guard against the pattern re-emerging. And apply this to the
 repos that RunWield works on so they dont fall into this pattern either.
 
-7 — ValidationSessionPort
+- [ ] ValidationSessionPort That was the question you did not have context for; my fault for compressing it. Concretely:
+      src/shared/workflow/validation-ports.ts:253 defines one interface with 16 members that the validation engine uses
+      to reach session machinery. Its own docstring lists what it carries: active workflow state, phase position memory,
+      the progress panel, status emission, user interactions, escape-cancel registration, repair turns, isolated agent
+      sessions, agent display names, post-verification handoffs.
 
-That was the question you did not have context for; my fault for compressing it. Concretely:
-src/shared/workflow/validation-ports.ts:253 defines one interface with 16 members that the validation engine uses to
-reach session machinery. Its own docstring lists what it carries: active workflow state, phase position memory, the
-progress panel, status emission, user interactions, escape-cancel registration, repair turns, isolated agent sessions,
-agent display names, post-verification handoffs.
+  Under your rule, four of those are real — running an agent turn, isolated agent sessions, the in-memory session
+  manager, user interaction. The other twelve are RunWield's own machinery, and an interface built per collaborator is
+  the dependency bag with nicer syntax. It is exactly the shape your rule exists to prevent, and it is the largest
+  surviving example in the tree.
 
-Under your rule, four of those are real — running an agent turn, isolated agent sessions, the in-memory session manager,
-user interaction. The other twelve are RunWield's own machinery, and an interface built per collaborator is the
-dependency bag with nicer syntax. It is exactly the shape your rule exists to prevent, and it is the largest surviving
-example in the tree.
-
-My recommendation stands: flag, do not fix here. Redesigning it means changing validation behavior, and folding that
-into a 93k-line move makes the diff impossible to review. Instead this plan adds a ratchet — an allowlist test naming
-every legitimate port file, so a new machinery port fails CI the way seams:check does — and a follow-up plan does the
-redesign. Say the word if you would rather do it inside this move.
+  My recommendation stands: flag, do not fix here. Redesigning it means changing validation behavior, and folding that
+  into a 93k-line move makes the diff impossible to review. Instead this plan adds a ratchet — an allowlist test naming
+  every legitimate port file, so a new machinery port fails CI the way seams:check does — and a follow-up plan does the
+  redesign. Say the word if you would rather do it inside this move.
 
 ## Bugs
 
 ### P0
-
-- [ ] Claude CLI sessions the plan_written tool doesnt add a block on the TUI it should
-- [ ] Confirm claude has access to our skills, to write and edit files, EnterWorktree.
-
-- [ ] Already started work that's being continued shouldn't execute the OC again:
-
-  Error: RunWield stopped part-way through setting up the execution worktree for split-gemini-service, and cannot tell
-  by itself whether that finished. Some of it did complete, so the repository may already be partly updated. Do not
-  repeat the step by hand until this is settled. Why it stopped: The following Objective-Failing Check(s) are already
-  satisfied before implementation: OC1, OC3, OC4, OC5, OC6. An already-green check cannot discriminate whether Plan
-  split-gemini-service's objective was achieved. Revise the check(s) so they fail against the unmodified tree and pass
-  only after the objective is implemented.
-
-  Objective-Failing Checks: 5 met, 0 unmet, 0 broken (5 total).
-
-- [ ] Re-cerating the worktree doesnt work EITHER
-
-  Error: RunWield stopped part-way through setting up the execution worktree for split-gemini-service, and cannot tell
-  by itself whether that finished. Some of it did complete, so the repository may already be partly updated. Do not
-  repeat the step by hand until this is settled. Why it stopped: The following Objective-Failing Check(s) could not run
-  cleanly before implementation: OC1, OC2, OC3, OC4, OC5, OC6. A broken check cannot prove the objective is unmet, so
-  revise the command(s) before execution starts.
-
-  Objective-Failing Checks: 0 met, 0 unmet, 6 broken (6 total).
-
-  - OC1: broken command: test "$(wc -l < services/geminiService.ts)" -le 120 && ! grep -Eq '^(async )?function |^export
-    (const|function|class|async function) ' services/geminiService.ts rationale: Proves the 13,117-line implementation
-    became a facade rather than retaining implementations. exitCode: none reason: Failed to spawn objective check:
-    Failed to spawn '/bin/sh': No such cwd
-    '/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-brandchef.ai--/brandchef.ai-split-gemini-service-fa93705d'
 
 - [ ] refactor validation to only advance when the tools are called task_completed and review_complete
 
@@ -153,7 +121,6 @@ redesign. Say the word if you would rather do it inside this move.
 - [ ] when creating a worktree run cymbal index . on it.
 - [ ] collapse the tool calls between thinking to 1 block with 1 line per tool call the current header. On click on that
       block expand them to separate blocks with the full tool call result.
-- [ ] Upgrade PI docs/plans/upgrade-pi-0-84-and-latex-rendering.md
 - [ ] Grab Matt Pockock wizard skill.
 - [ ] Plans should have optional dependencies on other plans, where an Epic is overkill but you need 2 or 3 sequencial
       steps.
