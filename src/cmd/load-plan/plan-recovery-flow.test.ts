@@ -406,6 +406,34 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(Boolean(abandonSuccess.plan.attrs.worktreeId), false);
     assertEquals(abandonSuccess.ui.prompts.filter((prompt) => prompt.startsWith("Plan recovery")).length, 2);
 
+    const abandonMissingRegistry = await runRealRecovery(
+        ["abandon", "confirm", null],
+        {},
+        async (_options, project) => {
+            const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-missing-registry-" });
+            await Deno.remove(worktreePath);
+            const attrs = await updatePlanFrontMatter(
+                project.projectRoot,
+                project.plan.planName,
+                { worktreeId: "missing-worktree-1", worktreePath, worktreeBranch: "rw/missing-registry" },
+                project.plan.attrs,
+                { expectedRevision: project.plan.revision },
+            );
+            project.plan.attrs = attrs;
+            const reloaded = await loadPlan(project.projectRoot, project.plan.planName);
+            if (!reloaded) throw new Error("missing-registry abandon fixture plan disappeared");
+            project.plan.revision = reloaded.revision;
+        },
+    );
+    assertEquals(abandonMissingRegistry.result, "handled");
+    assertEquals(Boolean(abandonMissingRegistry.plan.attrs.worktreeId), false);
+    assertEquals(
+        abandonMissingRegistry.ui.messages.some((message) =>
+            message.includes("Worktree registry entry missing-worktree-1 was already absent")
+        ),
+        true,
+    );
+
     const mergeAttemptFailure = await runRealRecovery(["merge"], {
         status: "implemented",
         executionMode: "worktree",

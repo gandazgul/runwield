@@ -269,9 +269,20 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
                 }
             }
             if (context.worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
-                    status: "abandoned",
-                });
+                try {
+                    await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
+                        status: "abandoned",
+                    });
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    const missingEntryMessage = `Worktree registry entry not found: ${context.worktreeContext.id}`;
+                    if (message !== missingEntryMessage) throw error;
+                    uiAPI.appendSystemMessage(
+                        `Worktree registry entry ${context.worktreeContext.id} was already absent. Proceeding with Plan metadata abandon.`,
+                        true,
+                        "RunWield",
+                    );
+                }
             }
             return await updatePlanFrontMatter(
                 projectRoot,
