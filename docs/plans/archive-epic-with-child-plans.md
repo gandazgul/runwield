@@ -25,7 +25,6 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-09T10:04:14-0400"
 updatedAt: "2026-08-09T14:26:40.167Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
@@ -34,6 +33,7 @@ worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "archive epic option"
 planId: "9c81e9a0-c2f4-47eb-ae13-285d3ae04c42"
+status: "validated_reviewer"
 ---
 
 # Archive an Epic With Its Child Plans
