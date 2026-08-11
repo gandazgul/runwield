@@ -3473,7 +3473,10 @@ export async function runIsolatedAgentSession(opts) {
                 unsubscribe: () => {},
             }
             : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
-        hostedSession.addSubAgentSession(steeringTarget);
+        hostedSession.addSubAgentSession(
+            steeringTarget,
+            /** @type {any} */ (opts).managedOperationCapability || null,
+        );
         registeredSubAgent = true;
 
         const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;

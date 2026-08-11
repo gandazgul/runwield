@@ -41,7 +41,7 @@ export async function runNameCommand(argv: string[], options: NameCommandOptions
         return;
     }
 
-    const result = sessionRuntime.renameSession(sessionId, name);
+    const result = await sessionRuntime.renameSession(sessionId, name);
     if (!result.ok) {
         uiAPI.appendSystemMessage(theme.fg("dim", `Session name not changed: ${result.error || "unsupported"}`));
         return;

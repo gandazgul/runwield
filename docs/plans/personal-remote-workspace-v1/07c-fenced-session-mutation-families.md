@@ -21,12 +21,12 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-10T18:33:16-04:00"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
+status: "ready_for_work"
 ---
 
 # Fenced Session Mutation Families
