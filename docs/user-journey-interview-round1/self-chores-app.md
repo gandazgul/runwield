@@ -66,8 +66,14 @@ constraints and requirements.
 
 ### Did Slicer create customer-visible vertical slices?
 
+yes, good slices too.
+
 ### Could you redirect the roadmap through review annotations?
 
+yes, did it once with a couple of revisions.
+
 ### Did the first slice move from approval to verified outcome?
+
+yes
 
 ### Did its Work Record make the next planning step better?
