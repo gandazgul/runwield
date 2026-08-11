@@ -43,12 +43,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T14:59:04-04:00"
 updatedAt: "2026-08-06T19:07:24.688Z"
-status: "draft"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
 planId: "f3183b8c-58e3-4070-af6f-67807f653cac"
+status: "ready_for_work"
 ---
 
 # Split and Convert the TUI Chat Session

@@ -120,7 +120,6 @@
     "src/ui/tui/api.js",
     "src/ui/tui/bash-interceptor.js",
     "src/ui/tui/blocks.js",
-    "src/ui/tui/chat-session.js",
     "src/ui/tui/generation-guard.js",
     "src/ui/tui/golden-scenarios/catalog.js",
     "src/ui/tui/golden-scenarios/initial-scenarios.js",

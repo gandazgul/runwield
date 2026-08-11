@@ -340,7 +340,9 @@ Deno.test("managed projection caches do not drive live activation transitions", 
 });
 
 Deno.test("TUI submission flow does not branch on managed SessionSnapshot projection", async () => {
-    const source = await Deno.readTextFile(join(REPO_ROOT, "src/ui/tui/chat-session.js"));
+    const orchestratorSource = await Deno.readTextFile(join(REPO_ROOT, "src/ui/tui/chat-session.ts"));
+    const inputSource = await Deno.readTextFile(join(REPO_ROOT, "src/ui/tui/chat-input-controller.ts"));
+    const source = `${orchestratorSource}\n${inputSource}`;
 
     assertEquals(/getRuntimeSnapshot\(\)\.managed\b/.test(source), false);
     assertEquals(/promptManagedSession\s*\(/.test(source), false);

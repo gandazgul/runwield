@@ -1,0 +1,119 @@
+import { assertEquals, assertRejects } from "@std/assert";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { getSettingsManager } from "../../shared/settings.js";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
+import {
+    getActiveModel,
+    persistThinkingLevel,
+    recordUserInputHistory,
+    runScopedSubmitHandoffLoop,
+    type SessionRuntime,
+    setActiveModel,
+    shouldReplaySessionHistory,
+} from "./chat-session.ts";
+
+Deno.test("recordUserInputHistory stores trimmed submitted input", () => {
+    const history: string[] = [];
+    recordUserInputHistory({ addToHistory: (text) => history.push(text) }, "  /skill:review branch  ");
+    recordUserInputHistory({ addToHistory: (text) => history.push(text) }, "   ");
+    assertEquals(history, ["/skill:review branch"]);
+});
+
+Deno.test("startup replays history only when continuing a persisted session", () => {
+    assertEquals(shouldReplaySessionHistory("new"), false);
+    assertEquals(shouldReplaySessionHistory(undefined), false);
+    assertEquals(shouldReplaySessionHistory("continue"), true);
+});
+
+Deno.test("resolveTemplateModel validates provider/id lookup and auth", () => {
+    const registry = {
+        find: (provider: string, id: string) => provider === "test" && id === "model" ? { provider, id } : null,
+        hasConfiguredAuth: (model: { provider: string; id: string } | null) => Boolean(model),
+    };
+    assertEquals(resolveTemplateModel("not-strict", registry), { ok: false });
+    assertEquals(resolveTemplateModel("test/missing", registry), { ok: false });
+    assertEquals(resolveTemplateModel("test/model", registry), { ok: true, provider: "test", id: "model" });
+});
+
+Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persists selection", async () => {
+    await withRuntimeCommandFixture("chat-session-model-persistence-", async ({ projectRoot }) => {
+        const runtime = createSessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            await setActiveModel(runtime, sessionId, "model-a", "provider-a");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "model-a",
+                provider: "provider-a",
+            });
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "model-a");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "provider-a");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("setActiveModel rejects a missing real Runtime session", async () => {
+    await withRuntimeCommandFixture("chat-session-missing-model-session-", async () => {
+        const runtime = createSessionRuntime();
+        await assertRejects(
+            () => setActiveModel(runtime, "missing-session", "model", "test"),
+            Error,
+            "missing runtime session",
+        );
+    });
+});
+
+Deno.test("getActiveModel reads the real Runtime snapshot", async () => {
+    await withRuntimeCommandFixture("chat-session-active-model-", async ({ projectRoot }) => {
+        const runtime = createSessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            runtime.setSessionModel(sessionId, "model-a", "provider-a");
+            assertEquals(getActiveModel(runtime, sessionId), "model-a");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("persistThinkingLevel stores the selected level", async () => {
+    await withRuntimeCommandFixture("chat-session-thinking-persistence-", async ({ projectRoot }) => {
+        await persistThinkingLevel("high", projectRoot);
+        assertEquals(getSettingsManager(projectRoot).getDefaultThinkingLevel(), "high");
+    });
+});
+
+Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async () => {
+    const runtime = createSessionRuntime();
+    await withRuntimeCommandFixture("chat-session-handoff-", async ({ projectRoot }) => {
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            const calls: string[] = [];
+            const originalPromptUserTurn = runtime.promptUserTurn.bind(runtime);
+            runtime.promptUserTurn = (async (activeSessionId, options) => {
+                calls.push(`${activeSessionId}:${options.initialRequest}:${(options.initialImages || []).length}`);
+                return await originalPromptUserTurn(activeSessionId, options);
+            }) as SessionRuntime["promptUserTurn"];
+            await runScopedSubmitHandoffLoop({
+                runtime,
+                sessionId,
+                uiAPI: {
+                    appendSystemMessage: () => {},
+                    appendAgentMessageStart: () => ({ appendText: () => {} }),
+                    requestRender: () => {},
+                    promptSelect: () => Promise.resolve(null),
+                    promptText: () => Promise.resolve(null),
+                    showModelSelector: () => {},
+                    abortActivePrompt: () => {},
+                },
+                initialRequest: "first request",
+                initialImages: [],
+            });
+            assertEquals(calls, [`${sessionId}:first request:0`]);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});

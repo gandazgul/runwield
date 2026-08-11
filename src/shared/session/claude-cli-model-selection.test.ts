@@ -8,7 +8,7 @@ import {
 import { getModelRegistry } from "../models/model-registry.ts";
 import { __resetSettingsForTests, getSettingsManager } from "../settings.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { setActiveModel } from "../../ui/tui/chat-session.js";
+import { setActiveModel } from "../../ui/tui/chat-session.ts";
 
 Deno.test("configured Claude CLI model is supported by typed execution backend dispatch", () => {
     const model = getModelRegistry().find("claude-cli", "sonnet");

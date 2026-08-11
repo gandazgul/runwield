@@ -69,7 +69,7 @@ import {
     SESSION_COMPLETE_GUIDANCE,
 } from "../../shared/workflow/plan-review-recovery.js";
 import { printCommandHelp } from "../help/index.js";
-import { startInteractiveSession } from "../../ui/tui/chat-session.js";
+import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
