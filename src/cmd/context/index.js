@@ -143,7 +143,6 @@ function groupItemsBySource(items) {
  * @param {string[]} _argv
  * @param {import('../registry.js').CommandContext} [options]
  */
-// deno-lint-ignore require-await
 export async function runContextCommand(_argv, options = {}) {
     if (!options?.uiAPI) {
         console.error("The /context command is only available inside an interactive session.");
@@ -151,7 +150,7 @@ export async function runContextCommand(_argv, options = {}) {
     }
 
     const { uiAPI, sessionRuntime, sessionId } = options;
-    const report = sessionRuntime && sessionId ? sessionRuntime.getSessionContextReport(sessionId) : null;
+    const report = sessionRuntime && sessionId ? await sessionRuntime.getSessionContextReport(sessionId) : null;
     if (!report) {
         uiAPI.appendSystemMessage("Error: No active Agent Session context is available yet.");
         return;

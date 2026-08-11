@@ -1126,7 +1126,7 @@ Deno.test("SessionRuntime owns managed submission blocking messages", () => {
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
     const runtime = makeRuntime();
     const { sessionId } = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
-    assertEquals(runtime.getSessionContextReport(sessionId), null);
+    assertEquals(await runtime.getSessionContextReport(sessionId), null);
 });
 
 Deno.test("SessionRuntime projects active Agent Session context without exposing internals", async () => {
@@ -1134,7 +1134,7 @@ Deno.test("SessionRuntime projects active Agent Session context without exposing
     const runtime = makeRuntime({ sessionHost });
     const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "engineer" });
 
-    const report = runtime.getSessionContextReport(sessionId);
+    const report = await runtime.getSessionContextReport(sessionId);
     assertEquals(report?.agentDisplayName, "Engineer");
     assertEquals(report?.provider, RUNTIME_TEST_PROVIDER);
     assertEquals(report?.model, RUNTIME_TEST_MODEL);

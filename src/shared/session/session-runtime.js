@@ -21,6 +21,7 @@ import {
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
 import {
+    classifyRootSessionLocator,
     createRootSessionManager,
     exportRootSessionToHtml,
     exportRootSessionToJsonl,
@@ -28,6 +29,7 @@ import {
     getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
     isPathInside,
+    listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
 } from "./root-session.js";
@@ -36,13 +38,16 @@ import {
     emitSystemStatus,
     getRuntimeErrorMessage,
     normalizeRuntimeToolResult,
-    normalizeRuntimeUsage,
     RuntimeEventTypes,
 } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import {
+    buildProjectedSessionInfo,
     captureTranscriptEvidence,
     createReplayEvents as createProjectedReplayEvents,
+    exportProjectedTranscript,
+    getProjectedLastAssistantText,
+    inspectProjectedTranscript,
     projectCommittedTranscript,
     syncTranscriptFileAndParent,
     toProjectionFailure,
@@ -1271,11 +1276,63 @@ export class SessionRuntime {
         return { ok: true, enabled };
     }
 
+    /**
+     * @param {string} sessionId
+     * @returns {Promise<{ ok: true, managed: import('./hosted-session.js').ManagedSessionMetadata, entries: unknown[], projection: any } | { ok: false, error: string, message: string }>}
+     */
+    async #readManagedCommittedProjection(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
+        if (!session || !managed) return { ok: false, error: "not_managed", message: "Session is not managed." };
+        if (!this.#ownerCoordinationStore) {
+            return { ok: false, error: "owner_coordination_unavailable", message: "Managed read is unavailable." };
+        }
+        let inspected;
+        try {
+            this.#ownerCoordinationStore.requireActivationProtocolEnabled();
+            inspected = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+        } catch (_error) {
+            return { ok: false, error: "managed_read_blocked", message: "Managed read is unavailable." };
+        }
+        if (!inspected.generation) {
+            return { ok: false, error: "committed_generation_unavailable", message: "Managed read is unavailable." };
+        }
+        try {
+            const projection = await projectCommittedTranscript({
+                cwd: session.cwd,
+                sessionDir: dirname(managed.transcriptPath),
+                sessionPath: managed.transcriptPath,
+                runtimeSessionId: sessionId,
+                generation: inspected.generation.generation,
+                byteLength: inspected.generation.byteLength,
+                terminalEntryId: inspected.generation.terminalEntryId,
+                digestHex: inspected.generation.digestHex,
+            });
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath: managed.transcriptPath,
+                transcriptCwd: session.cwd,
+                byteLength: inspected.generation.byteLength,
+            });
+            return { ok: true, managed, entries: evidence.entries, projection };
+        } catch (error) {
+            const failure = toProjectionFailure(error);
+            return { ok: false, error: failure.code, message: failure.message };
+        }
+    }
+
     /** @param {string} sessionId */
-    replaySession(sessionId) {
+    async replaySession(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, replayed: 0, error: "not_found" };
+        const managed = session.getManagedMetadata?.() || null;
         const manager = session.getRootSessionManager();
+        if (managed && !manager) {
+            const projected = await this.#readManagedCommittedProjection(sessionId);
+            if (!projected.ok) return { ok: false, replayed: 0, error: projected.error };
+            const events = createProjectedReplayEvents(sessionId, projected.entries);
+            for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
+            return { ok: true, replayed: events.length };
+        }
         const events = createProjectedReplayEvents(sessionId, manager ? getRootSessionBranchEntries(manager) : []);
         for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
         return { ok: true, replayed: events.length };
@@ -1575,8 +1632,13 @@ export class SessionRuntime {
     }
 
     /** @param {string} sessionId */
-    getLastAssistantText(sessionId) {
+    async getLastAssistantText(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
+        if (managed && !session?.getRootSessionManager?.()) {
+            const projected = await this.#readManagedCommittedProjection(sessionId);
+            return projected.ok ? getProjectedLastAssistantText(projected.entries) : null;
+        }
         const messages = /** @type {any[]} */ (
             /** @type {any} */ (session?.getRootAgentSession())?.agent?.state?.messages || []
         );
@@ -1594,49 +1656,28 @@ export class SessionRuntime {
     }
 
     /** @param {string} sessionId */
-    getSessionInfo(sessionId) {
+    async getSessionInfo(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
+        const managed = session.getManagedMetadata?.() || null;
         const manager = /** @type {any} */ (session.getRootSessionManager());
-        const entries = manager?.getEntries?.() || [];
-        const info = {
-            name: manager?.getSessionName?.() || "",
-            file: manager?.getSessionFile?.() || "In-memory",
-            persistedId: manager?.getSessionId?.() || sessionId,
-            compactionCount: 0,
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: 0,
-            toolResults: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            compactionSettings: null,
-            contextUsage: null,
-        };
-        for (const entry of entries) {
-            if (entry?.type === "compaction") info.compactionCount++;
-            if (entry?.type !== "message" || !entry.message) continue;
-            const message = entry.message;
-            if (message.role === "user") {
-                info.userMessages++;
-                info.toolResults += Array.isArray(message.content)
-                    ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_result").length
-                    : 0;
-            }
-            if (message.role === "assistant") {
-                info.assistantMessages++;
-                info.toolCalls += Array.isArray(message.content)
-                    ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_use").length
-                    : 0;
-                const usage = normalizeRuntimeUsage(message.usage);
-                info.inputTokens += usage.inputTokens;
-                info.outputTokens += usage.outputTokens;
-                info.cacheReadTokens += usage.cacheReadTokens;
-                info.cacheWriteTokens += usage.cacheWriteTokens;
-            }
+        if (managed && !manager) {
+            const projected = await this.#readManagedCommittedProjection(sessionId);
+            return projected.ok
+                ? buildProjectedSessionInfo(projected.entries, {
+                    sessionId: managed.piSessionId,
+                    cwd: session.cwd,
+                    transcriptPath: managed.transcriptPath,
+                })
+                : null;
         }
+        const entries = manager?.getEntries?.() || [];
+        const info = buildProjectedSessionInfo(entries, {
+            sessionId: manager?.getSessionId?.() || sessionId,
+            cwd: session.cwd,
+            transcriptPath: manager?.getSessionFile?.() || "In-memory",
+        });
+        info.name = manager?.getSessionName?.() || info.name;
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         info.compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.() || null;
         info.contextUsage = rootAgentSession?.getContextUsage?.() || null;
@@ -1647,6 +1688,9 @@ export class SessionRuntime {
     getSessionContextReport(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
+        if (session.getManagedMetadata?.() && !session.getRootSessionManager?.()) {
+            return null;
+        }
         const projection = getRootSessionContextProjection(session);
         if (!projection) return null;
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
@@ -1665,8 +1709,9 @@ export class SessionRuntime {
     /** @param {string} sessionId */
     getSessionMemoryBackupDir(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
         const manager = session?.getRootSessionManager();
-        const persistedId = manager?.getSessionId?.();
+        const persistedId = managed?.piSessionId || manager?.getSessionId?.();
         if (!session || !persistedId) throw new Error("Runtime session has no persisted session id.");
         return getRunWieldSessionMemoryBackupDir(session.cwd, persistedId);
     }
@@ -1676,16 +1721,30 @@ export class SessionRuntime {
         if (!cwd || !isAbsolute(cwd)) {
             throw new Error("SessionRuntime.listResumableSessions requires an absolute cwd");
         }
+        const classified = await classifyRootSessionLocator({
+            cwd,
+            ownerCoordinationStore: this.#ownerCoordinationStore,
+        });
+        if (classified.kind === "managed") {
+            const listed = await listCatalogSafeRootSessionLocators(cwd);
+            return listed.locators.map((locator) => ({
+                id: locator.piSessionId,
+                path: locator.sessionPath,
+                cwd: locator.headerCwd,
+                modified: locator.headerTimestamp || undefined,
+                messageCount: undefined,
+                firstMessage: undefined,
+                name: undefined,
+            }));
+        }
+        if (classified.kind === "blocked") return [];
         return await listPersistedRootSessions(cwd);
     }
 
     /**
-     * Inspect the model context of a persisted session without exposing its
-     * SessionManager to the consumer.
-     *
      * @param {{ cwd: string, sessionId: string, sessionPath?: string }} options
      */
-    async inspectResumableSession(options) {
+    async #inspectUnmanagedResumableSession(options) {
         const { estimateTokens } = await import("@earendil-works/pi-coding-agent");
         const { sessionManager } = await openPersistedRootSession(options);
         try {
@@ -1700,6 +1759,67 @@ export class SessionRuntime {
         } finally {
             /** @type {any} */ (sessionManager).dispose?.();
         }
+    }
+
+    /**
+     * Inspect the model context of a persisted session without exposing its
+     * SessionManager to the consumer.
+     *
+     * @param {{ cwd: string, sessionId: string, sessionPath?: string }} options
+     */
+    async inspectResumableSession(options) {
+        const classified = await classifyRootSessionLocator({
+            cwd: options.cwd,
+            sessionId: options.sessionId,
+            sessionPath: options.sessionPath,
+            ownerCoordinationStore: this.#ownerCoordinationStore,
+        });
+        if (classified.kind === "managed" && classified.session) {
+            const inspected = this.#ownerCoordinationStore?.inspectSessionActivation(
+                classified.session.runwieldSessionId,
+            );
+            if (!inspected?.generation) {
+                return {
+                    estimatedTokens: 0,
+                    messageCount: 0,
+                    model: null,
+                    ok: false,
+                    error: "committed_generation_unavailable",
+                };
+            }
+            try {
+                const evidence = await captureTranscriptEvidence({
+                    transcriptPath: classified.session.transcriptPath,
+                    transcriptCwd: classified.session.transcriptCwd,
+                    byteLength: inspected.generation.byteLength,
+                });
+                if (evidence.digestHex !== inspected.generation.digestHex) {
+                    return { estimatedTokens: 0, messageCount: 0, model: null, ok: false, error: "evidence_mismatch" };
+                }
+                if (evidence.terminalEntryId !== inspected.generation.terminalEntryId) {
+                    return { estimatedTokens: 0, messageCount: 0, model: null, ok: false, error: "terminal_mismatch" };
+                }
+                return inspectProjectedTranscript(evidence.entries);
+            } catch (error) {
+                return {
+                    estimatedTokens: 0,
+                    messageCount: 0,
+                    model: null,
+                    ok: false,
+                    error: toProjectionFailure(error).code,
+                };
+            }
+        }
+        if (classified.kind === "blocked") {
+            return {
+                estimatedTokens: 0,
+                messageCount: 0,
+                model: null,
+                ok: false,
+                error: classified.reason || "managed_read_blocked",
+            };
+        }
+        return await this.#inspectUnmanagedResumableSession(options);
     }
 
     /** @param {string} sessionId */
@@ -1738,7 +1858,17 @@ export class SessionRuntime {
     /** @param {string} sessionId @param {string} outputPath */
     async exportSession(sessionId, outputPath) {
         const session = this.#sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
         const manager = /** @type {any} */ (session?.getRootSessionManager());
+        if (managed && !manager) {
+            const projected = await this.#readManagedCommittedProjection(sessionId);
+            if (!projected.ok) throw new Error(projected.message);
+            if (!session) throw new Error("Runtime session has no persistence store.");
+            return await exportProjectedTranscript(projected.entries, {
+                cwd: session.cwd,
+                sessionId: managed.piSessionId,
+            }, outputPath);
+        }
         if (!manager) throw new Error("Runtime session has no persistence store.");
         return outputPath.toLowerCase().endsWith(".jsonl")
             ? exportRootSessionToJsonl(manager, outputPath)
@@ -2585,13 +2715,28 @@ export class SessionRuntime {
             throw new Error("SessionRuntime.createInteractiveSession requires an absolute cwd");
         }
         if (this.#ownerCoordinationStore && (options.mode || "new") === "continue") {
-            const persistedSessions = await listPersistedRootSessions(options.cwd);
+            const classified = await classifyRootSessionLocator({
+                cwd: options.cwd,
+                ownerCoordinationStore: this.#ownerCoordinationStore,
+            });
+            if (classified.kind === "blocked") {
+                throw new Error(`Managed Session continue is blocked: ${classified.reason}`);
+            }
+            const persistedSessions = classified.kind === "managed"
+                ? (await listCatalogSafeRootSessionLocators(options.cwd)).locators.map((locator) => ({
+                    id: locator.piSessionId,
+                    path: locator.sessionPath,
+                    cwd: locator.headerCwd,
+                    modified: locator.headerTimestamp || undefined,
+                }))
+                : await listPersistedRootSessions(options.cwd);
             const latestSession = persistedSessions[0] || null;
             if (latestSession?.id && latestSession?.path) {
                 const loaded = await this.loadSession({
                     cwd: options.cwd,
                     sessionId: latestSession.id,
                     sessionPath: latestSession.path,
+                    enableManagedActivation: classified.kind === "managed",
                 });
                 return {
                     sessionId: loaded.sessionId,
@@ -2718,11 +2863,16 @@ export class SessionRuntime {
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
         }
-        if (this.#ownerCoordinationStore && this.#shouldUseManagedActivation(options) && options.sessionPath) {
-            const managedSession = this.#ownerCoordinationStore.findSessionByLocator({
-                transcriptPath: options.sessionPath,
+        if (this.#ownerCoordinationStore && this.#shouldUseManagedActivation(options)) {
+            const classified = await classifyRootSessionLocator({
+                cwd: options.cwd,
+                sessionId: options.sessionId,
+                sessionPath: options.sessionPath,
+                ownerCoordinationStore: this.#ownerCoordinationStore,
             });
-            if (managedSession) {
+            if (classified.kind === "blocked") throw new Error(`Managed Session load is blocked: ${classified.reason}`);
+            if (classified.kind === "managed" && classified.session) {
+                const managedSession = classified.session;
                 this.#ownerCoordinationStore.requireActivationProtocolEnabled();
                 const inspected = this.#ownerCoordinationStore.inspectSessionActivation(
                     managedSession.runwieldSessionId,

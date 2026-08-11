@@ -140,6 +140,92 @@ function getManagerCwd(value) {
 }
 
 /**
+ * @typedef {Object} RootSessionLocatorClassification
+ * @property {"unmanaged_proven" | "managed" | "blocked"} kind
+ * @property {string} [reason]
+ * @property {import('../owner-coordination/sessions.js').CatalogedSession} [session]
+ * @property {{ projectId: string, cwd: string }} [project]
+ * @property {CatalogSafeRootSessionLocator} [locator]
+ */
+
+/** @param {string} child @param {string} parent */
+function isSameOrInsidePath(child, parent) {
+    return isPathInside(resolve(child), resolve(parent));
+}
+
+/**
+ * Resolve whether a root Session locator belongs to managed owner coordination
+ * before any Pi SessionManager API is used.
+ *
+ * @param {{ cwd: string, sessionId?: string, sessionPath?: string, ownerCoordinationStore?: import('../owner-coordination/index.js').OwnerCoordinationStore | null, allowCatalog?: boolean }} options
+ * @returns {Promise<RootSessionLocatorClassification>}
+ */
+export async function classifyRootSessionLocator(options) {
+    if (!options?.cwd || !isAbsolute(options.cwd)) {
+        return { kind: "blocked", reason: "invalid_cwd" };
+    }
+    const store = options.ownerCoordinationStore || null;
+    if (!store) return { kind: "unmanaged_proven", reason: "owner_coordination_absent" };
+    let realCwd;
+    try {
+        realCwd = await Deno.realPath(options.cwd);
+    } catch {
+        return { kind: "blocked", reason: "cwd_unresolved" };
+    }
+    /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
+    const containingProjects = [];
+    for (const project of store.listProjects()) {
+        const roots = store.listProjectRootEvidence(project.projectId);
+        if (roots.some((root) => isSameOrInsidePath(realCwd, root.canonicalRoot))) {
+            containingProjects.push(project);
+        }
+    }
+    if (containingProjects.length > 1) return { kind: "blocked", reason: "locator_conflict" };
+    const project = containingProjects[0] || null;
+    if (!project) return { kind: "unmanaged_proven", reason: "no_managed_project_root" };
+    if (project.lifecycle !== "enabled") return { kind: "blocked", reason: "project_not_enabled" };
+    try {
+        store.requireEnabledProjectRoot(project.projectId);
+    } catch {
+        return { kind: "blocked", reason: "project_root_unavailable" };
+    }
+    if (!options.sessionPath && !options.sessionId) {
+        return { kind: "managed", project: { projectId: project.projectId, cwd: realCwd } };
+    }
+    if (!options.sessionPath) return { kind: "blocked", reason: "session_path_required" };
+    let locator;
+    try {
+        locator = await readCatalogSafeRootSessionLocator({ cwd: options.cwd, sessionPath: options.sessionPath });
+    } catch {
+        return { kind: "blocked", reason: "invalid_transcript_locator" };
+    }
+    const byPath = store.findSessionByLocator({ transcriptPath: locator.sessionPath });
+    const byPi = store.findSessionByLocator({ projectId: project.projectId, piSessionId: locator.piSessionId });
+    if (byPath && byPi && byPath.runwieldSessionId !== byPi.runwieldSessionId) {
+        return { kind: "blocked", reason: "locator_conflict" };
+    }
+    let session = byPath || byPi || null;
+    if (!session && options.allowCatalog !== false) {
+        try {
+            session = await store.ensureSessionCatalogRecord({
+                projectId: project.projectId,
+                piSessionId: locator.piSessionId,
+                transcriptPath: locator.sessionPath,
+                transcriptCwd: locator.headerCwd,
+                headerVersion: locator.headerVersion,
+                headerTimestamp: locator.headerTimestamp,
+                source: "catalog",
+            });
+        } catch {
+            return { kind: "blocked", reason: "catalog_unavailable" };
+        }
+    }
+    if (!session) return { kind: "blocked", reason: "session_not_cataloged" };
+    if (session.projectId !== project.projectId) return { kind: "blocked", reason: "locator_conflict" };
+    return { kind: "managed", session, project: { projectId: project.projectId, cwd: realCwd }, locator };
+}
+
+/**
  * List persisted RunWield root sessions for a cwd.
  *
  * @param {string} cwd

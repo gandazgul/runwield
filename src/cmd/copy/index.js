@@ -95,7 +95,7 @@ export async function runCopyCommand(_argv, options = {}) {
         return;
     }
 
-    const text = sessionRuntime.getLastAssistantText(sessionId);
+    const text = await sessionRuntime.getLastAssistantText(sessionId);
     if (!text) {
         uiAPI.appendSystemMessage("Nothing to copy — no assistant message found.");
         return;

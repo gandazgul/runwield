@@ -211,7 +211,7 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
     }
 
     uiAPI.clearMessages?.();
-    sessionRuntime.replaySession(loaded.sessionId);
+    await sessionRuntime.replaySession(loaded.sessionId);
     uiAPI.appendSystemMessage(notice);
     const resumed = sessionRuntime.getSessionSnapshot(loaded.sessionId);
     setTerminalTitleForName(resumed?.name || loaded.sessionManagerId);

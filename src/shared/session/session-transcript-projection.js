@@ -550,3 +550,133 @@ export function summarizeProjectedEntries(entries) {
     }
     return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention };
 }
+
+/** @param {unknown} value @returns {string} */
+function projectedDisplayText(value) {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(projectedDisplayText).filter(Boolean).join("\n");
+    if (value === null || value === undefined) return "";
+    if (typeof value !== "object") return String(value);
+    const typed = /** @type {any} */ (value);
+    if (typed.type === "text") return projectedDisplayText(typed.text);
+    if (typed.type === "tool_use") return `[tool_use:${typed.name || "unknown"}] ${JSON.stringify(typed.input || {})}`;
+    if (typed.type === "tool_result") return `[tool_result] ${projectedDisplayText(typed.content || "")}`;
+    if ("content" in typed) return projectedDisplayText(typed.content);
+    return "";
+}
+
+/** @param {unknown[]} entries */
+export function inspectProjectedTranscript(entries) {
+    const summary = summarizeProjectedEntries(entries);
+    let messageCount = 0;
+    let estimatedTokens = 0;
+    for (const entry of entries) {
+        const value = /** @type {any} */ (entry || {});
+        if (value.type !== "message" || !value.message) continue;
+        messageCount++;
+        estimatedTokens += projectedDisplayText(value.message.content).split(/\s+/).filter(Boolean).length;
+    }
+    return {
+        estimatedTokens,
+        messageCount,
+        model: summary.model || summary.provider
+            ? { provider: summary.provider || "", modelId: summary.model || "" }
+            : null,
+    };
+}
+
+/** @param {unknown[]} entries @param {{ sessionId: string, cwd: string, transcriptPath?: string }} options */
+export function buildProjectedSessionInfo(entries, options) {
+    const summary = summarizeProjectedEntries(entries);
+    const info = {
+        name: summary.name || "",
+        file: options.transcriptPath || "Committed transcript",
+        persistedId: options.sessionId,
+        compactionCount: 0,
+        userMessages: 0,
+        assistantMessages: 0,
+        toolCalls: 0,
+        toolResults: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        compactionSettings: null,
+        contextUsage: null,
+    };
+    for (const entry of entries) {
+        const value = /** @type {any} */ (entry || {});
+        if (value.type === "compaction") info.compactionCount++;
+        if (value.type !== "message" || !value.message) continue;
+        const message = value.message;
+        if (message.role === "user") {
+            info.userMessages++;
+            info.toolResults += Array.isArray(message.content)
+                ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_result").length
+                : 0;
+        }
+        if (message.role === "assistant") {
+            info.assistantMessages++;
+            info.toolCalls += Array.isArray(message.content)
+                ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_use").length
+                : 0;
+            const usage = normalizeRuntimeUsage(message.usage);
+            info.inputTokens += usage.inputTokens;
+            info.outputTokens += usage.outputTokens;
+            info.cacheReadTokens += usage.cacheReadTokens;
+            info.cacheWriteTokens += usage.cacheWriteTokens;
+        }
+    }
+    return info;
+}
+
+/** @param {unknown[]} entries */
+export function getProjectedLastAssistantText(entries) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+        const value = /** @type {any} */ (entries[index] || {});
+        if (value.type !== "message" || value.message?.role !== "assistant") continue;
+        const text = projectedDisplayText(value.message.content).trim();
+        if (text) return text;
+    }
+    return null;
+}
+
+/** @param {unknown[]} entries @param {{ cwd: string, sessionId: string }} options @param {string} outputPath */
+export async function exportProjectedTranscript(entries, options, outputPath) {
+    const filePath = resolve(outputPath);
+    const parent = dirname(filePath);
+    await Deno.mkdir(parent, { recursive: true });
+    if (filePath.toLowerCase().endsWith(".jsonl")) {
+        const lines = entries.map((entry) => JSON.stringify(entry));
+        await Deno.writeTextFile(filePath, `${lines.join("\n")}\n`);
+        return filePath;
+    }
+    const escapeHtml = (/** @type {string} */ value) =>
+        value
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+    const rows = entries.map((entry) => {
+        const value = /** @type {any} */ (entry || {});
+        const text = escapeHtml(projectedDisplayText(value.message?.content ?? value.content ?? JSON.stringify(value)));
+        return `<section class="entry"><header>${
+            escapeHtml(value.type || "entry")
+        }</header><pre>${text}</pre></section>`;
+    }).join("\n");
+    await Deno.writeTextFile(
+        filePath,
+        [
+            "<!doctype html>",
+            "<html lang='en'><head><meta charset='utf-8' />",
+            `<title>RunWield Session Export — ${escapeHtml(options.sessionId)}</title></head><body>`,
+            `<h1>RunWield Session Export — ${escapeHtml(options.sessionId)}</h1>`,
+            `<div>cwd: ${escapeHtml(options.cwd)}</div>`,
+            rows,
+            "</body></html>",
+            "",
+        ].join("\n"),
+    );
+    return filePath;
+}
