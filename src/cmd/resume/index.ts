@@ -122,7 +122,14 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
 
     const current = sessionRuntime.getSessionSnapshot(sessionId);
     if (!current) throw new Error("The active runtime session is missing.");
-    const sessions = await sessionRuntime.listResumableSessions(current.cwd);
+    const listedSessions = await sessionRuntime.listResumableSessions(current.cwd);
+    if (!Array.isArray(listedSessions)) {
+        uiAPI.appendSystemMessage(
+            `Recent sessions are unavailable: ${listedSessions.error || "managed_read_blocked"}.`,
+        );
+        return;
+    }
+    const sessions = listedSessions;
     if (sessions.length === 0) {
         uiAPI.appendSystemMessage("No recent sessions found to resume.");
         return;
@@ -211,7 +218,7 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
     }
 
     uiAPI.clearMessages?.();
-    sessionRuntime.replaySession(loaded.sessionId);
+    await sessionRuntime.replaySession(loaded.sessionId);
     uiAPI.appendSystemMessage(notice);
     const resumed = sessionRuntime.getSessionSnapshot(loaded.sessionId);
     setTerminalTitleForName(resumed?.name || loaded.sessionManagerId);

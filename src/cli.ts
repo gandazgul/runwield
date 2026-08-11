@@ -175,7 +175,7 @@ async function runGuidedReviewCommand(): Promise<void> {
             emitInitialEvents: false,
         });
         if (!result.ok) throw new Error(result.error || "Guided Review generation failed.");
-        const output = runtime.getLastAssistantText(sessionId);
+        const output = await runtime.getLastAssistantText(sessionId);
         if (!output) throw new Error("RunWield Guided Review returned no assistant output.");
         console.log(output);
     } finally {

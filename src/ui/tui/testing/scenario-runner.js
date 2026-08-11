@@ -477,7 +477,7 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
         const created = await runtime.createInteractiveSession({ cwd: Deno.cwd(), mode: "new" });
         if (priorSession.agentName) await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
         await runtime.promptSession(created.sessionId, { initialRequest: priorSession.userText });
-        const replay = runtime.replaySession(created.sessionId);
+        const replay = await runtime.replaySession(created.sessionId);
         runtime.closeAllSessions();
         return { sessionId: created.sessionId, replayed: replay.replayed || 0 };
     } finally {

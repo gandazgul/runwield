@@ -1537,7 +1537,7 @@ export async function startInteractiveSession(initialUserRequest, options) {
         if (sessionRuntime.isManagedSessionDormant(sessionId)) {
             await sessionRuntime.synchronizeManagedSession(sessionId, { replayFromStart: true });
         } else {
-            sessionRuntime.replaySession(sessionId);
+            await sessionRuntime.replaySession(sessionId);
         }
     }
 

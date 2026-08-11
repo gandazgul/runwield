@@ -11,7 +11,6 @@ import { theme } from "../../ui/theme/theme.js";
  * @param {string[]} _argv
  * @param {import('../registry.js').CommandContext} [options]
  */
-// deno-lint-ignore require-await
 export async function runSessionCommand(_argv, options = {}) {
     if (!options?.uiAPI) {
         console.error("The /session command is only available inside an interactive session.");
@@ -19,9 +18,13 @@ export async function runSessionCommand(_argv, options = {}) {
     }
 
     const { uiAPI, sessionRuntime, sessionId: runtimeSessionId } = options;
-    const info = sessionRuntime && runtimeSessionId ? sessionRuntime.getSessionInfo(runtimeSessionId) : null;
+    const info = sessionRuntime && runtimeSessionId ? await sessionRuntime.getSessionInfo(runtimeSessionId) : null;
     if (!info) {
         uiAPI.appendSystemMessage("Error: No active session.");
+        return;
+    }
+    if (info && typeof info === "object" && info.ok === false) {
+        uiAPI.appendSystemMessage(`Error: Session info is unavailable (${info.error || "managed_read_blocked"}).`);
         return;
     }
 

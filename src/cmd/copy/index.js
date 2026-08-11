@@ -95,8 +95,14 @@ export async function runCopyCommand(_argv, options = {}) {
         return;
     }
 
-    const text = sessionRuntime.getLastAssistantText(sessionId);
-    if (!text) {
+    const text = await sessionRuntime.getLastAssistantText(sessionId);
+    if (text && typeof text === "object" && text.ok === false) {
+        uiAPI.appendSystemMessage(
+            `Error: Last assistant text is unavailable (${text.error || "managed_read_blocked"}).`,
+        );
+        return;
+    }
+    if (!text || typeof text !== "string") {
         uiAPI.appendSystemMessage("Nothing to copy — no assistant message found.");
         return;
     }
