@@ -16,7 +16,10 @@ import {
 import { executeReadyPlanWithRepair, validateCompletedExecution } from "./plan-execution.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { deleteMergedWorktreeBranch, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
-import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
+import {
+    restoreEntryFromPlanEvidence,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../../shared/worktree-registry.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import { transitionFailureError } from "./transition-failure.ts";
@@ -57,7 +60,53 @@ export type RecoveryActionName =
     | "abandon"
     | "review"
     | "reset"
+    | "restore_record"
     | "merge";
+
+export async function restoreRecoveryWorktreeRecord(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
+    const { projectRoot, plan, uiAPI, worktreeContext } = context;
+    if (!worktreeContext?.id || !worktreeContext.path || !worktreeContext.branch || !worktreeContext.baseBranch) {
+        uiAPI.appendSystemMessage(
+            "Cannot restore the worktree record because the Plan does not record a complete worktree id, path, branch, and target branch.",
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("restore_record", "blocked", { reason: "incomplete_worktree_identity" });
+        return { kind: "menu" };
+    }
+    const restored = await restoreEntryFromPlanEvidence(projectRoot, {
+        id: worktreeContext.id,
+        planName: plan.planName,
+        planId: String(plan.attrs.planId || ""),
+        baseBranch: worktreeContext.baseBranch,
+        baseRef: worktreeContext.baseRef,
+        baseCommit: worktreeContext.baseCommit,
+        baseTree: worktreeContext.baseTree,
+        executionBaselineTree: worktreeContext.executionBaselineTree,
+        branch: worktreeContext.branch,
+        path: worktreeContext.path,
+        status: "completed",
+    });
+    if (!restored.restored || !restored.entry) {
+        uiAPI.appendSystemMessage(
+            `Could not restore the worktree record: ${restored.reason || "evidence did not agree"}`,
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("restore_record", "blocked", {
+            reason: restored.reason || "restore_refused",
+        });
+        return { kind: "menu" };
+    }
+    uiAPI.appendSystemMessage(
+        `Restored worktree record ${restored.entry.id}: ${restored.entry.path} on ${restored.entry.branch}, targeting ${restored.entry.baseBranch}.`,
+        true,
+        "RunWield",
+    );
+    await context.recordRecoveryResult("restore_record", "handled", { worktreeId: restored.entry.id });
+    await context.refreshRecoveryWorktree();
+    return { kind: "menu" };
+}
 
 export async function settleRecoveryRecords(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;

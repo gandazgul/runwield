@@ -78,10 +78,12 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assert(
         // Plus the Work Record the post-verification handoff writes under docs/, which
         // is a product output the user keeps or discards, not publication residue.
-        statusLines.every((line) =>
-            line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/worktrees.json") || line.endsWith("docs/") ||
-            line.includes("docs/work-records/")
-        ),
+        statusLines.every((line) => {
+            const path = line.slice(3).trim();
+            return line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/worktrees.json") ||
+                line.endsWith("docs/") || line.includes("docs/work-records/") || path === ".gitignore" ||
+                path === ".wld/settings.json";
+        }),
         `Expected only lifecycle/registry status after Direct Delivery publication; got ${statusLines.join("; ")}`,
     );
     assert(durability?.editorUsable === true, "Expected terminal/editor ready after verification.");
@@ -111,13 +113,8 @@ export const plannedChangeReviewRepairValidationScenario = {
         { approved: true, feedback: "Approved to run.", approvalAction: "run" },
     ],
     reviewedPlan: "# Golden PLANNED_CHANGE\n\nGolden PLANNED_CHANGE revised content.\n",
-    // A real Project commits its validation command. Committing it here keeps
-    // Workflow Validation from writing project `.wld/settings.json` mid-run in both
-    // the primary checkout and the execution worktree, which is what made Direct
-    // Delivery refuse the merge for overlapping uncommitted changes. The
-    // validation-command prompt itself stays covered by the QUICK_FIX role journey.
-    committedProjectFiles: [
-        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+    scriptedInteractions: [
+        { type: "text", promptIncludes: "Enter the command to validate this project", value: "true" },
     ],
     script: [
         {
@@ -356,10 +353,10 @@ export const plannedChangeBlockedMergePauseScenario = {
     name: "planned-change-uncommitted-work-blocks-merge",
     coverage: ["recovery:user-pause", "block:select"],
     committedProjectFiles: [
-        ...plannedChangeReviewRepairValidationScenario.committedProjectFiles,
         { path: "golden-planned-change.txt", text: "committed baseline\n" },
     ],
     scriptedInteractions: [
+        { type: "text", promptIncludes: "Enter the command to validate this project", value: "true" },
         {
             type: "select",
             promptIncludes: "have not saved to git yet",
@@ -406,8 +403,12 @@ export const plannedChangeBlockedMergePauseScenario = {
         assertsGoldenCoverage("block:select", (result) => {
             const interactions = /** @type {Array<{ interaction?: { value?: string } }> | undefined} */ (result.state
                 .scriptedInteractions);
-            assertEquals(interactions?.length, 1, "Expected exactly one pause: RunWield asks once, then carries on.");
-            assertEquals(interactions?.[0]?.interaction?.value, "retry");
+            const retryInteractions = interactions?.filter((entry) => entry.interaction?.value === "retry") || [];
+            assertEquals(
+                retryInteractions.length,
+                1,
+                "Expected exactly one merge pause: RunWield asks once, then carries on.",
+            );
         }),
     ],
 };
@@ -452,6 +453,7 @@ export const plannedChangeCiRepairReentryScenario = {
             text: `${JSON.stringify({ verification_command: "test -f ci-fix.txt" }, null, 4)}\n`,
         },
     ],
+    scriptedInteractions: [],
     // The Reviewer approves first time. Reviewer rejection already has its own scenario,
     // and mixing both would leave it ambiguous which loop re-entry the assertions prove.
     reviewDecisions: [

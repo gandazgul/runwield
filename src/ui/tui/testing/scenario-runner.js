@@ -23,6 +23,7 @@ import {
 import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-review-surface.js";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { createWorkRecordMnemosyneFixture } from "../../../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import { isRunWieldOwnedRuntimePath } from "../../../shared/runwield-owned-paths.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 
 /**
@@ -1117,7 +1118,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const goldenFilePath = join(Deno.cwd(), "golden-planned-change.txt");
                     const goldenFileExists = await Deno.stat(goldenFilePath).then(() => true).catch(() => false);
                     const branch = await runGoldenGit(["branch", "--show-current"], Deno.cwd());
-                    const status = await runGoldenGit(["status", "--porcelain"], Deno.cwd());
+                    const status = await runGoldenGit(["status", "--porcelain", "--untracked-files=all"], Deno.cwd());
                     const trackedFiles = await runGoldenGit(["ls-files"], Deno.cwd());
                     const deliveryLog = goldenFileExists
                         ? await runGoldenGit(["log", "--format=%H", "--", "golden-planned-change.txt"], Deno.cwd())
@@ -1197,10 +1198,12 @@ async function runComposedTuiScenario(scenario, options) {
                     // The Work Record the post-verification handoff writes under docs/ is
                     // a real product output, not leftover mess: it is generated after the
                     // Plan verifies and is the user's to keep or discard.
-                    const unexpectedStatus = statusLines.filter((line) =>
-                        !line.endsWith("docs/plans/plan.md") && !line.endsWith(".wld/worktrees.json") &&
-                        !line.endsWith("docs/") && !line.includes("docs/work-records/")
-                    );
+                    const unexpectedStatus = statusLines.filter((line) => {
+                        const path = line.slice(3).trim();
+                        return !line.endsWith("docs/plans/plan.md") && !line.endsWith(".wld/worktrees.json") &&
+                            !line.endsWith("docs/") && !line.includes("docs/work-records/") && path !== ".gitignore" &&
+                            path !== ".wld/settings.json" && !isRunWieldOwnedRuntimePath(path);
+                    });
                     if (unexpectedStatus.length) {
                         throw new Error(`Unexpected post-delivery Git status entries: ${unexpectedStatus.join("; ")}`);
                     }

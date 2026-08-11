@@ -82,8 +82,7 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
             planName: "feature",
         });
         await savePlanForTest(activeWorktree.path, "feature", "# Feature", { status: "verified" });
-        await Deno.mkdir(`${activeWorktree.path}/.wld`, { recursive: true });
-        await Deno.writeTextFile(`${activeWorktree.path}/.wld/worktrees.json`, "{}\n");
+        await Deno.writeTextFile(`${activeWorktree.path}/post-seal.txt`, "late edit\n");
 
         await assertRejects(
             () =>

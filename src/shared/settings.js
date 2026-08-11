@@ -3,9 +3,13 @@ import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
 import { normalizeServerUrl } from "./collaboration/urls.js";
+import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { getHomeDir } from "../constants.js";
 
 export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
+
+/** @type {Map<string, string>} */
+const projectSettingsRootMemo = new Map();
 
 const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "agents",
@@ -37,7 +41,12 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
 export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
     const homeDir = getHomeDir();
     if (scope === "global") return join(homeDir, ".wld");
-    return join(projectRoot, ".wld");
+    let resolvedRoot = projectSettingsRootMemo.get(projectRoot);
+    if (!resolvedRoot) {
+        resolvedRoot = resolvePrimaryCheckoutRoot(projectRoot);
+        projectSettingsRootMemo.set(projectRoot, resolvedRoot);
+    }
+    return join(resolvedRoot, ".wld");
 }
 
 /**
@@ -49,7 +58,8 @@ export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
  *     - Migration: if ~/.wld/settings.json is missing, copies once from ~/.pi/agent/settings.json.
  *     - Write: always writes to ~/.wld/settings.json.
  * - Project Scope:
- *     - Read/Write: use <cwd>/.wld/settings.json.
+ *     - Read/Write: use <primary checkout>/.wld/settings.json when the project root is a linked worktree.
+ *       Other roots use <projectRoot>/.wld/settings.json unchanged.
  */
 /**
  * @param {string} path
@@ -254,6 +264,7 @@ export function __resetSettingsForTests() {
     storageInstance = null;
     projectStorageInstances.clear();
     projectSettingsManagers.clear();
+    projectSettingsRootMemo.clear();
 }
 
 /**

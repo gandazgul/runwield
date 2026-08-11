@@ -9,6 +9,11 @@ import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
+import {
+    isRunWieldOwnedRuntimePath,
+    RUNWIELD_OWNED_RUNTIME_PATHS,
+    runwieldOwnedPathspecExclusions,
+} from "./runwield-owned-paths.ts";
 
 /**
  * @param {string} cwd
@@ -206,6 +211,28 @@ function isAllowedDirtyPath(dirtyPath, allowedPaths) {
  */
 function overlapsBranchChangedPath(dirtyPath, branchChangedPaths) {
     return isAllowedDirtyPath(dirtyPath, branchChangedPaths);
+}
+
+/**
+ * @param {string[]} paths
+ * @param {Set<string>} allowed
+ * @returns {string[]}
+ */
+function filterUserDirtyPaths(paths, allowed = new Set()) {
+    return paths.filter((path) => !isRunWieldOwnedRuntimePath(path) && !isAllowedDirtyPath(path, allowed));
+}
+
+/** @param {string} worktreePath */
+async function untrackOwnedRuntimePathsAbsentFromParent(worktreePath) {
+    const trackedText = await runGit(worktreePath, ["ls-files", "--", ...RUNWIELD_OWNED_RUNTIME_PATHS]);
+    const tracked = parseNameOnlyPaths(trackedText).filter(isRunWieldOwnedRuntimePath);
+    if (tracked.length === 0) return;
+    const absent = [];
+    for (const path of tracked) {
+        const existedInParent = await runGitResult(worktreePath, ["cat-file", "-e", `HEAD^:${path}`]);
+        if (existedInParent.code !== 0) absent.push(path);
+    }
+    if (absent.length > 0) await runGit(worktreePath, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...absent]);
 }
 
 /**
@@ -462,19 +489,20 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
     }
     if (allowedDirtyPaths.length > 0) {
         const allowedPathSet = new Set(allowedDirtyPaths);
-        const status = await runGit(worktreePath, ["status", "--porcelain"]);
+        const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
         const dirtyPaths = parseStatusPaths(status);
-        const disallowedPaths = dirtyPaths.filter((path) => !isAllowedDirtyPath(path, allowedPathSet));
+        const disallowedPaths = filterUserDirtyPaths(dirtyPaths, allowedPathSet);
         if (disallowedPaths.length > 0) {
             throw new Error(
                 "Execution worktree changed after candidate sealing outside finalized Plan paths:\n" +
                     disallowedPaths.map((path) => `  - ${path}`).join("\n"),
             );
         }
-        await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths]);
+        await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths, ...runwieldOwnedPathspecExclusions]);
     } else {
-        await runGit(worktreePath, ["add", "-A", "--", "."]);
+        await runGit(worktreePath, ["add", "-A", "--", ".", ...runwieldOwnedPathspecExclusions]);
     }
+    await untrackOwnedRuntimePathsAbsentFromParent(worktreePath);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);
     const stagedPaths = parseNameOnlyPaths(stagedDiff);
     if (stagedPaths.length === 0) return;
@@ -506,9 +534,9 @@ export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExe
     const committed = parseNameOnlyPaths(
         await runGit(worktreePath, ["diff", "--name-only", `${sealedExecutionCommit}..HEAD`]),
     );
-    const dirty = parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain"]));
+    const dirty = parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]));
     const changed = [...new Set([...committed, ...dirty])];
-    const disallowed = changed.filter((path) => !isAllowedDirtyPath(path, allowed));
+    const disallowed = filterUserDirtyPaths(changed, allowed);
     if (disallowed.length > 0) {
         throw new Error(
             "Execution worktree changed after the validated candidate was sealed. " +
@@ -524,8 +552,11 @@ export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExe
  */
 export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription }) {
     await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription });
-    const status = await runGit(worktreePath, ["status", "--porcelain"]);
-    if (status.trim()) throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
+    const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+    const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
+    if (remainingDirtyPaths.length > 0) {
+        throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
+    }
     const executionCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     return { executionCommit };
 }
@@ -773,13 +804,13 @@ async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths
  * @param {string[]} allowedDirtyPaths
  */
 async function assertNoOverlappingDirtyPaths(cwd, branch, allowedDirtyPaths) {
-    const statusText = await runGit(cwd, ["status", "--porcelain"]);
+    const statusText = await runGit(cwd, ["status", "--porcelain", "--untracked-files=all"]);
     const allowed = new Set(allowedDirtyPaths);
     const branchChangedPaths = new Set(
         parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", `HEAD...${branch}`])),
     );
-    const blockingDirtyPaths = parseStatusPaths(statusText).filter((path) =>
-        !isAllowedDirtyPath(path, allowed) && overlapsBranchChangedPath(path, branchChangedPaths)
+    const blockingDirtyPaths = filterUserDirtyPaths(parseStatusPaths(statusText), allowed).filter((path) =>
+        overlapsBranchChangedPath(path, branchChangedPaths)
     );
     if (blockingDirtyPaths.length > 0) {
         // Not a conflict, and not something an Agent may fix: these are the user's own
@@ -860,9 +891,17 @@ async function cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath) {
  * @param {string} projectRoot
  * @param {string} targetBranch
  * @param {string} mergeWorktreePath
+ * @param {string} branch
+ * @param {string[]} [preservePlanPaths]
  * @returns {Promise<boolean>} true when the repaired merge was published; false when the preserved worktree was intentionally abandoned so the caller can retry a fresh detached merge.
  */
-async function publishRepairedMergeWorktree(projectRoot, targetBranch, mergeWorktreePath) {
+async function publishRepairedMergeWorktree(
+    projectRoot,
+    targetBranch,
+    mergeWorktreePath,
+    branch,
+    preservePlanPaths = [],
+) {
     if (!await pathExists(mergeWorktreePath)) {
         throw new Error(`Recorded merge repair worktree is missing: ${mergeWorktreePath}`);
     }
@@ -891,16 +930,6 @@ async function publishRepairedMergeWorktree(projectRoot, targetBranch, mergeWork
         );
     }
 
-    const mergeCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
-    let oldTargetCommit;
-    try {
-        oldTargetCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD^1"])).trim();
-        await runGit(mergeWorktreePath, ["rev-parse", "HEAD^2"]);
-    } catch {
-        await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
-        return false;
-    }
-
     const checkoutPath = await findCheckoutPathForBranch(projectRoot, targetBranch);
     if (checkoutPath) {
         if (await isSameFilesystemPath(checkoutPath, projectRoot)) {
@@ -918,6 +947,32 @@ async function publishRepairedMergeWorktree(projectRoot, targetBranch, mergeWork
                 mergeFailureKind: "target_checked_out",
             },
         );
+    }
+
+    if (preservePlanPaths.length > 0) {
+        await runGit(mergeWorktreePath, [
+            "restore",
+            "--source",
+            branch,
+            "--staged",
+            "--worktree",
+            "--",
+            ...preservePlanPaths,
+        ]);
+        const stagedPlanPaths = parseNameOnlyPaths(
+            await runGit(mergeWorktreePath, ["diff", "--cached", "--name-only"]),
+        );
+        if (stagedPlanPaths.length > 0) await runGit(mergeWorktreePath, ["commit", "--amend", "--no-edit"]);
+    }
+
+    const mergeCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
+    let oldTargetCommit;
+    try {
+        oldTargetCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD^1"])).trim();
+        await runGit(mergeWorktreePath, ["rev-parse", "HEAD^2"]);
+    } catch {
+        await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
+        return false;
     }
 
     try {
@@ -969,7 +1024,13 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             );
         }
         if (repairMergeWorktreePath) {
-            const published = await publishRepairedMergeWorktree(projectRoot, targetBranch, repairMergeWorktreePath);
+            const published = await publishRepairedMergeWorktree(
+                projectRoot,
+                targetBranch,
+                repairMergeWorktreePath,
+                branch,
+                preservePlanPaths,
+            );
             if (published) return;
         }
         await alignPlanFilesWithMergeTarget(
@@ -998,7 +1059,13 @@ async function mergeExecutionWorktreeIntoTargetBranch({
     }
 
     if (repairMergeWorktreePath) {
-        const published = await publishRepairedMergeWorktree(projectRoot, targetBranch, repairMergeWorktreePath);
+        const published = await publishRepairedMergeWorktree(
+            projectRoot,
+            targetBranch,
+            repairMergeWorktreePath,
+            branch,
+            preservePlanPaths,
+        );
         if (published) return;
     }
 
@@ -1099,13 +1166,13 @@ export async function inspectExecutionWorktreeMergeRisk({ projectRoot, branch, t
     }
 
     try {
-        const statusText = await runGit(projectRoot, ["status", "--porcelain"]);
+        const statusText = await runGit(projectRoot, ["status", "--porcelain", "--untracked-files=all"]);
         const allowed = new Set(allowedDirtyPaths);
         const branchChangedPaths = new Set(
             parseNameOnlyPaths(await runGit(projectRoot, ["diff", "--name-only", `${mergeTarget}...${branch}`])),
         );
-        const blockingDirtyPaths = parseStatusPaths(statusText).filter((path) =>
-            !isAllowedDirtyPath(path, allowed) && overlapsBranchChangedPath(path, branchChangedPaths)
+        const blockingDirtyPaths = filterUserDirtyPaths(parseStatusPaths(statusText), allowed).filter((path) =>
+            overlapsBranchChangedPath(path, branchChangedPaths)
         );
         if (blockingDirtyPaths.length > 0) {
             warnings.push(
