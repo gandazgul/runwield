@@ -56,7 +56,6 @@ devServerCommand: "deno task workspace:dev:code-review"
 devServerUrl: "http://127.0.0.1:5173/dev/code-review"
 devServerHmr: true
 createdAt: "2026-08-11T00:04:21-04:00"
-updatedAt: "2026-08-11T04:55:43.847Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-11T04:37:11.477Z"
@@ -79,6 +78,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "81801f44ea575a02ccc3a7b0ce80fef99a34d577"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-11T14:00:27.473Z"
+archivedAt: "2026-08-11T14:00:27.473Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/code-review-lazy-language-highlighting.md"
 ---
 
 # Code review surface: own the syntax grammar lifecycle

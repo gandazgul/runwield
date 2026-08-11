@@ -25,8 +25,8 @@ remain open for validation, while the product direction includes the whole team:
 - Product Managers define outcomes, develop requirements, align contributors, and follow delivery.
 - Designers turn product intent into concrete interactions and functional prototypes.
 - Engineering Managers help teams coordinate work, make sound decisions, and use accumulated team intelligence.
-- Engineers receive context around the work, PRDs, prototypes, draft plans and other such documents so they can finalize
-  or create plans to execute on the work.
+- Engineers receive context around the work, PRDs, prototypes, draft plans, and other such documents so they can
+  finalize or create plans to execute on the work.
 - Other teams can discover, review, and contribute through the shared source of truth.
 
 RunWield can expand to larger engineering organizations, but the initial product should prove this cross-functional
@@ -188,3 +188,44 @@ Before a new feature enters Ready or In Progress, identify:
 
 Items with clear answers move into Ready or In Progress. Other items remain in strategy or discovery while the team
 builds the evidence needed for a sound decision.
+
+## FAQ
+
+### Isn't a work-record the same as a PR?
+
+First, let’s start by saying that Work Records are different from a commit message. Many commit messages go into 1 PR
+the same way as many go into one plan in RunWield and eventually a Work Record, much more pronounced with an Epic.
+Commit messages are diff-anchored and there are many per Plan. A PR is roughly one per Plan. So on granularity alone, a
+PR body and a Work Record Summary overlap a lot.
+
+The overlap stops there. Look at any work record produced by RunWield: only the first paragraph is "what changed". The
+rest is Deviations from Plan, Deferred Work, and Future Planning Notes — things that did not happen, and rules the next
+planner must keep. A PR body cannot hold that well for four structural reasons:
+
+- Direction of time. A commit and a PR describe a change that happened. A Work Record describes what future planning
+  must remember. The most valuable lines in a Work Record describe no diff at all.
+- Consumer. A PR is written for a human at merge time and is read once. A Work Record is written for an Agent at
+  planning time and is retrieved repeatedly through work_record_search over an embedding index, with visibility filters
+  that hide draft, superseded, and skipped-verification records.
+- Correctability. Work Records carry status, completionMode, and provenance.sourcePlans. A record can be marked
+  superseded when later work proves it wrong. A merged PR is immutable history; nobody edits a two-year-old PR body when
+  its conclusion stops being true. Planning memory must be correctable. Delivery history must not be.
+- Locality. Work Records are Markdown in the repo. They are readable offline, inside a worktree, by any Agent, with no
+  API token and no vendor. Move them into PR bodies, and your planning memory now needs network and auth to think.
+
+A proven forge (e.g., GitHub) merge is an input that lets RunWield seal the Work Record. The PR is evidence of delivery.
+The Work Record is the memory. Integration does not collapse them — it gives the Work Record a stronger completion proof
+than a local merge does.
+
+### Isn't a Plan just a ticket?
+
+Usually issue trackers as the storage for intent are weak — they hold a wish, not a validated plan, and they drift from
+the code immediately. You could expand typical tickets with a well-formed execution plan and lots of details, but some
+tickets will require more than one execution to complete; typical ticket systems solve this with subtasks. So you could
+use a ticket system to hold execution plans, but they are different intents, especially with Agile where tickets might
+map to user stories rather than to technical execution.
+
+Keep the Plan and Work Record upstream of the forge, and a forge swap costs you nothing. Git handles identity,
+permissions, branch protection, immutable merge history, CI triggers, and the social and legal record of who accepted a
+change into a shared artifact. RunWield replaces the layers above Git: intent, review, and memory. With RunWield, your
+knowledge does not live inside a vendor.

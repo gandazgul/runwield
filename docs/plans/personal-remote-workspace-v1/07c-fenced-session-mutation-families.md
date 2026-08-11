@@ -9,7 +9,7 @@ affectedPaths:
     - "src/shared/session/session-runtime-method-policy.ts"
     - "src/shared/session/session-runtime-interactions.js"
     - "src/shared/session/session.js"
-    - "src/shared/session/agent-handler.js"
+    - "src/shared/session/agent-handler.ts"
     - "src/shared/session/agent-switching.js"
     - "src/shared/session/active-agent-session.js"
     - "src/shared/session/workflow-context-session.js"
@@ -17,16 +17,40 @@ affectedPaths:
     - "src/shared/session/hosted-session.js"
     - "src/shared/workflow/"
     - "src/tools/pair-checkpoint.ts"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+objectiveChecks:
+    - id: "OC1"
+      command: "awk '/^export type ManagedOperationName/,/;$/' src/shared/session/managed-operation.ts | grep -q '\"local_shell\"'"
+      rationale: "Red today: the union is exactly `\"prompt\"`, so the literal is absent. Pins the operation-name vocabulary that OC2 and OC5 depend on, so a family cannot be converted under an unrelated ad-hoc name that the sweep never sees."
+    - id: "OC2"
+      command: "awk '/^    async runLocalShellCommand\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q '#runManagedOperation'"
+      rationale: "Red today: the 118-line body spawns the foreground shell directly with no executor reference and no managed rejection at all. Green requires the arbitrary shell spawn to route through the slice 7a executor. Deleting the method empties the awk range and still fails."
+    - id: "OC3"
+      command: "grep -q 'async persistSessionImage(' src/shared/session/session-runtime.js && ! awk '/^    async persistSessionImage\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'persistImageAttachment'"
+      rationale: "Red today: the body calls persistImageAttachment directly, which is the pre-activation disk write that orphans a file when the submission loses the race. Green requires the write to leave this standalone entry point. The first clause blocks the cheap fake of deleting the method, and OC6 catches moving the write into another unfenced helper."
+    - id: "OC4"
+      command: "awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_operation_in_progress' && ! awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_unsupported'"
+      rationale: "Red today on the second clause: the helper's fallback return is `managed_unsupported`, the slice 4 compatibility gate this slice removes. The first clause keeps the awk range anchored so a renamed signature cannot pass by yielding an empty range. Returning null instead would open unfenced mutation, which OC5 catches."
+    - id: "OC5"
+      command: "test -f src/shared/session/fenced-mutation-families.test.ts && grep -q 'SESSION_RUNTIME_METHOD_POLICY' src/shared/session/fenced-mutation-families.test.ts && grep -q 'fenced_standalone_mutation' src/shared/session/fenced-mutation-families.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-mutation-families.test.ts"
+      rationale: "Red today: the file does not exist, so the guard fails before the runner. This is the primary gate. Requiring the sweep to enumerate the policy map at run time and drive every fenced_standalone_mutation entry means a family left unconverted fails the test instead of being silently skipped, which is what a partial conversion would otherwise look like."
+    - id: "OC6"
+      command: "test -f src/shared/session/fenced-shell-and-image.test.ts && grep -q 'Deno.Command' src/shared/session/fenced-shell-and-image.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-shell-and-image.test.ts"
+      rationale: "Red today: the file does not exist. The Deno.Command clause forces process-creation instrumentation at the real primitive used by spawnForegroundShell rather than output inspection, so a blocked shell that still spawns is caught. It is also the behavioral backstop for OC2 and OC3: relocating the spawn or the image write into a private unfenced helper still fails here."
+    - id: "OC7"
+      command: "test -f src/shared/session/close-awaits-operation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/close-awaits-operation.test.ts"
+      rationale: "Red today: the file does not exist. closeSessionWhenIdle currently awaits only the inner turn settlement, so a Session past TURN_END but before publication reports idle. Green requires close to await the outer operation through dehydration, sync, and publication, which no structural grep can prove."
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-status: "draft"
+updatedAt: "2026-08-11T17:11:37.476Z"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
+userVerifiedAt: null
+planId: "d619386b-3fec-42db-a344-08557975370f"
 ---
 
 # Fenced Session Mutation Families
@@ -81,7 +105,13 @@ is a descriptor plus a body; the executor already owns acquisition, evidence, he
 publication. Resist adding per-family locking — if a family seems to need it, the executor is missing a phase and the
 executor should grow it.
 
-Nested helpers in `session.js`, `agent-handler.js`, `agent-switching.js`, `active-agent-session.js`,
+The union grows to these operation names. Use exactly these spellings, because the tests and the completeness sweep key
+on them:
+
+`prompt` (existing), `rename`, `switch_agent`, `set_model`, `set_thinking_level`, `reload`, `compact`, `local_shell`,
+`submit_user_turn`, `initialize`, `workflow_operation`.
+
+Nested helpers in `session.js`, `agent-handler.ts`, `agent-switching.js`, `active-agent-session.js`,
 `workflow-context-session.js`, and `workflow-messages.js` receive the capability-bound internal facade and lose their
 raw managed-state access. They cannot manufacture authority; if a helper has no capability, it fails rather than
 proceeding unfenced.
@@ -103,11 +133,13 @@ dehydrates, synchronizes, and publishes.
   Session replacement around the outer operation promise.
 - `src/shared/session/managed-operation.ts` — extend `ManagedOperationName` with the converted families and add the
   capability-bound internal facade type the nested helpers receive.
-- `src/shared/session/session-runtime-method-policy.ts` — move each converted method from `unmanaged_only_compatibility`
-  to `fenced_standalone_mutation` or `nested_only_mutation` as it lands.
+- `src/shared/session/session-runtime-method-policy.ts` — the mutation entries already declare their target policy
+  (`fenced_standalone_mutation` or `nested_only_mutation`); this slice makes the implementation match the declaration.
+  Only `promptSession` stays `unmanaged_only_compatibility`. Touch this file only when a method's policy genuinely
+  changes or a new public method appears, not once per family.
 - `src/shared/session/session-runtime-interactions.js` — require the current capability for managed in-memory
   interaction requests and for cancellation, preserving current adapter semantics.
-- `src/shared/session/session.js`, `agent-handler.js`, `agent-switching.js`, `active-agent-session.js`,
+- `src/shared/session/session.js`, `agent-handler.ts`, `agent-switching.js`, `active-agent-session.js`,
   `workflow-context-session.js`, `workflow-messages.js` — route nested manager, Agent, and transcript mutation through
   the capability-bound facade and remove raw managed-state bypasses.
 - `src/shared/session/hosted-session.js` — extend the slice 7a authority assertions to the state the new families touch.
@@ -163,8 +195,10 @@ dehydrates, synchronizes, and publishes.
       check is added.
 - [ ] Operation authority reaches workflow code only through `ValidationSessionPort` in
       `src/shared/workflow/validation-session-adapter.ts`. The session-free engine modules gain no import of
-      `../session` and no new port, proven by the existing engine-import assertion.
-- [ ] Every nested helper in `session.js`, `agent-handler.js`, `agent-switching.js`, `active-agent-session.js`,
+      `../session` and no new port, proven by the existing assertion
+      `session/Pi coupling in workflow validation stays at the adapter boundary` in
+      `src/shared/session/architecture-boundary.test.js`. That test's `validationAdapterWhitelist` must not grow.
+- [ ] Every nested helper in `session.js`, `agent-handler.ts`, `agent-switching.js`, `active-agent-session.js`,
       `workflow-context-session.js`, and `workflow-messages.js` obtains managed manager, Agent, or transcript access
       only through the capability-bound facade, and throws when called without a capability.
 - [ ] Managed Epic child continuation publishes and releases the source Session's generation before the destination
@@ -175,6 +209,19 @@ dehydrates, synchronizes, and publishes.
 - [ ] `closeSession`, `closeSessionWhenIdle`, `closeAllSessionsWhenIdle`, and Session replacement await the outer
       managed-operation promise through dehydration, sync, and publication. A test proves a Session with an operation
       past `TURN_END` but before publication is never reported idle.
+- [ ] `src/shared/session/fenced-mutation-families.test.ts` enumerates `SESSION_RUNTIME_METHOD_POLICY` at run time and
+      drives every `fenced_standalone_mutation` entry against a managed Session. For each entry it proves the call
+      publishes exactly one generation on success, returns a typed blocked result when a concurrent operation holds the
+      capability, and leaves the Hosted Session dormant and manager-free afterwards. A `fenced_standalone_mutation`
+      entry the sweep cannot drive fails the test rather than being skipped, so a family cannot be quietly left
+      unconverted.
+- [ ] `src/shared/session/fenced-shell-and-image.test.ts` counts real process creation at the `Deno.Command` boundary
+      and counts files under the Session image directory. It proves a blocked `runLocalShellCommand` creates zero
+      processes for `persist: true` and `persist: false` alike, and that a submission that loses the activation race
+      leaves zero image files on disk.
+- [ ] `src/shared/session/close-awaits-operation.test.ts` proves a managed Session whose operation is past `TURN_END`
+      but before publication is never reported idle, and that `closeSessionWhenIdle` returns only after that operation
+      dehydrates, synchronizes, and publishes.
 - [ ] `deno task ci` passes with `language-policy:check` clean and `seams:check` at the unchanged zero baseline.
 
 ## Verification Plan

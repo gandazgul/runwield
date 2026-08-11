@@ -55,7 +55,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T00:47:12-04:00"
-updatedAt: "2026-08-09T19:40:06.385Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-09T14:44:55.559Z"
@@ -78,6 +77,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "77256582dbfcb77bd2098273420bc41c4a8c9912"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-11T14:00:33.318Z"
+archivedAt: "2026-08-11T14:00:33.318Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/bridge-memory-and-code-tools-to-claude-cli.md"
 ---
 
 # Bridge RunWield Tools to Claude CLI Turns
