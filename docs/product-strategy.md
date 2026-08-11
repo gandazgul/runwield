@@ -225,7 +225,7 @@ tickets will require more than one execution to complete; typical ticket systems
 use a ticket system to hold execution plans, but they are different intents, especially with Agile where tickets might
 map to user stories rather than to technical execution.
 
-Keep the Plan and Work Record upstream of the forge, and a forge swap costs you nothing. Git handles identity,
-permissions, branch protection, immutable merge history, CI triggers, and the social and legal record of who accepted a
-change into a shared artifact. RunWield replaces the layers above Git: intent, review, and memory. With RunWield, your
-knowledge does not live inside a vendor.
+Keep the Plan and Work Record upstream of the forge, and a forge swap costs you nothing. A Forge like GitHub can handle
+identity, permissions, branch protection, immutable merge history, CI triggers, and the social and legal record of who
+accepted a change into a shared artifact. RunWield replaces the layers above: intent, review, and memory. With RunWield,
+your knowledge does not live inside a vendor.

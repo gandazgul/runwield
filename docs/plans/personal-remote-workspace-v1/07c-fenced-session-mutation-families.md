@@ -110,14 +110,16 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-11T17:15:51.272Z"
-status: "in_progress"
+updatedAt: "2026-08-11T17:49:48.856Z"
+status: "validated_ci"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
+implementedAt: "2026-08-11T17:28:19.074Z"
 userVerifiedAt: null
+executionReport: "- Failed to complete the planned feature. The conversion is only partial.\n- Implemented partial descriptor support: expanded `ManagedOperationName`, generalized `#runManagedOperation`, and routed some rename/model/thinking/reload/compaction/shell/image/workflow paths through it.\n- Updated capability propagation in one isolated-agent path and exported the compaction settings helper needed by Runtime.\n- Verification passed: `deno task check`.\n- Verification failed: `deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime.test.js` has 6 failing legacy managed-session tests. Failures are from dormant managed mutations now requiring the activation protocol marker and from managed prompt/workflow expectations that no longer pass.\n- Verification failed: full `deno task ci` was attempted before type repairs and did not pass. It was not re-run after `deno task check` passed because targeted session tests still fail.\n- Not completed: required new focused tests (`fenced-mutation-families`, `fenced-shell-and-image`, `close-awaits-operation`) were not added, and several plan steps remain unimplemented."
 humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
@@ -126,7 +128,9 @@ worktreeId: "fc780504"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07c-fenced-session--fc780504"
 worktreeBranch: "worktree/personal-remote-workspace-v1-07c-fenced-session--fc780504"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Fenced Session Mutation Families

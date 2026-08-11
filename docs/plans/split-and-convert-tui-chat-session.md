@@ -89,13 +89,19 @@ objectiveChecksBaseline:
           exitCode: 1
           durationMs: 10
           output: "\n"
+objectiveCheckWaivers:
+    - id: "OC5"
+      command: "test ! -e src/ui/tui/chat-session.js && deno task ci"
+      source: "mechanical_detection"
+      explanation: "Objective check timed out after 60000ms."
+      userNote: "OC5 is just too long for an Objective check which are meant to be quick, this is something that RunWield should prevent but nothing we can do in this instance."
+      waivedAt: "2026-08-11T17:16:46.597Z"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T14:59:04-04:00"
-updatedAt: "2026-08-11T17:12:56.657Z"
-status: "implemented"
+updatedAt: "2026-08-11T17:32:48.095Z"
+status: "validated_ci"
 origin: "internal"
-failureReason: "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision."
 implementedAt: "2026-08-11T17:05:17.228Z"
 userVerifiedAt: null
 executionReport: "- Implemented split: removed `src/ui/tui/chat-session.js`; added bounded TypeScript owners `chat-footer.ts`, `chat-view.ts`, `chat-input-controller.ts`, `interactive-tui-composition.ts`; kept `chat-session.ts` as the startup/replacement orchestrator.\n- Updated public imports, composition fixtures, Golden scenario imports, architecture boundary check, model-selection test import, and language-policy baseline to use the new TypeScript entry points.\n- Reorganized tests: replaced the mixed JS `chat-session.test.js` source-order suite with `chat-session.test.ts`, `chat-footer.test.ts`, and `chat-input-controller.test.ts` (17 `Deno.test` cases). The removed source-order checks were rewritten or replaced by owner/API checks; behavior that only asserted private source order was deleted because that private layout no longer exists.\n- Verification passed: `deno task check`; `deno task lint`; `deno task language-policy:check`; `deno task seams:check`; focused TUI/session test command; Golden/architecture/model-selection focused command; Objective checks OC1–OC5; full `deno task ci`.\n- Mutation proof was partially performed: changing the streaming slash blocked-message rule made `chat-input-controller.test.ts` fail, then the implementation was restored and the test plus `deno task check` passed. Manual interactive `deno task cli` smoke was not run in this non-interactive execution environment."
@@ -110,8 +116,8 @@ worktreeBaseBranch: "main"
 worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
-validationCiAttempts: 1
-validationSemanticRounds: 0
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Split and Convert the TUI Chat Session
