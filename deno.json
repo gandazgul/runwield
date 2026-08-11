@@ -138,7 +138,7 @@
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",
-        "workspace:test": "deno run -A scripts/run-tests.js -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.js",
+        "workspace:test": "deno run -A scripts/run-tests.js -A --parallel --no-check src/ui/workspace src/cmd/plans/ui.test.ts",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",

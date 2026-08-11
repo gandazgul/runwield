@@ -164,7 +164,7 @@ index 1111111..2222222 100644
 +    return annotations.flatMap((annotation) => annotation.images ?? []);
 +}
  // Summary helper.
-export function getReviewSummary(count) {
+ export function getReviewSummary(count) {
      return count === 1 ? "1 annotation" : \`\${count} annotations\`;
  }
 @@ -18,8 +27,14 @@ export function getReviewSummary(count) {
@@ -344,6 +344,89 @@ index 0000000..ddddddd
 +    settings: ["general", "display", "labels", "shortcuts"],
 +    theme: "runwield",
 +};
+diff --git a/src/ui/components/ReviewBadge.tsx b/src/ui/components/ReviewBadge.tsx
+new file mode 100644
+index 0000000..eeeeeee
+--- /dev/null
++++ b/src/ui/components/ReviewBadge.tsx
+@@ -0,0 +1,18 @@
++import React from "react";
++
++type ReviewBadgeProps = {
++    label: string;
++    count: number;
++    active: boolean;
++};
++
++export function ReviewBadge({ label, count, active }: ReviewBadgeProps) {
++    return (
++        <span className={active ? "review-badge active" : "review-badge"}>
++            <strong>{label}</strong>
++            <small>{count} open</small>
++        </span>
++    );
++}
++
+diff --git a/src/ui/components/ReviewAction.jsx b/src/ui/components/ReviewAction.jsx
+new file mode 100644
+index 0000000..fffffff
+--- /dev/null
++++ b/src/ui/components/ReviewAction.jsx
+@@ -0,0 +1,17 @@
++import React from "react";
++
++export function ReviewAction({ children, disabled, onClick }) {
++    return (
++        <button
++            className="review-action"
++            disabled={disabled}
++            onClick={onClick}
++            type="button"
++        >
++            <span className="review-action-icon" aria-hidden="true">✓</span>
++            {children}
++        </button>
++    );
++}
++
+diff --git a/src/review/ReviewSummary.java b/src/review/ReviewSummary.java
+new file mode 100644
+index 0000000..123abcd
+--- /dev/null
++++ b/src/review/ReviewSummary.java
+@@ -0,0 +1,14 @@
++package review;
++
++import java.util.List;
++
++public final class ReviewSummary {
++    public static String describe(List<String> labels) {
++        if (labels.isEmpty()) {
++            return "No annotations";
++        }
++        return String.join(", ", labels);
++    }
++}
+diff --git a/src/review/review_summary.cpp b/src/review/review_summary.cpp
+new file mode 100644
+index 0000000..456abcd
+--- /dev/null
++++ b/src/review/review_summary.cpp
+@@ -0,0 +1,15 @@
++#include <string>
++#include <vector>
++
++std::string describe_review(const std::vector<std::string>& labels) {
++    if (labels.empty()) {
++        return "No annotations";
++    }
++
++    std::string output = labels.front();
++    for (size_t index = 1; index < labels.size(); ++index) {
++        output += ", " + labels[index];
++    }
++    return output;
++}
 `;
 
 const GUIDED_REVIEW_FIXTURE = {
@@ -435,6 +518,26 @@ const GUIDED_REVIEW_FIXTURE = {
                     file: "src/review/feedback.test.js",
                     summary: "Regression tests for the new feedback payload shape.",
                 },
+                {
+                    type: "diff",
+                    file: "src/ui/components/ReviewBadge.tsx",
+                    summary: "TSX fixture verifies React TypeScript highlighting in guided blocks.",
+                },
+                {
+                    type: "diff",
+                    file: "src/ui/components/ReviewAction.jsx",
+                    summary: "JSX fixture verifies JavaScript React highlighting in guided blocks.",
+                },
+                {
+                    type: "diff",
+                    file: "src/review/ReviewSummary.java",
+                    summary: "Java fixture verifies a real lazy-loaded language outside the old preload set.",
+                },
+                {
+                    type: "diff",
+                    file: "src/review/review_summary.cpp",
+                    summary: "C++ fixture verifies another real lazy-loaded language outside the old preload set.",
+                },
             ],
         },
     ],
@@ -466,7 +569,13 @@ function buildCodeReviewDevPayload(variant) {
                 "src/review/feedback.js",
                 "src/ui/review.css",
             ],
-            untrackedFiles: ["src/review/fixture-config.js"],
+            untrackedFiles: [
+                "src/review/fixture-config.js",
+                "src/ui/components/ReviewBadge.tsx",
+                "src/ui/components/ReviewAction.jsx",
+                "src/review/ReviewSummary.java",
+                "src/review/review_summary.cpp",
+            ],
         },
     };
     if (variant === "no-provider") {
