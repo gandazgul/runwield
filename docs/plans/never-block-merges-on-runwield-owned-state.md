@@ -43,7 +43,6 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-11T00:50:32-0400"
 updatedAt: "2026-08-11T13:34:13.350Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
@@ -52,6 +51,7 @@ worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "fix worktree merge block"
 planId: "ea4f8a95-7e76-435f-90d2-d811f8450885"
+status: "validated_reviewer"
 ---
 
 # Never Block a Merge on RunWield's Own State

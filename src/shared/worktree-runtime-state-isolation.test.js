@@ -45,7 +45,7 @@ Deno.test("execution runtime state does not enter the merge when primary .wld is
     }
 });
 
-Deno.test("previously committed runtime state is removed by checkpoint before merge", async () => {
+Deno.test("previously committed runtime state is removed before merge", async () => {
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-committed-side");
     try {
@@ -53,9 +53,17 @@ Deno.test("previously committed runtime state is removed by checkpoint before me
         await Deno.writeTextFile(join(worktreePath, ".wld", "plan-transitions", "old.json"), "{}\n");
         await git(worktreePath, ["add", "."]);
         await git(worktreePath, ["commit", "-m", "old runtime"]);
+        await Deno.writeTextFile(join(worktreePath, ".wld", "plan-transitions", "old.json"), "{ }\n");
+        await Deno.writeTextFile(join(worktreePath, "intermediate.txt"), "work before publication\n");
+        await git(worktreePath, ["add", "."]);
+        await git(worktreePath, ["commit", "-m", "second old runtime"]);
         await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");
 
-        await checkpointExecutionWorktree({ worktreePath, branch: "runtime-committed-side" });
+        await checkpointExecutionWorktree({
+            worktreePath,
+            branch: "runtime-committed-side",
+            mergeTargetRef: (await git(cwd, ["rev-parse", "main"])).trim(),
+        });
         await mergeExecutionWorktree({
             projectRoot: cwd,
             branch: "runtime-committed-side",
@@ -64,6 +72,7 @@ Deno.test("previously committed runtime state is removed by checkpoint before me
         });
 
         assertEquals(await Deno.readTextFile(join(cwd, "feature.txt")), "work\n");
+        assertEquals(await Deno.readTextFile(join(cwd, "intermediate.txt")), "work before publication\n");
         assertEquals(
             (await git(cwd, ["ls-tree", "-r", "--name-only", "HEAD"])).includes(".wld/plan-transitions/old.json"),
             false,

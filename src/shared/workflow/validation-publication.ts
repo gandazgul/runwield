@@ -152,14 +152,15 @@ export async function runPublicationPhase(
         const repairedCandidate = repairMergeWorktreePath
             ? await readRepairedMergeCandidate(repairMergeWorktreePath)
             : null;
+        const targetHeadBeforeMerge = repairedCandidate?.targetHeadBeforeMerge ||
+            await gitPort.branchHead(context.projectRoot, targetBranch);
         const checkpoint = repairedCandidate || await checkpointExecutionWorktree({
             worktreePath: context.executionCwd,
             branch: executionBranch,
             planName: args.planName,
             planDescription: args.triageMeta?.summary,
+            mergeTargetRef: targetHeadBeforeMerge,
         });
-        const targetHeadBeforeMerge = repairedCandidate?.targetHeadBeforeMerge ||
-            await gitPort.branchHead(context.projectRoot, targetBranch);
         const deliveryEvidence: WorktreeDeliveryEvidence = {
             version: 1,
             mode: "worktree_merge",

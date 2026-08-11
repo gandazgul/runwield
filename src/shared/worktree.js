@@ -222,15 +222,33 @@ function filterUserDirtyPaths(paths, allowed = new Set()) {
     return paths.filter((path) => !isRunWieldOwnedRuntimePath(path) && !isAllowedDirtyPath(path, allowed));
 }
 
-/** @param {string} worktreePath */
-async function untrackOwnedRuntimePathsAbsentFromParent(worktreePath) {
+/**
+ * @param {string} cwd
+ * @param {string[]} paths
+ */
+async function restoreExistingPathsFromHead(cwd, paths) {
+    const existingPaths = [];
+    for (const path of paths) {
+        const existsInHead = await runGitResult(cwd, ["cat-file", "-e", `HEAD:${path}`]);
+        if (existsInHead.code === 0) existingPaths.push(path);
+    }
+    if (existingPaths.length > 0) {
+        await runGit(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...existingPaths]);
+    }
+}
+
+/**
+ * @param {string} worktreePath
+ * @param {string} mergeTargetRef
+ */
+async function untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef) {
     const trackedText = await runGit(worktreePath, ["ls-files", "--", ...RUNWIELD_OWNED_RUNTIME_PATHS]);
     const tracked = parseNameOnlyPaths(trackedText).filter(isRunWieldOwnedRuntimePath);
     if (tracked.length === 0) return;
     const absent = [];
     for (const path of tracked) {
-        const existedInParent = await runGitResult(worktreePath, ["cat-file", "-e", `HEAD^:${path}`]);
-        if (existedInParent.code !== 0) absent.push(path);
+        const existedInMergeTarget = await runGitResult(worktreePath, ["cat-file", "-e", `${mergeTargetRef}:${path}`]);
+        if (existedInMergeTarget.code !== 0) absent.push(path);
     }
     if (absent.length > 0) await runGit(worktreePath, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...absent]);
 }
@@ -481,8 +499,15 @@ function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedP
  * @param {string} branch
  * @param {Record<string, unknown>} [messageOptions]
  * @param {string[]} [allowedDirtyPaths]
+ * @param {string} [mergeTargetRef]
  */
-async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {}, allowedDirtyPaths = []) {
+async function commitDirtyWorktreeState(
+    worktreePath,
+    branch,
+    messageOptions = {},
+    allowedDirtyPaths = [],
+    mergeTargetRef,
+) {
     const currentBranch = (await runGit(worktreePath, ["branch", "--show-current"])).trim();
     if (currentBranch !== branch) {
         throw new Error(`Worktree path ${worktreePath} is on ${currentBranch || "detached HEAD"}, not ${branch}`);
@@ -498,11 +523,17 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
                     disallowedPaths.map((path) => `  - ${path}`).join("\n"),
             );
         }
-        await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths, ...runwieldOwnedPathspecExclusions]);
+        const allowedPathNeedsOwnedExclusion = RUNWIELD_OWNED_RUNTIME_PATHS.some((ownedPath) =>
+            isAllowedDirtyPath(ownedPath, allowedPathSet)
+        );
+        const pathspecs = allowedPathNeedsOwnedExclusion
+            ? [...allowedDirtyPaths, ...runwieldOwnedPathspecExclusions]
+            : allowedDirtyPaths;
+        await runGit(worktreePath, ["add", "-A", "--", ...pathspecs]);
     } else {
         await runGit(worktreePath, ["add", "-A", "--", ".", ...runwieldOwnedPathspecExclusions]);
     }
-    await untrackOwnedRuntimePathsAbsentFromParent(worktreePath);
+    if (mergeTargetRef) await untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);
     const stagedPaths = parseNameOnlyPaths(stagedDiff);
     if (stagedPaths.length === 0) return;
@@ -547,11 +578,11 @@ export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExe
 }
 
 /**
- * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
+ * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string, mergeTargetRef?: string }} opts
  * @returns {Promise<{ executionCommit: string }>}
  */
-export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription }) {
-    await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription });
+export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription, mergeTargetRef }) {
+    await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription }, [], mergeTargetRef);
     const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
     const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
     if (remainingDirtyPaths.length > 0) {
@@ -847,7 +878,7 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             }
             await runGit(projectRoot, ["-c", "core.editor=true", "merge", "--continue"]);
             if (preservePlanPaths.length > 0) {
-                await runGit(projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ...preservePlanPaths]);
+                await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
             }
             return;
         }
@@ -855,12 +886,12 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
         await alignPlanFilesWithMergeTarget(projectRoot, "HEAD", branch, worktreePath, preservePlanPaths);
         await runGit(projectRoot, ["merge", "--no-ff", branch]);
         if (preservePlanPaths.length > 0) {
-            await runGit(projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ...preservePlanPaths]);
+            await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
         }
     } catch (error) {
         if (await resolvePreservedPlanMergeConflicts(projectRoot, branch, preservePlanPaths)) {
             if (preservePlanPaths.length > 0) {
-                await runGit(projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ...preservePlanPaths]);
+                await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
             }
             return;
         }
@@ -931,11 +962,8 @@ async function publishRepairedMergeWorktree(
     }
 
     const checkoutPath = await findCheckoutPathForBranch(projectRoot, targetBranch);
-    if (checkoutPath) {
-        if (await isSameFilesystemPath(checkoutPath, projectRoot)) {
-            await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
-            return false;
-        }
+    const targetCheckedOutInPrimary = checkoutPath ? await isSameFilesystemPath(checkoutPath, projectRoot) : false;
+    if (checkoutPath && !targetCheckedOutInPrimary) {
         throw attachMergeRepairDetails(
             new Error(
                 `Target branch ${targetBranch} is checked out at ${checkoutPath}; refusing to update it behind ` +
@@ -973,6 +1001,17 @@ async function publishRepairedMergeWorktree(
     } catch {
         await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
         return false;
+    }
+
+    if (targetCheckedOutInPrimary) {
+        try {
+            await runGit(projectRoot, ["merge", "--ff-only", mergeCommit]);
+        } catch {
+            await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
+            return false;
+        }
+        await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
+        return true;
     }
 
     try {
@@ -1240,11 +1279,16 @@ export async function mergeExecutionWorktree(
         if (repairedMetadata.code === 0) executionMetadataCommit = repairedMetadata.stdout.trim() || undefined;
     }
     if (resolvedWorktreePath && !executionMetadataCommit) {
+        const mergeTargetRef = (await runGit(
+            projectRoot,
+            ["rev-parse", normalizedTargetBranch || "HEAD"],
+        )).trim();
         await commitDirtyWorktreeState(
             resolvedWorktreePath,
             branch,
             { planName, planDescription },
             sealedExecutionCommit ? preservePlanPaths : [],
+            mergeTargetRef,
         );
         executionMetadataCommit = (await runGit(resolvedWorktreePath, ["rev-parse", "HEAD"])).trim();
     }
