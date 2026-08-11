@@ -1,4 +1,5 @@
 ---
+planId: "6fb2ae10-e614-45d4-b5e4-73c78345852e"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "MEDIUM"
@@ -9,16 +10,109 @@ affectedPaths:
     - "src/shared/session/root-session.js"
     - "src/shared/session/session-transcript-projection.js"
     - "src/shared/owner-coordination/sessions.js"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+objectiveChecks:
+    - id: "OC1"
+      command: "grep -q 'async inspectResumableSession(' src/shared/session/session-runtime.js && awk '/^    async inspectResumableSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator' && ! awk '/^    async inspectResumableSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'openPersistedRootSession'"
+      rationale: "Red today: the method body contains openPersistedRootSession (line 1690) and no classifier, so the second clause fails. Green requires the method to still exist, to resolve managed identity through the classifier first, and to no longer reach the writable Pi open. Deleting the method fails the first clause; keeping the open fails the third."
+    - id: "OC2"
+      command: "! grep -qF 'this.#shouldUseManagedActivation(options) && options.sessionPath' src/shared/session/session-runtime.js && awk '/^    async loadSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator'"
+      rationale: "Red today on both clauses: that exact gate is present at session-runtime.js:2721 and no classifier exists. It is the literal fall-through defect - managed recognition conditioned on a caller-supplied sessionPath. Green only when the gate is gone AND loadSession resolves managed status through the classifier instead. Merely reordering the conjunction keeps the string and stays red."
+    - id: "OC3"
+      command: "awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q unmanaged_proven && awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q blocked && awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q managed"
+      rationale: "Red today: no classifyRootSessionLocator exists anywhere in src (verified zero matches), so awk yields nothing. Green only when the named classifier exists and models all three closed outcomes. Pins the symbol name that OC1, OC2, and OC4 reference so they cannot be satisfied by an unrelated helper."
+    - id: "OC4"
+      command: "awk '/^    async listResumableSessions\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator'"
+      rationale: "Red today: the body is a three-line passthrough to listPersistedRootSessions, which calls Pi SessionManager.list and can migrate a transcript. Green only when managed identity is resolved before that list call. Paired with OC5, which instruments the Pi boundary and catches the list call regardless of which RunWield function makes it."
+    - id: "OC5"
+      command: "test -f src/shared/session/managed-read-non-mutation.test.ts && grep -q SESSION_RUNTIME_METHOD_POLICY src/shared/session/managed-read-non-mutation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/managed-read-non-mutation.test.ts"
+      rationale: "Red today: the file does not exist, so the guard fails before the runner. This is the primary gate and the backstop for OC1 and OC4 - it instruments the Pi open/list/continue/migration boundary plus transcript bytes, digest, and mtime, so moving a writable call into a private helper does not evade it. The middle clause forces the sweep to enumerate the policy map at run time, so a later slice adding a read_only entry cannot be silently skipped."
+    - id: "OC6"
+      command: "test -f src/shared/session/root-session-locator-classifier.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/root-session-locator-classifier.test.ts"
+      rationale: "Red today: the file does not exist. This is what kills a stub classifier that satisfies OC3's literals while always returning unmanaged_proven - the thirteen-case matrix requires a typed blocked reason for each unresolvable locator and unmanaged_proven only on positive owner-coordination evidence."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-11T02:59:43.300Z"
+    head: "bf6708123954a8a3d9eaf0074ec73762eefa344d"
+    results:
+        - id: "OC1"
+          command: "grep -q 'async inspectResumableSession(' src/shared/session/session-runtime.js && awk '/^    async inspectResumableSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator' && ! awk '/^    async inspectResumableSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'openPersistedRootSession'"
+          rationale: "Red today: the method body contains openPersistedRootSession (line 1690) and no classifier, so the second clause fails. Green requires the method to still exist, to resolve managed identity through the classifier first, and to no longer reach the writable Pi open. Deleting the method fails the first clause; keeping the open fails the third."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 25
+          output: "\n"
+        - id: "OC2"
+          command: "! grep -qF 'this.#shouldUseManagedActivation(options) && options.sessionPath' src/shared/session/session-runtime.js && awk '/^    async loadSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator'"
+          rationale: "Red today on both clauses: that exact gate is present at session-runtime.js:2721 and no classifier exists. It is the literal fall-through defect - managed recognition conditioned on a caller-supplied sessionPath. Green only when the gate is gone AND loadSession resolves managed status through the classifier instead. Merely reordering the conjunction keeps the string and stays red."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 15
+          output: "\n"
+        - id: "OC3"
+          command: "awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q unmanaged_proven && awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q blocked && awk '/^export async function classifyRootSessionLocator\\(/,/^}$/' src/shared/session/root-session.js | grep -q managed"
+          rationale: "Red today: no classifyRootSessionLocator exists anywhere in src (verified zero matches), so awk yields nothing. Green only when the named classifier exists and models all three closed outcomes. Pins the symbol name that OC1, OC2, and OC4 reference so they cannot be satisfied by an unrelated helper."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 16
+          output: "\n"
+        - id: "OC4"
+          command: "awk '/^    async listResumableSessions\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'classifyRootSessionLocator'"
+          rationale: "Red today: the body is a three-line passthrough to listPersistedRootSessions, which calls Pi SessionManager.list and can migrate a transcript. Green only when managed identity is resolved before that list call. Paired with OC5, which instruments the Pi boundary and catches the list call regardless of which RunWield function makes it."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 16
+          output: "\n"
+        - id: "OC5"
+          command: "test -f src/shared/session/managed-read-non-mutation.test.ts && grep -q SESSION_RUNTIME_METHOD_POLICY src/shared/session/managed-read-non-mutation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/managed-read-non-mutation.test.ts"
+          rationale: "Red today: the file does not exist, so the guard fails before the runner. This is the primary gate and the backstop for OC1 and OC4 - it instruments the Pi open/list/continue/migration boundary plus transcript bytes, digest, and mtime, so moving a writable call into a private helper does not evade it. The middle clause forces the sweep to enumerate the policy map at run time, so a later slice adding a read_only entry cannot be silently skipped."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 11
+          output: "\n"
+        - id: "OC6"
+          command: "test -f src/shared/session/root-session-locator-classifier.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/root-session-locator-classifier.test.ts"
+          rationale: "Red today: the file does not exist. This is what kills a stub classifier that satisfies OC3's literals while always returning unmanaged_proven - the thirteen-case matrix requires a typed blocked reason for each unresolvable locator and unmanaged_proven only on positive owner-coordination evidence."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
+updatedAt: "2026-08-11T05:09:13.312Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07a-fenced-session-operation-boundary"
-status: "validated_reviewer"
+implementedAt: "2026-08-11T03:12:47.689Z"
+verifiedAt: "2026-08-11T05:09:13.312Z"
+userVerifiedAt: null
+executionReport: "- Implemented managed read routing: `inspectResumableSession`, `listResumableSessions`, `loadSession`, and continue-mode `createInteractiveSession` now consult `classifyRootSessionLocator()` before Pi open/list access.\n- Added committed-prefix projections for managed dormant reads: Session info, last assistant text, memory backup path, export, replay, and resumable inspection use committed transcript evidence where available.\n- Added `classifyRootSessionLocator()` with closed outcomes: `unmanaged_proven`, `managed`, and `blocked`, with sanitized reason codes.\n- Added tests: `managed-read-non-mutation.test.ts` and `root-session-locator-classifier.test.ts`; no tests were removed. Test file count increased from 259 to 261.\n- Verification passed: objective checks, `deno run -A scripts/run-tests.js -A --no-check src/shared/session src/shared/owner-coordination`, and full `deno task ci` (261 files passed; `language-policy:check` and `seams:check` clean).\n- Manual TUI check (`/session` and context report while another surface holds the Session) was not run because this API session has no interactive TUI surface."
+humanReviewMode: "always"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-11T05:09:11.270Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "b3552236352a221d08f45a5238b22584f8942c22"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "8a66a750d17dc1b2dc7e21ebea68e416ecc4032d"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Non-Mutating Managed Read Paths
