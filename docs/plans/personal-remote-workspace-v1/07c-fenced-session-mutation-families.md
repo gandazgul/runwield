@@ -1,4 +1,5 @@
 ---
+planId: "d619386b-3fec-42db-a344-08557975370f"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -39,18 +40,93 @@ objectiveChecks:
     - id: "OC7"
       command: "test -f src/shared/session/close-awaits-operation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/close-awaits-operation.test.ts"
       rationale: "Red today: the file does not exist. closeSessionWhenIdle currently awaits only the inner turn settlement, so a Session past TURN_END but before publication reports idle. Green requires close to await the outer operation through dehydration, sync, and publication, which no structural grep can prove."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-11T17:15:51.030Z"
+    head: "8f0703b0ce0468b2d3e7c354465e409105358b40"
+    results:
+        - id: "OC1"
+          command: "awk '/^export type ManagedOperationName/,/;$/' src/shared/session/managed-operation.ts | grep -q '\"local_shell\"'"
+          rationale: "Red today: the union is exactly `\"prompt\"`, so the literal is absent. Pins the operation-name vocabulary that OC2 and OC5 depend on, so a family cannot be converted under an unrelated ad-hoc name that the sweep never sees."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 18
+          output: "\n"
+        - id: "OC2"
+          command: "awk '/^    async runLocalShellCommand\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q '#runManagedOperation'"
+          rationale: "Red today: the 118-line body spawns the foreground shell directly with no executor reference and no managed rejection at all. Green requires the arbitrary shell spawn to route through the slice 7a executor. Deleting the method empties the awk range and still fails."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 17
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q 'async persistSessionImage(' src/shared/session/session-runtime.js && ! awk '/^    async persistSessionImage\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'persistImageAttachment'"
+          rationale: "Red today: the body calls persistImageAttachment directly, which is the pre-activation disk write that orphans a file when the submission loses the race. Green requires the write to leave this standalone entry point. The first clause blocks the cheap fake of deleting the method, and OC6 catches moving the write into another unfenced helper."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 20
+          output: "\n"
+        - id: "OC4"
+          command: "awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_operation_in_progress' && ! awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_unsupported'"
+          rationale: "Red today on the second clause: the helper's fallback return is `managed_unsupported`, the slice 4 compatibility gate this slice removes. The first clause keeps the awk range anchored so a renamed signature cannot pass by yielding an empty range. Returning null instead would open unfenced mutation, which OC5 catches."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 25
+          output: "\n"
+        - id: "OC5"
+          command: "test -f src/shared/session/fenced-mutation-families.test.ts && grep -q 'SESSION_RUNTIME_METHOD_POLICY' src/shared/session/fenced-mutation-families.test.ts && grep -q 'fenced_standalone_mutation' src/shared/session/fenced-mutation-families.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-mutation-families.test.ts"
+          rationale: "Red today: the file does not exist, so the guard fails before the runner. This is the primary gate. Requiring the sweep to enumerate the policy map at run time and drive every fenced_standalone_mutation entry means a family left unconverted fails the test instead of being silently skipped, which is what a partial conversion would otherwise look like."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 11
+          output: "\n"
+        - id: "OC6"
+          command: "test -f src/shared/session/fenced-shell-and-image.test.ts && grep -q 'Deno.Command' src/shared/session/fenced-shell-and-image.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-shell-and-image.test.ts"
+          rationale: "Red today: the file does not exist. The Deno.Command clause forces process-creation instrumentation at the real primitive used by spawnForegroundShell rather than output inspection, so a blocked shell that still spawns is caught. It is also the behavioral backstop for OC2 and OC3: relocating the spawn or the image write into a private unfenced helper still fails here."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+        - id: "OC7"
+          command: "test -f src/shared/session/close-awaits-operation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/close-awaits-operation.test.ts"
+          rationale: "Red today: the file does not exist. closeSessionWhenIdle currently awaits only the inner turn settlement, so a Session past TURN_END but before publication reports idle. Green requires close to await the outer operation through dehydration, sync, and publication, which no structural grep can prove."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 11
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-11T17:11:37.476Z"
-status: "ready_for_work"
+updatedAt: "2026-08-11T17:15:51.272Z"
+status: "in_progress"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
 userVerifiedAt: null
-planId: "d619386b-3fec-42db-a344-08557975370f"
+humanReviewMode: null
+humanReviewDecision: null
+executionMode: "worktree"
+executionBaselineTree: "7856c25c030d1a0271cc7da6816b6ef06e74fbcb"
+worktreeId: "fc780504"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07c-fenced-session--fc780504"
+worktreeBranch: "worktree/personal-remote-workspace-v1-07c-fenced-session--fc780504"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Fenced Session Mutation Families
