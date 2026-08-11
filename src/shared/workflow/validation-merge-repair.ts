@@ -128,8 +128,7 @@ export function describeMergePause(
         return {
             whatHappened:
                 `RunWield finished "${planName}" but could not add it to your ${targetBranch} branch, because your project folder has changes you have not saved to git yet — in the same files this work changes. Merging now would wipe them out.`,
-            doThis:
-                "Commit, stash, or delete these files, then pick Retry. Nothing was lost, and the finished work is waiting.",
+            doThis: "Commit or stash these files, then pick Retry. Nothing was lost, and the finished work is waiting.",
             details: getBlockingPaths(error),
         };
     }

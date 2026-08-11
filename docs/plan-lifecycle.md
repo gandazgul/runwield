@@ -403,6 +403,9 @@ Recovery actions are deliberately scoped to the execution worktree:
   merges after validation passes.
 - **Merge worktree changes**: For worktree-backed `implemented` plans, attempts to merge the recorded worktree branch
   into the primary checkout. Merge failure records `worktreeStatus: "merge_conflict"` and leaves the worktree intact.
+- **Restore worktree record and continue**: Rebuilds RunWield's missing worktree registry entry from Plan metadata and
+  `git worktree list` evidence when the recorded path, branch, and target branch still agree. It does not delete the
+  worktree or reset the user's work.
 - **Delete/recreate worktree and start over**: Removes the recorded worktree, marks the old registry entry abandoned,
   creates a fresh execution worktree from recorded base metadata when available, records `recovery_reset`, and retries
   from `ready_for_work`.

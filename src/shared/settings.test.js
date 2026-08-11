@@ -7,6 +7,7 @@ import { join } from "@std/path";
 import {
     __resetSettingsForTests,
     getCodeReviewMode,
+    getCustomSetting,
     getDefaultPlanServerUrl,
     getGuidedReviewMode,
     getResolvedVisionFallbackModelSetting,
@@ -23,6 +24,7 @@ import {
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
+import { defineGitFixture, git } from "./git-test-fixture.ts";
 
 // Use a temp dir for isolated file-based tests
 const TEMP_DIR = await Deno.makeTempDir({ prefix: "runwield-settings-test-" });
@@ -56,6 +58,12 @@ async function removeTempDir(path) {
     }
 }
 
+const linkedWorktreeSettingsRepo = defineGitFixture(async (repoPath) => {
+    await Deno.writeTextFile(join(repoPath, "README.md"), "base\n");
+    await git(repoPath, ["add", "."]);
+    await git(repoPath, ["commit", "-m", "base"]);
+});
+
 /**
  * @param {string | Record<string, any>} testDefinition
  * @param {(() => void | Promise<void>) | undefined} [fn]
@@ -73,6 +81,32 @@ function settingsTest(testDefinition, fn) {
         }),
     );
 }
+
+settingsTest({
+    name: "project settings written from a linked worktree land in the primary checkout",
+    async fn() {
+        __resetSettingsForTests();
+        const cwd = await linkedWorktreeSettingsRepo.checkout();
+        const worktreePath = `${cwd}-settings-worktree`;
+        try {
+            await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+            await Deno.writeTextFile(join(cwd, ".wld", "settings.json"), JSON.stringify({ other: "kept" }, null, 4));
+            await git(cwd, ["worktree", "add", "-b", "settings-side", worktreePath, "main"]);
+
+            await setCustomSetting("verification_command", "true", "project", worktreePath);
+
+            const primarySettings = JSON.parse(await Deno.readTextFile(join(cwd, ".wld", "settings.json")));
+            assertEquals(primarySettings.other, "kept");
+            assertEquals(primarySettings.verification_command, "true");
+            assertEquals(await getCustomSetting("verification_command", "project", worktreePath), "true");
+            await assertRejects(() => Deno.stat(join(worktreePath, ".wld", "settings.json")), Deno.errors.NotFound);
+        } finally {
+            __resetSettingsForTests();
+            await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    },
+});
 
 settingsTest({
     name: "getCustomSetting parses JSONC with comments",

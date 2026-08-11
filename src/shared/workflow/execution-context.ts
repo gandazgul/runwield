@@ -10,6 +10,7 @@ import {
     findById as findWorktreeRegistryEntryById,
     findByPlanId as findWorktreeRegistryEntryByPlanId,
     findByPlanName as findWorktreeRegistryEntryByPlanName,
+    restoreEntryFromPlanEvidence,
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
@@ -390,12 +391,33 @@ export async function resolveValidationExecutionContext({
         }
     }
 
-    const registryEntry = recoveredRegistryEntry || await findWorktreeRegistryEntryById(projectRoot, worktreeId);
+    let registryEntry = recoveredRegistryEntry || await findWorktreeRegistryEntryById(projectRoot, worktreeId);
     if (!registryEntry) {
-        return blocked(
-            "missing_registry_entry",
-            `RunWield has worktree metadata for "${planName}", but registry entry ${worktreeId} is missing. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
-        );
+        const restored = await restoreEntryFromPlanEvidence(projectRoot, {
+            id: worktreeId,
+            planName,
+            planId: canonicalPlanId || "",
+            baseBranch: worktreeBaseBranch,
+            baseRef: asString(candidate.worktreeBaseRef),
+            baseCommit: asString(candidate.worktreeBaseCommit),
+            executionBaselineTree: baselineTree,
+            branch: worktreeBranch,
+            path: worktreePath,
+            status: "completed",
+        });
+        if (restored.restored && restored.entry) {
+            registryEntry = restored.entry;
+            selfHealNotices.push(
+                `Rebuilt missing worktree record ${worktreeId} for ${planName}. Continuing Workflow Validation.`,
+            );
+        } else {
+            return blocked(
+                "missing_registry_entry",
+                `RunWield has worktree metadata for "${planName}", but registry entry ${worktreeId} is missing. Use /load-plan ${planName}, inspect the recovery report, then choose "Restore worktree record and continue", "Delete/recreate worktree and start over", or "Re-open for review". Restore was not automatic: ${
+                    restored.reason || "evidence did not agree"
+                }.`,
+            );
+        }
     }
     if (!planIdentityMatches(registryEntry.planName, planName)) {
         return blocked(

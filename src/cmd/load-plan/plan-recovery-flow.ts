@@ -19,6 +19,7 @@ import {
     continueRecoveryPlan,
     holdRecoveryPlan,
     inspectRecoveryPlan,
+    restoreRecoveryWorktreeRecord,
     reviewRecoveryPlan,
     settleRecoveryRecords,
     userVerifyRecoveryPlan,
@@ -155,6 +156,9 @@ async function promptRecoveryAction(
         : hasWorktree
         ? "Delete/recreate worktree and start over"
         : "Reset tree and start over";
+    const restoreRecordOptions: RecoveryMenuOption[] = context.worktreeContext?.id && !context.loadedWorktreeId
+        ? [{ value: "restore_record", label: "Restore worktree record and continue" }]
+        : [];
     const recordOptions: RecoveryMenuOption[] = context.unresolvedRecords.length > 0
         ? [{
             value: "settle_records",
@@ -177,6 +181,7 @@ async function promptRecoveryAction(
     const options = isInValidation(context.plan.attrs.status)
         ? [
             ...recordOptions,
+            ...restoreRecordOptions,
             ...(gitRecoveryBlocked ? [] : [{ value: "validate" as const, label: "Retry Workflow Validation" }]),
             common[0],
             ...(canMergeWorktree && !gitRecoveryBlocked
@@ -186,6 +191,7 @@ async function promptRecoveryAction(
         ]
         : [
             ...recordOptions,
+            ...restoreRecordOptions,
             common[0],
             ...(gitRecoveryBlocked
                 ? []
@@ -214,6 +220,8 @@ async function dispatchRecoveryAction(
     switch (action) {
         case "settle_records":
             return await settleRecoveryRecords(context);
+        case "restore_record":
+            return await restoreRecoveryWorktreeRecord(context);
         case "hold":
             return await holdRecoveryPlan(context);
         case "user_verify":

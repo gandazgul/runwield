@@ -127,6 +127,29 @@ function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+async function runGitResult(cwd, args) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const { code, stdout, stderr } = await command.output();
+    const decoder = new TextDecoder();
+    return { code, stdout: decoder.decode(stdout), stderr: decoder.decode(stderr) };
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<string>}
+ */
+async function runGit(cwd, args) {
+    const result = await runGitResult(cwd, args);
+    if (result.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`.trim());
+    return result.stdout;
+}
+
 /** @param {string} projectRoot */
 export function getWorktreeRegistryPath(projectRoot) {
     return join(projectRoot, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
@@ -531,6 +554,114 @@ export async function updateEntry(projectRoot, id, updates) {
         assertNoDuplicateNonterminalAttempt(entries.filter((entry) => entry.id !== id), entries[index]);
         await writeRegistry(projectRoot, entries);
         return entries[index];
+    });
+}
+
+/**
+ * @typedef {Object} WorktreeRestoreEvidence
+ * @property {string} id
+ * @property {string} planName
+ * @property {string} planId
+ * @property {string} baseBranch
+ * @property {string} [baseRef]
+ * @property {string} [baseCommit]
+ * @property {string} [baseTree]
+ * @property {string} [executionBaselineTree]
+ * @property {string} branch
+ * @property {string} path
+ * @property {WorktreeRegistryEntry["status"]} [status]
+ */
+
+/**
+ * @param {string} porcelainText
+ * @returns {Array<{ path: string, branch: string }>}
+ */
+function parseGitWorktreeRecords(porcelainText) {
+    return porcelainText.trim().split("\n\n").filter(Boolean).map((record) => {
+        const lines = record.split("\n");
+        return {
+            path: lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim() || "",
+            branch: lines.find((line) => line.startsWith("branch "))?.slice("branch ".length).trim() || "",
+        };
+    });
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {WorktreeRestoreEvidence} evidence
+ * @returns {Promise<{ restored: boolean, reason?: string, entry?: WorktreeRegistryEntry }>}
+ */
+export async function restoreEntryFromPlanEvidence(projectRoot, evidence) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const existing = entries.find((entry) => entry.id === evidence.id);
+        if (existing) {
+            return {
+                restored: false,
+                reason: `Worktree registry entry already exists: ${evidence.id}`,
+                entry: existing,
+            };
+        }
+        if (!evidence.planId) return { restored: false, reason: "Plan evidence has no planId." };
+        if (!evidence.path || !evidence.branch || !evidence.baseBranch) {
+            return { restored: false, reason: "Plan evidence is missing worktree path, branch, or target branch." };
+        }
+
+        const worktreeList = await runGit(projectRoot, ["worktree", "list", "--porcelain"]);
+        const expectedRef = `refs/heads/${evidence.branch}`;
+        let evidenceRealPath = evidence.path;
+        try {
+            evidenceRealPath = await Deno.realPath(evidence.path);
+        } catch {
+            return { restored: false, reason: `Recorded worktree path is missing: ${evidence.path}` };
+        }
+        const match = parseGitWorktreeRecords(worktreeList).find((record) => {
+            let recordRealPath = record.path;
+            try {
+                recordRealPath = Deno.realPathSync(record.path);
+            } catch {
+                // Keep the recorded path; the equality will fail.
+            }
+            return (record.path === evidence.path || recordRealPath === evidenceRealPath) &&
+                record.branch === expectedRef;
+        });
+        if (!match) {
+            return { restored: false, reason: `Git does not show ${evidence.path} attached to ${evidence.branch}.` };
+        }
+        if ((await runGitResult(projectRoot, ["rev-parse", "--verify", `refs/heads/${evidence.branch}`])).code !== 0) {
+            return { restored: false, reason: `Recorded worktree branch does not exist: ${evidence.branch}` };
+        }
+        if (
+            (await runGitResult(projectRoot, ["rev-parse", "--verify", `refs/heads/${evidence.baseBranch}`])).code !== 0
+        ) {
+            return { restored: false, reason: `Recorded target branch does not exist: ${evidence.baseBranch}` };
+        }
+
+        const now = new Date().toISOString();
+        const entry = {
+            id: evidence.id,
+            planName: evidence.planName,
+            planId: evidence.planId,
+            baseBranch: evidence.baseBranch,
+            baseRef: evidence.baseRef || `refs/heads/${evidence.baseBranch}`,
+            baseCommit: evidence.baseCommit ||
+                (await runGit(projectRoot, ["rev-parse", `refs/heads/${evidence.baseBranch}`])).trim(),
+            ...(evidence.baseTree ? { baseTree: evidence.baseTree } : {}),
+            ...(evidence.executionBaselineTree ? { executionBaselineTree: evidence.executionBaselineTree } : {}),
+            branch: evidence.branch,
+            path: evidence.path,
+            status: evidence.status || "completed",
+            createdAt: now,
+            updatedAt: now,
+        };
+        try {
+            assertNoDuplicateNonterminalAttempt(entries, entry);
+        } catch (error) {
+            return { restored: false, reason: error instanceof Error ? error.message : String(error) };
+        }
+        entries.push(entry);
+        await writeRegistry(projectRoot, entries);
+        return { restored: true, entry };
     });
 }
 

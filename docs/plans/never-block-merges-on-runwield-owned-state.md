@@ -92,21 +92,27 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-11T00:50:32-0400"
-updatedAt: "2026-08-11T13:54:11.627Z"
-status: "in_progress"
+updatedAt: "2026-08-11T16:31:02.511Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-11T14:35:37.318Z"
+verifiedAt: "2026-08-11T16:31:02.511Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
+executionReport: "- Implemented primary-checkout settings redirection, RunWield-owned runtime path classification, git staging/status exclusions, registry restore, recovery menu action, managed `.gitignore` block, pause-text update, golden scenario prompt update, and docs update.\n- Added tests for primary checkout resolution, owned runtime paths, linked-worktree settings, runtime-state merge isolation, and registry restore; updated the post-seal guard test to use a non-owned file because owned runtime paths are now ignored. No tests were removed.\n- Verification passed: `deno task check`; `deno task seams:check`; targeted suite for new and related worktree/settings tests; `deno run -A scripts/run-tests.js -A --no-check src/ui/tui/golden-scenarios/planned-change-workflow.test.js`.\n- Verification failed: `deno task ci` still fails in `src/shared/workflow/validation-publication-pause.test.js`, `src/ui/tui/golden-scenarios/project-workflow.test.js`, and `src/ui/tui/golden-scenarios/repaired-merge-publication.test.ts`; `src/shared/worktree-guards.test.js` failed in the first CI run but was fixed and passes now.\n- Manual verification from the Plan was not run because it needs the external `tow-mvp-epic/01-convert-source-and-tests-to-typescript` project state."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-11T16:31:01.737Z"
 executionMode: "worktree"
-executionBaselineTree: "70242ab1ac248419f350755be01535e735c54298"
-worktreeId: "1e5fd98f"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-never-block-merges-on-runwield-owned-state-1e5fd98f"
-worktreeBranch: "worktree/never-block-merges-on-runwield-owned-state-1e5fd98f"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "6b5592edc71b4154d8d4c154a86e49a40e41eee4"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "8c0f7f48dc1c3cf431e4e33aa3a7a8745d52345d"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "fix worktree merge block"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Never Block a Merge on RunWield's Own State
