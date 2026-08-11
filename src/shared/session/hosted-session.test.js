@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { WORKFLOW_CONTEXT_CUSTOM_TYPE } from "./workflow-context-session.js";
+import { ManagedOperationCapability } from "./managed-operation.ts";
 
 /**
  * @param {string} id
@@ -170,10 +171,12 @@ Deno.test("HostedSession dehydrates managed sessions by clearing live activation
         },
     });
 
+    const capability = makeManagedCapability();
+    session.setManagedOperationCapability(capability);
     session.resetAgentInfoStack("Engineer", "live-model", "live-provider", "engineer");
-    session.setRootAgentName("engineer");
-    session.setRootAgentSession(rootAgentSession);
-    session.addSubAgentSession(subAgentSession);
+    session.setRootAgentName("engineer", capability);
+    session.setRootAgentSession(rootAgentSession, capability);
+    session.addSubAgentSession(subAgentSession, capability);
     session.setActiveOnMessage(() => {});
     session.setThinkingLevel("xhigh");
     session.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM" });
@@ -658,4 +661,71 @@ Deno.test("HostedSession plan setter preserves triage fields without persistence
         complexity: "MEDIUM",
         planName: "updated-plan",
     });
+});
+
+function makeManagedCapability() {
+    return ManagedOperationCapability.create({
+        runtimeSessionId: "runtime-managed",
+        runwieldSessionId: "runwield-managed",
+        operationId: "operation-managed",
+        proof: {
+            runwieldSessionId: "runwield-managed",
+            projectId: "project-managed",
+            ownerInstanceId: "owner-managed",
+            ownerProcessKind: "test",
+            operationId: "operation-managed",
+            fence: 1,
+            phase: "preparing",
+            expectedGeneration: 0,
+        },
+    });
+}
+
+Deno.test("HostedSession requires the current managed operation capability for writable managed state", () => {
+    const session = new HostedSession({
+        id: "managed-capability",
+        cwd: "/work/managed-capability",
+        managed: {
+            runwieldSessionId: "runwield-managed",
+            projectId: "project-managed",
+            piSessionId: "pi-managed",
+            transcriptPath: "/work/managed-capability/session.jsonl",
+            generation: 0,
+            acknowledgedGeneration: 0,
+            acknowledgedEventId: null,
+            name: "Managed",
+            activeAgent: null,
+            workflowContext: null,
+            syncState: null,
+        },
+    });
+    const capability = makeManagedCapability();
+    const sessionManager = makeSessionManager("managed-capability-manager");
+    const rootAgentSession = makeDisposableSession("managed-root");
+
+    assertThrows(() => session.setRootSessionManager(sessionManager), Error, "managed_operation_required");
+    assertThrows(() => session.setRootAgentSession(rootAgentSession), Error, "managed_operation_required");
+    assertThrows(
+        () => session.addSubAgentSession(makeDisposableSession("managed-sub")),
+        Error,
+        "managed_operation_required",
+    );
+
+    session.setManagedOperationCapability(capability);
+    session.setRootSessionManager(sessionManager, capability);
+    session.setRootAgentSession(rootAgentSession, capability);
+    session.setRootAgentName("engineer", capability);
+    session.addSubAgentSession(makeDisposableSession("managed-sub"), capability);
+
+    assertStrictEquals(session.getRootSessionManager(), sessionManager);
+    assertStrictEquals(session.getRootAgentSession(), rootAgentSession);
+    assertEquals(session.getRootAgentName(), "engineer");
+
+    session.dehydrateManagedSession();
+
+    assertEquals(session.getManagedOperationCapability(), null);
+    assertEquals(session.getRootSessionManager(), null);
+    assertEquals(session.getRootAgentSession(), null);
+    assertEquals(session.getRootAgentName(), null);
+    assertEquals(session.getSubAgentSessions().size, 0);
 });

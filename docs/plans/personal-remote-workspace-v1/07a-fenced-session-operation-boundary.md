@@ -15,12 +15,12 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-10T18:33:16-04:00"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "06-read-only-transcript-projection-and-idle-tui-sync"
+status: "ready_for_work"
 ---
 
 # Fenced Session Operation Boundary

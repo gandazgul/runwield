@@ -468,6 +468,40 @@ export function releaseUnchangedActivation(database, proof, options = {}) {
 export function markSessionUncertain(database, proof, options = {}) {
     const ownerDb = requireDatabase(database);
     const now = isoNow(options.now);
+    if ("operationId" in proof) {
+        requireProof(proof);
+        return ownerDb.transaction(() => {
+            const current = activationFromRow(
+                ownerDb.handle.prepare(
+                    "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+                ).get(proof.runwieldSessionId, proof.projectId),
+            );
+            if (!current) throw new Error("Activation is not active");
+            assertActiveProofFresh(ownerDb, current, proof, now);
+            const result = ownerDb.handle.prepare(
+                `UPDATE session_activation_state
+                    SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
+                        operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                        blocked_reason = ?
+                  WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
+                    AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                    AND expected_generation IS ?`,
+            ).run(
+                now,
+                options.reason || "uncertain",
+                proof.runwieldSessionId,
+                proof.projectId,
+                proof.ownerInstanceId,
+                proof.ownerProcessKind,
+                proof.operationId,
+                proof.fence,
+                proof.phase,
+                proof.expectedGeneration ?? null,
+            );
+            if (result.changes !== 1) throw new Error("Uncertain proof was rejected");
+            return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
+        });
+    }
     const result = ownerDb.handle.prepare(
         `UPDATE session_activation_state
             SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
@@ -496,6 +530,48 @@ export function markSessionReconcileRequired(database, session, options = {}) {
     ).run(now, options.reason || "reconcile_required", session.runwieldSessionId, session.projectId);
     if (result.changes !== 1) throw new Error("Unable to mark Session reconcile_required");
     return inspectSessionActivation(ownerDb, session.runwieldSessionId);
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {ActivationProof} proof
+ * @param {{ reason?: string, now?: () => string }} [options]
+ */
+export function markSessionReconcileRequiredWithProof(database, proof, options = {}) {
+    requireProof(proof);
+    const ownerDb = requireDatabase(database);
+    const now = isoNow(options.now);
+    return ownerDb.transaction(() => {
+        const current = activationFromRow(
+            ownerDb.handle.prepare(
+                "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+            ).get(proof.runwieldSessionId, proof.projectId),
+        );
+        if (!current) throw new Error("Activation is not active");
+        assertActiveProofFresh(ownerDb, current, proof, now);
+        const result = ownerDb.handle.prepare(
+            `UPDATE session_activation_state
+                SET state = 'reconcile_required', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
+                    operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                    blocked_reason = ?
+              WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
+                AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+                AND expected_generation IS ?`,
+        ).run(
+            now,
+            options.reason || "reconcile_required",
+            proof.runwieldSessionId,
+            proof.projectId,
+            proof.ownerInstanceId,
+            proof.ownerProcessKind,
+            proof.operationId,
+            proof.fence,
+            proof.phase,
+            proof.expectedGeneration ?? null,
+        );
+        if (result.changes !== 1) throw new Error("Reconcile proof was rejected");
+        return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
+    });
 }
 
 /**

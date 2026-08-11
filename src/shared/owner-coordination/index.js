@@ -54,6 +54,7 @@ import {
     heartbeatSessionActivation,
     inspectSessionActivation,
     markSessionReconcileRequired,
+    markSessionReconcileRequiredWithProof,
     markSessionUncertain,
     publishGenerationAndRelease,
     releaseUnchangedActivation,
@@ -101,6 +102,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(proof: Parameters<typeof publishGenerationAndRelease>[1], evidence: Parameters<typeof publishGenerationAndRelease>[2], options?: Parameters<typeof publishGenerationAndRelease>[3]) => ReturnType<typeof publishGenerationAndRelease>} publishGenerationAndRelease
  * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
  * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
+ * @property {(proof: Parameters<typeof markSessionReconcileRequiredWithProof>[1], options?: Parameters<typeof markSessionReconcileRequiredWithProof>[2]) => ReturnType<typeof markSessionReconcileRequiredWithProof>} markSessionReconcileRequiredWithProof
  * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
  * @property {(options: Parameters<typeof findOperationReceiptByRequest>[1]) => ReturnType<typeof findOperationReceiptByRequest>} findOperationReceiptByRequest
  * @property {(options: Parameters<typeof createOrGetOperationReceipt>[1]) => ReturnType<typeof createOrGetOperationReceipt>} createOrGetOperationReceipt
@@ -163,6 +165,8 @@ export function openOwnerCoordinationStore(options = {}) {
             releaseUnchangedActivation(database, proof, activationOptions),
         markSessionReconcileRequired: (session, activationOptions) =>
             markSessionReconcileRequired(database, session, activationOptions),
+        markSessionReconcileRequiredWithProof: (proof, activationOptions) =>
+            markSessionReconcileRequiredWithProof(database, proof, activationOptions),
         markSessionUncertain: (proof, activationOptions) => markSessionUncertain(database, proof, activationOptions),
         findOperationReceiptByRequest: (operationOptions) => findOperationReceiptByRequest(database, operationOptions),
         createOrGetOperationReceipt: (operationOptions) => createOrGetOperationReceipt(database, operationOptions),

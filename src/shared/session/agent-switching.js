@@ -33,6 +33,7 @@ const handlerMetadata = new WeakMap();
  * @property {string} [projectStateContext]
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
+ * @property {import('./managed-operation.ts').ManagedOperationCapability} [managedOperationCapability]
  */
 
 /**
@@ -47,6 +48,8 @@ const handlerMetadata = new WeakMap();
 export async function switchActiveAgent(hostedSession, options) {
     if (!hostedSession) throw new Error("switchActiveAgent requires a HostedSession");
     hostedSession.assertActive();
+    const managedOperationCapability = options.managedOperationCapability ||
+        hostedSession.getManagedOperationCapability?.() || undefined;
     const agentName = String(options?.agentName || "").trim();
     if (!agentName) throw new Error("switchActiveAgent requires an agentName");
 
@@ -84,6 +87,7 @@ export async function switchActiveAgent(hostedSession, options) {
         projectStateContext: options.projectStateContext,
         includeEditFallback: options.includeEditFallback,
         debugLogPath: options.debugLogPath,
+        managedOperationCapability,
     };
     const canReuseRoot = previousRootSession && !options.forceRebuild && !modelChanged &&
         !allowReturnToRouterChanged && !cwdChanged && !customRootConfigurationProvided &&

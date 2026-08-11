@@ -140,3 +140,40 @@ Deno.test("SessionHost disposeSession removes and disposes only the target Hoste
     ]);
     assertEquals(host.disposeSession("missing"), false);
 });
+
+/** @param {string} id @param {string} runwieldSessionId */
+function makeManagedOptions(id, runwieldSessionId) {
+    return {
+        id,
+        cwd: `/repo/${id}`,
+        sessionManager: null,
+        managed: {
+            runwieldSessionId,
+            projectId: "project-managed",
+            piSessionId: `pi-${id}`,
+            transcriptPath: `/repo/${id}/session.jsonl`,
+            generation: 0,
+            acknowledgedGeneration: 0,
+            acknowledgedEventId: null,
+            name: id,
+            activeAgent: null,
+            workflowContext: null,
+            syncState: null,
+        },
+    };
+}
+
+Deno.test("SessionHost rejects a second live HostedSession for one stable RunWield Session id", () => {
+    const host = new SessionHost();
+    const first = host.createSession(makeManagedOptions("managed-one", "runwield-same"));
+
+    assertThrows(
+        () => host.createSession(makeManagedOptions("managed-two", "runwield-same")),
+        Error,
+        'RunWield Session "runwield-same" already has live HostedSession "managed-one"',
+    );
+
+    assertEquals(host.disposeSession(first.id), true);
+    const second = host.createSession(makeManagedOptions("managed-two", "runwield-same"));
+    assertEquals(second.id, "managed-two");
+});

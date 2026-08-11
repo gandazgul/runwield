@@ -16,6 +16,7 @@ import {
 } from "./session-runtime.js";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
+import { ManagedOperationCapability } from "./managed-operation.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { buildReturnToRouterPrompt } from "../workflow/workflow-results.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -438,7 +439,23 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
             const sessionDir = getRunWieldSessionDir(cwd);
             await Deno.mkdir(sessionDir, { recursive: true });
             const sessionManager = SessionManager.create(cwd, sessionDir, { id: "pi-managed-image" });
-            session.setRootSessionManager(/** @type {any} */ (sessionManager));
+            const capability = ManagedOperationCapability.create({
+                runtimeSessionId: session.id,
+                runwieldSessionId: "rw-managed-image",
+                operationId: "op-managed-image",
+                proof: {
+                    runwieldSessionId: "rw-managed-image",
+                    projectId: "project-managed-image",
+                    ownerInstanceId: "owner-managed-image",
+                    ownerProcessKind: "test",
+                    operationId: "op-managed-image",
+                    fence: 1,
+                    phase: "hydrated",
+                    expectedGeneration: 1,
+                },
+            });
+            session.setManagedOperationCapability(capability);
+            session.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             const persisted = await runtime.persistSessionImage(session.id, {
                 base64: btoa("img"),
                 mimeType: "image/png",
@@ -845,28 +862,29 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
 
 Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
-    const pendingImageGuardIndex = source.indexOf("const hasPendingImages =", promptManagedIndex);
-    const userMessageIndex = source.indexOf("type: RuntimeEventTypes.USER_MESSAGE", promptManagedIndex);
-    const hydrationIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
-    const promptSessionIndex = source.indexOf(
-        "const result = await this.promptSession(sessionId, {",
-        promptManagedIndex,
+    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
+    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)", managedOperationIndex);
+    const pendingImageGuardIndex = source.indexOf("const hasPendingImages =", managedOperationIndex);
+    const userMessageIndex = source.indexOf("type: RuntimeEventTypes.USER_MESSAGE", managedOperationIndex);
+    const hydrationIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
+    const bodyIndex = source.indexOf(
+        "const result = await body({ acceptedTurnId, hasPendingImages, capability });",
+        hydrationIndex,
     );
-    const imageEventFallbackIndex = source.indexOf("emitInitialEvents: hasPendingImages", promptSessionIndex);
+    const imageEventFallbackIndex = source.indexOf("emitInitialEvents: hasPendingImages", promptManagedIndex);
 
-    assertEquals(promptManagedIndex >= 0, true);
-    assertEquals(pendingImageGuardIndex > promptManagedIndex, true);
-    assertEquals(userMessageIndex > promptManagedIndex, true);
+    assertEquals(managedOperationIndex >= 0, true);
+    assertEquals(pendingImageGuardIndex > managedOperationIndex, true);
+    assertEquals(userMessageIndex > managedOperationIndex, true);
     assertEquals(userMessageIndex > pendingImageGuardIndex, true);
     assertEquals(hydrationIndex > userMessageIndex, true);
-    assertEquals(promptSessionIndex > hydrationIndex, true);
-    assertEquals(imageEventFallbackIndex > promptSessionIndex, true);
+    assertEquals(bodyIndex > hydrationIndex, true);
+    assertEquals(imageEventFallbackIndex > promptManagedIndex, true);
 });
 
 Deno.test("SessionRuntime managed prompt preserves pending local agent selection", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
+    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
     const pendingIntentIndex = source.indexOf("const pendingIntent =", promptManagedIndex);
     const openIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
     const agentSelectionIndex = source.indexOf(
@@ -914,8 +932,8 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
 
 Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
-    const nextMethodIndex = source.indexOf("async createInteractiveSession(options)", promptManagedIndex);
+    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
+    const nextMethodIndex = source.indexOf("async promptManagedSession(sessionId, options)", promptManagedIndex);
     const promptManagedBody = source.slice(promptManagedIndex, nextMethodIndex);
     const inspectIndex = promptManagedBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = promptManagedBody.indexOf("acquireSessionActivation({", inspectIndex);
@@ -931,7 +949,7 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
         resumeAgentIndex,
     );
     const promptIndex = promptManagedBody.indexOf(
-        "const result = await this.promptSession(sessionId, {",
+        "const result = await body({ acceptedTurnId, hasPendingImages, capability });",
         activateIndex,
     );
     const checkpointIndex = promptManagedBody.indexOf(

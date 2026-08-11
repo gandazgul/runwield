@@ -7,6 +7,8 @@ import {
     heartbeatSessionActivation,
     inspectSessionActivation,
     markSessionReconcileRequired,
+    markSessionReconcileRequiredWithProof,
+    markSessionUncertain,
     publishGenerationAndRelease,
 } from "./session-activations.js";
 
@@ -161,6 +163,68 @@ Deno.test("activation state enforces phase graph, exact proof, and no-change rel
                 Error,
                 "checkpointing",
             );
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("proof-fenced unhealthy transitions reject a superseded activation", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-activation-fenced-unhealthy-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSession(database);
+            const first = acquireSessionActivation(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                ownerInstanceId: "owner-1",
+                ownerProcessKind: "test",
+                operationId: "op-1",
+                expectedGeneration: null,
+                phase: "bootstrap",
+                now: () => "2026-01-01T00:00:00.000Z",
+            });
+            const checkpoint = changeSessionActivationPhase(database, first, "checkpointing", {
+                now: () => "2026-01-01T00:00:01.000Z",
+            });
+            publishGenerationAndRelease(database, checkpoint, {
+                generation: 0,
+                byteLength: 1,
+                terminalEntryId: null,
+                digestHex: "c".repeat(64),
+            }, { now: () => "2026-01-01T00:00:02.000Z" });
+            const second = acquireSessionActivation(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                ownerInstanceId: "owner-2",
+                ownerProcessKind: "test",
+                operationId: "op-2",
+                expectedGeneration: 0,
+                phase: "preparing",
+                now: () => "2026-01-01T00:00:03.000Z",
+            });
+
+            assertThrows(
+                () => markSessionReconcileRequiredWithProof(database, first, { reason: "stale" }),
+                Error,
+                "proof",
+            );
+            assertThrows(
+                () => markSessionUncertain(database, first, { reason: "stale" }),
+                Error,
+                "proof",
+            );
+            assertEquals(inspectSessionActivation(database, "session-1").activation?.operationId, second.operationId);
+            assertEquals(inspectSessionActivation(database, "session-1").activation?.state, "active");
+
+            markSessionReconcileRequiredWithProof(database, second, {
+                reason: "current",
+                now: () => "2026-01-01T00:00:04.000Z",
+            });
+            assertEquals(inspectSessionActivation(database, "session-1").activation?.state, "reconcile_required");
         } finally {
             database.close();
         }

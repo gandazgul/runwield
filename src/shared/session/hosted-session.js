@@ -245,6 +245,8 @@ export class HostedSession {
         this.activeTurnId = null;
         /** @type {ManagedSessionMetadata | null} */
         this.managed = options.managed || null;
+        /** @type {import('./managed-operation.ts').ManagedOperationCapability | null} */
+        this.managedOperationCapability = null;
         /** @type {PendingManagedTurnIntent} */
         this.pendingManagedTurnIntent = {};
     }
@@ -345,9 +347,29 @@ export class HostedSession {
         return this.activeOnMessage;
     }
 
-    /** @param {MinimalSessionManagerLike | null} sessionManager */
-    setRootSessionManager(sessionManager) {
+    /** @param {import('./managed-operation.ts').ManagedOperationCapability | null} capability */
+    setManagedOperationCapability(capability) {
         this.assertActive();
+        this.managedOperationCapability = capability;
+    }
+
+    getManagedOperationCapability() {
+        return this.managedOperationCapability;
+    }
+
+    /** @param {import('./managed-operation.ts').ManagedOperationCapability | null} capability */
+    #assertManagedWritableCapability(capability) {
+        if (!this.managed) return;
+        if (!capability || capability !== this.managedOperationCapability) {
+            throw new Error("managed_operation_required");
+        }
+        capability.assertLive();
+    }
+
+    /** @param {MinimalSessionManagerLike | null} sessionManager @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability] */
+    setRootSessionManager(sessionManager, capability = null) {
+        this.assertActive();
+        if (sessionManager) this.#assertManagedWritableCapability(capability);
         const previous = this.workflowContext;
         this.rootSessionManager = sessionManager;
         if (!sessionManager) return;
@@ -419,6 +441,7 @@ export class HostedSession {
         this.pendingTaskCompletion = null;
         this.activeTurnId = null;
         this.steeringTargetStack = [];
+        this.managedOperationCapability = null;
     }
 
     /** @param {unknown} eventSink */
@@ -469,8 +492,10 @@ export class HostedSession {
     }
 
     /** @param {DisposableLike | null} session */
-    setRootAgentSession(session) {
+    /** @param {DisposableLike | null} session @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability] */
+    setRootAgentSession(session, capability = null) {
         this.assertActive();
+        if (session) this.#assertManagedWritableCapability(capability);
         this.rootAgentSession = session;
     }
 
@@ -478,9 +503,10 @@ export class HostedSession {
         return this.rootAgentSession;
     }
 
-    /** @param {string | null} agentName */
-    setRootAgentName(agentName) {
+    /** @param {string | null} agentName @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability] */
+    setRootAgentName(agentName, capability = null) {
         this.assertActive();
+        if (agentName) this.#assertManagedWritableCapability(capability);
         this.rootAgentName = agentName;
     }
 
@@ -524,9 +550,10 @@ export class HostedSession {
         return completion;
     }
 
-    /** @param {DisposableLike} session */
-    addSubAgentSession(session) {
+    /** @param {DisposableLike} session @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability] */
+    addSubAgentSession(session, capability = null) {
         this.assertActive();
+        this.#assertManagedWritableCapability(capability);
         this.subAgentSessions.add(session);
     }
 

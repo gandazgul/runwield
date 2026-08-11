@@ -3165,6 +3165,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {boolean} [opts.includeEditFallback]
  * @param {import('./types.js').AgentMessageHandler} [opts.activeHandler]
  * @param {string} [opts.debugLogPath]
+ * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
  */
@@ -3231,11 +3232,11 @@ export async function ensureRootAgentSession(opts) {
         opts.agentName,
     );
 
-    hostedSession.setRootAgentSession(rootSession);
+    hostedSession.setRootAgentSession(rootSession, opts.managedOperationCapability || null);
     const steeringTargetId = hostedSession.pushSteeringTargetSession(
         executionSession ? getExecutionSteeringTarget(executionSession) : session,
     );
-    hostedSession.setRootAgentName(opts.agentName);
+    hostedSession.setRootAgentName(opts.agentName, opts.managedOperationCapability || null);
     if (opts.activeHandler) hostedSession.setActiveOnMessage(opts.activeHandler);
     recordActiveAgent(
         /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),

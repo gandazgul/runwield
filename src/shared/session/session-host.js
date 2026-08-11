@@ -49,6 +49,8 @@ export class SessionHost {
         this.idFactory = options.idFactory || createDefaultSessionId;
         /** @type {Map<string, HostedSession>} */
         this.sessions = new Map();
+        /** @type {Map<string, string>} */
+        this.managedSessionIds = new Map();
     }
 
     /** @param {CreateSessionOptions} [options] */
@@ -62,6 +64,16 @@ export class SessionHost {
     adoptSession(session) {
         if (!(session instanceof HostedSession)) throw new Error("SessionHost can only adopt HostedSession instances");
         if (this.sessions.has(session.id)) throw new Error(`HostedSession "${session.id}" already exists`);
+        const managed = session.getManagedMetadata?.() || null;
+        if (managed) {
+            const existingId = this.managedSessionIds.get(managed.runwieldSessionId);
+            if (existingId) {
+                throw new Error(
+                    `RunWield Session "${managed.runwieldSessionId}" already has live HostedSession "${existingId}"`,
+                );
+            }
+            this.managedSessionIds.set(managed.runwieldSessionId, session.id);
+        }
         this.sessions.set(session.id, session);
         return session;
     }
@@ -92,8 +104,15 @@ export class SessionHost {
     disposeSession(id) {
         const session = this.sessions.get(id);
         if (!session) return false;
-        session.dispose();
-        this.sessions.delete(id);
+        const managed = session.getManagedMetadata?.() || null;
+        try {
+            session.dispose();
+        } finally {
+            this.sessions.delete(id);
+            if (managed && this.managedSessionIds.get(managed.runwieldSessionId) === id) {
+                this.managedSessionIds.delete(managed.runwieldSessionId);
+            }
+        }
         return true;
     }
 
