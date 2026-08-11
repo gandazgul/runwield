@@ -26,12 +26,12 @@ devServerUrl: "http://127.0.0.1:5173/dev/code-review"
 devServerHmr: true
 createdAt: "2026-08-11T00:04:21-04:00"
 updatedAt: "2026-08-11T04:15:48.730Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
 worktreeStatus: "abandoned"
+status: "validated_reviewer"
 ---
 
 # Code review surface: own the syntax grammar lifecycle
