@@ -15,6 +15,7 @@ import { SectionsPanel } from "../../../../third_party/plannotator/packages/revi
 import { parseDiffToFiles } from "../../../../third_party/plannotator/packages/review-editor/utils/diffParser.ts";
 import { exportReviewFeedback } from "../../../../third_party/plannotator/packages/review-editor/utils/exportFeedback.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import { useCodeReviewHighlighting } from "./code-review-highlighting.ts";
 import "./plannotator.css";
 
 const DEFAULT_CODE_PAYLOAD = {
@@ -51,6 +52,7 @@ export function CodeReviewSurface({ payload }) {
         [payload],
     );
     const files = useMemo(() => parseDiffToFiles(initialPayload.rawPatch || ""), [initialPayload.rawPatch]);
+    const highlightingReady = useCodeReviewHighlighting(files);
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [annotations, setAnnotations] = useState([]);
     const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
@@ -586,7 +588,9 @@ export function CodeReviewSurface({ payload }) {
                             aria-label="All file changes"
                             data-content-fits={allFilesContentFits}
                         >
-                            {guideOpen && guide
+                            {!highlightingReady
+                                ? <div className="rw-empty-diff">Preparing syntax highlighting…</div>
+                                : guideOpen && guide
                                 ? (
                                     <GuidedReviewExplainer
                                         guide={guide}
