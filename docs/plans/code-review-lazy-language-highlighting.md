@@ -19,19 +19,61 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q 'diff --git a/[^ ]*\\.tsx ' src/ui/workspace/react/ReviewDevSurface.tsx && grep -q 'diff --git a/[^ ]*\\.jsx ' src/ui/workspace/react/ReviewDevSurface.tsx"
       rationale: "The dev fixture patch contains only .md and .js files, so this exits 1. It exits 0 only when the fixture carries both a .tsx and a .jsx file, which is what makes the browser verification able to observe the reported defect at all."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-11T04:16:04.785Z"
+    head: "81801f44ea575a02ccc3a7b0ce80fef99a34d577"
+    results:
+        - id: "OC1"
+          command: "test -f src/ui/workspace/code-review-highlighting.test.ts && deno run -A scripts/run-tests.js -A --no-check src/ui/workspace/code-review-highlighting.test.ts"
+          rationale: "The test file does not exist in the execution tree, so this exits 1. It exits 0 only when the new module exists and the test proves, against the real @pierre/diffs, that prepared grammars land in Pierre's ResolvedLanguages cache and that an unresolvable grammar falls back to \"text\". An empty or stub module fails the hasResolvedLanguages assertion."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 18
+          output: "\n"
+        - id: "OC2"
+          command: "grep -q \"useCodeReviewHighlighting\" src/ui/workspace/react/CodeReviewSurface.tsx"
+          rationale: "The review surface does not reference the readiness hook in the execution tree, so this exits 1. It exits 0 only when the surface is actually wired to grammar preparation. Without it, a correct module could pass OC1 and never reach the rendered surface."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 17
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q 'diff --git a/[^ ]*\\.tsx ' src/ui/workspace/react/ReviewDevSurface.tsx && grep -q 'diff --git a/[^ ]*\\.jsx ' src/ui/workspace/react/ReviewDevSurface.tsx"
+          rationale: "The dev fixture patch contains only .md and .js files, so this exits 1. It exits 0 only when the fixture carries both a .tsx and a .jsx file, which is what makes the browser verification able to observe the reported defect at all."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 14
+          output: "\n"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev:code-review"
 devServerUrl: "http://127.0.0.1:5173/dev/code-review"
 devServerHmr: true
 createdAt: "2026-08-11T00:04:21-04:00"
-updatedAt: "2026-08-11T04:15:48.730Z"
+updatedAt: "2026-08-11T04:51:16.917Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-11T04:37:11.477Z"
+verifiedAt: "2026-08-11T04:51:16.917Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-worktreeStatus: "abandoned"
-status: "validated_reviewer"
+executionReport: "- Implemented lazy code-review grammar preparation in `src/ui/workspace/react/code-review-highlighting.ts`; it resolves Pierre/Shiki languages for current diff paths, never rejects, and falls failed grammars back to `text`.\n- Wired `CodeReviewSurface.tsx` to wait for `useCodeReviewHighlighting` before rendering all-files and Guided Review diff blocks, with existing `.rw-empty-diff` readiness text.\n- Expanded the dev code-review fixture with `.tsx`, `.jsx`, `.java`, and `.cpp` files; Java/C++ are real lazy-loaded languages outside the old preload set.\n- Added `src/ui/workspace/code-review-highlighting.test.ts`; 1 new test file, no tests removed or replaced.\n- Repaired `deno task workspace:test` path in `deno.json` from missing `src/cmd/plans/ui.test.js` to existing `src/cmd/plans/ui.test.ts`.\n- Verification passed: objective checks; `deno run -A scripts/run-tests.js -A --no-check src/ui/workspace/code-review-highlighting.test.ts`; `deno task workspace:test`; `deno task ci` passed with 260 files passed, 0 failed.\n- Browser verified headed at `http://127.0.0.1:5174/dev/code-review` (server used 5174 because 5173 was occupied), viewport 1440x1000: TSX/JSX/Java/C++ fixture diffs rendered, split and unified styles rendered, Guided Review embedded diff blocks rendered.\n- Browser diagnostics: `agent-browser errors` showed no errors; console showed only Vite/React DevTools messages; failed fetch/XHR 400-599 check showed no captured failures.\n- Visual evidence saved: `artifacts/code-review-lazy-languages-bottom.png`, `artifacts/code-review-unified-lazy-languages.png`, `artifacts/code-review-guided-lazy-languages.png`.\n- Unresolved blockers: none."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "4ad36ce4284a00b93c3ccc23c919f64f28490346"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "81801f44ea575a02ccc3a7b0ce80fef99a34d577"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Code review surface: own the syntax grammar lifecycle
