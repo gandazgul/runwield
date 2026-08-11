@@ -1,36 +1,115 @@
 import { assertEquals } from "@std/assert";
-import { join } from "@std/path";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
+import { createSessionRuntime } from "./session-runtime.js";
 
-const REPO_ROOT = new URL("../../..", import.meta.url).pathname;
-
-Deno.test("managed public mutation rejection is capability-scoped, not manager-presence-scoped", async () => {
-    const source = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
-    const rejectIndex = source.indexOf("#rejectManagedPublicMutation(hostedSession, operation");
-    const ensureQueueIndex = source.indexOf("#ensureQueueSourceSubscription", rejectIndex);
-    const body = source.slice(rejectIndex, ensureQueueIndex);
-
-    assertEquals(rejectIndex >= 0, true);
-    assertEquals(body.includes("getRootSessionManager"), false);
-    assertEquals(body.includes("#currentManagedOperations"), true);
-    assertEquals(body.includes("managed_operation_in_progress"), true);
-    assertEquals(body.includes("managed_unsupported"), true);
+Deno.test("ManagedOperationCapability has no runtime constructor export", async () => {
+    const managedOperationModule = await import("./managed-operation.ts");
+    assertEquals("ManagedOperationCapability" in managedOperationModule, false);
 });
 
-Deno.test("managed prompt operation installs manager only with the operation capability", async () => {
-    const source = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
-    const runIndex = source.indexOf("async #runManagedOperation(");
-    const promptIndex = source.indexOf("async promptManagedSession(", runIndex);
-    const body = source.slice(runIndex, promptIndex);
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-    assertEquals(runIndex >= 0, true);
-    assertEquals(body.includes("ManagedOperationCapability.create"), true);
-    assertEquals(body.includes("#currentManagedOperations.set(sessionId, capability)"), true);
-    assertEquals(body.includes("hostedSession.setManagedOperationCapability(capability)"), true);
-    assertEquals(
-        body.includes("hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability)"),
-        true,
+Deno.test("managed operation re-entry policy is keyed to capability state, not runtime busy state", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const rejectionStart = source.indexOf(
+        "#rejectManagedPublicMutation(hostedSession, operation, capability = null) {",
     );
-    assertEquals(body.includes("managedOperationCapability: capability"), true);
-    assertEquals(body.includes("capability.settle()"), true);
-    assertEquals(body.includes("#currentManagedOperations.delete(sessionId)"), true);
+    const rejectionEnd = source.indexOf("\n    /**", rejectionStart);
+    const rejectionBody = source.slice(rejectionStart, rejectionEnd);
+    assertEquals(rejectionBody.includes("#currentManagedOperations"), true);
+    assertEquals(rejectionBody.includes("#busyOperationDepths"), false);
+    assertEquals(rejectionBody.includes("busy"), false);
+
+    const runStart = source.indexOf("async #runManagedOperation(sessionId, descriptor, body) {");
+    const runEnd = source.indexOf("const managed = hostedSession.getManagedMetadata?.();", runStart);
+    const runPrelude = source.slice(runStart, runEnd);
+    assertEquals(runPrelude.includes("#busyOperationDepths"), false);
+    assertEquals(runPrelude.includes("busy"), false);
+});
+
+Deno.test("managed prompt re-entry is rejected while a real operation holds the capability", async () => {
+    await withRuntimeCommandFixture(
+        "managed-operation-boundary-",
+        async ({ homeDir: home, projectRoot: cwd, setModelResponseFactories }) => {
+            setModelResponseFactories([
+                () => fauxAssistantMessage(fauxText("First managed prompt completed. ".repeat(2_000))),
+                () => fauxAssistantMessage(fauxText("Third managed prompt completed.")),
+            ]);
+            const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
+            try {
+                store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+                store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
+                const runtime = createSessionRuntime({
+                    ownerCoordinationStore: store,
+                    ownerProcessKind: "test",
+                    ownerInstanceId: "managed-operation-boundary-owner",
+                });
+                let firstPrompt:
+                    | Promise<
+                        { ok: boolean; turns: number; handoffs: number; handoffLimitReached: boolean; error?: string }
+                    >
+                    | null = null;
+                try {
+                    const created = await runtime.createInteractiveSession({
+                        cwd,
+                        mode: "new",
+                        enableManagedActivation: true,
+                    });
+                    await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
+                    const dormant = runtime.getSessionSnapshot(created.sessionId);
+                    assertEquals(dormant?.managed?.generation, 0);
+                    assertEquals(dormant?.sessionManagerId, null);
+
+                    firstPrompt = runtime.promptManagedSession(created.sessionId, {
+                        initialRequest: "first managed prompt",
+                        expectedGeneration: 0,
+                    });
+                    let hydrated = runtime.getSessionSnapshot(created.sessionId);
+                    for (let attempt = 0; attempt < 1_000 && hydrated?.managed?.dormant !== false; attempt += 1) {
+                        await delay(10);
+                        hydrated = runtime.getSessionSnapshot(created.sessionId);
+                    }
+                    assertEquals(hydrated?.managed?.dormant, false);
+                    assertEquals(hydrated?.busy, true);
+
+                    const second = await runtime.promptManagedSession(created.sessionId, {
+                        initialRequest: "second managed prompt",
+                        expectedGeneration: 0,
+                    });
+                    assertEquals(second, {
+                        ok: false,
+                        turns: 0,
+                        handoffs: 0,
+                        handoffLimitReached: false,
+                        error: "managed_operation_in_progress",
+                    });
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 0);
+                    const cataloged = store.getSessionById(dormant?.managed?.runwieldSessionId || "");
+                    const transcriptBeforeFirstCompletes = await Deno.readTextFile(cataloged?.transcriptPath || "");
+                    assertEquals(transcriptBeforeFirstCompletes.includes("second managed prompt"), false);
+
+                    const first = await firstPrompt;
+                    assertEquals(first.ok, true);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+
+                    const third = await runtime.promptManagedSession(created.sessionId, {
+                        initialRequest: "third managed prompt",
+                        expectedGeneration: 1,
+                    });
+                    assertEquals(third.ok, true);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 2);
+                } finally {
+                    if (firstPrompt) await firstPrompt.catch(() => undefined);
+                    await runtime.closeAllSessionsWhenIdle?.();
+                }
+            } finally {
+                store.close();
+            }
+        },
+    );
 });

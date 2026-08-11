@@ -20,7 +20,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "06-read-only-transcript-projection-and-idle-tui-sync"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Fenced Session Operation Boundary

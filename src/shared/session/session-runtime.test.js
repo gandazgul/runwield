@@ -16,7 +16,6 @@ import {
 } from "./session-runtime.js";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
-import { ManagedOperationCapability } from "./managed-operation.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { buildReturnToRouterPrompt } from "../workflow/workflow-results.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -439,7 +438,8 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
             const sessionDir = getRunWieldSessionDir(cwd);
             await Deno.mkdir(sessionDir, { recursive: true });
             const sessionManager = SessionManager.create(cwd, sessionDir, { id: "pi-managed-image" });
-            const capability = ManagedOperationCapability.create({
+            /** @type {import('./managed-operation.ts').ManagedOperationCapability} */
+            const capability = {
                 runtimeSessionId: session.id,
                 runwieldSessionId: "rw-managed-image",
                 operationId: "op-managed-image",
@@ -453,7 +453,13 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                     phase: "hydrated",
                     expectedGeneration: 1,
                 },
-            });
+                settled: false,
+                heartbeatFailureReason: null,
+                updateProof: () => {},
+                latchHeartbeatFailure: () => {},
+                assertLive: () => {},
+                settle: () => {},
+            };
             session.setManagedOperationCapability(capability);
             session.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             const persisted = await runtime.persistSessionImage(session.id, {

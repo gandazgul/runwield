@@ -56,7 +56,6 @@ import {
 } from "./image-attachments.js";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
-import { ManagedOperationCapability } from "./managed-operation.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -198,6 +197,59 @@ export class SessionTurnInProgressError extends Error {
     }
 }
 
+class ManagedOperationCapability {
+    /**
+     * @param {{ runtimeSessionId: string, runwieldSessionId: string, operationId: string, proof: import('../owner-coordination/session-activations.js').ActivationProof }} options
+     */
+    constructor(options) {
+        this.runtimeSessionId = options.runtimeSessionId;
+        this.runwieldSessionId = options.runwieldSessionId;
+        this.operationId = options.operationId;
+        this.#proof = options.proof;
+    }
+
+    /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
+    #proof;
+    #settled = false;
+    /** @type {string | null} */
+    #heartbeatFailureReason = null;
+
+    get proof() {
+        return this.#proof;
+    }
+
+    get settled() {
+        return this.#settled;
+    }
+
+    get heartbeatFailureReason() {
+        return this.#heartbeatFailureReason;
+    }
+
+    /** @param {import('../owner-coordination/session-activations.js').ActivationProof} proof */
+    updateProof(proof) {
+        this.assertLive();
+        if (proof.runwieldSessionId !== this.runwieldSessionId || proof.operationId !== this.operationId) {
+            throw new Error("Managed operation proof does not match capability");
+        }
+        this.#proof = proof;
+    }
+
+    /** @param {Error | string} error */
+    latchHeartbeatFailure(error) {
+        if (this.#heartbeatFailureReason) return;
+        this.#heartbeatFailureReason = error instanceof Error ? error.message : error;
+    }
+
+    assertLive() {
+        if (this.#settled) throw new Error("Managed operation capability is settled");
+    }
+
+    settle() {
+        this.#settled = true;
+    }
+}
+
 /**
  * @param {RuntimeQueuedMessageState} message
  * @returns {import('./session-runtime-events.js').RuntimeQueuedMessage}
@@ -283,7 +335,7 @@ export class SessionRuntime {
     #busyOperationDepths;
     /** @type {Map<string, import('../owner-coordination/session-activations.js').ActivationProof>} */
     #pendingManagedCreations;
-    /** @type {Map<string, ManagedOperationCapability>} */
+    /** @type {Map<string, import('./managed-operation.ts').ManagedOperationCapability>} */
     #currentManagedOperations;
     /** @type {Map<string, { projectId: string }>} */
     #pendingManagedCreationProjects;
@@ -1011,7 +1063,7 @@ export class SessionRuntime {
             expectedGeneration,
             phase: "preparing",
         });
-        const capability = ManagedOperationCapability.create({
+        const capability = new ManagedOperationCapability({
             runtimeSessionId: session.id,
             runwieldSessionId: managed.runwieldSessionId,
             operationId: activeProof.operationId,
@@ -1898,7 +1950,7 @@ export class SessionRuntime {
         let activeProof = pendingCreation;
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) throw new Error("Managed Session metadata disappeared during creation");
-        const capability = ManagedOperationCapability.create({
+        const capability = new ManagedOperationCapability({
             runtimeSessionId: hostedSession.id,
             runwieldSessionId: managed.runwieldSessionId,
             operationId: activeProof.operationId,
@@ -2318,13 +2370,22 @@ export class SessionRuntime {
     /**
      * @param {string} sessionId
      * @param {{ name: import('./managed-operation.ts').ManagedOperationName, options: PromptSessionOptions & { expectedGeneration: number } }} descriptor
-     * @param {(context: { acceptedTurnId: string, hasPendingImages: boolean, capability: ManagedOperationCapability }) => Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string }>} body
+     * @param {(context: { acceptedTurnId: string, hasPendingImages: boolean, capability: import('./managed-operation.ts').ManagedOperationCapability }) => Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string }>} body
      */
     async #runManagedOperation(sessionId, descriptor, body) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.runManagedOperation: session not found");
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) throw new Error("SessionRuntime.runManagedOperation: Session is not managed");
+        if (this.#currentManagedOperations.has(sessionId)) {
+            return {
+                ok: false,
+                turns: 0,
+                handoffs: 0,
+                handoffLimitReached: false,
+                error: "managed_operation_in_progress",
+            };
+        }
         if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
         this.#ownerCoordinationStore.requireActivationProtocolEnabled();
         const state = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
@@ -2341,7 +2402,7 @@ export class SessionRuntime {
             expectedGeneration: options.expectedGeneration,
             phase: "preparing",
         });
-        const capability = ManagedOperationCapability.create({
+        const capability = new ManagedOperationCapability({
             runtimeSessionId: sessionId,
             runwieldSessionId: managed.runwieldSessionId,
             operationId: activeProof.operationId,
@@ -2361,7 +2422,6 @@ export class SessionRuntime {
                 capability.latchHeartbeatFailure(error instanceof Error ? error : String(error));
             }
         };
-        heartbeatTimer = setInterval(heartbeat, 10_000);
         try {
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
@@ -2388,6 +2448,7 @@ export class SessionRuntime {
                     };
                 }
             }
+            heartbeatTimer = setInterval(heartbeat, 10_000);
             const acceptedTurnId = options.turnId || crypto.randomUUID();
             const hasPendingImages = (options.initialImages || []).some((image) => !image.path && !image.ref);
             if (!hasPendingImages) {

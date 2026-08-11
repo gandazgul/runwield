@@ -1,7 +1,6 @@
 import { assert, assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { WORKFLOW_CONTEXT_CUSTOM_TYPE } from "./workflow-context-session.js";
-import { ManagedOperationCapability } from "./managed-operation.ts";
 
 /**
  * @param {string} id
@@ -663,8 +662,9 @@ Deno.test("HostedSession plan setter preserves triage fields without persistence
     });
 });
 
+/** @returns {import('./managed-operation.ts').ManagedOperationCapability} */
 function makeManagedCapability() {
-    return ManagedOperationCapability.create({
+    return {
         runtimeSessionId: "runtime-managed",
         runwieldSessionId: "runwield-managed",
         operationId: "operation-managed",
@@ -678,7 +678,13 @@ function makeManagedCapability() {
             phase: "preparing",
             expectedGeneration: 0,
         },
-    });
+        settled: false,
+        heartbeatFailureReason: null,
+        updateProof: () => {},
+        latchHeartbeatFailure: () => {},
+        assertLive: () => {},
+        settle: () => {},
+    };
 }
 
 Deno.test("HostedSession requires the current managed operation capability for writable managed state", () => {
