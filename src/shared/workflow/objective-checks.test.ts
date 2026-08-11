@@ -1,10 +1,15 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import {
     classifyObjectiveChecksBaseline,
+    DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS,
     objectiveChecksBaselineMatches,
     runObjectiveChecks,
     summarizeObjectiveChecks,
 } from "./objective-checks.ts";
+
+Deno.test("runObjectiveChecks default timeout allows slow but valid checks", () => {
+    assertEquals(DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS, 120_000);
+});
 
 Deno.test("runObjectiveChecks classifies exit 0 as met", async () => {
     const cwd = await Deno.makeTempDir();

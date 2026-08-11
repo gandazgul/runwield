@@ -65,7 +65,7 @@ export interface RunObjectiveChecksOptions {
 }
 
 const SHELL_NOT_FOUND_EXIT_CODES = new Set([126, 127]);
-export const DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS = 60_000;
+export const DEFAULT_OBJECTIVE_CHECK_TIMEOUT_MS = 120_000;
 
 interface CaseInsensitivePathContradiction {
     negatedPath: string;
