@@ -25,37 +25,6 @@ objectiveChecks:
     - id: "OC3"
       command: "bash -lc 'set -euo pipefail; grep -q \"Claude CLI\" docs/prd/runwield-core-prd.md; grep -q \"internal file/Bash/tool\" docs/prd/runwield-core-prd.md; grep -q \"External Agent Host\" docs/prd/runwield-core-prd.md; deno task doc-links:check'"
       rationale: "The Core PRD currently lacks Claude backend/caveat language; passing requires the durable Core-versus-Connect distinction and valid documentation links."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-06T01:46:05.141Z"
-    head: "bca1ec866721a7d07540546c8e9213ba49bbfca9"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -euo pipefail; grep -q \"getSelectable\" src/ui/tui/model-selector.ts; out=$(deno run -A scripts/run-tests.js --filter \"^TUI model selector exposes Pi and Claude CLI models without API auth$\" src/ui/tui/model-selector.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
-          rationale: "Fails because the RunWield selector does not exist; passing requires the selector to consume selectable backend descriptors and its mixed Pi/Claude behavior test to pass."
-          status: "unmet"
-          stdout: ""
-          stderr: "grep: src/ui/tui/model-selector.ts: No such file or directory\n"
-          exitCode: 2
-          durationMs: 35
-          output: "\ngrep: src/ui/tui/model-selector.ts: No such file or directory\n"
-        - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; grep -q \"Claude Code.*file/Bash/tool\" src/ui/workspace/islands/SessionSurface.jsx; out=$(deno run -A scripts/run-tests.js --filter \"^Workspace Session disclosure distinguishes Claude CLI from Pi$\" src/ui/workspace/workspace-session-backend-disclosure.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
-          rationale: "Fails because Workspace has neither the disclosure nor its test; passing proves Claude, Pi, and absent-model committed snapshots produce distinct read-only presentation."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 28
-          output: "\n"
-        - id: "OC3"
-          command: "bash -lc 'set -euo pipefail; grep -q \"Claude CLI\" docs/prd/runwield-core-prd.md; grep -q \"internal file/Bash/tool\" docs/prd/runwield-core-prd.md; grep -q \"External Agent Host\" docs/prd/runwield-core-prd.md; deno task doc-links:check'"
-          rationale: "The Core PRD currently lacks Claude backend/caveat language; passing requires the durable Core-versus-Connect distinction and valid documentation links."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 24
-          output: "\n"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"

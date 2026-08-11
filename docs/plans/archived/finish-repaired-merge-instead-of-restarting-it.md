@@ -24,37 +24,6 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q \"validation_merge_repair_worktree\" src/shared/workflow/validation.ts && grep -q \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js"
       rationale: "The command requires the status-preserving validation metadata transition to exist and runs delivery-state coverage for persisting/clearing the stored merge repair path."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-02T23:03:24.808Z"
-    head: "06e49895b97558081cb95d6f1e1b32af2184ca16"
-    results:
-        - id: "OC1"
-          command: "grep -q \"resumes publication from stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js && deno task test --filter \"stored repaired merge worktree\" src/shared/workflow/validation-publication-pause.test.js"
-          rationale: "The command first requires the new real-Git regression test to exist, then runs only that scenario; it fails today because stored repaired merge worktrees are not resumed across validation calls."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 6
-          output: "\n"
-        - id: "OC2"
-          command: "grep -q \"clears validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/plan-lifecycle.test.js"
-          rationale: "The command requires and runs lifecycle coverage for clearing stale stored merge-repair paths when validation proof or implementation lineage changes."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 5
-          output: "\n"
-        - id: "OC3"
-          command: "grep -q \"validation_merge_repair_worktree\" src/shared/workflow/validation.ts && grep -q \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js && deno task test --filter \"validationMergeRepairWorktree\" src/shared/workflow/validation-loop-delivery.test.js"
-          rationale: "The command requires the status-preserving validation metadata transition to exist and runs delivery-state coverage for persisting/clearing the stored merge repair path."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 5
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-31T13:58:11-04:00"

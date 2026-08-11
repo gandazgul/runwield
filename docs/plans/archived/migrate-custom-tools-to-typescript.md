@@ -23,28 +23,6 @@ objectiveChecks:
     - id: "OC2"
       command: "bash -lc 'set -e; for n in delegate-agent multi_file_edit pair-checkpoint review-complete see-image task-completed triage-report user-interview; do test -s src/tools/$n.ts; test ! -e src/tools/$n.js; done; deno task check; deno task language-policy:check; deno run -A scripts/run-tests.js -A src/tools/__tests__/delegate-agent.test.js src/tools/__tests__/multi-file-edit.test.js src/tools/__tests__/pair-checkpoint.test.js src/tools/__tests__/review-complete.test.js src/tools/see-image.test.js src/tools/__tests__/task-completed.test.js src/tools/__tests__/triage-report.test.js src/tools/__tests__/user-interview.test.js src/tools/__tests__/user-interview-combinations.test.js'"
       rationale: "Fails on the current missing TypeScript modules and requires all eight replacements to compile, satisfy language policy, and pass every direct Custom Tool behavior suite after the JavaScript implementations are gone."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-03T18:36:38.047Z"
-    head: "7bc0aa3482c7dc1623e21c7e26b6a6f627f7f6d2"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -e; specs=\"delegate-agent:createDelegateAgentTool multi_file_edit:createMultiFileEditTool pair-checkpoint:createPairCheckpointTool review-complete:createReviewCompletedTool see-image:createSeeImageTool task-completed:createTaskCompletedTool triage-report:createTriageReportTool user-interview:createUserInterviewTool\"; for s in $specs; do n=${s%%:*}; f=${s#*:}; p=src/tools/$n.ts; test -s \"$p\"; test ! -e \"src/tools/$n.js\"; grep -Eq \"^export function $f\\\\(\" \"$p\"; grep -q \"defineTool<\" \"$p\"; ! grep -Eq \"export[[:space:]]+\\\\*|@ts-(ignore|nocheck)\" \"$p\"; done; test -z \"$(find src/tools -maxdepth 1 -type f -name \"*.js\" ! -name \"*.test.js\" ! -name docs-file-tools.js ! -name edit-with-fallback.js ! -name grep.js ! -name read.js ! -name registry.js -print)\"'"
-          rationale: "Fails while any migrated JavaScript implementation exists and rejects empty files, re-export shims, suppression directives, missing owned factories, missing typed defineTool calls, or renamed legacy JavaScript beside the tools."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 36
-          output: "\n"
-        - id: "OC2"
-          command: "bash -lc 'set -e; for n in delegate-agent multi_file_edit pair-checkpoint review-complete see-image task-completed triage-report user-interview; do test -s src/tools/$n.ts; test ! -e src/tools/$n.js; done; deno task check; deno task language-policy:check; deno run -A scripts/run-tests.js -A src/tools/__tests__/delegate-agent.test.js src/tools/__tests__/multi-file-edit.test.js src/tools/__tests__/pair-checkpoint.test.js src/tools/__tests__/review-complete.test.js src/tools/see-image.test.js src/tools/__tests__/task-completed.test.js src/tools/__tests__/triage-report.test.js src/tools/__tests__/user-interview.test.js src/tools/__tests__/user-interview-combinations.test.js'"
-          rationale: "Fails on the current missing TypeScript modules and requires all eight replacements to compile, satisfy language policy, and pass every direct Custom Tool behavior suite after the JavaScript implementations are gone."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 17
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T14:17:36-04:00"

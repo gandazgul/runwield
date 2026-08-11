@@ -27,37 +27,6 @@ objectiveChecks:
     - id: "OC3"
       command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Claude MCP review completion waives only review_diff inspection$\" src/shared/workflow/validation-loop-review.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
       rationale: "The named validation test must contrast bridge-stamped and untrusted/Pi review results, proving only the accepted Claude MCP result skips the inspection nudge while structured review rules remain."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-04T15:39:53.296Z"
-    head: "1136239352b0aa154f4afd230516aa7033235395"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -euo pipefail; ! grep -q \"Custom Tools are not exposed to Claude CLI\" src/shared/session/backends/claude-cli/execution-session.ts; out=$(deno run -A scripts/run-tests.js --filter \"^Claude CLI MCP lifecycle bridge black-box contract$\" src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
-          rationale: "The named vertical test must run a fake Claude process through the generated MCP config and real MCP client, exercise rejection then accepted delegation, and expose the canonical result to current workflow readers; the old no-tools prompt must also be removed."
-          status: "unmet"
-          stdout: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 5 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 21835
-          output: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 5 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n\n"
-        - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; grep -q -- \"--mcp-config\" src/shared/session/backends/claude-cli/command.ts; ! grep -q -- \"--strict-mcp-config\" src/shared/session/backends/claude-cli/command.ts; out=$(deno run -A scripts/run-tests.js --filter \"^Claude CLI MCP config is additive authenticated and ephemeral$\" src/shared/session/backends/claude-cli/claude-cli-backend.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
-          rationale: "Requires additive command wiring plus a named backend contract proving authenticated loopback access, unauthorized rejection, owner-only config, and listener/config cleanup."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 12
-          output: "\n"
-        - id: "OC3"
-          command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Claude MCP review completion waives only review_diff inspection$\" src/shared/workflow/validation-loop-review.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"'"
-          rationale: "The named validation test must contrast bridge-stamped and untrusted/Pi review results, proving only the accepted Claude MCP result skips the inspection nudge while structured review rules remain."
-          status: "unmet"
-          stdout: "\u001b[0m\u001b[32mDownload\u001b[0m https://registry.npmjs.org/vite\n\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 14 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 4246
-          output: "\u001b[0m\u001b[32mDownload\u001b[0m https://registry.npmjs.org/vite\n\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 14 filtered out \u001b[0m\u001b[38;5;245m(2ms)\u001b[0m\n\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T11:29:21-0400"

@@ -28,55 +28,6 @@ objectiveChecks:
     - id: "OC5"
       command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime-method-policy.test.ts"
       rationale: "Red today: the file and the policy module do not exist. Green requires every function on SessionRuntime.prototype to carry an explicit classification, enumerated at runtime, plus a self-check that the completeness assertion actually detects an unclassified method."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-11T00:22:19.691Z"
-    head: "5a1f2eb50b442f8b2a0309f23d694ce8fe49518f"
-    results:
-        - id: "OC1"
-          command: "awk '/async #runManagedOperation\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
-          rationale: "Red today: no #runManagedOperation exists, so awk yields nothing and grep exits 1. Green only when the named executor exists AND owns the lease acquisition. A stub executor that does not acquire fails."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 26
-          output: "\n"
-        - id: "OC2"
-          command: "! awk '/async promptManagedSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
-          rationale: "Red today: promptManagedSession contains the acquisition directly (5 activation calls in its body). Green only when acquisition has actually moved out of it. Paired with OC1 this forces the acquisition into the named executor rather than any other helper, which is the refactor itself."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 19
-          output: "\n"
-        - id: "OC3"
-          command: "! grep -qF 'if (hostedSession.getRootSessionManager?.()) return null;' src/shared/session/session-runtime.js"
-          rationale: "Red today: line 523 is the manager-presence escape that lets an unrelated public call mutate a managed Session whenever any operation has a live manager. Green only when that specific authorization hole is gone."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 17
-          output: "\n"
-        - id: "OC4"
-          command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/managed-operation-boundary.test.ts"
-          rationale: "Red today: the file does not exist, so the runner exits 1. Green requires a test proving a public mutator is rejected while another operation holds the Session with its manager live - behavior that is impossible without real capability-based gating, since today that call is permitted."
-          status: "unmet"
-          stdout: ""
-          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/managed-operation-boundary.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
-          exitCode: 1
-          durationMs: 125
-          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/managed-operation-boundary.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
-        - id: "OC5"
-          command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime-method-policy.test.ts"
-          rationale: "Red today: the file and the policy module do not exist. Green requires every function on SessionRuntime.prototype to carry an explicit classification, enumerated at runtime, plus a self-check that the completeness assertion actually detects an unclassified method."
-          status: "unmet"
-          stdout: ""
-          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/session-runtime-method-policy.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
-          exitCode: 1
-          durationMs: 57
-          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/session-runtime-method-policy.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"

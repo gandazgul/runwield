@@ -34,37 +34,6 @@ objectiveChecks:
     - id: "OC3"
       command: "bash -lc 'set -euo pipefail; plan_out=$(deno run -A scripts/run-tests.js --filter \"objectiveCheckWaivers normalize accepted broken-check evidence only\" src/plan-store.test.js 2>&1); record_out=$(deno run -A scripts/run-tests.js --filter \"Work Record generation includes accepted Objective Check waivers\" src/shared/work-records/work-records.test.js 2>&1); printf \"%s\\n%s\\n\" \"$plan_out\" \"$record_out\"; printf \"%s\\n\" \"$plan_out\" | grep -Eq \"1 passed \\\\| 0 failed\"; printf \"%s\\n\" \"$record_out\" | grep -Eq \"1 passed \\\\| 0 failed\"; grep -q \"objectiveCheckWaivers\" src/plan-front-matter.js; grep -q \"objectiveCheckWaivers\" src/plan-store.js; grep -q \"objectiveCheckWaivers\\|Objective Check Waiver\" src/shared/work-records/generation.js'"
       rationale: "Durable Plan metadata and Work Record generation must carry waiver evidence."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-06T14:24:59.435Z"
-    head: "42fdade59a92236cbe3c8c36e0ee7bdcd634b4f0"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^runValidationLoop asks the user to waive Engineer-reported broken Objective-Failing Checks and preserves other passed validation$\" src/shared/workflow/validation-loop-repair.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"; grep -q \"objectiveCheckWaivers\" src/shared/workflow/validation-mechanical.ts; grep -q \"brokenObjectiveChecks\" src/shared/workflow/validation-mechanical.ts'"
-          rationale: "The validation loop must prove the user judgement path exists in production, not only in a helper."
-          status: "unmet"
-          stdout: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 8 filtered out \u001b[0m\u001b[38;5;245m(3ms)\u001b[0m\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 41567
-          output: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 8 filtered out \u001b[0m\u001b[38;5;245m(3ms)\u001b[0m\n\n"
-        - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^task_completed captures Objective-Failing Check broken reports from execution agents$\" src/tools/__tests__/task-completed.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed \\\\| 0 failed\"; grep -q \"brokenObjectiveChecks\" src/tools/task-completed.ts; grep -q \"brokenObjectiveChecks\" src/shared/session/task-completion-session.ts; grep -q \"brokenObjectiveChecks\" src/shared/workflow/validation-session-adapter.ts'"
-          rationale: "The completion path must expose, persist, and return structured broken-check reports."
-          status: "unmet"
-          stdout: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 13 filtered out \u001b[0m\u001b[38;5;245m(4ms)\u001b[0m\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 1322
-          output: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 13 filtered out \u001b[0m\u001b[38;5;245m(4ms)\u001b[0m\n\n"
-        - id: "OC3"
-          command: "bash -lc 'set -euo pipefail; out=$(deno run -A scripts/run-tests.js --filter \"^Plan front matter and Work Records preserve Objective Check Waivers$\" src/plan-store.test.js src/shared/work-records/work-records.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"2 passed \\\\| 0 failed\"; grep -q \"objectiveCheckWaivers\" src/plan-front-matter.js; grep -q \"objectiveCheckWaivers\" src/plan-store.js; grep -q \"objectiveCheckWaivers\\|Objective Check Waiver\" src/shared/work-records/generation.js'"
-          rationale: "Durable Plan metadata and Work Record generation must carry waiver evidence."
-          status: "unmet"
-          stdout: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 140 filtered out \u001b[0m\u001b[38;5;245m(377ms)\u001b[0m\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 2066
-          output: "\n\u001b[0m\u001b[32mok\u001b[0m | 0 passed | 0 failed | 140 filtered out \u001b[0m\u001b[38;5;245m(377ms)\u001b[0m\n\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T00:42:15-04:00"

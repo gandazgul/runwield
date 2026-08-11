@@ -35,46 +35,6 @@ objectiveChecks:
     - id: "OC4"
       command: "grep -q \"export async function runValidationLoop\" src/shared/workflow/validation-engine.ts && grep -q \"MAX_PHASES_PER_CALL\" src/shared/workflow/validation-engine.ts && grep -q \"createValidationSessionPort\" src/shared/workflow/validation-session-adapter.ts && grep -q \"from \\\"./validation-engine\" src/shared/workflow/validation.ts && ! grep -qE \"async function run(MechanicalValidationPhase|SemanticReviewPhase|HumanReviewPhase|ValidatedReviewerPhase|PublicationPhase)\" src/shared/workflow/validation.ts"
       rationale: "The engine owns the substantive loop body (not a re-export shim), the session adapter is real, the public entry delegates to the engine, and no phase implementation remains defined in validation.ts — a rename-plus-shims counterfeit fails these greps."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-05T03:33:44.297Z"
-    head: "fd5e2eeac6e20d2e9a9f1337d33a4b5f2513cff3"
-    results:
-        - id: "OC1"
-          command: "test \"$(wc -l < src/shared/workflow/validation.ts)\" -lt 1000"
-          rationale: "The 2,482-line monolith is no longer the entry point; this fails today and passes only after validation.ts is reduced below the requested ceiling."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 22
-          output: "\n"
-        - id: "OC2"
-          command: "for f in src/shared/workflow/validation*.ts; do test -f \"$f\" && test \"$(wc -l < \"$f\")\" -lt 1000 || exit 1; done"
-          rationale: "Every validation*.ts module in the directory is under the requested ceiling; the directory glob (not an enumerated list) catches a renamed monolith that keeps a validation-* name regardless of what it is called."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 89
-          output: "\n"
-        - id: "OC3"
-          command: "F=\"validation-ports.ts validation-types.ts validation-engine.ts validation-context.ts validation-mechanical.ts validation-semantic.ts validation-human-review.ts validation-publication.ts validation-merge-repair.ts validation-emit.ts validation-interactions.ts\"; cd src/shared/workflow; for f in $F; do test -f \"$f\" || exit 1; done; ! grep -lE \"@earendil-works|\\.\\./session/\" $F"
-          rationale: "The 11 engine modules exist and none imports Pi packages or ../session/ modules, proving the sequencing/convergence/gate logic is session-independent (the Attached Mode prerequisite)."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC4"
-          command: "grep -q \"export async function runValidationLoop\" src/shared/workflow/validation-engine.ts && grep -q \"MAX_PHASES_PER_CALL\" src/shared/workflow/validation-engine.ts && grep -q \"createValidationSessionPort\" src/shared/workflow/validation-session-adapter.ts && grep -q \"from \\\"./validation-engine\" src/shared/workflow/validation.ts && ! grep -qE \"async function run(MechanicalValidationPhase|SemanticReviewPhase|HumanReviewPhase|ValidatedReviewerPhase|PublicationPhase)\" src/shared/workflow/validation.ts"
-          rationale: "The engine owns the substantive loop body (not a re-export shim), the session adapter is real, the public entry delegates to the engine, and no phase implementation remains defined in validation.ts — a rename-plus-shims counterfeit fails these greps."
-          status: "unmet"
-          stdout: ""
-          stderr: "grep: src/shared/workflow/validation-engine.ts: No such file or directory\n"
-          exitCode: 2
-          durationMs: 36
-          output: "\ngrep: src/shared/workflow/validation-engine.ts: No such file or directory\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:20:19-0400"

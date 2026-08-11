@@ -23,37 +23,6 @@ objectiveChecks:
     - id: "OC3"
       command: "test -s src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery menu outcomes re-prompt without fallthrough' src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery handled and review outcomes exit once' src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery actions preserve live context' src/cmd/load-plan/plan-recovery-flow.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/plan-recovery-flow.test.ts src/cmd/load-plan/index.integration.test.ts src/shared/workflow/architecture-boundary.test.ts"
       rationale: "The required outcome/live-state regressions do not exist on the baseline and must pass with real command recovery and moved architecture enforcement."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-03T18:22:37.824Z"
-    head: "a77c288eac0cab26c41fcbd5a70b7059fb84ef1d"
-    results:
-        - id: "OC1"
-          command: "test \"$(wc -l < src/cmd/load-plan/plan-recovery-flow.ts)\" -lt 400 && for f in src/cmd/load-plan/plan-recovery-actions.ts src/cmd/load-plan/plan-recovery-reset.ts; do test -f \"$f\" && test \"$(wc -l < \"$f\")\" -lt 400 || exit 1; done && test -f src/cmd/load-plan/plan-recovery-merge.ts && test \"$(wc -l < src/cmd/load-plan/plan-recovery-merge.ts)\" -lt 500"
-          rationale: "The current 1,266-line module cannot pass; the requested coordinator/actions/reset/merge split must exist within bounded module sizes."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 8
-          output: "\n"
-        - id: "OC2"
-          command: "a=src/cmd/load-plan/plan-recovery-actions.ts; r=src/cmd/load-plan/plan-recovery-reset.ts; m=src/cmd/load-plan/plan-recovery-merge.ts; c=src/cmd/load-plan/plan-recovery-flow.ts; for f in \"$a\" \"$r\" \"$m\"; do test -f \"$f\" && ! grep -Eq '^[[:space:]]*continue[[:space:]]*;' \"$f\" || exit 1; done && grep -q 'runRecoveryTransition(' \"$a\" && grep -q 'runRecoveryTransition(' \"$r\" && grep -q 'runDirectDeliveryPublicationTransition(' \"$m\" && grep -q 'mergeExecutionWorktree(' \"$m\" && grep -q 'executeReadyPlanWithRepair(' \"$a\" && grep -q 'executeReadyPlanWithRepair(' \"$r\" && grep -q 'validateCompletedExecution(' \"$a\" && ! grep -Eq 'runRecoveryTransition\\(|runDirectDeliveryPublicationTransition\\(|executeReadyPlanWithRepair\\(|validateCompletedExecution\\(|putPlanOnHold\\(|markPlanUserVerified\\(|reopenPlanForReview\\(' \"$c\""
-          rationale: "The expected lifecycle, execution, validation, and publication implementations must reside in their action owners, without old branch-level loop control or substantive actions left in the coordinator."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 3
-          output: "\n"
-        - id: "OC3"
-          command: "test -s src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery menu outcomes re-prompt without fallthrough' src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery handled and review outcomes exit once' src/cmd/load-plan/plan-recovery-flow.test.ts && grep -q 'Plan Recovery actions preserve live context' src/cmd/load-plan/plan-recovery-flow.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/plan-recovery-flow.test.ts src/cmd/load-plan/index.integration.test.ts src/shared/workflow/architecture-boundary.test.ts"
-          rationale: "The required outcome/live-state regressions do not exist on the baseline and must pass with real command recovery and moved architecture enforcement."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 3
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T13:56:14-04:00"

@@ -23,28 +23,6 @@ objectiveChecks:
     - id: "OC2"
       command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" docs/domain-language.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
       rationale: "Requires typed production dispatch and Agent Handler integration, retirement of the temporary rejection, glossary alignment, at least five passing vertical tests, and no new Session machinery seam."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-04T02:29:07.735Z"
-    head: "8bf414d9e168f3ebd6fecc2569c337d38bd9c9ea"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -euo pipefail; base=src/shared/session/backends/claude-cli; test -s \"$base/command.ts\"; test -s \"$base/process.ts\"; test -s \"$base/stream-parser.ts\"; test -s \"$base/execution-session.ts\"; grep -q -- \"--output-format\" \"$base/command.ts\"; grep -q \"Deno.Command\" \"$base/process.ts\"; grep -q \"runwield.execution_backend\" \"$base/execution-session.ts\"; ! grep -q -- \"--resume\" \"$base/command.ts\"; out=$(deno run -A scripts/run-tests.js \"$base/claude-cli-backend.test.ts\" 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([8-9]|[1-9][0-9]+) passed \\\\| 0 failed\"'"
-          rationale: "Requires four non-empty production modules, direct Deno command and stream/persistence markers, no --resume, and at least eight passing backend behavior tests; empty test files or a placeholder module cannot satisfy it."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 12
-          output: "\n"
-        - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; test -s src/shared/session/execution-backend.ts; grep -q \"buildExecutionSession\" src/shared/session/session.js; grep -q \"getRootExecutionMessages\" src/shared/session/agent-handler.ts; ! grep -q \"Claude CLI execution backend is not installed yet\" src/shared/models/model-execution.ts; grep -q \"Execution Backend\" docs/domain-language.md; out=$(deno run -A scripts/run-tests.js src/shared/session/claude-cli-execution.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"([5-9]|[1-9][0-9]+) passed \\\\| 0 failed\"; deno task seams:check'"
-          rationale: "Requires typed production dispatch and Agent Handler integration, retirement of the temporary rejection, glossary alignment, at least five passing vertical tests, and no new Session machinery seam."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 10
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T22:07:46-04:00"

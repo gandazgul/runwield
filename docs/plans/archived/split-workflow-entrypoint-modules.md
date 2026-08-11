@@ -27,37 +27,6 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q 'execution-start.ts' src/shared/workflow/workflow.js && grep -q 'plan-executor.ts' src/shared/workflow/workflow.js && grep -q 'implementation-checkpoint.ts' src/shared/workflow/workflow.js"
       rationale: "This proves workflow.js remains the entry point by delegating to the new execution modules rather than being removed or left disconnected from the split."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-03T01:26:46.840Z"
-    head: "fb8a7a193c08031135de9ed39fc629284106692f"
-    results:
-        - id: "OC1"
-          command: "test \"$(wc -l < src/shared/workflow/workflow.js)\" -lt 1000"
-          rationale: "The request specifically requires workflow.js to stop being the large monolithic file; this fails on the current 1754-line entry point and passes only after it is reduced below the requested ceiling."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 11
-          output: "\n"
-        - id: "OC2"
-          command: "for f in src/shared/workflow/workflow.js src/shared/workflow/execution-collaboration.ts src/shared/workflow/objective-checks-baseline.ts src/shared/workflow/planning-agent.ts src/shared/workflow/implementation-checkpoint.ts src/shared/workflow/plan-executor.ts src/shared/workflow/engineer-runner.ts src/shared/workflow/execution-start.ts; do test -f \"$f\" && test \"$(wc -l < \"$f\")\" -lt 1000 || exit 1; done"
-          rationale: "This can only pass when the planned cohesive split files exist and every file produced by the split is under 1000 lines."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 7
-          output: "\n"
-        - id: "OC3"
-          command: "grep -q 'execution-start.ts' src/shared/workflow/workflow.js && grep -q 'plan-executor.ts' src/shared/workflow/workflow.js && grep -q 'implementation-checkpoint.ts' src/shared/workflow/workflow.js"
-          rationale: "This proves workflow.js remains the entry point by delegating to the new execution modules rather than being removed or left disconnected from the split."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 9
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:03:40-04:00"

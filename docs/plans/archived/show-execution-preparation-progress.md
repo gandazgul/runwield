@@ -22,37 +22,6 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q \"load-plan proceed surfaces execution preparation progress\" src/cmd/load-plan/load-plan-execution.test.js && deno run -A scripts/run-tests.js src/cmd/load-plan/load-plan-execution.test.js"
       rationale: "The load-plan Proceed with execution path lacks assertions for visible preparation messages today; this passes only when that user flow is covered and passing."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-03T01:43:22.059Z"
-    head: "fb8a7a193c08031135de9ed39fc629284106692f"
-    results:
-        - id: "OC1"
-          command: "test -f src/shared/workflow/execution-preparation-progress.ts && test -f src/shared/workflow/execution-progress.test.ts && grep -q \"execution preparation progress\" src/shared/workflow/execution-progress.test.ts && grep -q \"running Plan Objective-Failing Check baseline\" src/shared/workflow/execution-preparation-progress.ts && deno run -A scripts/run-tests.js src/shared/workflow/execution-progress.test.ts"
-          rationale: "The workflow progress helper and targeted tests do not exist today; this passes only when execution-preparation checkpoint output is implemented and covered."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 8
-          output: "\n"
-        - id: "OC2"
-          command: "grep -Fq \"uiAPI.setBusy?.(true)\" src/ui/tui/runtime-interaction-adapter.js && grep -q \"Plan Review restores busy before Approve & Run execution resumes\" src/ui/tui/runtime-interaction-adapter.test.js && deno run -A scripts/run-tests.js src/ui/tui/runtime-interaction-adapter.test.js"
-          rationale: "Approve & Run currently leaves the TUI busy spinner paused after Plan Review; this passes only when the adapter restores busy and the regression test passes."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 11
-          output: "\n"
-        - id: "OC3"
-          command: "grep -q \"load-plan proceed surfaces execution preparation progress\" src/cmd/load-plan/load-plan-execution.test.js && deno run -A scripts/run-tests.js src/cmd/load-plan/load-plan-execution.test.js"
-          rationale: "The load-plan Proceed with execution path lacks assertions for visible preparation messages today; this passes only when that user flow is covered and passing."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 13
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-02T21:34:25-04:00"
