@@ -155,6 +155,10 @@ export async function runContextCommand(_argv, options = {}) {
         uiAPI.appendSystemMessage("Error: No active Agent Session context is available yet.");
         return;
     }
+    if (report && typeof report === "object" && report.ok === false) {
+        uiAPI.appendSystemMessage(`Error: Context report is unavailable (${report.error || "managed_read_blocked"}).`);
+        return;
+    }
 
     uiAPI.appendSystemMessage(formatContextReport(report));
 }

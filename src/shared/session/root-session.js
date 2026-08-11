@@ -165,43 +165,103 @@ export async function classifyRootSessionLocator(options) {
         return { kind: "blocked", reason: "invalid_cwd" };
     }
     const store = options.ownerCoordinationStore || null;
-    if (!store) return { kind: "unmanaged_proven", reason: "owner_coordination_absent" };
+    if (!store) return { kind: "blocked", reason: "owner_coordination_unavailable" };
     let realCwd;
     try {
         realCwd = await Deno.realPath(options.cwd);
     } catch {
-        return { kind: "blocked", reason: "cwd_unresolved" };
+        realCwd = resolve(options.cwd);
+    }
+    const projects = store.listProjects();
+    if (projects.length === 0) {
+        return { kind: "unmanaged_proven", reason: "owner_coordination_no_registered_projects" };
     }
     /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
-    const containingProjects = [];
-    for (const project of store.listProjects()) {
+    const currentProjects = [];
+    /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
+    const historicalProjects = [];
+    for (const project of projects) {
         const roots = store.listProjectRootEvidence(project.projectId);
-        if (roots.some((root) => isSameOrInsidePath(realCwd, root.canonicalRoot))) {
-            containingProjects.push(project);
+        if (
+            roots.some((root) =>
+                root.rootState === "current" &&
+                (isSameOrInsidePath(realCwd, root.canonicalRoot) ||
+                    isSameOrInsidePath(resolve(options.cwd), root.enteredRoot))
+            )
+        ) {
+            currentProjects.push(project);
+        }
+        if (
+            roots.some((root) =>
+                root.rootState === "historical" &&
+                (isSameOrInsidePath(realCwd, root.canonicalRoot) ||
+                    isSameOrInsidePath(resolve(options.cwd), root.enteredRoot))
+            )
+        ) {
+            historicalProjects.push(project);
         }
     }
-    if (containingProjects.length > 1) return { kind: "blocked", reason: "locator_conflict" };
-    const project = containingProjects[0] || null;
-    if (!project) return { kind: "unmanaged_proven", reason: "no_managed_project_root" };
+    if (currentProjects.length > 1 || historicalProjects.length > 1) {
+        return { kind: "blocked", reason: "locator_conflict" };
+    }
+    if (currentProjects.length === 0 && historicalProjects.length > 0) {
+        return { kind: "blocked", reason: "historical_project_root" };
+    }
+    const project = currentProjects[0] || null;
+    if (!project) return { kind: "blocked", reason: "owner_coordination_project_evidence_absent" };
+    const requestedCwd = resolve(options.cwd);
+    const currentRoots = store.listProjectRootEvidence(project.projectId)
+        .filter((root) =>
+            root.rootState === "current" &&
+            (isSameOrInsidePath(realCwd, root.canonicalRoot) || isSameOrInsidePath(requestedCwd, root.enteredRoot))
+        );
+    if (
+        currentRoots.some((root) =>
+            resolve(realCwd) !== resolve(root.canonicalRoot) && requestedCwd !== resolve(root.enteredRoot)
+        )
+    ) {
+        return { kind: "blocked", reason: "nested_project_root" };
+    }
     if (project.lifecycle !== "enabled") return { kind: "blocked", reason: "project_not_enabled" };
     try {
         store.requireEnabledProjectRoot(project.projectId);
     } catch {
         return { kind: "blocked", reason: "project_root_unavailable" };
     }
+    const protocolStatus = store.getActivationProtocolStatus();
+    if (!protocolStatus.enabled) {
+        const reason = protocolStatus.state === "epoch_mismatch"
+            ? "activation_protocol_epoch_mismatch"
+            : protocolStatus.state === "unsupported_version" || protocolStatus.state === "invalid_marker"
+            ? "activation_protocol_marker_mismatch"
+            : `activation_protocol_${protocolStatus.state}`;
+        return { kind: "blocked", reason };
+    }
     if (!options.sessionPath && !options.sessionId) {
         return { kind: "managed", project: { projectId: project.projectId, cwd: realCwd } };
     }
-    if (!options.sessionPath) return { kind: "blocked", reason: "session_path_required" };
+    if (!options.sessionPath && options.sessionId) {
+        const cataloged = store.findSessionByLocator({ projectId: project.projectId, piSessionId: options.sessionId });
+        if (!cataloged) return { kind: "blocked", reason: "session_path_required" };
+        const inspected = store.inspectSessionActivation(cataloged.runwieldSessionId);
+        if (!inspected.activation) return { kind: "blocked", reason: "missing_activation_row" };
+        return { kind: "managed", session: cataloged, project: { projectId: project.projectId, cwd: realCwd } };
+    }
     let locator;
     try {
-        locator = await readCatalogSafeRootSessionLocator({ cwd: options.cwd, sessionPath: options.sessionPath });
+        locator = await readCatalogSafeRootSessionLocator({
+            cwd: options.cwd,
+            sessionPath: String(options.sessionPath),
+        });
     } catch {
         return { kind: "blocked", reason: "invalid_transcript_locator" };
     }
     const byPath = store.findSessionByLocator({ transcriptPath: locator.sessionPath });
     const byPi = store.findSessionByLocator({ projectId: project.projectId, piSessionId: locator.piSessionId });
     if (byPath && byPi && byPath.runwieldSessionId !== byPi.runwieldSessionId) {
+        return { kind: "blocked", reason: "locator_conflict" };
+    }
+    if (byPi && byPi.transcriptPath !== locator.sessionPath) {
         return { kind: "blocked", reason: "locator_conflict" };
     }
     let session = byPath || byPi || null;
@@ -222,6 +282,8 @@ export async function classifyRootSessionLocator(options) {
     }
     if (!session) return { kind: "blocked", reason: "session_not_cataloged" };
     if (session.projectId !== project.projectId) return { kind: "blocked", reason: "locator_conflict" };
+    const inspected = store.inspectSessionActivation(session.runwieldSessionId);
+    if (!inspected.activation) return { kind: "blocked", reason: "missing_activation_row" };
     return { kind: "managed", session, project: { projectId: project.projectId, cwd: realCwd }, locator };
 }
 

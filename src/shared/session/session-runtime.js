@@ -42,6 +42,7 @@ import {
 } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import {
+    buildProjectedSessionContextProjection,
     buildProjectedSessionInfo,
     captureTranscriptEvidence,
     createReplayEvents as createProjectedReplayEvents,
@@ -61,6 +62,7 @@ import {
 } from "./image-attachments.js";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
+import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -1631,13 +1633,20 @@ export class SessionRuntime {
         return { ok: true };
     }
 
-    /** @param {string} sessionId */
+    /**
+     * @param {string} sessionId
+     * @returns {Promise<any>}
+     */
     async getLastAssistantText(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         const managed = session?.getManagedMetadata?.() || null;
         if (managed && !session?.getRootSessionManager?.()) {
             const projected = await this.#readManagedCommittedProjection(sessionId);
-            return projected.ok ? getProjectedLastAssistantText(projected.entries) : null;
+            return projected.ok ? getProjectedLastAssistantText(projected.entries) : {
+                ok: false,
+                error: projected.error,
+                message: projected.message,
+            };
         }
         const messages = /** @type {any[]} */ (
             /** @type {any} */ (session?.getRootAgentSession())?.agent?.state?.messages || []
@@ -1655,7 +1664,10 @@ export class SessionRuntime {
         return null;
     }
 
-    /** @param {string} sessionId */
+    /**
+     * @param {string} sessionId
+     * @returns {Promise<any>}
+     */
     async getSessionInfo(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
@@ -1669,7 +1681,7 @@ export class SessionRuntime {
                     cwd: session.cwd,
                     transcriptPath: managed.transcriptPath,
                 })
-                : null;
+                : { ok: false, error: projected.error, message: projected.message };
         }
         const entries = manager?.getEntries?.() || [];
         const info = buildProjectedSessionInfo(entries, {
@@ -1684,12 +1696,28 @@ export class SessionRuntime {
         return info;
     }
 
-    /** @param {string} sessionId */
-    getSessionContextReport(sessionId) {
+    /**
+     * @param {string} sessionId
+     * @returns {Promise<any>}
+     */
+    async getSessionContextReport(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
         if (session.getManagedMetadata?.() && !session.getRootSessionManager?.()) {
-            return null;
+            const projected = await this.#readManagedCommittedProjection(sessionId);
+            if (!projected.ok) return { ok: false, error: projected.error, message: projected.message };
+            const info = buildProjectedSessionInfo(projected.entries, {
+                sessionId,
+                cwd: session.cwd,
+                transcriptPath: session.getManagedMetadata?.()?.transcriptPath,
+            });
+            return buildSessionContextReport({
+                projection: buildProjectedSessionContextProjection(projected.entries),
+                contextUsage: null,
+                activeMessageTokens: info.inputTokens + info.outputTokens + info.cacheReadTokens +
+                    info.cacheWriteTokens,
+                contextWindow: null,
+            });
         }
         const projection = getRootSessionContextProjection(session);
         if (!projection) return null;
@@ -1721,6 +1749,9 @@ export class SessionRuntime {
         if (!cwd || !isAbsolute(cwd)) {
             throw new Error("SessionRuntime.listResumableSessions requires an absolute cwd");
         }
+        if (!this.#ownerCoordinationStore) {
+            return { ok: false, error: "owner_coordination_unavailable", sessions: [] };
+        }
         const classified = await classifyRootSessionLocator({
             cwd,
             ownerCoordinationStore: this.#ownerCoordinationStore,
@@ -1737,7 +1768,9 @@ export class SessionRuntime {
                 name: undefined,
             }));
         }
-        if (classified.kind === "blocked") return [];
+        if (classified.kind === "blocked") {
+            return { ok: false, error: classified.reason || "managed_read_blocked", sessions: [] };
+        }
         return await listPersistedRootSessions(cwd);
     }
 
@@ -1768,6 +1801,15 @@ export class SessionRuntime {
      * @param {{ cwd: string, sessionId: string, sessionPath?: string }} options
      */
     async inspectResumableSession(options) {
+        if (!this.#ownerCoordinationStore) {
+            return {
+                estimatedTokens: 0,
+                messageCount: 0,
+                model: null,
+                ok: false,
+                error: "owner_coordination_unavailable",
+            };
+        }
         const classified = await classifyRootSessionLocator({
             cwd: options.cwd,
             sessionId: options.sessionId,
@@ -2714,10 +2756,14 @@ export class SessionRuntime {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
             throw new Error("SessionRuntime.createInteractiveSession requires an absolute cwd");
         }
-        if (this.#ownerCoordinationStore && (options.mode || "new") === "continue") {
+        const ownerCoordinationStore = this.#ownerCoordinationStore;
+        if (!ownerCoordinationStore) {
+            throw new Error("Session Manager access is blocked: owner_coordination_unavailable");
+        }
+        if ((options.mode || "new") === "continue") {
             const classified = await classifyRootSessionLocator({
                 cwd: options.cwd,
-                ownerCoordinationStore: this.#ownerCoordinationStore,
+                ownerCoordinationStore,
             });
             if (classified.kind === "blocked") {
                 throw new Error(`Managed Session continue is blocked: ${classified.reason}`);
@@ -2746,11 +2792,27 @@ export class SessionRuntime {
                 };
             }
         }
-        const managedProject = this.#shouldUseManagedActivation(options) && (options.mode || "new") === "new"
+        const requestedManagedNew = this.#shouldUseManagedActivation(options) && (options.mode || "new") === "new";
+        const creationClassification = await classifyRootSessionLocator({
+            cwd: options.cwd,
+            ownerCoordinationStore,
+        });
+        if (creationClassification.kind === "blocked") {
+            throw new Error(`Session Manager create is blocked: ${creationClassification.reason}`);
+        }
+        if (creationClassification.kind === "managed" && !requestedManagedNew) {
+            throw new Error("Session Manager create is blocked: managed_activation_required");
+        }
+        if (creationClassification.kind === "unmanaged_proven" && requestedManagedNew) {
+            throw new Error("Session Manager create is blocked: managed_project_unavailable");
+        }
+        const managedProject = requestedManagedNew && creationClassification.kind === "managed"
             ? this.#findEnabledManagedProjectForCwd(options.cwd)
             : null;
-        const ownerCoordinationStore = this.#ownerCoordinationStore;
-        if (managedProject) ownerCoordinationStore?.requireActivationProtocolEnabled();
+        if (requestedManagedNew && creationClassification.kind === "managed" && !managedProject) {
+            throw new Error("Session Manager create is blocked: managed_project_unavailable");
+        }
+        if (managedProject) ownerCoordinationStore.requireActivationProtocolEnabled();
         const deferManagedCreation = Boolean(
             managedProject && ownerCoordinationStore && options.deferManagedActivationUntilAgentReady,
         );
@@ -2863,18 +2925,27 @@ export class SessionRuntime {
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
         }
-        if (this.#ownerCoordinationStore && this.#shouldUseManagedActivation(options)) {
-            const classified = await classifyRootSessionLocator({
-                cwd: options.cwd,
-                sessionId: options.sessionId,
-                sessionPath: options.sessionPath,
-                ownerCoordinationStore: this.#ownerCoordinationStore,
-            });
-            if (classified.kind === "blocked") throw new Error(`Managed Session load is blocked: ${classified.reason}`);
-            if (classified.kind === "managed" && classified.session) {
+        const ownerCoordinationStore = this.#ownerCoordinationStore;
+        if (!ownerCoordinationStore) {
+            throw new Error("Session Manager load is blocked: owner_coordination_unavailable");
+        }
+        const classified = await classifyRootSessionLocator({
+            cwd: options.cwd,
+            sessionId: options.sessionId,
+            sessionPath: options.sessionPath,
+            ownerCoordinationStore,
+        });
+        if (classified.kind === "blocked") {
+            throw new Error(`Session Manager load is blocked: ${classified.reason}`);
+        }
+        if (classified.kind === "managed") {
+            if (!this.#shouldUseManagedActivation(options)) {
+                throw new Error("Session Manager load is blocked: managed_activation_required");
+            }
+            if (classified.session) {
                 const managedSession = classified.session;
-                this.#ownerCoordinationStore.requireActivationProtocolEnabled();
-                const inspected = this.#ownerCoordinationStore.inspectSessionActivation(
+                ownerCoordinationStore.requireActivationProtocolEnabled();
+                const inspected = ownerCoordinationStore.inspectSessionActivation(
                     managedSession.runwieldSessionId,
                 );
                 if (!inspected.generation) throw new Error("Managed Session requires bootstrap before load.");
@@ -3261,7 +3332,7 @@ export class SessionRuntime {
 export function createSessionRuntime(options = {}) {
     return new SessionRuntime({
         sessionHost: new SessionHost(),
-        ownerCoordinationStore: options.ownerCoordinationStore ?? null,
+        ownerCoordinationStore: options.ownerCoordinationStore ?? openOwnerCoordinationStore(),
         ownerProcessKind: options.ownerProcessKind ?? "test",
         ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
     });

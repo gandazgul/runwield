@@ -23,6 +23,10 @@ export async function runSessionCommand(_argv, options = {}) {
         uiAPI.appendSystemMessage("Error: No active session.");
         return;
     }
+    if (info && typeof info === "object" && info.ok === false) {
+        uiAPI.appendSystemMessage(`Error: Session info is unavailable (${info.error || "managed_read_blocked"}).`);
+        return;
+    }
 
     const {
         compactionCount,

@@ -202,7 +202,7 @@ function makeRuntime(options = {}) {
     ensureRuntimeModelFixture();
     return new SessionRuntime({
         sessionHost: options.sessionHost ?? new SessionHost(),
-        ownerCoordinationStore: null,
+        ownerCoordinationStore: openOwnerCoordinationStore(),
         ownerProcessKind: "test",
         ownerInstanceId: crypto.randomUUID(),
     });
@@ -395,6 +395,26 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
     );
 });
 
+Deno.test("SessionRuntime blocks Pi-backed create and load when owner coordination is absent", async () => {
+    ensureRuntimeModelFixture();
+    const runtime = new SessionRuntime({
+        sessionHost: new SessionHost(),
+        ownerCoordinationStore: null,
+        ownerProcessKind: "test",
+        ownerInstanceId: crypto.randomUUID(),
+    });
+    await assertRejects(
+        () => runtime.createInteractiveSession({ cwd: runtimeProjectRoot(), mode: "new" }),
+        Error,
+        "owner_coordination_unavailable",
+    );
+    await assertRejects(
+        () => runtime.loadSession({ cwd: runtimeProjectRoot(), sessionId: "persisted" }),
+        Error,
+        "owner_coordination_unavailable",
+    );
+});
+
 Deno.test("SessionRuntime keeps dormant managed image persistence read-only but allows live manager paste", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
@@ -505,6 +525,7 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                 });
                 assertEquals(typeof created.sessionManagerId, "string");
                 const persisted = await runtime.listResumableSessions(cwd);
+                if (!Array.isArray(persisted)) throw new Error(persisted.error);
                 assertEquals(persisted.some((session) => session.id === created.sessionManagerId), true);
 
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
@@ -522,7 +543,7 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
     });
 });
 
-Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projects unless managed activation is explicit", async () => {
+Deno.test("SessionRuntime blocks legacy create in registered Projects unless managed activation is explicit", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const home = await Deno.makeTempDir({ prefix: "runwield-runtime-unmanaged-registered-project-" });
@@ -540,12 +561,11 @@ Deno.test("SessionRuntime creates normal unmanaged sessions in registered Projec
                 ownerInstanceId: "runtime-test-owner",
             });
             try {
-                const created = await runtime.createInteractiveSession({ cwd, mode: "new" });
-                assertEquals(typeof created.sessionManagerId, "string");
-                await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
-                const snapshot = runtime.getSessionSnapshot(created.sessionId);
-                assertEquals(snapshot?.managed, null);
-                assertEquals(snapshot?.sessionManagerId, created.sessionManagerId);
+                await assertRejects(
+                    () => runtime.createInteractiveSession({ cwd, mode: "new" }),
+                    Error,
+                    "managed_activation_required",
+                );
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }
@@ -1906,7 +1926,7 @@ Deno.test("SessionRuntime emits canceled lifecycle for an already-aborted intera
     assertEquals(types, [RuntimeEventTypes.INTERACTION_REQUESTED, RuntimeEventTypes.INTERACTION_CANCELED]);
 });
 
-Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless managed activation is explicit", async () => {
+Deno.test("SessionRuntime blocks cataloged managed transcripts unless managed activation is explicit", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const home = await Deno.makeTempDir({ prefix: "runwield-runtime-load-cataloged-unmanaged-" });
@@ -1958,11 +1978,11 @@ Deno.test("SessionRuntime loads cataloged transcripts as normal sessions unless 
                 ownerInstanceId: "runtime-test-owner",
             });
             try {
-                const result = await runtime.loadSession({ cwd, sessionId: piSessionId, sessionPath: transcriptPath });
-                const snapshot = runtime.getSessionSnapshot(result.sessionId);
-                assertEquals(snapshot?.managed, null);
-                assertEquals(snapshot?.sessionManagerId, piSessionId);
-                assertEquals(snapshot?.activeAgent, "planner");
+                await assertRejects(
+                    () => runtime.loadSession({ cwd, sessionId: piSessionId, sessionPath: transcriptPath }),
+                    Error,
+                    "managed_activation_required",
+                );
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }

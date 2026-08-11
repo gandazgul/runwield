@@ -585,6 +585,11 @@ export function inspectProjectedTranscript(entries) {
     };
 }
 
+/** @param {string} text @returns {number} */
+function estimateProjectedTextTokens(text) {
+    return text ? Math.ceil(text.length / 4) : 0;
+}
+
 /** @param {unknown[]} entries @param {{ sessionId: string, cwd: string, transcriptPath?: string }} options */
 export function buildProjectedSessionInfo(entries, options) {
     const summary = summarizeProjectedEntries(entries);
@@ -628,6 +633,33 @@ export function buildProjectedSessionInfo(entries, options) {
         }
     }
     return info;
+}
+
+/**
+ * @param {unknown[]} entries
+ * @returns {import('./session-context-report.js').SessionContextProjection}
+ */
+export function buildProjectedSessionContextProjection(entries) {
+    let tokens = 0;
+    for (const entry of entries) {
+        const value = /** @type {{ type?: string, message?: { content?: unknown } }} */ (entry || {});
+        if (value.type !== "message" || !value.message) continue;
+        tokens += estimateProjectedTextTokens(projectedDisplayText(value.message.content));
+    }
+    const categories = tokens > 0
+        ? [{
+            id: /** @type {import('./session-context-report.js').ContextCategoryId} */ ("conversation_overhead"),
+            label: "Committed conversation",
+            tokens,
+            items: [],
+        }]
+        : [];
+    return {
+        categories,
+        instructionFiles: [],
+        skills: [],
+        staticTokens: 0,
+    };
 }
 
 /** @param {unknown[]} entries */

@@ -13,12 +13,12 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-10T18:33:16-04:00"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07a-fenced-session-operation-boundary"
+status: "validated_reviewer"
 ---
 
 # Non-Mutating Managed Read Paths
