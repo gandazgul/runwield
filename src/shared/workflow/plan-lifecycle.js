@@ -478,6 +478,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.status = "user_verified";
         updates.userVerifiedAt = now;
         updates.userVerificationNote = note;
+        updates.objectiveChecksBaseline = undefined;
     }
 
     if (event === "plan_held") {
@@ -644,6 +645,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = now;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.objectiveChecksBaseline = undefined;
         updates.epicCompletionMode = "done_enough";
         updates.epicDoneEnoughAt = now;
         updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
@@ -690,6 +692,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = now;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.objectiveChecksBaseline = undefined;
         if (Object.hasOwn(details, "humanReviewMode")) updates.humanReviewMode = details.humanReviewMode;
         if (Object.hasOwn(details, "humanReviewDecision")) updates.humanReviewDecision = details.humanReviewDecision;
         if (Object.hasOwn(details, "humanReviewedAt")) updates.humanReviewedAt = details.humanReviewedAt ?? null;
