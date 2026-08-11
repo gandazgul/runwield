@@ -293,6 +293,46 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
+Deno.test("Objective-Failing Checks follow-up pauses validation until Engineer completes", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
+    await withIncompleteRepairModel(
+        "validation-repair-objective-follow-up-",
+        { classification: "PLANNED_CHANGE", validationCiAttempts: 2, objectiveChecks },
+        async ({ projectRoot, hostedSession, uiAPI, prompts }) => {
+            const offeredOptions = /** @type {string[]} */ ([]);
+            selectAndCaptureOptions(uiAPI, offeredOptions, "engineer_follow_up");
+            let ciRuns = 0;
+
+            const result = await runValidationLoop({
+                hostedSession,
+                planName: "p",
+                planContent: "# p",
+                triageMeta: {
+                    classification: "PLANNED_CHANGE",
+                    status: "implemented",
+                    validationCiAttempts: 2,
+                    objectiveChecks,
+                },
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+                localCI: {
+                    run: () => {
+                        ciRuns += 1;
+                        return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                    },
+                },
+            });
+
+            assertEquals(result.kind, "paused");
+            assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
+            assertEquals(ciRuns, 1);
+            assertEquals(prompts.length, 0);
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+            assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
+        },
+    );
+});
+
 Deno.test("Retry after the CI rounds run out runs the tests again and carries on", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",

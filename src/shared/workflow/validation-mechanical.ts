@@ -468,6 +468,7 @@ function pauseForEngineerFollowUp(
         reason: `Mechanical Validation paused for ${
             args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
         } follow-up. ${reason}`,
+        awaitingTaskCompletion: true,
     };
 }
 
