@@ -1,4 +1,5 @@
 ---
+planId: "2e4629e3-68d1-4236-8c2b-f41ea200cc9c"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "HIGH"
@@ -11,16 +12,96 @@ affectedPaths:
     - "src/shared/session/session-host.js"
     - "src/shared/owner-coordination/session-activations.js"
     - "src/shared/owner-coordination/index.js"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+objectiveChecks:
+    - id: "OC1"
+      command: "awk '/async #runManagedOperation\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
+      rationale: "Red today: no #runManagedOperation exists, so awk yields nothing and grep exits 1. Green only when the named executor exists AND owns the lease acquisition. A stub executor that does not acquire fails."
+    - id: "OC2"
+      command: "! awk '/async promptManagedSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
+      rationale: "Red today: promptManagedSession contains the acquisition directly (5 activation calls in its body). Green only when acquisition has actually moved out of it. Paired with OC1 this forces the acquisition into the named executor rather than any other helper, which is the refactor itself."
+    - id: "OC3"
+      command: "! grep -qF 'if (hostedSession.getRootSessionManager?.()) return null;' src/shared/session/session-runtime.js"
+      rationale: "Red today: line 523 is the manager-presence escape that lets an unrelated public call mutate a managed Session whenever any operation has a live manager. Green only when that specific authorization hole is gone."
+    - id: "OC4"
+      command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/managed-operation-boundary.test.ts"
+      rationale: "Red today: the file does not exist, so the runner exits 1. Green requires a test proving a public mutator is rejected while another operation holds the Session with its manager live - behavior that is impossible without real capability-based gating, since today that call is permitted."
+    - id: "OC5"
+      command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime-method-policy.test.ts"
+      rationale: "Red today: the file and the policy module do not exist. Green requires every function on SessionRuntime.prototype to carry an explicit classification, enumerated at runtime, plus a self-check that the completeness assertion actually detects an unclassified method."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-11T00:22:19.691Z"
+    head: "5a1f2eb50b442f8b2a0309f23d694ce8fe49518f"
+    results:
+        - id: "OC1"
+          command: "awk '/async #runManagedOperation\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
+          rationale: "Red today: no #runManagedOperation exists, so awk yields nothing and grep exits 1. Green only when the named executor exists AND owns the lease acquisition. A stub executor that does not acquire fails."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 26
+          output: "\n"
+        - id: "OC2"
+          command: "! awk '/async promptManagedSession\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'acquireSessionActivation'"
+          rationale: "Red today: promptManagedSession contains the acquisition directly (5 activation calls in its body). Green only when acquisition has actually moved out of it. Paired with OC1 this forces the acquisition into the named executor rather than any other helper, which is the refactor itself."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 19
+          output: "\n"
+        - id: "OC3"
+          command: "! grep -qF 'if (hostedSession.getRootSessionManager?.()) return null;' src/shared/session/session-runtime.js"
+          rationale: "Red today: line 523 is the manager-presence escape that lets an unrelated public call mutate a managed Session whenever any operation has a live manager. Green only when that specific authorization hole is gone."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 17
+          output: "\n"
+        - id: "OC4"
+          command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/managed-operation-boundary.test.ts"
+          rationale: "Red today: the file does not exist, so the runner exits 1. Green requires a test proving a public mutator is rejected while another operation holds the Session with its manager live - behavior that is impossible without real capability-based gating, since today that call is permitted."
+          status: "unmet"
+          stdout: ""
+          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/managed-operation-boundary.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+          exitCode: 1
+          durationMs: 125
+          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/managed-operation-boundary.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+        - id: "OC5"
+          command: "deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime-method-policy.test.ts"
+          rationale: "Red today: the file and the policy module do not exist. Green requires every function on SessionRuntime.prototype to carry an explicit classification, enumerated at runtime, plus a self-check that the completeness assertion actually detects an unclassified method."
+          status: "unmet"
+          stdout: ""
+          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/session-runtime-method-policy.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+          exitCode: 1
+          durationMs: 57
+          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: Deno cache prewarm failed:\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Import 'file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/src/shared/session/session-runtime-method-policy.test.ts' failed, not found.\n\n    throw new Error(`Deno cache prewarm failed:\\n${output}`);\n\u001b[0m\u001b[31m          ^\u001b[0m\n    at \u001b[0m\u001b[1m\u001b[3mprewarmDenoDir\u001b[0m (\u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m108\u001b[0m:\u001b[0m\u001b[33m11\u001b[0m)\n    at async \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07a-fenced-session--f743dd97/\u001b[0m\u001b[0m\u001b[36mscripts/run-tests.js\u001b[0m:\u001b[0m\u001b[33m202\u001b[0m:\u001b[0m\u001b[33m9\u001b[0m\n"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-status: "draft"
+updatedAt: "2026-08-11T02:31:54.303Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "06-read-only-transcript-projection-and-idle-tui-sync"
+implementedAt: "2026-08-11T01:43:29.877Z"
+verifiedAt: "2026-08-11T02:31:54.303Z"
+userVerifiedAt: null
+executionReport: "- Implemented 07a fenced managed-operation boundary: added `ManagedOperationCapability`, private `async #runManagedOperation(...)`, capability-scoped managed state, and reduced `promptManagedSession()` to the executor path.\n- Hardened managed mutation checks: removed manager-presence authorization, added `managed_operation_in_progress`, fenced HostedSession writable manager/Agent state, cleared capability on dehydration, and added stable RunWield Session ID uniqueness in `SessionHost`.\n- Hardened owner coordination: added proof-taking reconcile transition and proof-fenced `markSessionUncertain` behavior so stale proofs cannot poison newer activations.\n- Added complete `SessionRuntime` method-policy map and drift test; added focused boundary, HostedSession, SessionHost, owner-coordination, and updated source-order tests. Test coverage increased; no tests were deleted. Existing tests rewritten only where they asserted the old manager-presence behavior or the old prompt body location.\n- Verification passed: Objective Checks OC1–OC5, targeted `deno run -A scripts/run-tests.js -A --no-check src/shared/session src/shared/owner-coordination`, and full `deno task ci` (259 files passed)."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "d1776b342d7d7ee2c76be699ce4ab246afd50807"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "5a1f2eb50b442f8b2a0309f23d694ce8fe49518f"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Fenced Session Operation Boundary
@@ -146,7 +227,8 @@ operation so a later phase change or publication cannot be mistaken for success.
       `ManagedOperationName` union whose only member in this slice is `"prompt"`. The capability class carries the
       Runtime Session ID, stable RunWield Session ID, operation ID, current activation proof, and a settled flag, and
       exposes no constructor path that a `SessionRuntime` consumer can reach.
-- [ ] `SessionRuntime` has a private `#runManagedOperation(sessionId, descriptor, body)` that performs, in order:
+- [ ] `SessionRuntime` declares `async #runManagedOperation(sessionId, descriptor, body)` — that exact name and that
+      exact `async` form, because the Objective-Failing Checks anchor on it — and it performs, in order:
       expected-generation comparison, `acquireSessionActivation`, exact transcript evidence comparison against the
       committed generation, heartbeat start, `hydrated` phase, manager open, Agent activation, `turning` phase, the
       supplied body, `checkpointing` phase, dehydration, `syncTranscriptFileAndParent`, evidence capture,
@@ -166,7 +248,7 @@ operation so a later phase change or publication cannot be mistaken for success.
       fails when any function-valued own property other than `constructor` is absent from the map. The test also proves
       it detects drift: it adds a temporary method to a subclass or a copied prototype descriptor list and asserts the
       completeness assertion fails for it.
-- [ ] `src/shared/session/managed-operation-boundary.test.js` proves re-entry rejection against real machinery: with a
+- [ ] `src/shared/session/managed-operation-boundary.test.ts` proves re-entry rejection against real machinery: with a
       managed Session hydrated and a `prompt` operation in flight (its manager live), a public managed mutator called
       from outside that operation is rejected with the re-entry error and performs no Pi write. The same call succeeds
       when no operation is in flight and the family is converted, and the test fails if the rejection is driven by
