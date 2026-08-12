@@ -76,7 +76,7 @@ async function runCiRepair({ reportCompletion }: RepairRunOptions) {
     );
 }
 
-async function runBrokenObjectiveCheck(selection = "stop") {
+async function runBrokenObjectiveCheck(selection = "reject") {
     return await withRuntimeCommandFixture(
         "validation-broken-objective-",
         async () => {
@@ -405,10 +405,10 @@ Deno.test("PLANNED_CHANGE objective repair continues after Engineer calls task_c
     assertEquals(run.plan?.attrs.status, "verified");
 });
 
-Deno.test("Engineer-reported broken objective check passes validation when rerun passes", async () => {
+Deno.test("Engineer-reported broken objective check can still pass after repair without a durable report", async () => {
     const run = await runEngineerReportedBrokenRepairThatNowPasses();
 
-    assertEquals(run.ciRuns, 1);
+    assertEquals(run.ciRuns, 2);
     assertEquals(run.result.kind, "verified");
     assertEquals(run.plan?.attrs.status, "verified");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers, undefined);

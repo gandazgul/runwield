@@ -35,6 +35,69 @@ import {
 
 export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
+/**
+ * Front Matter fields an execution-time Plan Amendment can propose during validation.
+ * The Plan body is also part of the definition projection, but it is not Front Matter.
+ */
+export const PLAN_AMENDMENT_DEFINITION_KEYS = Object.freeze([
+    PLAN_FRONT_MATTER_KEYS.workKind,
+    PLAN_FRONT_MATTER_KEYS.complexity,
+    PLAN_FRONT_MATTER_KEYS.summary,
+    PLAN_FRONT_MATTER_KEYS.affectedPaths,
+    PLAN_FRONT_MATTER_KEYS.objectiveChecks,
+    PLAN_FRONT_MATTER_KEYS.tickets,
+    PLAN_FRONT_MATTER_KEYS.frontend,
+    PLAN_FRONT_MATTER_KEYS.devServerCommand,
+    PLAN_FRONT_MATTER_KEYS.devServerUrl,
+    PLAN_FRONT_MATTER_KEYS.devServerHmr,
+]);
+
+/** Front Matter fields that require a fresh Plan review instead of hot validation adoption. */
+export const PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS = Object.freeze([
+    PLAN_FRONT_MATTER_KEYS.classification,
+    PLAN_FRONT_MATTER_KEYS.planId,
+    PLAN_FRONT_MATTER_KEYS.executionAgent,
+    PLAN_FRONT_MATTER_KEYS.collaborationRecommendation,
+    PLAN_FRONT_MATTER_KEYS.origin,
+    PLAN_FRONT_MATTER_KEYS.parentPlan,
+    PLAN_FRONT_MATTER_KEYS.order,
+    PLAN_FRONT_MATTER_KEYS.dependencies,
+]);
+
+/** Front Matter fields RunWield owns during active validation. */
+/** @type {Set<string>} */
+const PLAN_AMENDMENT_DEFINITION_KEY_SET = new Set(PLAN_AMENDMENT_DEFINITION_KEYS);
+export const RUNWIELD_OWNED_PLAN_FRONT_MATTER_KEYS = Object.freeze(
+    PLAN_FRONT_MATTER_KEY_ORDER.filter((key) => !PLAN_AMENDMENT_DEFINITION_KEY_SET.has(key)),
+);
+
+/**
+ * @param {PlanFrontMatter} attrs
+ * @param {string} body
+ * @returns {{ body: string, attrs: Record<string, unknown> }}
+ */
+export function buildPlanDefinitionProjection(attrs, body) {
+    /** @type {Record<string, unknown>} */
+    const projectedAttrs = {};
+    for (const key of PLAN_AMENDMENT_DEFINITION_KEYS) {
+        if (Object.hasOwn(attrs, key)) projectedAttrs[key] = /** @type {Record<string, unknown>} */ (attrs)[key];
+    }
+    return { body, attrs: projectedAttrs };
+}
+
+/**
+ * @param {PlanFrontMatter} attrs
+ * @returns {Record<string, unknown>}
+ */
+export function buildRunWieldOwnedFrontMatterProjection(attrs) {
+    /** @type {Record<string, unknown>} */
+    const projectedAttrs = {};
+    for (const key of RUNWIELD_OWNED_PLAN_FRONT_MATTER_KEYS) {
+        if (Object.hasOwn(attrs, key)) projectedAttrs[key] = /** @type {Record<string, unknown>} */ (attrs)[key];
+    }
+    return projectedAttrs;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 /**

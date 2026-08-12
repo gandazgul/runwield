@@ -55,6 +55,7 @@ export type ValidationLoopArgs = {
     git: GitPort;
     localCI: ValidationLocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
+    engineerReportedBrokenObjectiveChecks?: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
 };
 
 /** The resolved execution facts a phase runs against. */
@@ -91,7 +92,7 @@ export type PublicationOutcome = {
     recorded: boolean;
 };
 
-export type UserActionChoice = "engineer_follow_up" | "retry" | "stop";
+export type UserActionChoice = "engineer_follow_up" | "retry" | "stop" | "waive" | "approve_amendment";
 
 export type UserActionOption = {
     value: UserActionChoice;

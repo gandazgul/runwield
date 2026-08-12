@@ -33,7 +33,7 @@ function executionWorkflow(planName: string) {
     };
 }
 
-Deno.test("accepted task completion survives HostedSession replacement and acknowledges exactly once", async () => {
+Deno.test("defective-check claim survives process resume until validation handles it", async () => {
     const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "durable-completion-original",

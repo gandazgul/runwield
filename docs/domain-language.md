@@ -468,6 +468,12 @@ without semantic review or Plan status transitions; inside Workflow Validation f
 plus that Plan's Objective-Failing Checks before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent
 self-check
 
+**Plan Amendment**: A user-approved change to reviewable Plan definition during active execution or Workflow Validation.
+The execution worktree can propose Plan body, summary, affected path, browser verification, Ticket Reference, or
+Objective-Failing Check edits. RunWield shows the diff, asks the user to approve it, writes the accepted definition to
+the primary Plan, and reconciles the execution copy. Plan Status, worktree metadata, Delivery Evidence, validation
+counters, waivers, and other lifecycle fields remain RunWield-owned. _Avoid_: silent worktree Plan edit, lifecycle edit
+
 **Objective-Failing Check**: A Plan-owned shell command with one contract: exit 0 means the Plan objective is met. It
 must be red before implementation and green after implementation; RunWield stores the executable copy in Plan Front
 Matter as `objectiveChecks`, mechanically verifies the red state before execution starts, and reruns it during Workflow

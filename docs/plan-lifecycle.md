@@ -3,8 +3,11 @@
 Plan status is the durable state machine for saved Plans. Workflow code records facts as Plan Events, and the Plan
 Lifecycle decides the next status and front matter updates.
 
-Plan metadata is canonical in the primary project checkout even when implementation runs in a linked execution worktree.
-Worktree paths, branches, and registry records describe where execution work lives; they do not replace Plan Status.
+Plan lifecycle metadata is canonical in the primary project checkout even when implementation runs in a linked execution
+worktree. During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition
+fields. RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies.
+Worktree paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records
+remain RunWield-owned lifecycle state.
 
 Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
 Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
@@ -250,9 +253,10 @@ For worktree-backed plans:
    checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
    creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
    Completion does not merge into the primary checkout.
-3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from Plan Front Matter, runs exactly
-   one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and returns. Repeated
-   calls resume from durable status instead of an in-memory validation loop.
+3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from fresh Plan Front Matter, runs
+   exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and returns.
+   It uses replacement semantics: removed `objectiveChecks` or `objectiveCheckWaivers` are absent on the next attempt.
+   Repeated calls resume from durable status instead of an in-memory validation loop.
 4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
@@ -286,8 +290,8 @@ For worktree-backed plans:
 8. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
 9. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
-   pinned candidate commit, captures the target branch head before merge, copies the primary Plan's current implemented
-   Front Matter into the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
+   pinned candidate commit, captures the target branch head before merge, stages the already-reconciled canonical Plan
+   definition in the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
    `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
 10. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
     the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that

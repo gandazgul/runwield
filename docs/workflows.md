@@ -161,8 +161,15 @@ unshare/delete, and Plan body editing are intentionally deferred. See
 
 ## Worktrees and validation
 
-RunWield can execute saved plan work in a linked git worktree. The primary checkout remains the metadata root for plan
-files and worktree registry state.
+RunWield can execute saved plan work in a linked git worktree. The primary checkout remains the lifecycle metadata root
+for plan files and worktree registry state. During Workflow Validation, edits to reviewable Plan definition fields in
+the execution worktree are Plan Amendment proposals. RunWield shows the user the exact diff, proves changed
+Objective-Failing Checks are still red against the recorded execution baseline, and uses the edits only after approval.
+
+If an Engineer reports `brokenObjectiveChecks` through `task_completed`, Workflow Validation reruns the current checks
+once and asks the user whether to waive the defective check, send Engineer follow-up, or stop. This user-decision cycle
+does not spend another normal repair attempt. A waiver is recorded as user-approved defective-check evidence; it is not
+a passed check, and all other active checks must still pass.
 
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
