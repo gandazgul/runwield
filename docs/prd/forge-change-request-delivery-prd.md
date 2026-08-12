@@ -1,6 +1,6 @@
 # Product Requirements Document: Forge Change Request Delivery
 
-Last updated: 2026-08-11 22:27 EDT
+Last updated: 2026-08-12 10:29 EDT
 
 ## Objective
 
@@ -25,6 +25,10 @@ later adds assignable human review and a Workspace merge component so teams can 
 
 A repository, team, or instance can explicitly move the review gate to the Forge by selecting Change Request Delivery,
 or run both gates through Dual Review. The choice is team policy, and the two gates never synchronize state.
+
+The future Workspace default converges on this same machinery: a Workspace-merge flow still publishes a labeled Forge
+Change Request as the CI-and-merge envelope — attributed to the correct humans and gated on green checks — while intent,
+review, and memory live in RunWield. Change Request Delivery therefore builds the bridge and most of the destination.
 
 ## Problem Statement
 
@@ -121,8 +125,11 @@ Folding is strictly additive:
 - feedback that invalidates a PRD or ADR assumption should route upstream to that artifact, because a Work Record cannot
   correct the source of the error;
 - when later work proves an earlier record's premise wrong, the correcting Plan's Work Record should supersede the
-  earlier record. Supersession is user-confirmed and keeps lifecycle truth mechanical. The lifecycle module supports
-  supersession today, but no production command surface exists yet; adding one is future work.
+  earlier record. The primary path is declaration in advance: the Planner records the intended supersession on the
+  correcting Plan, the Recorder honors it at generation, and Plan approval counts as the user confirmation. When the
+  correction only emerges during execution or review, the Recorder may propose the supersession at generation time and
+  the user confirms it then. The lifecycle module supports supersession today, but no production command surface exists
+  yet; adding one is future work.
 
 The same folding rule applies to feedback from any review source: Forge review today, and Workspace-hosted review later.
 
@@ -180,6 +187,8 @@ RunWield participation can take three forms:
 - When RunWield accepts externally contributed work, finalization preserves multi-contributor provenance — the external
   author versus the reviewing and merging maintainer — as loose body references. Full person provenance waits for
   Workspace identity and is a Workspace responsibility.
+- Change Request Finalization invokes the same Work Record auto-generation path as local delivery; the Recorder runs
+  inside the maintainer's finalization action, never unattended and never from a Forge webhook.
 - The normal product experience is one maintainer action, not one Git commit.
 - Truthful ordering may produce one Forge implementation merge followed by one RunWield metadata commit.
 - If repository policy blocks the metadata commit, finalization remains visibly pending and uses a narrowly authorized
@@ -190,8 +199,13 @@ RunWield participation can take three forms:
 The guarantee runs one direction: every verified Plan produces a Work Record carrying its delivery and merge evidence.
 The inverse is false — no merge is required to have a Plan or a Work Record:
 
-- QUICK_FIX, direct pushes, and merges performed outside RunWield produce commits, not Work Records. The git log is the
-  audit trail at that level, and commit messages are expected to explain those changes.
+- QUICK_FIX, direct pushes, and merges performed outside RunWield produce commits and normally no Work Record. The git
+  log is the audit trail at that level, and commit messages are expected to explain those changes.
+- Externally contributed work accepted through maintainer review MAY receive an opt-in **External Work Record** when the
+  maintainer judges it worth remembering. An External Work Record certifies provenance — the source change, the
+  contributor, the reviewing and merging maintainer, and the validation that actually ran — and never claims RunWield
+  Workflow Validation. It is created by explicit choice, never automatically: routine merges such as dependency updates
+  and typo fixes stay record-free and are explained by their commits.
 - Work Records are a layer of memory over planned work, not the authoritative history of the target branch.
 - RunWield is responsible for the provenance of its own merges: clear commits that point back to their Plans. Each team
   owns its commit discipline for everything else; RunWield does not police it.
@@ -347,6 +361,11 @@ The interface should use presets rather than expose a large independent matrix o
 - Upstream artifact consent must be read from the authoritative target revision and cannot be spoofed by a contributor's
   fork.
 - Forge credentials remain user-owned and local in V1.
+- Workspace-era Forge integration uses a GitHub App with two token modes: an installation token for unattended bot-style
+  operations (the Dependabot model), and a user access token for attribution-sensitive actions. GitHub attributes
+  user-token actions to the acting user alongside the app badge, so Change Request authorship, review, and merge can
+  carry correct human identities. User-token permissions are additionally bounded by what that user can do on the
+  repository, which gives a future Workspace merge gate a real enforcement hook.
 - RunWield requests no issue-state mutation capability for this workflow.
 - Any privileged metadata-finalization path must be restricted to RunWield lifecycle and Work Record artifacts and must
   prove an already-merged delivery; it must not become a general protected-branch bypass.
@@ -420,6 +439,9 @@ Current provider facts were checked against official primary documentation on 20
   <https://cli.github.com/manual/gh_pr_view> and <https://cli.github.com/manual/gh_pr_checks>
 - GitLab CLI supports authenticated GitLab.com, Dedicated, and Self-Managed repositories:
   <https://docs.gitlab.com/editor_extensions/gitlab_cli/>
+- GitHub Apps can authenticate on behalf of a user with a user access token, and those actions are attributed to the
+  user alongside the app badge, checked 2026-08-12:
+  <https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-with-a-github-app-on-behalf-of-a-user>
 
 The lifecycle, authority, artifact-consent, and conditional-delivery requirements above are RunWield product decisions,
 not claims made by those providers.

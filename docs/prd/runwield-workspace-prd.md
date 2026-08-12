@@ -2,13 +2,13 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-08-11T22:27:00-04:00"
+updatedAt: "2026-08-12T10:29:00-04:00"
 ---
 
 # RunWield Workspace PRD
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-08-11
+**Last Updated:** 2026-08-12
 
 ## 1. Objective
 
@@ -592,9 +592,14 @@ Extend the same concepts with:
 - assignable human code review that replaces forge pull-request review by default, with Agents assisting reviewer and
   author; review discussion, assignment, and approval state live in Workspace outside the repository, the same way
   Sessions do, and only durable results (Plans, Work Records, commits) are committed;
-- a Workspace merge component that lands validated, approved work on the target branch under team-granted permissions;
-- identity, audit, and person provenance, with GitHub identity and permission integration as a high-priority roadmap
-  item so teams can keep existing accounts;
+- a Workspace merge component that lands validated, approved work on the target branch only after shared CI is green;
+  publication uses a labeled Forge Change Request as the CI-and-merge envelope — review happens in Workspace, while the
+  request carries correct human identities (author, reviewer, merger) for attribution and policy;
+- a merge-gate policy model that mirrors the settings and defaults teams know from their forge — required approvals,
+  required checks, self-merge policy — so Workspace can replace branch protection without surprising semantics;
+- identity, audit, and person provenance through a GitHub App that supports both bot-style installation tokens and user
+  access tokens acting on behalf of each Workspace user with correct attribution; GitHub sign-in provides baseline
+  identity, and this integration is a high-priority roadmap item so teams can keep existing accounts;
 - per-repository or per-team review policy: RunWield-native review by default, forge-hosted review or Dual Review as
   explicit opt-ins, with no state synchronization between gates;
 - organization-scale Workspace Intelligence;
