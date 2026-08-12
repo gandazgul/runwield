@@ -449,8 +449,8 @@ export const commandRegistry = {
     [COMMAND_NAMES.WR]: {
         name: COMMAND_NAMES.WR,
         displayName: "Work Records",
-        description: "List, search, read, index, and backfill canonical Work Records",
-        summary: "Retrieve repo-local Work Record markdown and backfill records from completed Plans.",
+        description: "List, search, read, index, backfill, and resolve canonical Work Records",
+        summary: "Retrieve repo-local Work Record markdown, backfill records, and resolve supersession proposals.",
         usage: [
             `${bin("wr")}`,
             `${bin("wr list")}`,
@@ -459,6 +459,10 @@ export const commandRegistry = {
             `${bin("wr search <query> --all")}`,
             `${bin("wr read <recordId> [--no-open]")}`,
             `${bin("wr index rebuild")}`,
+            `${bin("wr supersede")}`,
+            `${bin("wr supersede <successorRecordId>")}`,
+            `${bin("wr supersede <successorRecordId> --confirm <predecessorRecordId>")}`,
+            `${bin("wr supersede <successorRecordId> --reject <predecessorRecordId>")}`,
             `${bin("wr backfill")}`,
             `${bin("wr backfill --dry-run")}`,
             `${bin("wr backfill --yes")}`,
@@ -469,6 +473,9 @@ export const commandRegistry = {
             "Use wr search --all or wr list --all for maintenance inspection of draft, pending, superseded, or archived records with warnings.",
             "Use wr read <recordId> to open canonical Markdown by stable ID in a local read-only browser view, independent of file moves; --no-open prints the URL without launching a browser.",
             "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemosyne collection.",
+            "Use wr supersede without an ID to list pending proposals and reasons. Pass a successor ID to choose confirm, reject, or later for each candidate.",
+            "The --confirm and --reject forms are mutually exclusive and accept exactly one pending predecessor relation. Later or canceled prompts preserve the proposal.",
+            "Backfill asks about each generated supersession proposal even with --yes. Proposal decisions do not change whether backfill succeeded.",
             "Manual create remains deferred to later Work Records slices.",
         ],
         execute: (argv, options) =>

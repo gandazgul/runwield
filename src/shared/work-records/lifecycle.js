@@ -28,9 +28,19 @@ export function restoreWorkRecord(attrs) {
  * @param {string} supersededBy
  */
 export function supersedeWorkRecord(attrs, supersededBy) {
-    const id = String(supersededBy || "").trim();
-    if (!id) throw new Error("supersededBy is required to supersede a Work Record.");
-    return { ...attrs, status: /** @type {const} */ ("superseded"), supersededBy: id };
+    if (typeof supersededBy !== "string" || !supersededBy.trim()) {
+        throw new Error("supersededBy must be a non-blank string to supersede a Work Record.");
+    }
+    const id = supersededBy.trim();
+    if (id.toLowerCase() === attrs.recordId.toLowerCase()) throw new Error("A Work Record cannot supersede itself.");
+    if (attrs.supersededBy && attrs.supersededBy.toLowerCase() !== id.toLowerCase()) {
+        throw new Error(`Work Record ${attrs.recordId} is already superseded by ${attrs.supersededBy}.`);
+    }
+    return {
+        ...attrs,
+        status: /** @type {const} */ ("superseded"),
+        supersededBy: attrs.supersededBy || id,
+    };
 }
 
 /** @param {import('./schema.js').WorkRecordFrontMatter} attrs */

@@ -15,6 +15,7 @@ import {
     resolvePlan,
 } from "../../plan-store.js";
 import { isEpicPlan, isInValidation, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { resolveWorkRecordSupersessionProposalsWithUi } from "../../shared/workflow/validation-helpers.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
@@ -257,6 +258,18 @@ export async function handleEpicPlan({
             }
             if (workRecordResult.status !== "skipped" || workRecordResult.reason !== "parent_not_terminal") {
                 uiAPI.appendSystemMessage(workRecordResult.message, workRecordResult.status === "failed", "RunWield");
+            }
+            if (
+                (workRecordResult.status === "generated" || workRecordResult.status === "linked") &&
+                workRecordResult.recordId && workRecordResult.supersessionProposals?.length
+            ) {
+                await resolveWorkRecordSupersessionProposalsWithUi({
+                    projectRoot,
+                    successorRecordId: workRecordResult.recordId,
+                    proposals: workRecordResult.supersessionProposals,
+                    mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    uiAPI,
+                });
             }
             continue;
         }

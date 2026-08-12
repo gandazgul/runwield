@@ -153,6 +153,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {ObjectiveChecksBaseline} [objectiveChecksBaseline] - Last trusted pre-execution red-state check results.
  * @property {ObjectiveCheckWaiver[]} [objectiveCheckWaivers] - User-accepted waivers for broken Objective-Failing Checks.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
+ * @property {string[]} [supersedes] - Optional ordered Work Record IDs that this Plan is confirmed to replace.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
  * @property {boolean} [frontend] - Legacy browser UI/UX marker retained for source compatibility
@@ -438,6 +439,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline, fm.objectiveChecksBaseline);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers, fm.objectiveCheckWaivers);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.supersedes, fm.supersedes);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
@@ -787,6 +789,29 @@ function normalizeStringList(value) {
     return Array.isArray(value) ? value.map(String) : undefined;
 }
 
+const WORK_RECORD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Normalize optional Work Record supersession IDs without coercing malformed values.
+ * @param {unknown} value
+ * @returns {string[] | undefined}
+ */
+function normalizeSupersedes(value) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) return undefined;
+    const normalized = [];
+    const seen = new Set();
+    for (const item of value) {
+        const recordId = item.trim();
+        if (!recordId) continue;
+        if (!WORK_RECORD_ID_RE.test(recordId)) return undefined;
+        const identity = recordId.toLowerCase();
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        normalized.push(recordId);
+    }
+    return normalized.length > 0 ? normalized : undefined;
+}
+
 /**
  * @param {unknown} value
  * @returns {ObjectiveCheck[] | undefined}
@@ -1104,6 +1129,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         tickets: Object.hasOwn(overrides, "tickets")
             ? normalizeTicketReferences(overrides.tickets)
             : normalizeTicketReferences(existingFm.tickets),
+        supersedes: Object.hasOwn(overrides, "supersedes")
+            ? normalizeSupersedes(overrides.supersedes)
+            : normalizeSupersedes(existingFm.supersedes),
         executionAgent: optionalExecutionPolicyValue(overrides, existingFm, "executionAgent"),
         collaborationRecommendation: optionalExecutionPolicyValue(overrides, existingFm, "collaborationRecommendation"),
         frontend: Object.hasOwn(overrides, "frontend")
@@ -1236,6 +1264,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             objectiveChecksBaseline: normalizeObjectiveChecksBaseline(attrs.objectiveChecksBaseline),
             objectiveCheckWaivers: normalizeObjectiveCheckWaivers(attrs.objectiveCheckWaivers),
             tickets: normalizeTicketReferences(attrs.tickets),
+            supersedes: normalizeSupersedes(attrs.supersedes),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
                 ? attrs.collaborationRecommendation ?? undefined

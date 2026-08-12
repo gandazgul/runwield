@@ -2,11 +2,11 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
-import { listWorkRecords } from "./store.js";
+import { listWorkRecords, writeWorkRecord } from "./store.js";
 import { createWorkRecordMnemosyneFixture } from "./test-fixtures/mnemosyne-port.ts";
 import { autoGenerateWorkRecordForCompletedPlan } from "./auto-generation.ts";
 
-async function saveStandalonePlan(projectRoot: string): Promise<void> {
+async function saveStandalonePlan(projectRoot: string, supersedes: string[] = []): Promise<void> {
     await savePlan(projectRoot, "standalone", "# Standalone\n\n## Plan\n\nBuild the fixture feature.", {
         planId: "plan-standalone",
         classification: "PLANNED_CHANGE",
@@ -15,7 +15,21 @@ async function saveStandalonePlan(projectRoot: string): Promise<void> {
         affectedPaths: [],
         createdAt: "2026-07-14T00:00:00.000Z",
         status: "verified",
+        ...(supersedes.length ? { supersedes } : {}),
     });
+}
+
+async function savePredecessor(projectRoot: string, recordId: string, title: string): Promise<void> {
+    await writeWorkRecord(projectRoot, {
+        kind: "work_record",
+        recordId,
+        status: "approved",
+        scope: "planned_change",
+        origin: "internal",
+        completionMode: "verified",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        provenance: { sourcePlans: [`plan-${recordId}`] },
+    }, `# ${title}\n\n## Summary\n\nEarlier result.`);
 }
 
 async function saveEpicWithChild(projectRoot: string, terminal: boolean): Promise<void> {
@@ -128,6 +142,82 @@ Deno.test("automatic generation honors the project Work Record setting", async (
         assertEquals(result.status, "disabled");
         assertEquals(await listWorkRecords(projectRoot, { createDir: false }), []);
         assertEquals((await loadPlan(projectRoot, "standalone"))?.attrs.workRecord, undefined);
+    });
+});
+
+Deno.test("automatic generation persists normalized pending supersession proposals", async () => {
+    await withRuntimeCommandFixture("work-record-auto-proposal-", async ({ projectRoot, setModelResponse }) => {
+        Deno.chdir(projectRoot);
+        const predecessorId = "11111111-1111-4111-8111-111111111111";
+        await savePredecessor(projectRoot, predecessorId, "Earlier Outcome");
+        await saveStandalonePlan(projectRoot);
+        setModelResponse(JSON.stringify({
+            title: "Standalone Outcome",
+            summary: "Completed with a possible replacement.",
+            supersessionProposals: [
+                { recordId: ` ${predecessorId} `, reason: " More complete evidence. " },
+                { recordId: predecessorId, reason: "Duplicate must be removed." },
+            ],
+        }));
+
+        const result = await autoGenerateWorkRecordForCompletedPlan({
+            cwd: projectRoot,
+            planName: "standalone",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        });
+
+        assertEquals(result.status, "generated");
+        assertEquals(result.supersessionProposals, [{ recordId: predecessorId, reason: "More complete evidence." }]);
+        assertStringIncludes(result.message, `${predecessorId} (More complete evidence.)`);
+        assertStringIncludes(result.message, `Run wld wr supersede ${result.recordId}.`);
+        const successor = (await listWorkRecords(projectRoot)).find((record) =>
+            record.attrs.recordId === result.recordId
+        );
+        assertEquals(successor?.attrs.supersessionProposal?.candidates, result.supersessionProposals);
+        assertEquals(
+            (await listWorkRecords(projectRoot)).find((record) => record.attrs.recordId === predecessorId)?.attrs
+                .status,
+            "approved",
+        );
+    });
+});
+
+Deno.test("automatic generation settles Plan declarations and keeps only undeclared proposals pending", async () => {
+    await withRuntimeCommandFixture("work-record-auto-declared-", async ({ projectRoot, setModelResponse }) => {
+        Deno.chdir(projectRoot);
+        const declaredId = "22222222-2222-4222-8222-222222222222";
+        const proposedId = "33333333-3333-4333-8333-333333333333";
+        await savePredecessor(projectRoot, declaredId, "Declared Earlier Outcome");
+        await savePredecessor(projectRoot, proposedId, "Possible Earlier Outcome");
+        await saveStandalonePlan(projectRoot, [declaredId]);
+        setModelResponse(JSON.stringify({
+            title: "Settled Outcome",
+            summary: "Completed and reconciled.",
+            supersessionProposals: [
+                { recordId: declaredId, reason: "The Plan already settled this relation." },
+                { recordId: proposedId, reason: "A separate possible replacement." },
+            ],
+        }));
+
+        const result = await autoGenerateWorkRecordForCompletedPlan({
+            cwd: projectRoot,
+            planName: "standalone",
+            mnemosynePort: createWorkRecordMnemosyneFixture(),
+        });
+        const records = await listWorkRecords(projectRoot);
+        const successor = records.find((record) => record.attrs.recordId === result.recordId);
+
+        assertEquals(result.status, "generated");
+        assertEquals(successor?.attrs.supersedes, [declaredId]);
+        assertEquals(
+            records.find((record) => record.attrs.recordId === declaredId)?.attrs.supersededBy,
+            result.recordId,
+        );
+        assertEquals(successor?.attrs.supersessionProposal?.candidates, [{
+            recordId: proposedId,
+            reason: "A separate possible replacement.",
+        }]);
+        assertEquals(result.supersessionProposals, successor?.attrs.supersessionProposal?.candidates);
     });
 });
 

@@ -34,7 +34,13 @@ Return only structured JSON with this shape:
     "summary": "Concise retrospective summary of what completed and why future planning should care.",
     "deviationsFromPlan": "Optional meaningful deviation, omit when empty.",
     "deferredWork": "Optional deferred or incomplete work, omit when empty.",
-    "futurePlanningNotes": "Optional concrete reusable lessons, omit when empty."
+    "futurePlanningNotes": "Optional concrete reusable lessons, omit when empty.",
+    "supersessionProposals": [
+        {
+            "recordId": "Work Record ID that this completed work materially replaces",
+            "reason": "Concise explanation of the material replacement"
+        }
+    ]
 }
 ```
 
@@ -52,6 +58,13 @@ Return only structured JSON with this shape:
 - Prefer stable file-level evidence only when the caller asks for evidence notes; avoid line numbers by default.
 - Whether the human reviewed the code or not is irrelevant; the Work Record should summarize the durable outcome, not
   the review process.
+- Omit `supersessionProposals` when there are no supported proposals. A proposal is valid only when the new Work Record
+  materially replaces prior guidance or outcomes. Similar topic, partial overlap, or newer chronology is not enough.
+- Before returning a supersession proposal, use `work_record_search` to find candidates and then use `work_record_read`
+  to inspect every proposed record. Do not propose an ID from search results alone.
+- Treat `supersedes` values declared in source Plan Front Matter as already confirmed by the user. Do not return them as
+  new proposals or ask for confirmation again. Still search for and read each declared record before completing the
+  output.
 
 ## Work Record Retrieval
 

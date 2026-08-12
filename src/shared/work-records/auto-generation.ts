@@ -24,6 +24,7 @@ import {
 } from "./generation.js";
 
 type WorkRecordSource = import("./generation.js").WorkRecordSource;
+type WorkRecordSupersessionCandidate = import("./schema.js").WorkRecordSupersessionCandidate;
 
 export interface WorkRecordAutoGenerationResult {
     status: "disabled" | "skipped" | "generated" | "linked" | "failed";
@@ -35,6 +36,7 @@ export interface WorkRecordAutoGenerationResult {
     reason?: string;
     error?: string;
     indexWarning?: string;
+    supersessionProposals?: WorkRecordSupersessionCandidate[];
 }
 
 export interface AutoGenerateWorkRecordArgs {
@@ -134,7 +136,12 @@ export function formatWorkRecordAutoGenerationResult(result: WorkRecordAutoGener
     }
     const verb = result.status === "linked" ? "linked" : "generated";
     const warning = result.indexWarning ? ` Warning: ${result.indexWarning}` : "";
-    return `Work Record ${verb}: ${result.path || result.recordId || "record available"}.${warning}`;
+    const proposals = result.supersessionProposals?.length
+        ? ` Pending supersession proposals: ${
+            result.supersessionProposals.map((candidate) => `${candidate.recordId} (${candidate.reason})`).join(", ")
+        }. Run wld wr supersede ${result.recordId}.`
+        : "";
+    return `Work Record ${verb}: ${result.path || result.recordId || "record available"}.${proposals}${warning}`;
 }
 
 /** Generate or reconcile a Work Record for the targeted terminal active Plan. */
@@ -183,6 +190,7 @@ export async function autoGenerateWorkRecordForCompletedPlan({
             recordId: "recordId" in outcome ? outcome.recordId : undefined,
             error: "error" in outcome ? outcome.error : undefined,
             indexWarning: "indexWarning" in outcome ? outcome.indexWarning : undefined,
+            supersessionProposals: "supersessionProposals" in outcome ? outcome.supersessionProposals : undefined,
             message: "",
         });
     } catch (caught) {

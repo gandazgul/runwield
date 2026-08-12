@@ -58,9 +58,69 @@ export function normalizeWorkRecordProvenance(value) {
     };
 }
 
+/**
+ * @param {unknown} value
+ * @param {Set<string>} supersedes
+ */
+function normalizeSupersessionProposal(value, supersedes) {
+    if (value === undefined || value === null) return undefined;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Invalid Work Record: supersessionProposal must be an object.");
+    }
+    const proposal = /** @type {Record<string, unknown>} */ (value);
+    const proposalKeys = Object.keys(proposal);
+    if (proposalKeys.some((key) => key !== "candidates")) {
+        throw new Error("Invalid Work Record: supersessionProposal contains unknown keys.");
+    }
+    if (!Array.isArray(proposal.candidates)) {
+        throw new Error("Invalid Work Record: supersessionProposal.candidates must be an array.");
+    }
+    const seen = new Set();
+    const candidates = [];
+    for (const item of proposal.candidates) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            throw new Error("Invalid Work Record: each supersessionProposal candidate must be an object.");
+        }
+        const candidate = /** @type {Record<string, unknown>} */ (item);
+        if (Object.keys(candidate).some((key) => key !== "recordId" && key !== "reason")) {
+            throw new Error("Invalid Work Record: supersessionProposal candidate contains unknown keys.");
+        }
+        const recordId = asTrimmedString(candidate.recordId);
+        const reason = asTrimmedString(candidate.reason);
+        if (!UUID_RE.test(recordId)) {
+            throw new Error(
+                "Invalid Work Record: supersessionProposal candidate recordId must be a plain UUID string.",
+            );
+        }
+        if (!reason) {
+            throw new Error("Invalid Work Record: supersessionProposal candidate reason must be a non-blank string.");
+        }
+        const identity = recordId.toLowerCase();
+        if (supersedes.has(identity)) {
+            throw new Error("Invalid Work Record: supersessionProposal candidate already appears in supersedes.");
+        }
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        candidates.push({ recordId, reason });
+    }
+    return candidates.length ? { candidates } : undefined;
+}
+
 /** @param {Record<string, unknown>} attrs */
 export function normalizeWorkRecordFrontMatter(attrs) {
     const provenance = normalizeWorkRecordProvenance(attrs.provenance);
+    const normalizedSupersedes = Array.isArray(attrs.supersedes)
+        ? stringList(attrs.supersedes) || []
+        : asTrimmedString(attrs.supersedes) || undefined;
+    const supersedesIdentities = new Set(
+        (Array.isArray(normalizedSupersedes)
+            ? normalizedSupersedes
+            : normalizedSupersedes
+            ? [normalizedSupersedes]
+            : [])
+            .map((recordId) => recordId.toLowerCase()),
+    );
+    const supersessionProposal = normalizeSupersessionProposal(attrs.supersessionProposal, supersedesIdentities);
     const rawWorkKind = normalizeWorkKind(attrs.workKind);
     const rawScope = asTrimmedString(attrs.scope);
     const normalizedScope = rawScope === "feature" ? "planned_change" : rawScope;
@@ -76,12 +136,9 @@ export function normalizeWorkRecordFrontMatter(attrs) {
         createdAt: asTrimmedString(attrs.createdAt),
         ...(normalizeTicketReferences(attrs.tickets) ? { tickets: normalizeTicketReferences(attrs.tickets) } : {}),
         ...(asTrimmedString(attrs.archivedAt) ? { archivedAt: asTrimmedString(attrs.archivedAt) } : {}),
-        ...(Array.isArray(attrs.supersedes)
-            ? { supersedes: stringList(attrs.supersedes) || [] }
-            : asTrimmedString(attrs.supersedes)
-            ? { supersedes: asTrimmedString(attrs.supersedes) }
-            : {}),
+        ...(normalizedSupersedes ? { supersedes: normalizedSupersedes } : {}),
         ...(asTrimmedString(attrs.supersededBy) ? { supersededBy: asTrimmedString(attrs.supersededBy) } : {}),
+        ...(supersessionProposal ? { supersessionProposal } : {}),
         ...(provenance ? { provenance } : {}),
     };
     return normalized;
@@ -214,6 +271,9 @@ export function formatWorkRecordFrontMatter(attrs) {
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.archivedAt, fm.archivedAt);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.supersedes, fm.supersedes);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.supersededBy, fm.supersededBy);
+    if (fm.supersessionProposal) {
+        appendYamlValue(lines, WORK_RECORD_FRONT_MATTER_KEYS.supersessionProposal, fm.supersessionProposal, 0);
+    }
     lines.push("---");
     return lines.join("\n");
 }
@@ -270,6 +330,18 @@ export function validateWorkRecord(attrs, body) {
     if (attrs.provenance?.evidence) {
         for (const entry of attrs.provenance.evidence) {
             if (!entry.path || !entry.note) errors.push("provenance.evidence entries require path and note.");
+        }
+    }
+    if (attrs.supersessionProposal) {
+        if (!Array.isArray(attrs.supersessionProposal.candidates)) {
+            errors.push("supersessionProposal.candidates must be an array.");
+        } else {
+            for (const candidate of attrs.supersessionProposal.candidates) {
+                if (!UUID_RE.test(candidate.recordId || "")) {
+                    errors.push("supersessionProposal candidate recordId must be a plain UUID string.");
+                }
+                if (!candidate.reason) errors.push("supersessionProposal candidate reason must be a non-blank string.");
+            }
         }
     }
     const sections = extractWorkRecordSections(body);

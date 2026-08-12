@@ -25,6 +25,11 @@ import {
 
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
+import {
+    requestHostedSessionInteraction,
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+} from "../session/session-runtime-interactions.js";
 
 import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
 
@@ -36,6 +41,103 @@ import {
     formatWorkRecordAutoGenerationResult,
 } from "../work-records/auto-generation.js";
 import type { WorkRecordMnemosynePort } from "../work-records/mnemosyne-port.ts";
+import {
+    confirmWorkRecordSupersessionProposal,
+    rejectWorkRecordSupersessionProposal,
+} from "../work-records/supersession.ts";
+import type { WorkRecordSupersessionCandidate } from "../work-records/schema.js";
+
+export type WorkRecordSupersessionDecision = "confirm" | "reject" | "later";
+
+export interface ResolveWorkRecordSupersessionProposalsOptions {
+    projectRoot: string;
+    successorRecordId: string;
+    proposals: WorkRecordSupersessionCandidate[];
+    mnemosynePort: WorkRecordMnemosynePort;
+    choose: (proposal: WorkRecordSupersessionCandidate) => Promise<WorkRecordSupersessionDecision | null>;
+    notify: (message: string, warning?: boolean) => void;
+}
+
+/** Prompt for and apply decisions without making a completed workflow non-terminal. */
+export async function resolveWorkRecordSupersessionProposals({
+    projectRoot,
+    successorRecordId,
+    proposals,
+    mnemosynePort,
+    choose,
+    notify,
+}: ResolveWorkRecordSupersessionProposalsOptions): Promise<void> {
+    for (const proposal of proposals) {
+        let decision: WorkRecordSupersessionDecision | null = null;
+        try {
+            decision = await choose(proposal);
+            if (decision === "confirm") {
+                const result = await confirmWorkRecordSupersessionProposal(projectRoot, {
+                    successorRecordId,
+                    predecessorRecordId: proposal.recordId,
+                    mnemosynePort,
+                });
+                notify(`Confirmed Work Record supersession: ${proposal.recordId} -> ${successorRecordId}.`);
+                if (result.indexWarning) notify(result.indexWarning, true);
+                continue;
+            }
+            if (decision === "reject") {
+                const result = await rejectWorkRecordSupersessionProposal(projectRoot, {
+                    successorRecordId,
+                    predecessorRecordId: proposal.recordId,
+                    mnemosynePort,
+                });
+                notify(`Rejected Work Record supersession proposal: ${proposal.recordId} -> ${successorRecordId}.`);
+                if (result.indexWarning) notify(result.indexWarning, true);
+                continue;
+            }
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            notify(`Could not resolve supersession proposal for ${proposal.recordId}: ${reason}`, true);
+        }
+        notify(
+            `Supersession proposal remains pending: ${proposal.recordId} -> ${successorRecordId}. Run wld wr supersede ${successorRecordId}.`,
+        );
+    }
+}
+
+export interface ResolveWorkRecordSupersessionProposalsWithUiOptions {
+    projectRoot: string;
+    successorRecordId: string;
+    proposals: WorkRecordSupersessionCandidate[];
+    mnemosynePort: WorkRecordMnemosynePort;
+    uiAPI: Pick<import("../../ui/tui/types.js").UiAPI, "promptSelect" | "appendSystemMessage">;
+}
+
+/** Resolve generated proposals on a direct TUI surface. */
+export function resolveWorkRecordSupersessionProposalsWithUi({
+    projectRoot,
+    successorRecordId,
+    proposals,
+    mnemosynePort,
+    uiAPI,
+}: ResolveWorkRecordSupersessionProposalsWithUiOptions): Promise<void> {
+    return resolveWorkRecordSupersessionProposals({
+        projectRoot,
+        successorRecordId,
+        proposals,
+        mnemosynePort,
+        choose: async (proposal) => {
+            const answer = await uiAPI.promptSelect(
+                `Should the new Work Record supersede ${proposal.recordId}? Reason: ${proposal.reason}`,
+                [
+                    { value: "confirm", label: "Confirm supersession" },
+                    { value: "reject", label: "Reject proposal" },
+                    { value: "later", label: "Decide later" },
+                ],
+            );
+            return ["confirm", "reject", "later"].includes(String(answer))
+                ? answer as WorkRecordSupersessionDecision
+                : null;
+        },
+        notify: (message, warning = false) => uiAPI.appendSystemMessage(message, warning, "RunWield"),
+    });
+}
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 type AgentMessage = import("@earendil-works/pi-agent-core").AgentMessage;
@@ -199,6 +301,40 @@ export async function runFeaturePostVerificationHandoffs({
         workRecordResult.message || formatWorkRecordAutoGenerationResult(workRecordResult),
         workRecordResult.status === "failed" ? "warning" : "info",
     );
+    if (
+        (workRecordResult.status === "generated" || workRecordResult.status === "linked") &&
+        workRecordResult.recordId && workRecordResult.supersessionProposals?.length
+    ) {
+        await resolveWorkRecordSupersessionProposals({
+            projectRoot,
+            successorRecordId: workRecordResult.recordId,
+            proposals: workRecordResult.supersessionProposals,
+            mnemosynePort,
+            choose: async (proposal) => {
+                const response = await requestHostedSessionInteraction(
+                    hostedSession,
+                    {
+                        type: RuntimeInteractionTypes.SELECT,
+                        prompt:
+                            `Should the new Work Record supersede ${proposal.recordId}?\nReason: ${proposal.reason}`,
+                        options: [
+                            { value: "confirm", label: "Confirm supersession" },
+                            { value: "reject", label: "Reject proposal" },
+                            { value: "later", label: "Decide later" },
+                        ],
+                    },
+                    undefined,
+                    hostedSession.getManagedOperationCapability?.() || null,
+                );
+                return response.outcome === RuntimeInteractionOutcomes.SELECTED &&
+                        ["confirm", "reject", "later"].includes(String(response.value))
+                    ? response.value as WorkRecordSupersessionDecision
+                    : null;
+            },
+            notify: (message, warning = false) =>
+                emitRunWieldSystemStatus(hostedSession, message, warning ? "warning" : "info"),
+        });
+    }
 }
 
 /**
