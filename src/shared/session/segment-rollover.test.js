@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
@@ -162,6 +162,7 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
             assertEquals(managed.transcriptPath, result.transcriptPath);
             assertEquals(managed.currentSegmentId, result.successorSegmentId);
             assertEquals(managed.generation, 1);
+            assertEquals(fixture.hosted.getRootSessionManager()?.getSessionId?.(), result.piSessionId);
             const postProof = fixture.store.acquireSessionActivation({
                 runwieldSessionId: managed.runwieldSessionId,
                 projectId: managed.projectId,
@@ -172,6 +173,45 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
                 phase: "preparing",
             });
             fixture.store.releaseUnchangedActivation(postProof);
+        } finally {
+            await cleanupFixture(fixture);
+        }
+    });
+});
+
+Deno.test("segment rollover does not dehydrate a hosted manager when activation acquisition rejects", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const fixture = await createManagedFixture();
+        try {
+            let disposed = false;
+            const managed = fixture.hosted.getManagedMetadata();
+            assert(managed);
+            const hosted = new HostedSession({
+                id: "runtime-session-with-manager",
+                cwd: fixture.root,
+                sessionManager: {
+                    getSessionId: () => managed.piSessionId,
+                    getCwd: () => fixture.root,
+                    dispose: () => {
+                        disposed = true;
+                    },
+                },
+                managed,
+            });
+            await assertRejects(
+                async () =>
+                    await rollSessionTranscriptSegment({
+                        hostedSession: hosted,
+                        ownerCoordinationStore: fixture.store,
+                        ownerInstanceId: "owner-1",
+                        ownerProcessKind: "test",
+                        kind: "execution",
+                        continuation: { next: "engineer" },
+                        expectedGeneration: 99,
+                    }),
+            );
+            assertEquals(disposed, false);
+            assert(hosted.getRootSessionManager());
         } finally {
             await cleanupFixture(fixture);
         }

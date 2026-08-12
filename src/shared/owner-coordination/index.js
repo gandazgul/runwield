@@ -35,6 +35,7 @@ import {
     findSessionByLocator,
     getCurrentSessionSegment,
     getSessionById,
+    inspectSegmentRolloverRecovery,
     listProjectSessions,
     listSessionTranscriptSegments,
     sealSessionTranscriptSegment,
@@ -97,6 +98,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(locator: Parameters<typeof validateSuccessorSegmentLocator>[1]) => ReturnType<typeof validateSuccessorSegmentLocator>} validateSuccessorSegmentLocator
  * @property {(options: Parameters<typeof sealSessionTranscriptSegment>[1]) => ReturnType<typeof sealSessionTranscriptSegment>} sealSessionTranscriptSegment
  * @property {(options: Parameters<typeof findOrphanRolloverCandidates>[1]) => ReturnType<typeof findOrphanRolloverCandidates>} findOrphanRolloverCandidates
+ * @property {(options: Parameters<typeof inspectSegmentRolloverRecovery>[1]) => ReturnType<typeof inspectSegmentRolloverRecovery>} inspectSegmentRolloverRecovery
  * @property {(options: Parameters<typeof discardOrphanRolloverCandidate>[1]) => ReturnType<typeof discardOrphanRolloverCandidate>} discardOrphanRolloverCandidate
  * @property {(options?: Parameters<typeof createPairingRequest>[1]) => ReturnType<typeof createPairingRequest>} createPairingRequest
  * @property {(code: string, options?: Parameters<typeof approvePairingRequest>[2]) => ReturnType<typeof approvePairingRequest>} approvePairingRequest
@@ -163,6 +165,7 @@ export function openOwnerCoordinationStore(options = {}) {
         validateSuccessorSegmentLocator: (locator) => validateSuccessorSegmentLocator(database, locator),
         sealSessionTranscriptSegment: (segmentOptions) => sealSessionTranscriptSegment(database, segmentOptions),
         findOrphanRolloverCandidates: (orphanOptions) => findOrphanRolloverCandidates(database, orphanOptions),
+        inspectSegmentRolloverRecovery: (rolloverOptions) => inspectSegmentRolloverRecovery(database, rolloverOptions),
         discardOrphanRolloverCandidate: (orphanOptions) => discardOrphanRolloverCandidate(database, orphanOptions),
         createPairingRequest: (pairingOptions) => createPairingRequest(database, pairingOptions),
         approvePairingRequest: (code, pairingOptions) => approvePairingRequest(database, code, pairingOptions),

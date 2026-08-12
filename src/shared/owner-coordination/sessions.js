@@ -798,11 +798,8 @@ export function sealSessionTranscriptSegment(database, options) {
  */
 export async function findOrphanRolloverCandidates(database, options) {
     const ownerDb = requireDatabase(database);
-    const knownPaths = new Set(
-        listSessionTranscriptSegments(ownerDb, options.runwieldSessionId).map((segment) =>
-            resolve(segment.transcriptPath)
-        ),
-    );
+    const segments = listSessionTranscriptSegments(ownerDb, options.runwieldSessionId);
+    const knownPaths = new Set(segments.map((segment) => resolve(segment.transcriptPath)));
     const sessionDir = getRunWieldSessionDir(options.transcriptCwd);
     const { locators } = await listCatalogSafeRootSessionLocators(options.transcriptCwd, { sessionDir });
     const candidates = [];
@@ -810,9 +807,7 @@ export async function findOrphanRolloverCandidates(database, options) {
         if (knownPaths.has(resolve(locator.sessionPath))) continue;
         const lineage = await readSegmentLineageEvidenceFromTranscript(locator.sessionPath);
         if (!lineage || lineage.runwieldSessionId !== options.runwieldSessionId || !lineage.parentSegmentId) continue;
-        const parent = listSessionTranscriptSegments(ownerDb, options.runwieldSessionId).find((segment) =>
-            segment.segmentId === lineage.parentSegmentId
-        );
+        const parent = segments.find((segment) => segment.segmentId === lineage.parentSegmentId);
         if (!parent) continue;
         candidates.push({
             runwieldSessionId: options.runwieldSessionId,
@@ -826,6 +821,84 @@ export async function findOrphanRolloverCandidates(database, options) {
         });
     }
     return candidates;
+}
+
+/**
+ * @typedef {'no_op_retry' | 'removable_orphan' | 'recoverable_orphan' | 'transcript_ahead_database_behind' | 'database_ahead' | 'uncertain_effects'} SegmentRolloverRecoveryState
+ */
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, transcriptCwd: string, successorTranscriptPath?: string | null, predecessorSegmentId?: string | null }} options
+ * @returns {Promise<{ state: SegmentRolloverRecoveryState, transcriptPath: string | null, segmentId: string | null, reason: string }>}
+ */
+export async function inspectSegmentRolloverRecovery(database, options) {
+    const ownerDb = requireDatabase(database);
+    const transcriptPath = options.successorTranscriptPath ? resolve(options.successorTranscriptPath) : null;
+    if (!transcriptPath) {
+        return { state: "no_op_retry", transcriptPath: null, segmentId: null, reason: "successor_not_created" };
+    }
+    try {
+        const stat = await Deno.stat(transcriptPath);
+        if (!stat.isFile) {
+            return { state: "no_op_retry", transcriptPath, segmentId: null, reason: "successor_not_a_file" };
+        }
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+            return { state: "no_op_retry", transcriptPath, segmentId: null, reason: "successor_not_created" };
+        }
+        throw error;
+    }
+
+    const segments = listSessionTranscriptSegments(ownerDb, options.runwieldSessionId);
+    const segment = segments.find((item) => resolve(item.transcriptPath) === transcriptPath) || null;
+    if (segment) {
+        const activation = ownerDb.handle.prepare(
+            "SELECT current_segment_id FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+        ).get(options.runwieldSessionId, options.projectId);
+        const generation = ownerDb.handle.prepare(
+            `SELECT current_segment_id FROM session_committed_generations
+              WHERE runwield_session_id = ? AND project_id = ?
+              ORDER BY generation DESC LIMIT 1`,
+        ).get(options.runwieldSessionId, options.projectId);
+        if (
+            activation?.current_segment_id === segment.segmentId && generation?.current_segment_id === segment.segmentId
+        ) {
+            return {
+                state: "database_ahead",
+                transcriptPath,
+                segmentId: segment.segmentId,
+                reason: "manifest_switched",
+            };
+        }
+        return {
+            state: "uncertain_effects",
+            transcriptPath,
+            segmentId: segment.segmentId,
+            reason: "row_without_manifest_switch",
+        };
+    }
+
+    const lineage = await readSegmentLineageEvidenceFromTranscript(transcriptPath);
+    if (!lineage || lineage.runwieldSessionId !== options.runwieldSessionId || !lineage.parentSegmentId) {
+        return { state: "removable_orphan", transcriptPath, segmentId: null, reason: "lineage_absent_or_unrelated" };
+    }
+    const parent = segments.find((item) => item.segmentId === lineage.parentSegmentId) || null;
+    if (!parent) {
+        return { state: "removable_orphan", transcriptPath, segmentId: null, reason: "lineage_parent_absent" };
+    }
+    if (options.predecessorSegmentId && parent.segmentId !== options.predecessorSegmentId) {
+        return { state: "uncertain_effects", transcriptPath, segmentId: null, reason: "lineage_parent_mismatch" };
+    }
+    if (parent.sealedAt) {
+        return {
+            state: "transcript_ahead_database_behind",
+            transcriptPath,
+            segmentId: null,
+            reason: "predecessor_already_sealed",
+        };
+    }
+    return { state: "recoverable_orphan", transcriptPath, segmentId: null, reason: "lineage_ready_without_row" };
 }
 
 /**

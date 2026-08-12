@@ -5,7 +5,7 @@
 
 import type { OwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { ManagedSessionMetadata } from "./hosted-session.js";
-import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
+import { createRootSessionManager, openPersistedRootSession, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
 
@@ -22,6 +22,7 @@ type HostedManagedSession = {
         piSessionId: string;
         transcriptPath: string;
         currentSegmentId: string;
+        sessionManager: { dispose?: () => void | Promise<void> };
     }) => void;
     setManagedMetadata: (metadata: ManagedSessionMetadata) => void;
 };
@@ -74,14 +75,6 @@ export async function rollSessionTranscriptSegment(
         .find((segment) => segment.segmentId === managed.currentSegmentId);
     if (!predecessor) throw new Error("Managed Session current segment is absent");
 
-    await disposeManager(options.hostedSession.getRootSessionManager());
-    options.hostedSession.dehydrateManagedSession();
-    await syncTranscriptFileAndParent(predecessor.transcriptPath);
-    const predecessorEvidence = await captureTranscriptEvidence({
-        transcriptPath: predecessor.transcriptPath,
-        transcriptCwd: predecessor.transcriptCwd,
-    });
-
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
         runwieldSessionId: managed.runwieldSessionId,
         projectId: managed.projectId,
@@ -93,6 +86,14 @@ export async function rollSessionTranscriptSegment(
         phase: "preparing",
     });
     try {
+        await disposeManager(options.hostedSession.getRootSessionManager());
+        options.hostedSession.dehydrateManagedSession();
+        await syncTranscriptFileAndParent(predecessor.transcriptPath);
+        const predecessorEvidence = await captureTranscriptEvidence({
+            transcriptPath: predecessor.transcriptPath,
+            transcriptCwd: predecessor.transcriptCwd,
+        });
+
         proof = options.ownerCoordinationStore.changeSessionActivationPhase(proof, "hydrated");
         proof = options.ownerCoordinationStore.changeSessionActivationPhase(proof, "checkpointing");
         const successorManager = await createRootSessionManager("new", options.hostedSession.cwd);
@@ -150,10 +151,16 @@ export async function rollSessionTranscriptSegment(
             now: options.now,
         });
         const successor = committed.successor;
+        const { sessionManager: installedSuccessorManager } = await openPersistedRootSession({
+            cwd: options.hostedSession.cwd,
+            sessionId: successor.piSessionId,
+            sessionPath: successor.transcriptPath,
+        });
         options.hostedSession.replaceManagedTranscriptSegment({
             piSessionId: successor.piSessionId,
             transcriptPath: successor.transcriptPath,
             currentSegmentId: successor.segmentId,
+            sessionManager: installedSuccessorManager as { dispose?: () => void | Promise<void> },
         });
         const nextManaged = options.hostedSession.getManagedMetadata();
         if (nextManaged) {
