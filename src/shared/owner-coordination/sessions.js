@@ -10,6 +10,7 @@ import {
     listCatalogSafeRootSessionLocators,
     readCatalogSafeRootSessionLocator,
 } from "../session/root-session.js";
+import { normalizeSegmentLineageEvidence, SEGMENT_LINEAGE_CUSTOM_TYPE } from "../session/workflow-context-session.js";
 import { getProjectById, listProjectRootEvidence } from "./projects.js";
 
 /**
@@ -201,6 +202,180 @@ async function listIncrementalRootSessionLocators(cwd, sessionDir, knownTranscri
     }
     locators.sort((a, b) => a.sessionPath.localeCompare(b.sessionPath));
     return { locators, diagnostics, dirMtimeMs: mtimeMs(stat.mtime), scanned: true };
+}
+
+/**
+ * @typedef {import('../session/root-session.js').CatalogSafeRootSessionLocator & { lineage: import('../types.js').SessionSegmentLineageEvidence | null }} LineageCatalogLocator
+ */
+
+/**
+ * @param {string} sessionPath
+ * @returns {Promise<import('../types.js').SessionSegmentLineageEvidence | null>}
+ */
+async function readSegmentLineageEvidenceFromTranscript(sessionPath) {
+    const text = await Deno.readTextFile(sessionPath);
+    const lines = text.split("\n");
+    for (let index = lines.length - 1; index >= 0; index--) {
+        const line = lines[index].trim();
+        if (!line || !line.includes(SEGMENT_LINEAGE_CUSTOM_TYPE)) continue;
+        try {
+            const entry = JSON.parse(line);
+            if (entry?.type !== "custom" || entry.customType !== SEGMENT_LINEAGE_CUSTOM_TYPE) continue;
+            return normalizeSegmentLineageEvidence(entry.data);
+        } catch {
+            continue;
+        }
+    }
+    return null;
+}
+
+/**
+ * @param {LineageCatalogLocator[]} locators
+ * @returns {{ groups: LineageCatalogLocator[][], ungrouped: LineageCatalogLocator[], diagnostics: CatalogDiagnostic[] }}
+ */
+function groupLineageCatalogLocators(locators) {
+    /** @type {Map<string, LineageCatalogLocator[]>} */
+    const candidates = new Map();
+    /** @type {LineageCatalogLocator[]} */
+    const ungrouped = [];
+    /** @type {CatalogDiagnostic[]} */
+    const diagnostics = [];
+    for (const locator of locators) {
+        if (!locator.lineage) {
+            ungrouped.push(locator);
+            continue;
+        }
+        const group = candidates.get(locator.lineage.runwieldSessionId) || [];
+        group.push(locator);
+        candidates.set(locator.lineage.runwieldSessionId, group);
+    }
+    /** @type {LineageCatalogLocator[][]} */
+    const groups = [];
+    for (const group of candidates.values()) {
+        const ordered = orderConservativeLineageGroup(group);
+        if (!ordered) {
+            for (const locator of group) {
+                diagnostics.push({
+                    sessionPath: locator.sessionPath,
+                    code: "lineage_recovery_required",
+                    message: "Segment lineage is missing, ambiguous, cyclic, or orphaned; manual recovery is required.",
+                });
+            }
+            continue;
+        }
+        if (ordered.length === 1) ungrouped.push(ordered[0]);
+        else groups.push(ordered);
+    }
+    return { groups, ungrouped, diagnostics };
+}
+
+/**
+ * @param {LineageCatalogLocator[]} group
+ * @returns {LineageCatalogLocator[] | null}
+ */
+function orderConservativeLineageGroup(group) {
+    const bySegmentId = new Map(group.map((locator) => [locator.lineage?.segmentId || "", locator]));
+    if (bySegmentId.has("") || bySegmentId.size !== group.length) return null;
+    /** @type {Map<string, string[]>} */
+    const children = new Map();
+    let root = null;
+    for (const locator of group) {
+        const lineage = locator.lineage;
+        if (!lineage) return null;
+        const parentId = lineage.parentSegmentId;
+        if (!parentId) {
+            if (root) return null;
+            root = locator;
+            continue;
+        }
+        if (!bySegmentId.has(parentId)) return null;
+        const childIds = children.get(parentId) || [];
+        childIds.push(lineage.segmentId);
+        children.set(parentId, childIds);
+        if (childIds.length > 1) return null;
+    }
+    if (!root) return null;
+    /** @type {LineageCatalogLocator[]} */
+    const ordered = [];
+    const seen = new Set();
+    /** @type {LineageCatalogLocator | null} */
+    let cursor = root;
+    while (cursor) {
+        const segmentId = String(cursor.lineage?.segmentId || "");
+        if (!segmentId || seen.has(segmentId)) return null;
+        ordered.push(cursor);
+        seen.add(segmentId);
+        const childIds = /** @type {string[]} */ (children.get(segmentId) || []);
+        cursor = childIds.length === 1 ? bySegmentId.get(childIds[0]) || null : null;
+    }
+    return ordered.length === group.length ? ordered : null;
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} projectId
+ * @param {LineageCatalogLocator[]} group
+ * @param {{ idFactory?: () => string, now?: () => string }} options
+ * @returns {CatalogedSession}
+ */
+function catalogLineageSegmentGroup(database, projectId, group, options) {
+    if (group.length < 2) throw new Error("Lineage group requires multiple segments");
+    const now = isoNow(options.now);
+    const first = group[0];
+    const firstLineage = /** @type {import('../types.js').SessionSegmentLineageEvidence} */ (first.lineage);
+    return database.transaction(() => {
+        if (getSessionById(database, firstLineage.runwieldSessionId)) {
+            throw new Error(`Lineage Session already exists: ${firstLineage.runwieldSessionId}`);
+        }
+        database.handle.prepare(
+            "INSERT INTO runwield_sessions(id, project_id, source, created_at, updated_at) VALUES (?, ?, 'catalog', ?, ?)",
+        ).run(firstLineage.runwieldSessionId, projectId, now, now);
+        const locatorId = newId(options.idFactory);
+        database.handle.prepare(
+            "INSERT INTO session_transcript_locators(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, header_version, header_timestamp, first_cataloged_at, last_cataloged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            locatorId,
+            firstLineage.runwieldSessionId,
+            projectId,
+            first.piSessionId,
+            resolve(first.sessionPath),
+            first.headerCwd,
+            first.headerVersion,
+            first.headerTimestamp,
+            now,
+            now,
+        );
+        const insertSegment = database.handle.prepare(
+            `INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path,
+                transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at,
+                last_cataloged_at, lineage_parent_segment_id, lineage_parent_pi_session_id, lineage_group_key,
+                lineage_recorded_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'execution', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (let index = 0; index < group.length; index++) {
+            const locator = group[index];
+            const lineage = /** @type {import('../types.js').SessionSegmentLineageEvidence} */ (locator.lineage);
+            insertSegment.run(
+                lineage.segmentId,
+                lineage.runwieldSessionId,
+                projectId,
+                locator.piSessionId,
+                resolve(locator.sessionPath),
+                locator.headerCwd,
+                index,
+                index === group.length - 1 ? null : now,
+                locator.headerVersion,
+                locator.headerTimestamp,
+                now,
+                now,
+                lineage.parentSegmentId ?? null,
+                lineage.parentPiSessionId ?? null,
+                lineage.lineageGroupKey ?? null,
+                now,
+            );
+        }
+        return /** @type {CatalogedSession} */ (getSessionById(database, firstLineage.runwieldSessionId));
+    });
 }
 
 /**
@@ -659,6 +834,8 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
         }
         const rootDiagnosticStart = diagnostics.length;
         diagnostics.push(...locatorResult.diagnostics);
+        /** @type {LineageCatalogLocator[]} */
+        const lineageLocators = [];
         for (const locator of locatorResult.locators) {
             if (!isLocatorForRoot(locator.headerCwd, evidence)) {
                 diagnostics.push({
@@ -670,6 +847,37 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
             }
             if (seenPaths.has(locator.sessionPath)) continue;
             seenPaths.add(locator.sessionPath);
+            try {
+                lineageLocators.push({
+                    ...locator,
+                    lineage: await readSegmentLineageEvidenceFromTranscript(locator.sessionPath),
+                });
+            } catch (error) {
+                diagnostics.push({
+                    sessionPath: locator.sessionPath,
+                    code: "lineage_read_failed",
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+        const grouped = groupLineageCatalogLocators(lineageLocators);
+        diagnostics.push(...grouped.diagnostics);
+        for (const group of grouped.groups) {
+            try {
+                const session = catalogLineageSegmentGroup(ownerDb, projectId, group, options);
+                cataloged.push(session);
+                for (const locator of group) knownTranscriptPaths.add(resolve(locator.sessionPath));
+            } catch (error) {
+                for (const locator of group) {
+                    diagnostics.push({
+                        sessionPath: locator.sessionPath,
+                        code: "catalog_conflict",
+                        message: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            }
+        }
+        for (const locator of grouped.ungrouped) {
             try {
                 const session = await ensureSessionCatalogRecord(ownerDb, {
                     projectId,

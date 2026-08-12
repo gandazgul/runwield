@@ -22,6 +22,68 @@ function insertCatalogedSessionWithSegment(database) {
     });
 }
 
+Deno.test("acquireSessionActivation rejects a wrong current-segment expectation", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-segment-acquire-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSessionWithSegment(database);
+            assertThrows(
+                () =>
+                    acquireSessionActivation(database, {
+                        runwieldSessionId: "session-1",
+                        projectId: "project-1",
+                        ownerInstanceId: "owner-1",
+                        ownerProcessKind: "test",
+                        operationId: "op-1",
+                        expectedGeneration: null,
+                        expectedCurrentSegmentId: "wrong",
+                        phase: "bootstrap",
+                    }),
+                Error,
+                "current segment expectation",
+            );
+            const inspected = inspectSessionActivation(database, "session-1");
+            assertEquals(inspected.activation?.state, "uninitialized");
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("acquireSessionActivation rejects an explicit null current-segment expectation", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-segment-null-acquire-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSessionWithSegment(database);
+            assertThrows(
+                () =>
+                    acquireSessionActivation(database, {
+                        runwieldSessionId: "session-1",
+                        projectId: "project-1",
+                        ownerInstanceId: "owner-1",
+                        ownerProcessKind: "test",
+                        operationId: "op-1",
+                        expectedGeneration: null,
+                        expectedCurrentSegmentId: null,
+                        phase: "bootstrap",
+                    }),
+                Error,
+                "current segment expectation",
+            );
+            const inspected = inspectSessionActivation(database, "session-1");
+            assertEquals(inspected.activation?.state, "uninitialized");
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("publishGenerationAndRelease rejects a wrong-current-segment proof", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-segment-proof-" });
     try {

@@ -15,6 +15,7 @@ import {
     diagnoseSessionSegmentLineage,
     ensureSessionCatalogRecord,
     getCurrentSessionSegment,
+    listProjectSessions,
     listSessionTranscriptSegments,
     sealSessionTranscriptSegment,
 } from "./sessions.js";
@@ -215,6 +216,158 @@ Deno.test("append rejects transcript paths outside the Project root and missing 
                     transcriptCwd: root,
                     kind: "execution",
                 }), Error);
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("sealed segments are immutable at the database boundary", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-segment-immutable-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            database.transaction(() => {
+                database.handle.prepare(
+                    "INSERT INTO projects(id, display_name, registered_root, current_root, lifecycle, created_at, updated_at) VALUES ('project-1', 'Project', ?, ?, 'enabled', 't0', 't0')",
+                ).run(dir, dir);
+                database.handle.prepare(
+                    "INSERT INTO runwield_sessions(id, project_id, source, created_at, updated_at) VALUES ('session-1', 'project-1', 'catalog', 't0', 't0')",
+                ).run();
+                database.handle.prepare(
+                    "INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at, last_cataloged_at) VALUES ('segment-1', 'session-1', 'project-1', 'pi-1', '/tmp/segment-1.jsonl', ?, 0, 'planning', 'sealed', 3, 'ts', 't1', 't1')",
+                ).run(dir);
+            });
+            assertThrows(
+                () =>
+                    database.handle.prepare(
+                        "UPDATE session_transcript_segments SET kind = 'execution' WHERE id = 'segment-1'",
+                    ).run(),
+                Error,
+                "immutable",
+            );
+            assertThrows(
+                () => database.handle.prepare("DELETE FROM session_transcript_segments WHERE id = 'segment-1'").run(),
+                Error,
+                "immutable",
+            );
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("catalog reconstruction regroups valid lineage-bearing transcript segments", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-segment-reconstruct-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const root = `${dir}/repo`;
+            await Deno.mkdir(root);
+            const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t0" });
+            const firstPath = await writeTranscript(root, "pi-a", {
+                timestamp: "2026-01-01T00:00:00.000Z",
+                body: `${
+                    JSON.stringify({
+                        type: "custom",
+                        customType: "runwield.segment_lineage",
+                        data: { segmentId: "segment-a", runwieldSessionId: "session-lineage" },
+                    })
+                }\n`,
+            });
+            const secondPath = await writeTranscript(root, "pi-b", {
+                timestamp: "2026-01-01T00:00:01.000Z",
+                body: `${
+                    JSON.stringify({
+                        type: "custom",
+                        customType: "runwield.segment_lineage",
+                        data: {
+                            segmentId: "segment-b",
+                            runwieldSessionId: "session-lineage",
+                            parentSegmentId: "segment-a",
+                            parentPiSessionId: "pi-a",
+                        },
+                    })
+                }\n`,
+            });
+            const result = await listProjectSessions(database, project.projectId, {
+                fullRescan: true,
+                idFactory: idFactory("locator"),
+                now: () => "t1",
+            });
+            assertEquals(result.diagnostics, []);
+            assertEquals(result.sessions.length, 1);
+            assertEquals(result.sessions[0].runwieldSessionId, "session-lineage");
+            const segments = listSessionTranscriptSegments(database, "session-lineage");
+            assertEquals(segments.map((segment) => segment.segmentId), ["segment-a", "segment-b"]);
+            assertEquals(segments.map((segment) => segment.transcriptPath), [firstPath, secondPath]);
+            assertEquals(segments[0].sealedAt, "t1");
+            assertEquals(getCurrentSessionSegment(database, "session-lineage")?.segmentId, "segment-b");
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("catalog reconstruction marks ambiguous lineage-bearing transcript segments for recovery", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-segment-recovery-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const root = `${dir}/repo`;
+            await Deno.mkdir(root);
+            const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t0" });
+            await writeTranscript(root, "pi-a", {
+                timestamp: "2026-01-01T00:00:00.000Z",
+                body: `${
+                    JSON.stringify({
+                        type: "custom",
+                        customType: "runwield.segment_lineage",
+                        data: { segmentId: "segment-a", runwieldSessionId: "session-lineage" },
+                    })
+                }\n`,
+            });
+            await writeTranscript(root, "pi-b", {
+                timestamp: "2026-01-01T00:00:01.000Z",
+                body: `${
+                    JSON.stringify({
+                        type: "custom",
+                        customType: "runwield.segment_lineage",
+                        data: {
+                            segmentId: "segment-b",
+                            runwieldSessionId: "session-lineage",
+                            parentSegmentId: "segment-a",
+                        },
+                    })
+                }\n`,
+            });
+            await writeTranscript(root, "pi-c", {
+                timestamp: "2026-01-01T00:00:02.000Z",
+                body: `${
+                    JSON.stringify({
+                        type: "custom",
+                        customType: "runwield.segment_lineage",
+                        data: {
+                            segmentId: "segment-c",
+                            runwieldSessionId: "session-lineage",
+                            parentSegmentId: "segment-a",
+                        },
+                    })
+                }\n`,
+            });
+            const result = await listProjectSessions(database, project.projectId, { fullRescan: true });
+            assertEquals(result.sessions.length, 0);
+            assertEquals(result.diagnostics.map((diagnostic) => diagnostic.code).sort(), [
+                "lineage_recovery_required",
+                "lineage_recovery_required",
+                "lineage_recovery_required",
+            ]);
         } finally {
             database.close();
         }

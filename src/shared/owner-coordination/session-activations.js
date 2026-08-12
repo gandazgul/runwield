@@ -269,7 +269,12 @@ export function acquireSessionActivation(database, options) {
         );
         if (!current) throw new Error(`Activation state not found: ${options.runwieldSessionId}`);
         const expectedGeneration = options.expectedGeneration ?? current.latestGeneration;
-        const expectedCurrentSegmentId = options.expectedCurrentSegmentId ?? current.currentSegmentId ?? null;
+        const expectedCurrentSegmentId = options.expectedCurrentSegmentId === undefined
+            ? current.currentSegmentId ?? null
+            : options.expectedCurrentSegmentId;
+        if (expectedCurrentSegmentId !== (current.currentSegmentId ?? null)) {
+            throw new Error("Session activation current segment expectation does not match stored state");
+        }
         const isBootstrap = current.state === "uninitialized" && phase === "bootstrap" && expectedGeneration === null;
         const isPreparing = current.state === "uninitialized" && phase === "preparing" && expectedGeneration === null;
         const isNormal = current.state === "idle" && current.latestGeneration === expectedGeneration;

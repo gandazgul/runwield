@@ -382,6 +382,20 @@ CREATE INDEX IF NOT EXISTS idx_session_segments_pi ON session_transcript_segment
 CREATE INDEX IF NOT EXISTS idx_session_segments_lineage_parent ON session_transcript_segments(lineage_parent_segment_id);
 CREATE INDEX IF NOT EXISTS idx_segment_state_project ON session_transcript_segment_state(project_id);
 
+CREATE TRIGGER IF NOT EXISTS trg_session_segments_sealed_no_update
+BEFORE UPDATE ON session_transcript_segments
+WHEN OLD.sealed_at IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'sealed transcript segments are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_segments_sealed_no_delete
+BEFORE DELETE ON session_transcript_segments
+WHEN OLD.sealed_at IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'sealed transcript segments are immutable');
+END;
+
 ALTER TABLE session_activation_state ADD COLUMN current_segment_id TEXT;
 ALTER TABLE session_activation_state ADD COLUMN expected_current_segment_id TEXT;
 ALTER TABLE session_committed_generations ADD COLUMN current_segment_id TEXT;
