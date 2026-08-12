@@ -155,6 +155,7 @@ Deno.test("TUI, ACP, Workspace, commands, and scripts use the public Runtime sur
 Deno.test("writable transcript hydration stays inside SessionRuntime lease enforcement", async () => {
     const allowed = new Set([
         "src/shared/session/root-session.js",
+        "src/shared/session/segment-rollover.ts",
         "src/shared/session/session-runtime.js",
     ]);
     const violations = await findViolations(["src", "scripts"], [
@@ -175,6 +176,7 @@ Deno.test("owner-coordination lease mutators stay behind approved state-machine 
                 /\b(?:acquireSessionActivation|changeSessionActivationPhase|heartbeatSessionActivation|publishGenerationAndRelease|releaseUnchangedActivation|markSessionUncertain|markSessionReconcileRequired)\s*\(/,
             allowPath: (path) =>
                 path.startsWith("src/shared/owner-coordination/") ||
+                path === "src/shared/session/segment-rollover.ts" ||
                 path === "src/shared/session/session-runtime.js" ||
                 path === "src/ui/workspace/server/session-continuation.js",
         },
@@ -398,6 +400,7 @@ Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", 
         "replaySession",
         "requestInteraction",
         "requestSessionHelp",
+        "rollManagedSessionSegment",
         "runIsolatedAgent",
         "runLocalShellCommand",
         "runPlanningAgent",

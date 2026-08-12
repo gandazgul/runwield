@@ -152,6 +152,32 @@ Deno.test("aggregate projection fails closed with zero events when sealed segmen
     }
 });
 
+Deno.test("aggregate projection fails closed when segments extend beyond committed generation", async () => {
+    const fixture = await createTwoSegmentFixture();
+    try {
+        const projected = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: {
+                generation: 0,
+                byteLength: fixture.firstEvidence.byteLength,
+                terminalEntryId: fixture.firstEvidence.terminalEntryId,
+                digestHex: fixture.firstEvidence.digestHex,
+                currentSegmentId: fixture.firstSegment.segmentId,
+            },
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+        });
+        if (projected.ok) throw new Error("projection should have failed");
+        assertEquals(projected.state, "degraded");
+        assertEquals(projected.code, "projection_failed");
+        assertEquals(projected.message, "Committed generation references an ambiguous segment lineage");
+        assertEquals(projected.events, []);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});
+
 Deno.test("aggregate projection replays from start when a cursor is absent after full verification", async () => {
     const fixture = await createTwoSegmentFixture();
     try {

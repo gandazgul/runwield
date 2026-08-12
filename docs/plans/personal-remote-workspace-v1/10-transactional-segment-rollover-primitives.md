@@ -13,13 +13,13 @@ affectedPaths:
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.345Z"
 updatedAt: "2026-07-27T19:30:00.000Z"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 10
 dependencies:
     - "09-aggregate-transcript-projection-and-segment-aware-sync"
 planId: "d8f8720d-53e5-435f-b6f2-23608eddbe45"
+status: "ready_for_work"
 ---
 
 # Transactional Segment Rollover Primitives

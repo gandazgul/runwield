@@ -8,6 +8,7 @@ import { COMPLEXITIES, normalizeRoutingIntent } from "../../constants.js";
 
 export const WORKFLOW_CONTEXT_CUSTOM_TYPE = "runwield.workflow_context";
 export const SEGMENT_LINEAGE_CUSTOM_TYPE = "runwield.segment_lineage";
+export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segment_continuation";
 
 /**
  * @typedef {Object} WorkflowContext
@@ -214,6 +215,38 @@ export function readPersistedSegmentLineageEvidence(sessionManager) {
 }
 
 /**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {unknown} payload
+ * @returns {unknown}
+ */
+export function recordPendingSegmentContinuation(sessionManager, payload) {
+    if (!sessionManager?.appendCustomEntry) return payload;
+    try {
+        sessionManager.appendCustomEntry(PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE, payload);
+    } catch (_e) {
+        return payload;
+    }
+    return payload;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @returns {unknown | null}
+ */
+export function readPersistedPendingSegmentContinuation(sessionManager) {
+    try {
+        const entries = getSessionEntries(sessionManager);
+        for (let i = entries.length - 1; i >= 0; i--) {
+            const continuation = readPendingSegmentContinuationFromEntry(entries[i]);
+            if (continuation !== undefined) return continuation;
+        }
+    } catch (_e) {
+        // Pending continuation should never block Session construction.
+    }
+    return null;
+}
+
+/**
  * @param {import('../types.js').SessionSegmentLineageEvidence | null | undefined} lineage
  * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
  */
@@ -282,4 +315,13 @@ function readSegmentLineageFromEntry(entry) {
     if (customType !== SEGMENT_LINEAGE_CUSTOM_TYPE) return null;
     const data = /** @type {{ data?: import('../types.js').SessionSegmentLineageEvidence }} */ (entry).data;
     return normalizeSegmentLineageEvidence(data);
+}
+
+/** @param {unknown} entry */
+function readPendingSegmentContinuationFromEntry(entry) {
+    if (!entry || typeof entry !== "object") return undefined;
+    if (/** @type {{ type?: string }} */ (entry).type !== "custom") return undefined;
+    const customType = /** @type {{ customType?: string }} */ (entry).customType;
+    if (customType !== PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE) return undefined;
+    return /** @type {{ data?: unknown }} */ (entry).data;
 }

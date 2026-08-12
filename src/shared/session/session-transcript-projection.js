@@ -444,7 +444,14 @@ export function toProjectionFailure(error) {
         : message.includes("JSON")
         ? "malformed_committed_prefix"
         : "projection_failed";
-    return { ok: false, state: "degraded", code, message: "Committed transcript projection is unavailable." };
+    return {
+        ok: false,
+        state: "degraded",
+        code,
+        message: message === "Committed generation references an ambiguous segment lineage"
+            ? message
+            : "Committed transcript projection is unavailable.",
+    };
 }
 
 /**

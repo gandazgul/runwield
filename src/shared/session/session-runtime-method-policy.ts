@@ -54,6 +54,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     replaySession: "projection_adapter_local",
     requestInteraction: "projection_adapter_local",
     requestSessionHelp: "read_only",
+    rollManagedSessionSegment: "fenced_standalone_mutation",
     runIsolatedAgent: "nested_only_mutation",
     runLocalShellCommand: "fenced_standalone_mutation",
     runPlanningAgent: "fenced_standalone_mutation",

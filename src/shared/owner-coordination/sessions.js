@@ -11,7 +11,11 @@ import {
     listCatalogSafeRootSessionLocators,
     readCatalogSafeRootSessionLocator,
 } from "../session/root-session.js";
-import { normalizeSegmentLineageEvidence, SEGMENT_LINEAGE_CUSTOM_TYPE } from "../session/workflow-context-session.js";
+import {
+    normalizeSegmentLineageEvidence,
+    PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE,
+    SEGMENT_LINEAGE_CUSTOM_TYPE,
+} from "../session/workflow-context-session.js";
 import { getProjectById, listProjectRootEvidence } from "./projects.js";
 
 /**
@@ -425,7 +429,7 @@ function catalogLineageSegmentGroup(database, projectId, group, options) {
  * @param {{ projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string }} locator
  * @returns {Promise<import('../session/root-session.js').CatalogSafeRootSessionLocator>}
  */
-async function validateGuardedLocator(database, locator) {
+export async function validateSuccessorSegmentLocator(database, locator) {
     const rootEvidence = listProjectRootEvidence(database, locator.projectId);
     const matchingRoot = rootEvidence.find((root) => isLocatorForRoot(locator.transcriptCwd, root));
     if (!matchingRoot) {
@@ -549,7 +553,7 @@ export async function ensureSessionCatalogRecord(database, locator) {
     }
     if (!locator.transcriptCwd || !isAbsolute(locator.transcriptCwd)) throw new Error("transcriptCwd must be absolute");
     const transcriptPath = resolve(locator.transcriptPath);
-    const safeLocator = await validateGuardedLocator(ownerDb, { ...locator, transcriptPath });
+    const safeLocator = await validateSuccessorSegmentLocator(ownerDb, { ...locator, transcriptPath });
     return ownerDb.transaction(() => {
         const project = getProjectById(ownerDb, locator.projectId);
         if (!project) throw new Error(`Project not found: ${locator.projectId}`);
@@ -655,6 +659,62 @@ export function getCurrentSessionSegment(database, runwieldSessionId) {
  * @param {{ runwieldSessionId: string, projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, kind: 'planning' | 'execution' | 'semantic_repair', lineageParentSegmentId?: string | null, lineageParentPiSessionId?: string | null, lineageGroupKey?: string | null, idFactory?: () => string, now?: () => string }} segment
  * @returns {Promise<import('../types.js').SessionTranscriptSegment>}
  */
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, kind: 'planning' | 'execution' | 'semantic_repair', lineageParentSegmentId?: string | null, lineageParentPiSessionId?: string | null, lineageGroupKey?: string | null, idFactory?: () => string, now?: () => string }} segment
+ * @param {import('../session/root-session.js').CatalogSafeRootSessionLocator} safeLocator
+ * @returns {import('../types.js').SessionTranscriptSegment}
+ */
+export function insertSessionTranscriptSegmentRow(database, segment, safeLocator) {
+    const ownerDb = requireDatabase(database);
+    const session = ownerDb.handle.prepare(
+        "SELECT id, project_id FROM runwield_sessions WHERE id = ? AND project_id = ?",
+    ).get(segment.runwieldSessionId, segment.projectId);
+    if (!session) throw new Error(`Session not found: ${segment.runwieldSessionId}`);
+    const current = getCurrentSessionSegment(ownerDb, segment.runwieldSessionId);
+    if (current) throw new Error(`Current segment is still unsealed: ${current.segmentId}`);
+    const previous = ownerDb.handle.prepare(
+        "SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal FROM session_transcript_segments WHERE runwield_session_id = ?",
+    ).get(segment.runwieldSessionId);
+    if (!previous) throw new Error("Unable to read segment ordinal state");
+    const ordinal = Number(previous.max_ordinal) + 1;
+    const now = isoNow(segment.now);
+    const segmentId = newId(segment.idFactory);
+    ownerDb.handle.prepare(
+        `INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path,
+            transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at,
+            last_cataloged_at, lineage_parent_segment_id, lineage_parent_pi_session_id, lineage_group_key,
+            lineage_recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+        segmentId,
+        segment.runwieldSessionId,
+        segment.projectId,
+        safeLocator.piSessionId,
+        resolve(segment.transcriptPath),
+        safeLocator.headerCwd,
+        ordinal,
+        segment.kind,
+        safeLocator.headerVersion,
+        safeLocator.headerTimestamp,
+        now,
+        now,
+        segment.lineageParentSegmentId ?? null,
+        segment.lineageParentPiSessionId ?? null,
+        segment.lineageGroupKey ?? null,
+        segment.lineageParentSegmentId || segment.lineageParentPiSessionId || segment.lineageGroupKey ? now : null,
+    );
+    return /** @type {import('../types.js').SessionTranscriptSegment} */ (getCurrentSessionSegment(
+        ownerDb,
+        segment.runwieldSessionId,
+    ));
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, kind: 'planning' | 'execution' | 'semantic_repair', lineageParentSegmentId?: string | null, lineageParentPiSessionId?: string | null, lineageGroupKey?: string | null, idFactory?: () => string, now?: () => string }} segment
+ * @returns {Promise<import('../types.js').SessionTranscriptSegment>}
+ */
 export async function appendSessionTranscriptSegment(database, segment) {
     const ownerDb = requireDatabase(database);
     if (!segment?.runwieldSessionId) throw new Error("runwieldSessionId is required");
@@ -668,50 +728,53 @@ export async function appendSessionTranscriptSegment(database, segment) {
         throw new Error(`Invalid segment kind: ${segment.kind}`);
     }
     const transcriptPath = resolve(segment.transcriptPath);
-    const safeLocator = await validateGuardedLocator(ownerDb, { ...segment, transcriptPath });
-    return ownerDb.transaction(() => {
-        const session = ownerDb.handle.prepare(
-            "SELECT id, project_id FROM runwield_sessions WHERE id = ? AND project_id = ?",
-        ).get(segment.runwieldSessionId, segment.projectId);
-        if (!session) throw new Error(`Session not found: ${segment.runwieldSessionId}`);
-        const current = getCurrentSessionSegment(ownerDb, segment.runwieldSessionId);
-        if (current) throw new Error(`Current segment is still unsealed: ${current.segmentId}`);
-        const previous = ownerDb.handle.prepare(
-            "SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal FROM session_transcript_segments WHERE runwield_session_id = ?",
-        ).get(segment.runwieldSessionId);
-        if (!previous) throw new Error("Unable to read segment ordinal state");
-        const ordinal = Number(previous.max_ordinal) + 1;
-        const now = isoNow(segment.now);
-        const segmentId = newId(segment.idFactory);
-        ownerDb.handle.prepare(
-            `INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path,
-                transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at,
-                last_cataloged_at, lineage_parent_segment_id, lineage_parent_pi_session_id, lineage_group_key,
-                lineage_recorded_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-            segmentId,
-            segment.runwieldSessionId,
-            segment.projectId,
-            safeLocator.piSessionId,
-            transcriptPath,
-            safeLocator.headerCwd,
-            ordinal,
-            segment.kind,
-            safeLocator.headerVersion,
-            safeLocator.headerTimestamp,
-            now,
-            now,
-            segment.lineageParentSegmentId ?? null,
-            segment.lineageParentPiSessionId ?? null,
-            segment.lineageGroupKey ?? null,
-            segment.lineageParentSegmentId || segment.lineageParentPiSessionId || segment.lineageGroupKey ? now : null,
-        );
-        return /** @type {import('../types.js').SessionTranscriptSegment} */ (getCurrentSessionSegment(
-            ownerDb,
-            segment.runwieldSessionId,
-        ));
-    });
+    const safeLocator = await validateSuccessorSegmentLocator(ownerDb, { ...segment, transcriptPath });
+    return ownerDb.transaction(() =>
+        insertSessionTranscriptSegmentRow(ownerDb, { ...segment, transcriptPath }, safeLocator)
+    );
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, segmentId: string, evidence?: { byteLength: number, digestHex: string, terminalEntryId: string | null }, now?: () => string }} options
+ * @returns {import('../types.js').SessionTranscriptSegment}
+ */
+export function sealSessionTranscriptSegmentRow(database, options) {
+    const ownerDb = requireDatabase(database);
+    const supplied = options.evidence || null;
+    if (!supplied || !Number.isInteger(supplied.byteLength) || typeof supplied.digestHex !== "string") {
+        throw new Error("Sealed segment evidence is required");
+    }
+    const now = isoNow(options.now);
+    const currentInTransaction = getCurrentSessionSegment(ownerDb, options.runwieldSessionId);
+    if (!currentInTransaction || currentInTransaction.segmentId !== options.segmentId) {
+        throw new Error("Segment is not current");
+    }
+    const actual = captureTranscriptEvidenceSync(currentInTransaction.transcriptPath, supplied.byteLength);
+    if (
+        actual.byteLength !== supplied.byteLength || actual.digestHex !== supplied.digestHex ||
+        actual.terminalEntryId !== supplied.terminalEntryId
+    ) {
+        throw new Error("Sealed segment evidence does not match transcript on disk");
+    }
+    const result = ownerDb.handle.prepare(
+        `UPDATE session_transcript_segments
+            SET sealed_at = ?, last_cataloged_at = ?, sealed_byte_length = ?, sealed_digest_hex = ?, sealed_terminal_entry_id = ?
+          WHERE id = ? AND runwield_session_id = ? AND sealed_at IS NULL`,
+    ).run(
+        now,
+        now,
+        supplied.byteLength,
+        supplied.digestHex,
+        supplied.terminalEntryId ?? null,
+        options.segmentId,
+        options.runwieldSessionId,
+    );
+    if (result.changes !== 1) throw new Error("Segment seal proof was rejected");
+    return /** @type {import('../types.js').SessionTranscriptSegment} */ (listSessionTranscriptSegments(
+        ownerDb,
+        options.runwieldSessionId,
+    ).find((item) => item.segmentId === options.segmentId));
 }
 
 /**
@@ -725,38 +788,73 @@ export function sealSessionTranscriptSegment(database, options) {
     if (!supplied || !Number.isInteger(supplied.byteLength) || typeof supplied.digestHex !== "string") {
         throw new Error("Sealed segment evidence is required");
     }
-    const now = isoNow(options.now);
-    return ownerDb.transaction(() => {
-        const currentInTransaction = getCurrentSessionSegment(ownerDb, options.runwieldSessionId);
-        if (!currentInTransaction || currentInTransaction.segmentId !== options.segmentId) {
-            throw new Error("Segment is not current");
-        }
-        const actual = captureTranscriptEvidenceSync(currentInTransaction.transcriptPath, supplied.byteLength);
-        if (
-            actual.byteLength !== supplied.byteLength || actual.digestHex !== supplied.digestHex ||
-            actual.terminalEntryId !== supplied.terminalEntryId
-        ) {
-            throw new Error("Sealed segment evidence does not match transcript on disk");
-        }
-        const result = ownerDb.handle.prepare(
-            `UPDATE session_transcript_segments
-                SET sealed_at = ?, last_cataloged_at = ?, sealed_byte_length = ?, sealed_digest_hex = ?, sealed_terminal_entry_id = ?
-              WHERE id = ? AND runwield_session_id = ? AND sealed_at IS NULL`,
-        ).run(
-            now,
-            now,
-            supplied.byteLength,
-            supplied.digestHex,
-            supplied.terminalEntryId ?? null,
-            options.segmentId,
-            options.runwieldSessionId,
+    return ownerDb.transaction(() => sealSessionTranscriptSegmentRow(ownerDb, options));
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, transcriptCwd: string }} options
+ * @returns {Promise<import('../session/segment-rollover.ts').OrphanRolloverCandidate[]>}
+ */
+export async function findOrphanRolloverCandidates(database, options) {
+    const ownerDb = requireDatabase(database);
+    const knownPaths = new Set(
+        listSessionTranscriptSegments(ownerDb, options.runwieldSessionId).map((segment) =>
+            resolve(segment.transcriptPath)
+        ),
+    );
+    const sessionDir = getRunWieldSessionDir(options.transcriptCwd);
+    const { locators } = await listCatalogSafeRootSessionLocators(options.transcriptCwd, { sessionDir });
+    const candidates = [];
+    for (const locator of locators) {
+        if (knownPaths.has(resolve(locator.sessionPath))) continue;
+        const lineage = await readSegmentLineageEvidenceFromTranscript(locator.sessionPath);
+        if (!lineage || lineage.runwieldSessionId !== options.runwieldSessionId || !lineage.parentSegmentId) continue;
+        const parent = listSessionTranscriptSegments(ownerDb, options.runwieldSessionId).find((segment) =>
+            segment.segmentId === lineage.parentSegmentId
         );
-        if (result.changes !== 1) throw new Error("Segment seal proof was rejected");
-        return /** @type {import('../types.js').SessionTranscriptSegment} */ (listSessionTranscriptSegments(
-            ownerDb,
-            options.runwieldSessionId,
-        ).find((item) => item.segmentId === options.segmentId));
-    });
+        if (!parent) continue;
+        candidates.push({
+            runwieldSessionId: options.runwieldSessionId,
+            projectId: options.projectId,
+            transcriptPath: resolve(locator.sessionPath),
+            transcriptCwd: locator.headerCwd,
+            piSessionId: locator.piSessionId,
+            parentSegmentId: lineage.parentSegmentId,
+            parentPiSessionId: lineage.parentPiSessionId ?? null,
+            lineageGroupKey: lineage.lineageGroupKey ?? null,
+        });
+    }
+    return candidates;
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, transcriptCwd: string, transcriptPath: string }} options
+ */
+export async function discardOrphanRolloverCandidate(database, options) {
+    const ownerDb = requireDatabase(database);
+    const sessionDir = getRunWieldSessionDir(options.transcriptCwd);
+    const transcriptPath = resolve(options.transcriptPath);
+    if (!isPathInside(transcriptPath, sessionDir)) throw new Error("Orphan candidate is outside the Session directory");
+    const row = ownerDb.handle.prepare("SELECT id FROM session_transcript_segments WHERE transcript_path = ?").get(
+        transcriptPath,
+    );
+    if (row) throw new Error("Orphan candidate already has a segment row");
+    const text = await Deno.readTextFile(transcriptPath);
+    const entries = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    if (entries.length < 1) throw new Error("Orphan candidate is empty");
+    for (let index = 1; index < entries.length; index++) {
+        const entry = entries[index];
+        if (!entry || typeof entry !== "object" || entry.type !== "custom") {
+            throw new Error("Orphan candidate contains non-marker entries");
+        }
+        const customType = /** @type {{ customType?: string }} */ (entry).customType;
+        if (customType !== SEGMENT_LINEAGE_CUSTOM_TYPE && customType !== PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE) {
+            throw new Error("Orphan candidate contains non-marker entries");
+        }
+    }
+    await Deno.remove(transcriptPath);
 }
 
 /**

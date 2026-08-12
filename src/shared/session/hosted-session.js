@@ -116,6 +116,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} projectId
  * @property {string} piSessionId
  * @property {string} transcriptPath
+ * @property {string} [currentSegmentId]
  * @property {number | null} generation
  * @property {number | null} [acknowledgedGeneration]
  * @property {string | null} [acknowledgedEventId]
@@ -398,6 +399,18 @@ export class HostedSession {
 
     getManagedMetadata() {
         return this.managed ? { ...this.managed } : null;
+    }
+
+    /** @param {{ piSessionId: string, transcriptPath: string, currentSegmentId: string }} segment */
+    replaceManagedTranscriptSegment(segment) {
+        this.assertActive();
+        if (!this.managed) throw new Error("Managed Session metadata is absent");
+        this.managed = {
+            ...this.managed,
+            piSessionId: segment.piSessionId,
+            transcriptPath: segment.transcriptPath,
+            currentSegmentId: segment.currentSegmentId,
+        };
     }
 
     /** @param {PendingManagedTurnIntent} intent */

@@ -89,6 +89,42 @@ export async function createRootSessionManager(mode, cwd) {
     return SessionManager.create(cwd, sessionDir);
 }
 
+/** @param {any} sessionManager @param {string} transcriptPath */
+async function ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath) {
+    try {
+        const stat = await Deno.stat(transcriptPath);
+        if (stat.isFile) return;
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    if (typeof sessionManager?._rewriteFile !== "function") {
+        throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
+    }
+    sessionManager._rewriteFile();
+    if ("flushed" in sessionManager) sessionManager.flushed = true;
+    const stat = await Deno.stat(transcriptPath);
+    if (!stat.isFile) throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
+}
+
+/** @param {string} cwd @param {any} sessionManager */
+export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
+    const piSessionId = sessionManager.getSessionId?.();
+    if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+    const sessions = await listPersistedRootSessions(cwd);
+    const match = sessions.find((session) => session.id === piSessionId);
+    if (match?.path) return match.path;
+    const transcriptPath = sessionManager.getSessionFile?.();
+    const sessionDir = getRunWieldSessionDir(cwd);
+    if (
+        !transcriptPath || typeof transcriptPath !== "string" || !isAbsolute(transcriptPath) ||
+        !isPathInside(transcriptPath, sessionDir) || !basename(transcriptPath).includes(piSessionId)
+    ) {
+        throw new Error(`Created Session transcript was not found: ${piSessionId}`);
+    }
+    await ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath);
+    return transcriptPath;
+}
+
 /**
  * @typedef {Object} PersistedRootSessionInfo
  * @property {string} id

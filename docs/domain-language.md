@@ -63,6 +63,16 @@ transfer Session Transcript, workflow, lifecycle, or replay authority away from 
 model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
 Session, Agent Session, JSONL file
 
+**Session Transcript Segment Rollover**: The fenced mutation that seals the current Session Transcript Segment, creates
+its successor, moves the activation segment pointer, and publishes the successor's committed generation indivisibly. No
+Aggregate Transcript Projection should observe a successor segment that no committed generation names. _Avoid_: Segment
+switch, transcript swap, context reset
+
+**Orphan Rollover Candidate**: A successor transcript file that carries Session Transcript Segment lineage but has no
+owner-coordination segment row because the process stopped before the rollover transaction committed. It is invisible to
+readers and discardable only while it contains no entries beyond its header, lineage marker, and continuation marker.
+_Avoid_: Partial segment, dangling Session, recovery segment
+
 **Session Control**: The right of one attached client to submit user messages or answer pending interactions for a live
 Session; observation does not require control. _Avoid_: Plan Workflow Lease, Session ownership, Agent ownership
 
