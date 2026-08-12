@@ -197,6 +197,8 @@ graph TD
 
 - [Quickstart](quickstart.md) - install, authenticate, initialize, and run the first routed request.
 - [Using RunWield](usage.md) - day-to-day commands, routing, agents, plans, and TUI differences from Pi.
+- [Bundled RunWield usage skill](../src/skills/runwield/SKILL.md) - shipped user-facing answer surface; update it
+  alongside docs when user-visible behavior changes.
 - [Plans and workflows](workflows.md) - triage classes, plan review, execution, validation, and recovery.
 - [Self-hosted collaborative planning](collaboration.md) - run a Shared Space Plan Server and use
   `wld plans share|pull|push|unshare`.

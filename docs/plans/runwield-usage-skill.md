@@ -1,4 +1,5 @@
 ---
+planId: "49566e81-b105-4637-a0c7-1a465c6752b6"
 classification: "PLANNED_CHANGE"
 workKind: "DOCUMENTATION"
 complexity: "MEDIUM"
@@ -30,16 +31,27 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-07T23:34:33-04:00"
-updatedAt: "2026-08-08T03:57:38.698Z"
-status: "ready_for_work"
+updatedAt: "2026-08-12T14:31:48.767Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-12T13:45:07.249Z"
+verifiedAt: "2026-08-12T14:31:48.767Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-worktreeStatus: "abandoned"
+executionReport: "- Added bundled model-invoked `runwield` skill under `src/skills/runwield/` with `SKILL.md`, `COMMANDS.md`, `PLANS.md`, `CUSTOMIZATION.md`, and `SETTINGS.md`; line limits hold at 427 total lines and no file exceeds 200 lines.\n- Added docs cross-links: `docs/index.md` points to the shipped user-facing skill, and `docs/customization.md` lists `runwield` in bundled skills.\n- Verified Objective-Failing Checks manually: frontmatter/model invocation, required topic grep coverage, real GitHub docs links, docs cross-links, and line ceilings all passed.\n- Verified automated gate: `deno task ci` passed.\n- Verified compile/embed gate: `deno task compile && ./bin/wld version` passed and the compiled outside-repo startup listed bundled skill `runwield`.\n- Manual outside-repo Q&A acceptance was attempted from `/tmp`, but the TUI stopped at the first-run `/init` bootstrap prompt and timed out before answering; the shipped skill was visible in the compiled binary skill list.\n- No Memory was stored and no repository rule file was edited."
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-12T14:31:48.211Z"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "4fef833944f36411f2447fe6de1112d77cb88dcf"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "ff1dcbeb0f80caf9a5a241dd6223e4128dcaa6cd"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "RunWield usage skill"
-planId: "49566e81-b105-4637-a0c7-1a465c6752b6"
+validationCiAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # RunWield Usage Skill
