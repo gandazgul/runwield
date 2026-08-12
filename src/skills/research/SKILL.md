@@ -1,6 +1,10 @@
 ---
 name: research
 description: Investigate a question against high-trust primary sources and capture the findings as a cited Markdown note. Use when the user wants durable research, docs/API facts gathered, ecosystem comparisons, or reading legwork saved for Ideator, Planner, Architect, or future sessions.
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/research/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 # Research

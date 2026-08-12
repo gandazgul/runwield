@@ -202,6 +202,21 @@ mostly pure JavaScript with JSDoc typing -> moving to TypeScript. See [contribut
 
 ---
 
+## Acknowledgements
+
+RunWield builds on and learns from these projects and authors:
+
+- [Pi](https://github.com/earendil-works/pi) (`pi.dev`) for the agent runtime and terminal foundation.
+- [Vercel's agent-browser](https://github.com/vercel-labs/agent-browser) for browser-driven UI/UX verification.
+- [Plannotator](https://github.com/backnotprop/plannotator) for artifact review and annotation surfaces.
+- [1broseidon](https://github.com/1broseidon) for [Cymbal](https://github.com/1broseidon/cymbal) and
+  [Ketch](https://github.com/1broseidon/ketch).
+- [Matt Pocock's skills](https://github.com/mattpocock/skills) for the adapted diagnose, architecture, prototype,
+  research, merge-conflict, TDD, and skill-writing Skill packages. And the inspiration for the plan workflow.
+- [Anthropic's skills](https://github.com/anthropics/skills) for the frontend framework Skill inspiration.
+
+---
+
 ## License
 
 RunWield is **source-available and free to use**, but it is not open source yet.

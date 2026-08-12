@@ -2,6 +2,10 @@
 name: front-end-framework-use
 description: Convention-first frontend engineering for browser UI work. Use when implementing, fixing, debugging, or reviewing frontend JavaScript/HTML/CSS across frameworks; when UX behavior, visual design, design-system fit, framework conventions, or real-browser evidence matter. Don't use for TUI work.
 license: Apache-2.0; complete terms in LICENSE.txt
+license_details: This complete `src/skills/frontend-framework/` Skill package is licensed under Apache 2.0; see `LICENSE.txt`. It is
+    inspired by Anthropic's `frontend-design` Skill at
+    `https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md`. This nested license covers only this
+    Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 # Front-End Framework Use
@@ -9,11 +13,6 @@ license: Apache-2.0; complete terms in LICENSE.txt
 **Convention-first** browser frontend work starts from the project's source, framework conventions, and design basis.
 Preserve and extend what exists before inventing. Use this skill as a compact reference index, not as an execution loop;
 hard sequencing remains with the active agent definition.
-
-This complete `src/skills/frontend-framework/` Skill package is licensed under Apache 2.0; see `LICENSE.txt`. It is
-inspired by Anthropic's `frontend-design` Skill at
-`https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md`. This nested license covers only this
-Skill package and does not change the root RunWield license or any other repository path.
 
 ## Design-basis invariant
 

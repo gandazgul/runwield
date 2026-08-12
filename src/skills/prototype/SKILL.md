@@ -1,6 +1,10 @@
 ---
 name: prototype
 description: Use this skill when the user wants to prototype an idea, sanity-check a data model or state machine, mock up a UI, explore design options, or try several approaches before committing — even if they just say "let me play with it" or "try a few designs". Creates a runnable throwable that lets the user interact with the design before implementation.
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/prototype/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 # Prototype

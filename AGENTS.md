@@ -1,3 +1,5 @@
+Stop using jargon and speak coherently. State things simply and concisely, like one human talking to another.
+
 ## Local Type Style
 
 JSDoc: prefer `@typedef` for object shapes over inline annotations or `@type` casts. Define the type once and reference

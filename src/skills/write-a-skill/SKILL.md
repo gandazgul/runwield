@@ -1,6 +1,10 @@
 ---
 name: write-a-skill
 description: Reference for writing and editing skills well — the vocabulary and principles that make a skill predictable.
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/write-a-skill/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 A skill exists to wrangle determinism out of a stochastic system. **Predictability** — the agent taking the same

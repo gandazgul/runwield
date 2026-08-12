@@ -1,6 +1,10 @@
 ---
 name: resolving-merge-conflicts
 description: "Use when you need to resolve an in-progress git merge/rebase conflict."
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/resolving-merge-conflicts/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 1. **See the current state** of the merge/rebase. Check git history, and the conflicting files.

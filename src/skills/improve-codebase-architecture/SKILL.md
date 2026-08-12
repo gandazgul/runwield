@@ -1,6 +1,10 @@
 ---
 name: improve-codebase-architecture
 description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one the user picks. Use when the user wants to improve architecture, find refactoring opportunities, consolidate tightly-coupled modules, or make the codebase more testable and AI-navigable.
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/improve-codebase-architecture/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 # Improve Codebase Architecture

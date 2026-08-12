@@ -1,6 +1,10 @@
 ---
 name: diagnose
 description: Use this skill when the user reports a bug, says something is broken, throwing errors, or failing — even if they don't say "diagnose" or "debug". Also use for performance regressions, when the user says something is slow, degraded, or slower than before. Follows a feedback-loop → reproduce + minimise → hypothesise → instrument → fix → regression-test loop.
+license: MIT; complete terms in LICENSE
+license_details: This complete `src/skills/diagnose/` Skill package is licensed under MIT; see `LICENSE`. It is
+    adapted from Matt Pocock's skills repository at `https://github.com/mattpocock/skills/`. This nested license
+    covers only this Skill package and does not change the root RunWield license or any other repository path.
 ---
 
 # Diagnose
