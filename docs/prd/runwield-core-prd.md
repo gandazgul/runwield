@@ -276,6 +276,9 @@ Deferred collaboration surface:
 - hosted RunWield Workspace / Cloudflare D1 deployment
 - browser-side push, close, unshare/delete, or Plan body editing
 - automated notifications
+- Forge Change Request Delivery through GitHub or GitLab as an explicitly selected delivery and review mode (see
+  [forge-change-request-delivery-prd.md](./forge-change-request-delivery-prd.md)); RunWield-native review and Direct
+  Delivery remain the default
 
 The full collaboration and Workspace story lives in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
 

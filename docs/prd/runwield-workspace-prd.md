@@ -2,13 +2,13 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-07-31T13:09:56-04:00"
+updatedAt: "2026-08-11T22:27:00-04:00"
 ---
 
 # RunWield Workspace PRD
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-07-31
+**Last Updated:** 2026-08-11
 
 ## 1. Objective
 
@@ -82,6 +82,9 @@ Product principles:
 - **Approval is not execution authorization.** The user can approve and run now or approve for later.
 - **Artifacts outrank transcripts.** Plans, PRDs, ADRs, and Work Records form durable Project and Workspace
   intelligence. Raw Session Transcripts do not.
+- **RunWield replaces the forge workflow layer by default.** Intent, review, and memory are RunWield capabilities. A
+  forge may remain the remote git host, merge substrate, and identity provider, but pull-request review is a
+  per-repository opt-in, not the default human review loop.
 - **Local-first does not mean browser-bound.** Work continues safely when the browser disconnects and stops only at
   completion, cancellation, failure, or the next required human decision.
 - **Preserve local agency.** Personal mode does not force every QUICK_FIX, manual edit, or supported in-place workflow
@@ -523,6 +526,8 @@ The first version succeeds when:
 
 - Public-internet exposure without a private network.
 - Team accounts, roles, organization membership, or shared-machine concurrency.
+- Multiplayer code review, review assignment, and Workspace-side merge; these arrive with the collaborative SaaS
+  Workspace, while Personal v1 review stays owner-only.
 - Collaborator access to Session Transcripts.
 - Cross-Session Agent retrieval from Session Transcripts.
 - Agent access to cross-Project Cymbal search.
@@ -584,6 +589,14 @@ Extend the same concepts with:
 - team and organization membership;
 - Project-level authorization and policy;
 - collaborator-visible durable artifacts and review;
+- assignable human code review that replaces forge pull-request review by default, with Agents assisting reviewer and
+  author; review discussion, assignment, and approval state live in Workspace outside the repository, the same way
+  Sessions do, and only durable results (Plans, Work Records, commits) are committed;
+- a Workspace merge component that lands validated, approved work on the target branch under team-granted permissions;
+- identity, audit, and person provenance, with GitHub identity and permission integration as a high-priority roadmap
+  item so teams can keep existing accounts;
+- per-repository or per-team review policy: RunWield-native review by default, forge-hosted review or Dual Review as
+  explicit opt-ins, with no state synchronization between gates;
 - organization-scale Workspace Intelligence;
 - optional external cross-repository search providers;
 - hosted execution only after planning, workflow, isolation, and recovery semantics are proven.
@@ -598,6 +611,14 @@ search, unscoped organization access
 delivery evidence, and outcomes without replacing source artifacts as project truth. _Avoid_: Plan Evidence Graph,
 Session Transcript graph, source of truth
 
+**Assignable Human Review**: Workspace-hosted human code review assigned to a teammate, with Agent assistance for
+reviewer and author. Review discussion and approval state are Workspace process data held outside the repository; only
+durable results are committed. _Avoid_: pull request, PR review, review sync
+
+**Forge** (proposed redefinition): under the default posture the Forge is the remote git host and merge substrate;
+review and repository policy are RunWield capabilities that a team may explicitly delegate to the Forge per repository.
+_Avoid_: system of record for intent, review, or memory; required review gate
+
 These terms remain proposed until their respective Workspace capabilities are implemented. A Plan that makes either term
 true must include the relevant `docs/domain-language.md` under Files to Modify, add an implementation step that
 publishes the definition and stable relationships, and verify that the glossary update lands with the capability. A Plan
@@ -611,6 +632,7 @@ implementing only Workspace Intelligence Search must not promote Project Evidenc
 - [Sourcebot integration research](../research/sourcebot-workspace-integration.md)
 - [Local-First Plan Management UI PRD](./done/local-first-plan-management-ui-PRD.md)
 - [Collaborative Planning PRD](./collaborative-planning-PRD.md)
+- [Forge Change Request Delivery PRD](./forge-change-request-delivery-prd.md)
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)
 - [ADR-008: Remote-Canonical Collaborative Shared Spaces](../adr/008-remote-canonical-collaborative-shared-spaces.md)
 - [ADR-010: SessionRuntime sibling adapters and ACP](../adr/010-session-runtime-sibling-adapters-and-acp.md)

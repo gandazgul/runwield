@@ -1,6 +1,6 @@
 # Product Requirements Document: Forge Change Request Delivery
 
-Last updated: 2026-07-26 18:39 EDT
+Last updated: 2026-08-11 22:27 EDT
 
 ## Objective
 
@@ -15,6 +15,16 @@ The product promise is:
 
 > Use RunWield's local planning, execution, validation, and recovery while letting GitHub or GitLab govern collaborative
 > review, repository policy, CI, and the final remote merge.
+
+## Product Posture
+
+Change Request Delivery is a supported delivery and review mode, not RunWield's default direction. The default posture
+is RunWield-native: intent, review, and memory are RunWield capabilities, and the Forge serves as the remote git host
+and merge substrate. Today that default loop is Core's Local Human Code Review plus Direct Delivery. RunWield Workspace
+later adds assignable human review and a Workspace merge component so teams can replace the pull-request loop entirely.
+
+A repository, team, or instance can explicitly move the review gate to the Forge by selecting Change Request Delivery,
+or run both gates through Dual Review. The choice is team policy, and the two gates never synchronize state.
 
 ## Problem Statement
 
@@ -40,14 +50,16 @@ reimplementing forge policy, automatically acting on untrusted review comments, 
 - Collaborators who can publish topic branches to a shared GitHub or GitLab repository.
 - External contributors who publish from a fork to an upstream repository.
 - Maintainers who use RunWield to accept and record externally contributed work.
-- Teams that want Forge review instead of RunWield's Local Human Code Review.
-- High-assurance teams that want both Local Human Code Review and Forge review.
+- Teams that explicitly opt into Forge-hosted review instead of RunWield's default native review loop.
+- High-assurance teams that explicitly opt into both Local Human Code Review and Forge review (Dual Review).
 
 ## Resolved Assumptions
 
 ### Conditional Delivery Policy
 
 - Direct Delivery remains the default for FEATURE and QUICK_FIX work.
+- RunWield-native review is the default human review loop; Forge-hosted review and Dual Review are per-repository or
+  per-team opt-ins, never the implied default.
 - A Plan uses Change Request Delivery only when that delivery policy is explicitly selected.
 - QUICK_FIX may also explicitly select Change Request Delivery even though it has no Plan.
 - Selecting Change Request Delivery must not alter Direct Delivery behavior, evidence, recovery, or combined
@@ -74,14 +86,45 @@ reimplementing forge policy, automatically acting on untrusted review comments, 
 ### Validation and Review
 
 - Local tests and Semantic Code Review remain required for FEATURE Workflow Validation.
-- Change Request Delivery replaces Local Human Code Review by default with Forge-hosted review and repository policy.
-- **Dual Review** explicitly requires both Local Human Code Review and Forge review.
+- When Change Request Delivery is selected, Forge-hosted review and repository policy replace Local Human Code Review
+  unless Dual Review is configured; outside Change Request Delivery, RunWield's native review loop remains the review of
+  record.
+- **Dual Review** explicitly requires both Local Human Code Review and Forge review. The two gates run in their own
+  surfaces with no state synchronization between them.
+- RunWield local validation never replaces Forge or repository CI. Integrated teams keep a fast local validation tier
+  and a fuller shared CI tier, mirroring this repository's own `deno task ci` versus `deno task release:check`
+  separation.
 - QUICK_FIX retains Mechanical Validation rather than gaining FEATURE-level planning or Semantic Code Review.
 - Opening a Forge Change Request is not completion. Planned work remains visibly nonterminal while awaiting delivery.
 - Any change to the published head invalidates prior local readiness evidence until RunWield explicitly resumes and
   validates the new revision.
-- Review comments never automatically become Agent instructions. The user selects feedback and explicitly resumes
-  repair.
+- Review comments never automatically become Agent instructions. The user selects feedback and explicitly resumes repair
+  or folds it into planning memory.
+
+### Review Feedback as Planning Memory
+
+Review feedback has two distinct, explicit user-chosen outcomes:
+
+- **Resume repair:** selected feedback sends the workflow back through repair, revalidation, and republication, as
+  described under Review and Repair Continuation.
+- **Fold into planning memory:** selected feedback is recorded in the Work Record without requiring any code change.
+  This path exists because the most valuable review comments are often forward-looking — how the change fits the system,
+  or a doubt about the Plan's assumptions — and would otherwise be lost when no repair is needed.
+
+Folding is strictly additive:
+
+- folded feedback becomes prose in the Work Record, typically under Future Planning Notes;
+- it never changes Plan Status, Work Record `status` or `completionMode`, or any lifecycle claim — the merge fact and
+  Verified status remain mechanical;
+- the Recorder authors the record; review content stays untrusted input and never becomes an Agent instruction or an
+  authority over lifecycle state;
+- feedback that invalidates a PRD or ADR assumption should route upstream to that artifact, because a Work Record cannot
+  correct the source of the error;
+- when later work proves an earlier record's premise wrong, the correcting Plan's Work Record should supersede the
+  earlier record. Supersession is user-confirmed and keeps lifecycle truth mechanical. The lifecycle module supports
+  supersession today, but no production command surface exists yet; adding one is future work.
+
+The same folding rule applies to feedback from any review source: Forge review today, and Workspace-hosted review later.
 
 ### Publication Candidate
 
@@ -134,10 +177,26 @@ RunWield participation can take three forms:
 - V1 requires neither an always-running local daemon nor a hosted webhook service.
 - A proven merge enables **Change Request Finalization** in the canonical repository.
 - Finalization records terminal Plan evidence and generates or reconciles the Work Record under existing policy.
+- When RunWield accepts externally contributed work, finalization preserves multi-contributor provenance — the external
+  author versus the reviewing and merging maintainer — as loose body references. Full person provenance waits for
+  Workspace identity and is a Workspace responsibility.
 - The normal product experience is one maintainer action, not one Git commit.
 - Truthful ordering may produce one Forge implementation merge followed by one RunWield metadata commit.
 - If repository policy blocks the metadata commit, finalization remains visibly pending and uses a narrowly authorized
   metadata path or a metadata-only Forge Change Request. RunWield must not claim canonical verification only in memory.
+
+### Work Record Scope
+
+The guarantee runs one direction: every verified Plan produces a Work Record carrying its delivery and merge evidence.
+The inverse is false — no merge is required to have a Plan or a Work Record:
+
+- QUICK_FIX, direct pushes, and merges performed outside RunWield produce commits, not Work Records. The git log is the
+  audit trail at that level, and commit messages are expected to explain those changes.
+- Work Records are a layer of memory over planned work, not the authoritative history of the target branch.
+- RunWield is responsible for the provenance of its own merges: clear commits that point back to their Plans. Each team
+  owns its commit discipline for everything else; RunWield does not police it.
+- Planning Agents do not rely on Work Records alone. For changes without records, they use code exploration and git
+  history and fold what they find into future planning on a best-effort basis.
 
 ### Provider and Host Scope
 
@@ -305,6 +364,9 @@ The interface should use presets rather than expose a large independent matrix o
   handling when the metadata commit cannot publish.
 - GitHub/GitLab issue state remains unaffected except for behavior independently configured by the Forge or repository.
 - Reopening an In Review workflow after local downtime reconciles the correct Forge outcome without a daemon or webhook.
+- Selected Forge review feedback can fold into the Work Record without resuming repair and without altering any
+  lifecycle claim.
+- A merge performed outside any Plan produces no Work Record and no lifecycle claim.
 
 ## Out of Scope
 
@@ -321,6 +383,22 @@ The interface should use presets rather than expose a large independent matrix o
 - Deployment, release, or production-rollout automation after merge.
 - Choosing the concrete participation-declaration file, delivery-policy field, lifecycle event names, adapter API, or
   CLI command layout in this PRD.
+- Synchronizing state between RunWield-native review and Forge review when both gates exist.
+- Treating Work Records as the audit history of the target branch; the git log owns commit-level history.
+
+## Proposed Domain Language
+
+**Forge** (proposed redefinition): the current glossary defines the Forge as governing branch publication, code review,
+repository policy, and remote merge outcomes. Under the default posture the Forge shrinks to the remote git host and
+merge substrate; review and repository policy are RunWield capabilities that a team may explicitly delegate to the Forge
+per repository. _Avoid_: system of record for intent, review, or memory; required review gate.
+
+**Review Memory Fold**: the explicit user action that records selected review feedback into a Work Record as additive
+planning memory, without resuming repair and without changing any lifecycle claim. _Avoid_: review sync, comment import,
+automatic instructions.
+
+These terms remain proposed until the capabilities that make them true are implemented. A Plan that implements them must
+update `docs/domain-language.md` in the same change.
 
 ## Source Notes
 
