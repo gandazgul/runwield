@@ -137,11 +137,7 @@ export async function runHumanReviewPhase(
             };
         }
         if (humanReview.feedback || humanReview.annotations.length || humanReview.images.length) {
-            const annotationText = formatCodeReviewAnnotations(humanReview.annotations);
-            const feedbackText = [
-                humanReview.feedback || "(no free-text feedback provided)",
-                annotationText ? `Annotations:\n${annotationText}` : "",
-            ].filter(Boolean).join("\n\n");
+            const feedbackText = buildHumanReviewFeedbackText(humanReview.feedback, humanReview.annotations);
             const repair = await dispatchReviewFeedbackRepair(args, context, {
                 diffText,
                 findingsSection: feedbackText,
@@ -216,6 +212,29 @@ export function normalizeHumanReview(response: ValidationInteractionResponse): {
         exit: meta.exit === true,
         canceled: meta.canceled === true || response.outcome === "canceled",
     };
+}
+
+function buildHumanReviewFeedbackText(feedback: string, annotations: HumanReviewAnnotations): string {
+    const baseFeedback = feedback.trim() || "(no free-text feedback provided)";
+    const missingAnnotations = feedback.trim()
+        ? annotations.filter((annotation) => !feedbackIncludesAnnotation(feedback, annotation))
+        : annotations;
+    const annotationText = formatCodeReviewAnnotations(missingAnnotations);
+    return [
+        baseFeedback,
+        annotationText ? `Annotations:\n${annotationText}` : "",
+    ].filter(Boolean).join("\n\n");
+}
+
+function feedbackIncludesAnnotation(feedback: string, annotation: HumanReviewAnnotations[number]): boolean {
+    const text = annotation.text || annotation.body || "";
+    const normalizedText = normalizeFeedbackText(text);
+    if (!normalizedText) return true;
+    return normalizeFeedbackText(feedback).includes(normalizedText);
+}
+
+function normalizeFeedbackText(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
 }
 
 export function formatCodeReviewAnnotations(annotations: HumanReviewAnnotations): string {

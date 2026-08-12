@@ -277,6 +277,37 @@ Deno.test("Retry reopens the code review that was closed without an answer", asy
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
 });
 
+Deno.test("human code-review annotations are not duplicated in the engineer repair request", async () => {
+    const { hostedSession } = await makeAwaitingReview();
+    let capturedRequest = "";
+    setInteraction(hostedSession, (request) => {
+        if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
+        return Promise.resolve({
+            outcome: "selected",
+            _meta: {
+                approved: false,
+                feedback: "# Code Review Feedback\n\n## General\n\nUse the existing keybinding machinery.",
+                annotations: [{ text: "Use the existing keybinding machinery." }],
+            },
+        });
+    });
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: {
+            runIsolatedAgentSession: (request) => {
+                capturedRequest = String(request.userRequest || "");
+                return Promise.resolve(completedRepairMessages());
+            },
+        },
+    });
+
+    assertEquals(capturedRequest.match(/Use the existing keybinding machinery\./g)?.length, 1);
+});
+
 Deno.test("your feedback goes to the engineer, then the tests, then straight back to you", async () => {
     const { projectRoot, hostedSession } = await makeAwaitingReview();
     /** @type {string[]} */
