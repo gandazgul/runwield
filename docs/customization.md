@@ -66,15 +66,14 @@ RunWield loads skills from:
 Each skill lives in a directory with a `SKILL.md` file. Skills are advertised by name and description, and full
 instructions are loaded when invoked.
 
-Bundled skills include `documentation` (Markdown project docs), `ketch` (web search and doc lookup), `diagnose`
-(disciplined bug diagnosis), `prototype` (throwaway prototypes to validate design), `improve-codebase-architecture`
-(visual architecture review and deepening), `codebase-design` (shared deep-module vocabulary and interface design),
-`research` (source-backed Markdown research notes), `write-a-skill` (creating new agent skills), `runwield` (user-facing
-RunWield and `wld` usage answers), and `agent-browser-use` (headed browser feedback loop for frontend work). The
-`documentation` skill is the replacement for the former dedicated docs-writer agent. Skill availability is separate from
-file-mutation capability: writable agents use their normal tools for documentation work, while Guide has restricted
-`write_docs` and `edit_docs` tools only for explicit requests to preserve or update ordinary `.md` documents from an
-ongoing Guide conversation.
+Bundled skills include `documentation` (Markdown project docs), `diagnose` (disciplined bug diagnosis), `prototype`
+(throwaway prototypes to validate design), `improve-codebase-architecture` (visual architecture review and deepening),
+`codebase-design` (shared deep-module vocabulary and interface design), `research` (source-backed Markdown research
+notes), `write-a-skill` (creating new agent skills), `runwield` (user-facing RunWield and `wld` usage answers), and
+`agent-browser-use` (headed browser feedback loop for frontend work). The `documentation` skill is the replacement for
+the former dedicated docs-writer agent. Skill availability is separate from file-mutation capability: writable agents
+use their normal tools for documentation work, while Guide has restricted `write_docs` and `edit_docs` tools only for
+explicit requests to preserve or update ordinary `.md` documents from an ongoing Guide conversation.
 
 ## Themes
 

@@ -171,8 +171,12 @@ Deno.test("Claude CLI root turn advertises RunWield skills and project tool perm
         assertEquals(allowedTools.includes("Write"), true);
         assertEquals(allowedTools.includes("Bash"), true);
         assertEquals(allowedTools.includes("EnterWorktree"), true);
-        assertStringIncludes(log.promptText, "ketch - Use this skill");
-        assertStringIncludes(log.promptText, "ketch/SKILL.md");
+        assertEquals(allowedTools.includes("mcp__runwield__web_search"), true);
+        assertEquals(allowedTools.includes("mcp__runwield__web_fetch"), true);
+        assertEquals(allowedTools.includes("mcp__runwield__web_code_search"), true);
+        assertEquals(allowedTools.includes("mcp__runwield__web_docs_search"), true);
+        assertStringIncludes(log.promptText, "web_search");
+        assertStringIncludes(log.promptText, "Search the public web");
     });
 });
 

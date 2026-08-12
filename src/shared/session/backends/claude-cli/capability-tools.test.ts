@@ -24,7 +24,7 @@ async function executeText(tool: ReturnType<typeof getTool>, params: Record<stri
     return result.content[0]?.type === "text" ? result.content[0].text : "";
 }
 
-Deno.test("Claude CLI capability factory returns the canonical sixteen tool names", () => {
+Deno.test("Claude CLI capability factory returns the canonical capability tool names", () => {
     const tools = createClaudeCliCapabilityTools({ cwd: Deno.cwd() });
 
     assertEquals(tools.map((tool) => tool.name), [...CLAUDE_CLI_CAPABILITY_TOOL_NAMES]);
@@ -41,14 +41,20 @@ Deno.test("Claude CLI capability tools execute PATH helper binaries", () =>
                 '#!/bin/sh\nif [ "$1" = search ]; then echo memory-hit; else echo ok; fi\n',
             );
             await writeExecutable(join(tempDir, "cymbal"), "#!/bin/sh\necho cymbal:$*\n");
+            await writeExecutable(
+                join(tempDir, "ketch"),
+                '#!/bin/sh\necho \'[{"title":"Web","url":"https://example.test"}]\'\n',
+            );
             Deno.env.set("PATH", `${tempDir}:${oldPath}`);
             const tools = createClaudeCliCapabilityTools({ cwd: tempDir });
 
             const memoryText = await executeText(getTool(tools, "memory_recall"), { query: "test" });
             const codeText = await executeText(getTool(tools, "code_search"), { query: "Thing" });
+            const webText = await executeText(getTool(tools, "web_search"), { query: "current docs" });
 
             assertEquals(memoryText, "memory-hit");
             assertEquals(codeText, "cymbal:--no-federate search Thing");
+            assertEquals(webText, "Web - https://example.test");
         } finally {
             Deno.env.set("PATH", oldPath);
             await Deno.remove(tempDir, { recursive: true });
@@ -74,6 +80,13 @@ Deno.test("Claude CLI memory capability reports missing mnemosyne binary", () =>
         }
     }));
 
-Deno.test("Claude CLI capability list includes memory and code families", () => {
-    assertArrayIncludes([...CLAUDE_CLI_CAPABILITY_TOOL_NAMES], ["memory_store_global", "code_investigate"]);
+Deno.test("Claude CLI capability list includes memory, code, and web families", () => {
+    assertArrayIncludes([...CLAUDE_CLI_CAPABILITY_TOOL_NAMES], [
+        "memory_store_global",
+        "code_investigate",
+        "web_search",
+        "web_fetch",
+        "web_code_search",
+        "web_docs_search",
+    ]);
 });

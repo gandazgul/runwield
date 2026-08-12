@@ -5,8 +5,8 @@ description: Investigate a question against high-trust primary sources and captu
 
 # Research
 
-Research is the durable layer above [ketch](../ketch/SKILL.md). Use `ketch` as the canonical web/docs/scrape tool, then
-turn the findings into a compact Markdown artifact the repo can reuse.
+Research is the durable layer above the RunWield web tools. Use `web_search`, `web_fetch`, and `web_docs_search` as the
+canonical web, URL, and docs tools, then turn the findings into a compact Markdown artifact the repo can reuse.
 
 Use this skill when the user wants more than an answer in chat:
 
@@ -15,7 +15,8 @@ Use this skill when the user wants more than an answer in chat:
 - ecosystem options compared
 - source-backed context prepared for Ideator, Planner, Architect, or a future session
 
-Do not use this skill for ordinary one-off web lookup. Use `ketch` directly for that.
+Do not use this skill for ordinary one-off web lookup. Use `web_search`, `web_fetch`, or `web_docs_search` directly for
+that.
 
 ## Source Discipline
 
@@ -30,14 +31,14 @@ Prefer primary sources:
 Use secondary sources only to discover primary sources or to understand broader context. Do not let a secondary source
 own a factual claim when a primary source exists.
 
-For library and framework APIs, use `ketch docs` first. For current ecosystem facts, use `ketch search`. For a specific
-URL, use `ketch scrape`.
+For library and framework APIs, use `web_docs_search` first. For current ecosystem facts, use `web_search`. For a
+specific URL, use `web_fetch`.
 
 ## Process
 
 1. **Define the research question.** State the question in one sentence and the decision or artifact it should inform.
-2. **Gather sources with ketch.** Use `ketch docs`, `ketch search`, or `ketch scrape` as appropriate. Prefer official
-   sources and keep enough source detail to cite claims.
+2. **Gather sources with web tools.** Use `web_docs_search`, `web_search`, or `web_fetch` as appropriate. Prefer
+   official sources and keep enough source detail to cite claims.
 3. **Distinguish fact from inference.** Mark sourced facts separately from your synthesis or recommendation.
 4. **Write one Markdown note.** Save it where the repo already keeps research notes. If there is no convention, use
    `docs/research/<slug>.md`.

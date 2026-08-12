@@ -54,6 +54,12 @@ import cymbalExtension, {
     codeStructureToolDef,
     codeTraceToolDef,
 } from "../../extensions/cymbal/index.js";
+import ketchExtension, {
+    webCodeSearchToolDef,
+    webDocsSearchToolDef,
+    webFetchToolDef,
+    webSearchToolDef,
+} from "../../extensions/ketch/index.ts";
 import snipExtension from "../../extensions/snip/index.js";
 import reAnchorExtension from "../../extensions/re-anchor/index.ts";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.ts";
@@ -1411,6 +1417,10 @@ export async function assembleFinalSystemPromptWithContextProjection(
         codeStructureToolDef,
         codeImplsToolDef,
         codeImportersToolDef,
+        webSearchToolDef,
+        webFetchToolDef,
+        webCodeSearchToolDef,
+        webDocsSearchToolDef,
     ];
 
     let finalSystemPrompt = agentDef.systemPrompt;
@@ -1875,6 +1885,7 @@ export async function buildAgentSession({
     const extensionFactories = [
         mnemosyneExtension,
         cymbalExtension,
+        ketchExtension,
         // Re-anchoring is per-agent-session: the agent identity is fixed here, and
         // the Plan pointer is read from live session state at compaction time.
         (/** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ pi) =>

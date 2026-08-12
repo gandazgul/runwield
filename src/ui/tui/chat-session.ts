@@ -10,7 +10,7 @@ import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 import { createManagedSessionSyncController, SYSTEM_MANAGED_SESSION_TIMER } from "./managed-session-sync.js";
-import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
+import { ensureCymbalBinary, ensureKetchBinary, ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
 import {
     COMMAND_NAMES,
     commandRegistry,
@@ -187,7 +187,11 @@ export async function startInteractiveSession(
         );
         if (!options.skipModelWelcome) await listAvailableAgents(runtimeSnapshot().cwd);
         const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-        if (!options.skipModelWelcome) await ensureMnemosyneBinary();
+        if (!options.skipModelWelcome) {
+            await ensureMnemosyneBinary();
+            await ensureCymbalBinary();
+            await ensureKetchBinary();
+        }
         const tui = initTUI();
         setTerminalTitleForName(runtimeSnapshot().name || runtimeSnapshot().cwd.split("/").at(-1) || "RunWield");
         const suppressStartupHeader = options.sessionStartMode === "continue";

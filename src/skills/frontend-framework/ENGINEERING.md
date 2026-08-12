@@ -1,7 +1,7 @@
 # Engineering Reference
 
 Use this reference for frontend implementation details. Keep the project convention-first: source, config, and adjacent
-code outrank generic framework memory. When framework behavior depends on current docs, use the `ketch` skill before
+code outrank generic framework memory. When framework behavior depends on current docs, use `web_docs_search` before
 coding.
 
 ## Stack and runtime boundaries

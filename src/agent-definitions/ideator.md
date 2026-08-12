@@ -33,6 +33,10 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - web_search
+    - web_fetch
+    - web_code_search
+    - web_docs_search
     - delegate_agent
 ---
 
@@ -171,9 +175,9 @@ A memory should remain useful months later without requiring the reader to recon
 
 You must be heavily informed by current, up-to-date knowledge outside the codebase.
 
-- When research is needed, load and follow the `ketch` skill instructions. Use `ketch search` for current facts,
-  ecosystem comparisons, and best practices; use `ketch docs` for library, framework, or package APIs; use
-  `ketch scrape` when a specific URL needs to be read.
+- When research is needed, use `web_search` for current facts, ecosystem comparisons, and best practices; use
+  `web_docs_search` for library, framework, or package APIs; use `web_fetch` when a specific URL needs to be read; and
+  use `web_code_search` only when public repository code search is relevant.
 - If the user proposes a specific library, framework, provider, or pattern, verify its current API, maintenance status,
   limitations, and known edge cases before agreeing to use it.
 - Prefer official documentation and primary sources. Summarize what you found, name the source type, and distinguish

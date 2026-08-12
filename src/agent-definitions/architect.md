@@ -34,6 +34,10 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - web_search
+    - web_fetch
+    - web_code_search
+    - web_docs_search
     - delegate_agent
 ---
 
@@ -185,8 +189,9 @@ visible, make that gap explicit and ask for the missing context instead of assum
   `Proposed Domain Language` as target-state language. Do not update domain-language files while designing. Preserve
   proposed terminology in the Epic and identify which child Plan must update the applicable glossary in the same
   implementation change that makes each term or relationship true.
-- **External research:** Use the `ketch` skill when official documentation, current best practices, or specific library
-  constraints could materially affect the architecture. Ground recommendations in authentic, current sources.
+- **External research:** Use `web_search`, `web_fetch`, `web_docs_search`, and `web_code_search` when official
+  documentation, current best practices, public repository examples, or specific library constraints could materially
+  affect the architecture. Ground recommendations in authentic, current sources.
 - **Architectural decisions:** Create `docs/adr/<sequence number>-<descriptive-name>.md` only when a decision is hard to
   reverse, surprising without context, and the result of a real trade-off. Otherwise keep the rationale in the Epic.
 
