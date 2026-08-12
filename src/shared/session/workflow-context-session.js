@@ -7,6 +7,7 @@
 import { COMPLEXITIES, normalizeRoutingIntent } from "../../constants.js";
 
 export const WORKFLOW_CONTEXT_CUSTOM_TYPE = "runwield.workflow_context";
+export const SEGMENT_LINEAGE_CUSTOM_TYPE = "runwield.segment_lineage";
 
 /**
  * @typedef {Object} WorkflowContext
@@ -178,6 +179,69 @@ function recordWorkflowContext(sessionManager, context) {
  * @param {WorkflowContext | null} right
  * @returns {boolean}
  */
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {import('../types.js').SessionSegmentLineageEvidence} lineage
+ * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
+ */
+export function recordSegmentLineageEvidence(sessionManager, lineage) {
+    const normalized = normalizeSegmentLineageEvidence(lineage);
+    if (!normalized) return readPersistedSegmentLineageEvidence(sessionManager);
+    if (!sessionManager?.appendCustomEntry) return normalized;
+    try {
+        sessionManager.appendCustomEntry(SEGMENT_LINEAGE_CUSTOM_TYPE, normalized);
+    } catch (_e) {
+        return normalized;
+    }
+    return normalized;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
+ */
+export function readPersistedSegmentLineageEvidence(sessionManager) {
+    try {
+        const entries = getSessionEntries(sessionManager);
+        for (let i = entries.length - 1; i >= 0; i--) {
+            const lineage = readSegmentLineageFromEntry(entries[i]);
+            if (lineage) return lineage;
+        }
+    } catch (_e) {
+        // Private segment lineage should never block Session construction.
+    }
+    return null;
+}
+
+/**
+ * @param {import('../types.js').SessionSegmentLineageEvidence | null | undefined} lineage
+ * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
+ */
+export function normalizeSegmentLineageEvidence(lineage) {
+    if (!lineage || typeof lineage !== "object") return null;
+    const segmentId = typeof lineage.segmentId === "string" ? lineage.segmentId.trim() : "";
+    const runwieldSessionId = typeof lineage.runwieldSessionId === "string" ? lineage.runwieldSessionId.trim() : "";
+    if (!segmentId || !runwieldSessionId) return null;
+    return {
+        segmentId,
+        runwieldSessionId,
+        parentSegmentId: typeof lineage.parentSegmentId === "string" && lineage.parentSegmentId.trim()
+            ? lineage.parentSegmentId.trim()
+            : null,
+        parentPiSessionId: typeof lineage.parentPiSessionId === "string" && lineage.parentPiSessionId.trim()
+            ? lineage.parentPiSessionId.trim()
+            : null,
+        lineageGroupKey: typeof lineage.lineageGroupKey === "string" && lineage.lineageGroupKey.trim()
+            ? lineage.lineageGroupKey.trim()
+            : null,
+    };
+}
+
+/**
+ * @param {WorkflowContext | null} left
+ * @param {WorkflowContext | null} right
+ * @returns {boolean}
+ */
 export function workflowContextsEqual(left, right) {
     return (left?.routingIntent || "") === (right?.routingIntent || "") &&
         (left?.complexity || "") === (right?.complexity || "") &&
@@ -205,4 +269,17 @@ function readWorkflowContextFromEntry(entry) {
 
     const data = /** @type {{ data?: unknown }} */ (entry).data;
     return normalizeWorkflowContext(data);
+}
+
+/**
+ * @param {unknown} entry
+ * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
+ */
+function readSegmentLineageFromEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    if (/** @type {{ type?: string }} */ (entry).type !== "custom") return null;
+    const customType = /** @type {{ customType?: string }} */ (entry).customType;
+    if (customType !== SEGMENT_LINEAGE_CUSTOM_TYPE) return null;
+    const data = /** @type {{ data?: import('../types.js').SessionSegmentLineageEvidence }} */ (entry).data;
+    return normalizeSegmentLineageEvidence(data);
 }

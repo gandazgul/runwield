@@ -74,6 +74,31 @@ function sessionFromRow(row) {
     };
 }
 
+/** @param {Record<string, string | number | bigint | Uint8Array | null>} row @returns {import('../types.js').SessionTranscriptSegment} */
+function segmentFromRow(row) {
+    return {
+        segmentId: String(row.id),
+        runwieldSessionId: String(row.runwield_session_id),
+        projectId: String(row.project_id),
+        piSessionId: String(row.pi_session_id),
+        transcriptPath: String(row.transcript_path),
+        transcriptCwd: String(row.transcript_cwd),
+        ordinal: Number(row.ordinal),
+        kind: String(row.kind),
+        sealedAt: row.sealed_at === null ? null : String(row.sealed_at),
+        headerVersion: row.header_version === null ? null : Number(row.header_version),
+        headerTimestamp: row.header_timestamp === null ? null : String(row.header_timestamp),
+        firstCatalogedAt: String(row.first_cataloged_at),
+        lastCatalogedAt: String(row.last_cataloged_at),
+        lineageParentSegmentId: row.lineage_parent_segment_id === null ? null : String(row.lineage_parent_segment_id),
+        lineageParentPiSessionId: row.lineage_parent_pi_session_id === null
+            ? null
+            : String(row.lineage_parent_pi_session_id),
+        lineageGroupKey: row.lineage_group_key === null ? null : String(row.lineage_group_key),
+        lineageRecordedAt: row.lineage_recorded_at === null ? null : String(row.lineage_recorded_at),
+    };
+}
+
 /** @param {Date | null} value */
 function mtimeMs(value) {
     return value ? Math.trunc(value.getTime()) : null;
@@ -86,8 +111,10 @@ function mtimeMs(value) {
  */
 function listKnownTranscriptPaths(database, projectId) {
     const rows = database.handle.prepare(
-        "SELECT transcript_path FROM session_transcript_locators WHERE project_id = ?",
-    ).all(projectId);
+        `SELECT transcript_path FROM session_transcript_locators WHERE project_id = ?
+         UNION
+         SELECT transcript_path FROM session_transcript_segments WHERE project_id = ?`,
+    ).all(projectId, projectId);
     return new Set(rows.map((row) => resolve(String(row.transcript_path))));
 }
 
@@ -352,8 +379,210 @@ export async function ensureSessionCatalogRecord(database, locator) {
             now,
             now,
         );
+        ownerDb.handle.prepare(
+            "INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at, last_cataloged_at) VALUES (?, ?, ?, ?, ?, ?, 0, 'planning', NULL, ?, ?, ?, ?)",
+        ).run(
+            `${locatorId}-segment-0`,
+            runwieldSessionId,
+            locator.projectId,
+            safeLocator.piSessionId,
+            transcriptPath,
+            safeLocator.headerCwd,
+            safeLocator.headerVersion,
+            safeLocator.headerTimestamp,
+            now,
+            now,
+        );
         return /** @type {CatalogedSession} */ (getSessionById(ownerDb, runwieldSessionId));
     });
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} projectId
+ * @param {{ catalog?: boolean, fullRescan?: boolean, idFactory?: () => string, now?: () => string }} [options]
+ * @returns {Promise<{ sessions: CatalogedSession[], diagnostics: CatalogDiagnostic[] }>}
+ */
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} runwieldSessionId
+ * @returns {import('../types.js').SessionTranscriptSegment[]}
+ */
+export function listSessionTranscriptSegments(database, runwieldSessionId) {
+    const db = requireDatabase(database).handle;
+    return db.prepare(
+        `SELECT * FROM session_transcript_segments
+          WHERE runwield_session_id = ?
+          ORDER BY ordinal ASC`,
+    ).all(runwieldSessionId).map(segmentFromRow);
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} runwieldSessionId
+ * @returns {import('../types.js').SessionTranscriptSegment | null}
+ */
+export function getCurrentSessionSegment(database, runwieldSessionId) {
+    const db = requireDatabase(database).handle;
+    const row = db.prepare(
+        `SELECT segments.*
+           FROM session_transcript_segment_state state
+           JOIN session_transcript_segments segments ON segments.id = state.current_segment_id
+          WHERE state.runwield_session_id = ?`,
+    ).get(runwieldSessionId);
+    return row ? segmentFromRow(row) : null;
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, kind: 'planning' | 'execution' | 'semantic_repair', lineageParentSegmentId?: string | null, lineageParentPiSessionId?: string | null, lineageGroupKey?: string | null, idFactory?: () => string, now?: () => string }} segment
+ * @returns {Promise<import('../types.js').SessionTranscriptSegment>}
+ */
+export async function appendSessionTranscriptSegment(database, segment) {
+    const ownerDb = requireDatabase(database);
+    if (!segment?.runwieldSessionId) throw new Error("runwieldSessionId is required");
+    if (!segment.projectId) throw new Error("projectId is required");
+    if (!segment.piSessionId) throw new Error("piSessionId is required");
+    if (!segment.transcriptPath || !isAbsolute(segment.transcriptPath)) {
+        throw new Error("transcriptPath must be absolute");
+    }
+    if (!segment.transcriptCwd || !isAbsolute(segment.transcriptCwd)) throw new Error("transcriptCwd must be absolute");
+    if (!["planning", "execution", "semantic_repair"].includes(segment.kind)) {
+        throw new Error(`Invalid segment kind: ${segment.kind}`);
+    }
+    const transcriptPath = resolve(segment.transcriptPath);
+    const safeLocator = await validateGuardedLocator(ownerDb, { ...segment, transcriptPath });
+    return ownerDb.transaction(() => {
+        const session = ownerDb.handle.prepare(
+            "SELECT id, project_id FROM runwield_sessions WHERE id = ? AND project_id = ?",
+        ).get(segment.runwieldSessionId, segment.projectId);
+        if (!session) throw new Error(`Session not found: ${segment.runwieldSessionId}`);
+        const current = getCurrentSessionSegment(ownerDb, segment.runwieldSessionId);
+        if (current) throw new Error(`Current segment is still unsealed: ${current.segmentId}`);
+        const previous = ownerDb.handle.prepare(
+            "SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal FROM session_transcript_segments WHERE runwield_session_id = ?",
+        ).get(segment.runwieldSessionId);
+        if (!previous) throw new Error("Unable to read segment ordinal state");
+        const ordinal = Number(previous.max_ordinal) + 1;
+        const now = isoNow(segment.now);
+        const segmentId = newId(segment.idFactory);
+        ownerDb.handle.prepare(
+            `INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path,
+                transcript_cwd, ordinal, kind, sealed_at, header_version, header_timestamp, first_cataloged_at,
+                last_cataloged_at, lineage_parent_segment_id, lineage_parent_pi_session_id, lineage_group_key,
+                lineage_recorded_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+            segmentId,
+            segment.runwieldSessionId,
+            segment.projectId,
+            safeLocator.piSessionId,
+            transcriptPath,
+            safeLocator.headerCwd,
+            ordinal,
+            segment.kind,
+            safeLocator.headerVersion,
+            safeLocator.headerTimestamp,
+            now,
+            now,
+            segment.lineageParentSegmentId ?? null,
+            segment.lineageParentPiSessionId ?? null,
+            segment.lineageGroupKey ?? null,
+            segment.lineageParentSegmentId || segment.lineageParentPiSessionId || segment.lineageGroupKey ? now : null,
+        );
+        return /** @type {import('../types.js').SessionTranscriptSegment} */ (getCurrentSessionSegment(
+            ownerDb,
+            segment.runwieldSessionId,
+        ));
+    });
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, segmentId: string, now?: () => string }} options
+ * @returns {import('../types.js').SessionTranscriptSegment}
+ */
+export function sealSessionTranscriptSegment(database, options) {
+    const ownerDb = requireDatabase(database);
+    const now = isoNow(options.now);
+    return ownerDb.transaction(() => {
+        const current = getCurrentSessionSegment(ownerDb, options.runwieldSessionId);
+        if (!current || current.segmentId !== options.segmentId) throw new Error("Segment is not current");
+        const result = ownerDb.handle.prepare(
+            "UPDATE session_transcript_segments SET sealed_at = ?, last_cataloged_at = ? WHERE id = ? AND runwield_session_id = ? AND sealed_at IS NULL",
+        ).run(now, now, options.segmentId, options.runwieldSessionId);
+        if (result.changes !== 1) throw new Error("Segment seal proof was rejected");
+        return /** @type {import('../types.js').SessionTranscriptSegment} */ (listSessionTranscriptSegments(
+            ownerDb,
+            options.runwieldSessionId,
+        ).find((item) => item.segmentId === options.segmentId));
+    });
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {string} runwieldSessionId
+ * @returns {import('../types.js').SessionLineageDiagnostic[]}
+ */
+export function diagnoseSessionSegmentLineage(database, runwieldSessionId) {
+    const segments = listSessionTranscriptSegments(database, runwieldSessionId);
+    const byId = new Map(segments.map((segment) => [segment.segmentId, segment]));
+    /** @type {import('../types.js').SessionLineageDiagnostic[]} */
+    const diagnostics = [];
+    const children = new Map();
+    for (const segment of segments) {
+        if (segment.lineageParentSegmentId) {
+            if (!byId.has(segment.lineageParentSegmentId)) {
+                diagnostics.push({
+                    code: "orphaned_lineage",
+                    segmentId: segment.segmentId,
+                    message: "Lineage parent segment is absent.",
+                });
+            } else {
+                const count = children.get(segment.lineageParentSegmentId) || 0;
+                children.set(segment.lineageParentSegmentId, count + 1);
+            }
+        } else if (segment.ordinal > 0) {
+            diagnostics.push({
+                code: "missing_lineage",
+                segmentId: segment.segmentId,
+                message: "Segment has no lineage parent.",
+            });
+        }
+    }
+    for (const [parentId, count] of children) {
+        if (count > 1) {
+            diagnostics.push({
+                code: "ambiguous_lineage",
+                segmentId: parentId,
+                message: "Lineage parent has multiple children.",
+            });
+        }
+    }
+    for (const segment of segments) {
+        const seen = new Set([segment.segmentId]);
+        let cursor = segment.lineageParentSegmentId ? byId.get(segment.lineageParentSegmentId) : null;
+        while (cursor) {
+            if (seen.has(cursor.segmentId)) {
+                diagnostics.push({
+                    code: "cyclic_lineage",
+                    segmentId: segment.segmentId,
+                    message: "Segment lineage contains a cycle.",
+                });
+                break;
+            }
+            seen.add(cursor.segmentId);
+            cursor = cursor.lineageParentSegmentId ? byId.get(cursor.lineageParentSegmentId) : null;
+        }
+    }
+    if (diagnostics.length === 0) {
+        diagnostics.push({
+            code: "valid",
+            segmentId: segments[0]?.segmentId || null,
+            message: "Segment lineage is conservative and ordered.",
+        });
+    }
+    return diagnostics;
 }
 
 /**

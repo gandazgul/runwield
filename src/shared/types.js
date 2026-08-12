@@ -56,4 +56,49 @@
  * @property {boolean | null} autoCompactionEnabled
  */
 
+/**
+ * @typedef {Object} SessionTranscriptSegment
+ * @property {string} segmentId
+ * @property {string} runwieldSessionId
+ * @property {string} projectId
+ * @property {string} piSessionId
+ * @property {string} transcriptPath
+ * @property {string} transcriptCwd
+ * @property {number} ordinal
+ * @property {string} kind
+ * @property {string | null} sealedAt
+ * @property {number | null} headerVersion
+ * @property {string | null} headerTimestamp
+ * @property {string} firstCatalogedAt
+ * @property {string} lastCatalogedAt
+ * @property {string | null} lineageParentSegmentId
+ * @property {string | null} lineageParentPiSessionId
+ * @property {string | null} lineageGroupKey
+ * @property {string | null} lineageRecordedAt
+ */
+
+/**
+ * @typedef {Object} SessionSegmentState
+ * @property {string} runwieldSessionId
+ * @property {string} projectId
+ * @property {string | null} currentSegmentId
+ * @property {string} updatedAt
+ */
+
+/**
+ * @typedef {Object} SessionSegmentLineageEvidence
+ * @property {string} segmentId
+ * @property {string} runwieldSessionId
+ * @property {string | null} [parentSegmentId]
+ * @property {string | null} [parentPiSessionId]
+ * @property {string | null} [lineageGroupKey]
+ */
+
+/**
+ * @typedef {Object} SessionLineageDiagnostic
+ * @property {'valid' | 'missing_lineage' | 'ambiguous_lineage' | 'cyclic_lineage' | 'orphaned_lineage'} code
+ * @property {string | null} segmentId
+ * @property {string} message
+ */
+
 export {};

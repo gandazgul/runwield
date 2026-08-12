@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 5;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 6;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -297,5 +297,137 @@ CREATE TRIGGER IF NOT EXISTS trg_session_generations_no_delete
 BEFORE DELETE ON session_committed_generations
 BEGIN
     SELECT RAISE(ABORT, 'session generations are append-only');
+END;
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V6_SQL = `
+CREATE TABLE IF NOT EXISTS session_transcript_segments (
+    id TEXT PRIMARY KEY,
+    runwield_session_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    pi_session_id TEXT NOT NULL,
+    transcript_path TEXT NOT NULL UNIQUE,
+    transcript_cwd TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('planning', 'execution', 'semantic_repair')),
+    sealed_at TEXT,
+    header_version INTEGER,
+    header_timestamp TEXT,
+    first_cataloged_at TEXT NOT NULL,
+    last_cataloged_at TEXT NOT NULL,
+    lineage_parent_segment_id TEXT,
+    lineage_parent_pi_session_id TEXT,
+    lineage_group_key TEXT,
+    lineage_recorded_at TEXT,
+    FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    UNIQUE(runwield_session_id, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS session_transcript_segment_state (
+    runwield_session_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    current_segment_id TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (current_segment_id) REFERENCES session_transcript_segments(id) ON DELETE RESTRICT
+);
+
+INSERT INTO session_transcript_segments(
+    id,
+    runwield_session_id,
+    project_id,
+    pi_session_id,
+    transcript_path,
+    transcript_cwd,
+    ordinal,
+    kind,
+    sealed_at,
+    header_version,
+    header_timestamp,
+    first_cataloged_at,
+    last_cataloged_at
+)
+SELECT locators.id || '-segment-0',
+       locators.runwield_session_id,
+       locators.project_id,
+       locators.pi_session_id,
+       locators.transcript_path,
+       locators.transcript_cwd,
+       0,
+       'planning',
+       NULL,
+       locators.header_version,
+       locators.header_timestamp,
+       locators.first_cataloged_at,
+       locators.last_cataloged_at
+  FROM session_transcript_locators locators;
+
+INSERT OR IGNORE INTO session_transcript_segment_state(runwield_session_id, project_id, current_segment_id, updated_at)
+SELECT sessions.id,
+       sessions.project_id,
+       segments.id,
+       sessions.updated_at
+  FROM runwield_sessions sessions
+  LEFT JOIN session_transcript_segments segments
+    ON segments.runwield_session_id = sessions.id
+   AND segments.project_id = sessions.project_id
+   AND segments.sealed_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_segments_open
+    ON session_transcript_segments(runwield_session_id)
+    WHERE sealed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_session_segments_project ON session_transcript_segments(project_id);
+CREATE INDEX IF NOT EXISTS idx_session_segments_pi ON session_transcript_segments(project_id, pi_session_id);
+CREATE INDEX IF NOT EXISTS idx_session_segments_lineage_parent ON session_transcript_segments(lineage_parent_segment_id);
+CREATE INDEX IF NOT EXISTS idx_segment_state_project ON session_transcript_segment_state(project_id);
+
+ALTER TABLE session_activation_state ADD COLUMN current_segment_id TEXT;
+ALTER TABLE session_activation_state ADD COLUMN expected_current_segment_id TEXT;
+ALTER TABLE session_committed_generations ADD COLUMN current_segment_id TEXT;
+
+UPDATE session_activation_state
+   SET current_segment_id = (
+       SELECT current_segment_id
+         FROM session_transcript_segment_state
+        WHERE session_transcript_segment_state.runwield_session_id = session_activation_state.runwield_session_id
+          AND session_transcript_segment_state.project_id = session_activation_state.project_id
+   );
+
+CREATE TRIGGER IF NOT EXISTS trg_runwield_sessions_segment_state
+AFTER INSERT ON runwield_sessions
+BEGIN
+    INSERT OR IGNORE INTO session_transcript_segment_state(runwield_session_id, project_id, current_segment_id, updated_at)
+    VALUES (NEW.id, NEW.project_id, NULL, NEW.created_at);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_segments_current_after_insert
+AFTER INSERT ON session_transcript_segments
+WHEN NEW.sealed_at IS NULL
+BEGIN
+    INSERT INTO session_transcript_segment_state(runwield_session_id, project_id, current_segment_id, updated_at)
+    VALUES (NEW.runwield_session_id, NEW.project_id, NEW.id, NEW.last_cataloged_at)
+    ON CONFLICT(runwield_session_id) DO UPDATE SET current_segment_id = NEW.id, updated_at = NEW.last_cataloged_at;
+    UPDATE session_activation_state
+       SET current_segment_id = NEW.id, updated_at = NEW.last_cataloged_at
+     WHERE runwield_session_id = NEW.runwield_session_id
+       AND project_id = NEW.project_id
+       AND state <> 'active';
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_segments_current_after_seal
+AFTER UPDATE OF sealed_at ON session_transcript_segments
+WHEN NEW.sealed_at IS NOT NULL AND OLD.sealed_at IS NULL
+BEGIN
+    UPDATE session_transcript_segment_state
+       SET current_segment_id = NULL, updated_at = NEW.sealed_at
+     WHERE runwield_session_id = NEW.runwield_session_id
+       AND current_segment_id = NEW.id;
+    UPDATE session_activation_state
+       SET current_segment_id = NULL, updated_at = NEW.sealed_at
+     WHERE runwield_session_id = NEW.runwield_session_id
+       AND project_id = NEW.project_id
+       AND current_segment_id = NEW.id
+       AND state <> 'active';
 END;
 `;

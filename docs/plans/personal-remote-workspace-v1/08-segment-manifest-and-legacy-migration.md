@@ -13,13 +13,13 @@ affectedPaths:
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.344Z"
 updatedAt: "2026-07-27T19:30:00.000Z"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 8
 dependencies:
     - "07-activation-enforcement-hardening-across-adapters"
 planId: "905d9252-da29-4c44-83c6-0d84cd780ed4"
+status: "ready_for_work"
 ---
 
 # Segment Manifest and Legacy Migration
