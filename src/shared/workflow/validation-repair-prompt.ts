@@ -15,6 +15,7 @@ export type ValidationRepairPromptInput = {
     worktreeBaseBranch?: string;
     authorityNote?: string;
     completionInstruction?: string;
+    ciStateSummary?: string;
 };
 
 /**
@@ -35,6 +36,7 @@ export function buildValidationRepairPrompt(input: ValidationRepairPromptInput):
         ...(input.worktreeId ? [`- Worktree ID: \`${input.worktreeId}\``] : []),
         ...(input.worktreeBranch ? [`- Worktree branch: \`${input.worktreeBranch}\``] : []),
         ...(input.worktreeBaseBranch ? [`- Target branch: \`${input.worktreeBaseBranch}\``] : []),
+        ...(input.ciStateSummary ? [`- Current CI state: ${input.ciStateSummary}`] : []),
     ];
 
     return [

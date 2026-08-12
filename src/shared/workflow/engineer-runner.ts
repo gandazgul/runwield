@@ -99,3 +99,68 @@ export function buildPairPausedMessage(pauseReason, projectRoot) {
         ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; say "continue" to resume Pair Execution.`
         : `${owner} paused because the Pair checkpoint interaction was canceled. No approval or Task Completion was recorded; say "continue" to resume.`;
 }
+
+export async function runEngineerWithSegmentHandoff({ continuation, sessionManager, hostedSession }) {
+    const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    const collaborationStyle = continuation.collaboration?.style || workflow?.collaborationStyle ||
+        CollaborationStyles.AUTONOMOUS;
+    const customTools = collaborationStyle === CollaborationStyles.PAIR
+        ? [createPairCheckpointTool({ hostedSession })]
+        : undefined;
+    const userRequest = `${
+        buildEngineerRequest(continuation.plan.planName, continuation.plan.markdown, continuation.approval?.feedback, {
+            collaborationStyle,
+            triageMeta: workflow?.triageMeta,
+        })
+    }\n\nExecution owner: ${continuation.executionOwner}.`;
+    let messages;
+    try {
+        messages = await runActiveAgentTurn({
+            hostedSession,
+            agentName: continuation.executionOwner,
+            userRequest,
+            images: continuation.approval?.images,
+            sessionManager,
+            cwd: workflow?.executionCwd || hostedSession.cwd,
+            allowReturnToRouter: false,
+            dispatchKind: "plan_execution",
+            ...(customTools ? { customTools } : {}),
+        });
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+        const rootMessages = hostedRootSession?.agent?.state?.messages || [];
+        emitSystemStatus(
+            hostedSession,
+            buildEngineerPausedMessage(
+                errorMessage,
+                workflow?.projectRoot || hostedSession?.cwd,
+                continuation.executionOwner,
+            ),
+            { level: "error", header: "RunWield" },
+        );
+        return { completed: false, messages: rootMessages, error: errorMessage };
+    }
+    const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const completed = !pauseReason && readLatestTaskCompletedOutcome(messages);
+    const completionReport = completed ? readLatestTaskCompletedMessage(messages) || undefined : undefined;
+    if (!completed) {
+        emitSystemStatus(
+            hostedSession,
+            pauseReason
+                ? buildPairPausedMessage(pauseReason, workflow?.projectRoot || hostedSession?.cwd)
+                : buildEngineerPausedMessage(
+                    undefined,
+                    workflow?.projectRoot || hostedSession?.cwd,
+                    continuation.executionOwner,
+                ),
+            { header: "RunWield" },
+        );
+    }
+    return {
+        completed,
+        messages,
+        ...(pauseReason ? { paused: true, pauseReason } : {}),
+        ...(completionReport ? { completionReport } : {}),
+    };
+}

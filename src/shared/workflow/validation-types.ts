@@ -21,12 +21,23 @@ type RecordPlanEventResult = Awaited<ReturnType<typeof import("./plan-lifecycle.
 
 /** The engine's result shape, mirroring the public entry's `WorkflowValidationResult`. */
 export type WorkflowValidationResult = {
-    kind: "verified" | "paused" | "failed";
+    kind: "verified" | "paused" | "failed" | "semantic_repair_handoff";
     planName: string;
     projectRoot: string;
     classification?: string;
     reason?: string;
     epicContinuation?: { completedPlanName: string; projectRoot: string };
+    semanticRepairHandoff?: SemanticRepairHandoff;
+};
+
+export type SemanticRepairHandoff = {
+    semanticRound: number;
+    reviewLedger: ReviewLedger;
+    repairBaselineTree: string;
+    lastRepairReport?: string;
+    diffText: string;
+    findingsSection: string;
+    activeWorkflow: Partial<ValidationWorkflowState>;
 };
 
 export type ValidationPhaseResult = WorkflowValidationResult & {
@@ -55,6 +66,7 @@ export type ValidationLoopArgs = {
     git: GitPort;
     localCI: ValidationLocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
+    supportsSemanticRepairHandoff?: boolean;
 };
 
 /** The resolved execution facts a phase runs against. */

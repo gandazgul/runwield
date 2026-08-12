@@ -30,68 +30,29 @@ objectiveChecks:
     - id: "OC4"
       command: "grep -q 'Approve for Later creates no execution segment' src/cmd/load-plan/index.integration.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts"
       rationale: "Approve for Later must remain readiness-only. The named integration case is absent and must prove that the shared handoff routing does not create a successor segment."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-12T19:14:08.717Z"
-    head: "0ecfab576b381e4b41c7ac348b08a0d6041ab26e"
-    results:
-        - id: "OC1"
-          command: "test -f src/shared/workflow/execution-segment-handoff.ts && test -f src/shared/workflow/execution-segment-handoff.test.ts && grep -Eq 'export (async )?function buildExecutionSegmentContinuation' src/shared/workflow/execution-segment-handoff.ts && grep -Eq 'export (async )?function buildSemanticRepairSegmentContinuation' src/shared/workflow/execution-segment-handoff.ts && grep -Eq 'export (async )?function resolvePendingSegmentHandoff' src/shared/workflow/execution-segment-handoff.ts && grep -q 'rejects changed canonical Plan and worktree evidence before handoff' src/shared/workflow/execution-segment-handoff.test.ts && grep -q 'treats a marker as pending only before the first seeded turn entry' src/shared/workflow/execution-segment-handoff.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/execution-segment-handoff.test.ts"
-          rationale: "The handoff contract and test file do not exist. This requires all three packet/marker operations plus behavioral tests for canonical evidence and one-shot marker semantics."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 24
-          output: "\n"
-        - id: "OC2"
-          command: "test -f src/shared/session/execution-segment-runtime.test.ts && grep -q 'await this.rollManagedSessionSegment' src/shared/session/session-runtime.js && grep -q 'resolvePendingSegmentHandoff' src/shared/session/session-runtime.js && grep -q 'preparation failure leaves the planning segment current' src/shared/session/execution-segment-runtime.test.ts && grep -q 'committed execution marker resumes in the same successor without a duplicate seed turn' src/shared/session/execution-segment-runtime.test.ts && grep -q 'execution seed excludes Planner history and carries approval images' src/shared/session/execution-segment-runtime.test.ts && deno run -A scripts/run-tests.js src/shared/session/execution-segment-runtime.test.ts"
-          rationale: "SessionRuntime does not compose preparation, rollover, and marker resume today. The new real-session suite must prove failure atomicity, exact-once resume, and bounded execution context."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 18
-          output: "\n"
-        - id: "OC3"
-          command: "test -f src/shared/workflow/semantic-repair-segment-handoff.test.ts && grep -q 'semantic_repair_handoff' src/shared/workflow/validation-types.ts && grep -q 'semantic_repair_handoff' src/shared/session/session-runtime.js && grep -q 'two semantic rejections create two repair segments while Reviewer sessions create none' src/shared/workflow/semantic-repair-segment-handoff.test.ts && grep -q 'repair root context excludes predecessor Engineer and Reviewer history' src/shared/workflow/semantic-repair-segment-handoff.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/semantic-repair-segment-handoff.test.ts"
-          rationale: "Semantic rejection currently dispatches an in-memory repair Agent inside validation. This requires a typed engine-to-Runtime handoff and behavioral proof of persisted repeated repairs and context exclusion."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 17
-          output: "\n"
-        - id: "OC4"
-          command: "grep -q 'Approve for Later creates no execution segment' src/cmd/load-plan/index.integration.test.ts && deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts"
-          rationale: "Approve for Later must remain readiness-only. The named integration case is absent and must prove that the shared handoff routing does not create a successor segment."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 21
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.377Z"
-updatedAt: "2026-08-12T20:01:38.959Z"
-status: "validated_ci"
+updatedAt: "2026-08-12T20:30:08.918Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 13
 dependencies:
     - "12-session-activated-plan-actions"
 implementedAt: "2026-08-12T19:34:21.328Z"
+verifiedAt: "2026-08-12T20:30:08.918Z"
 userVerifiedAt: null
 executionReport: "- Implemented typed execution/semantic-repair continuation packets, canonical evidence validation, and pending-marker detection in `execution-segment-handoff.ts`.\n- Split managed execution through Runtime preparation → standalone rollover → marker resume; unmanaged execution path remains direct.\n- Added Runtime semantic-repair handoff rollover and root repair Agent execution; direct/unmanaged validation keeps legacy in-memory repair behavior unless handoff mode is enabled.\n- Added Workspace backend entrypoint for managed Plan execution handoff and kept Approve for Later readiness-only with no active execution workflow.\n- Tests: added 7 new handoff tests; removed 0 tests; rewrote affected validation-review assertions from disposable feedback-engineer repair to persisted `semantic_repair_handoff` behavior while preserving legacy direct-validation coverage.\n- Verification passed: focused handoff suites, existing rollover/execution/validation suites, Objective-Failing Checks, `deno task seams:check`, and full `deno task ci` (288 files passed, 0 failed).\n- Manual TUI interruption scenarios from the plan were not exercised interactively in this API session."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "ced9612d8020d4e3a536cf7e49ceea427768d0b8"
-worktreeId: "b9341d5b"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-13-execution-segmen-b9341d5b"
-worktreeBranch: "worktree/personal-remote-workspace-v1-13-execution-segmen-b9341d5b"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "4addb1a14d5d5a5a2440ca346a2c0dc118842f00"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "f36967973eba3d3ac6fadb807675b8996dc031e0"
 validationCiAttempts: 0
 validationSemanticRounds: 2
 ---

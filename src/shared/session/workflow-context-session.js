@@ -234,11 +234,28 @@ export function recordPendingSegmentContinuation(sessionManager, payload) {
  * @returns {unknown | null}
  */
 export function readPersistedPendingSegmentContinuation(sessionManager) {
+    return readPersistedPendingSegmentContinuationEntry(sessionManager)?.payload ?? null;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @returns {{ payload: unknown, entryIndex: number, entries: Array<{ type?: string, role?: string, customType?: string }> } | null}
+ */
+export function readPersistedPendingSegmentContinuationEntry(sessionManager) {
     try {
         const entries = getSessionEntries(sessionManager);
         for (let i = entries.length - 1; i >= 0; i--) {
             const continuation = readPendingSegmentContinuationFromEntry(entries[i]);
-            if (continuation !== undefined) return continuation;
+            if (continuation !== undefined) {
+                return {
+                    payload: continuation,
+                    entryIndex: i,
+                    entries: entries.map((entry) => {
+                        const item = /** @type {{ type?: string, role?: string, customType?: string }} */ (entry || {});
+                        return { type: item.type, role: item.role, customType: item.customType };
+                    }),
+                };
+            }
         }
     } catch (_e) {
         // Pending continuation should never block Session construction.

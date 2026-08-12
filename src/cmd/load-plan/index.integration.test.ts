@@ -338,7 +338,7 @@ Deno.test("load-plan marks an Epic done enough only after the real lifecycle wri
     });
 });
 
-Deno.test("load-plan applies a browserless review decision through the Runtime interaction port", async () => {
+Deno.test("Approve for Later creates no execution segment", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         await writePlan(projectRoot, "reviewed", { status: "approved" });
         const { runtime, sessionId } = await createRuntime(projectRoot);
@@ -367,6 +367,7 @@ Deno.test("load-plan applies a browserless review decision through the Runtime i
             });
 
             assertEquals((await loadPlan(projectRoot, "reviewed"))?.attrs.status, "ready_for_work");
+            assertEquals(runtime.getRuntimeActiveExecutionWorkflow(sessionId), null);
             assertStringIncludes(ui.messages.join("\n"), "Plan saved. Resume later");
         } finally {
             runtime.closeAllSessions();

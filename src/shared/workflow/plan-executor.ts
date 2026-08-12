@@ -22,7 +22,9 @@ import { CollaborationStyles, selectRuntimeCollaborationStyle } from "./executio
 import { ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
 import { finalizePlanImplementation } from "./implementation-checkpoint.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
-import { runEngineerWithPlan } from "./engineer-runner.ts";
+import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
+import { loadPlanActionEvidence, type PlanWorktreeExpectation } from "./plan-actions.ts";
+import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-runner.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -53,6 +55,7 @@ export interface PlanExecutionResult {
     error?: string;
     completionReport?: string;
     executionContext?: ActiveExecutionWorkflow;
+    executionSegmentHandoff?: import("./execution-segment-handoff.ts").ExecutionSegmentContinuation;
 }
 
 export interface ExecutePlanOptions {
@@ -63,11 +66,14 @@ export interface ExecutePlanOptions {
     routerMessage?: string;
     reviewFeedback?: string;
     reviewImages?: Array<{ base64: string; mimeType: string }>;
+    prepareSegmentHandoff?: boolean;
 }
 
 export interface ExecuteSingleEngineerPlanOptions {
     planName: string;
     planBody: string;
+    approvedMarkdown?: string;
+    approvalTriageMeta?: Partial<PlanFrontMatter>;
     triageMeta: Partial<PlanFrontMatter>;
     sessionManager?: SessionManager;
     currentStatus: import("./plan-lifecycle.js").PlanStatus;
@@ -77,6 +83,7 @@ export interface ExecuteSingleEngineerPlanOptions {
     reviewImages?: Array<{ base64: string; mimeType: string }>;
     collaborationStyle?: "autonomous" | "pair";
     collaborationRecommendation?: "autonomous" | "pair";
+    prepareSegmentHandoff?: boolean;
 }
 
 export async function executePlan({
@@ -87,6 +94,7 @@ export async function executePlan({
     routerMessage,
     reviewFeedback,
     reviewImages,
+    prepareSegmentHandoff = false,
 }: ExecutePlanOptions): Promise<PlanExecutionResult> {
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
     const projectRoot = hostedSession.cwd;
@@ -383,6 +391,8 @@ export async function executePlan({
     const result = await executeSingleEngineerPlan({
         planName,
         planBody: plan.body,
+        approvedMarkdown: plan.markdown,
+        approvalTriageMeta: _triageMeta,
         triageMeta: effectiveMeta,
         sessionManager,
         currentStatus: plan.attrs.status,
@@ -392,6 +402,7 @@ export async function executePlan({
         reviewImages: effectiveReviewImages,
         collaborationStyle: collaboration.style,
         collaborationRecommendation: collaboration.recommendation,
+        prepareSegmentHandoff,
     });
     if (!result.executionComplete) {
         if (result.baselineRejected) {
@@ -528,6 +539,8 @@ export async function executeSingleEngineerPlan(
     {
         planName,
         planBody,
+        approvedMarkdown,
+        approvalTriageMeta,
         triageMeta,
         sessionManager,
         currentStatus,
@@ -537,8 +550,21 @@ export async function executeSingleEngineerPlan(
         reviewImages,
         collaborationStyle = CollaborationStyles.AUTONOMOUS,
         collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
+        prepareSegmentHandoff = false,
     }: ExecuteSingleEngineerPlanOptions,
 ): Promise<PlanExecutionResult> {
+    if (prepareSegmentHandoff) {
+        const approvalValidation = await validateApprovedPlanSnapshotForHandoff({
+            projectRoot: hostedSession.cwd,
+            planName,
+            triageMeta,
+            approvalTriageMeta,
+            currentStatus,
+        });
+        if (approvalValidation.kind !== "ok") {
+            return { repairRequired: false, executionComplete: false, error: approvalValidation.message };
+        }
+    }
     let executionContext;
     try {
         executionContext = await startActiveExecutionWorkflow({
@@ -580,6 +606,51 @@ export async function executeSingleEngineerPlan(
         });
         return { repairRequired: false, executionComplete: false, error: message };
     }
+    if (prepareSegmentHandoff) {
+        const managed = hostedSession.getManagedMetadata?.();
+        if (!managed?.runwieldSessionId) {
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                error: "Managed execution handoff requires Session metadata.",
+            };
+        }
+        const approvalSnapshot = normalizeApprovalSnapshotForHandoff(approvalTriageMeta);
+        if (!approvalSnapshot) {
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                error: "Managed execution handoff requires complete approval-time Plan action evidence.",
+            };
+        }
+        const preparedEvidence = await loadPlanActionEvidence(
+            executionContext.projectRoot || hostedSession.cwd,
+            approvalSnapshot.planId,
+        );
+        if (preparedEvidence.kind !== "success") {
+            return { repairRequired: false, executionComplete: false, error: preparedEvidence.message };
+        }
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            executionContext,
+            executionSegmentHandoff: buildExecutionSegmentContinuation({
+                runwieldSessionId: managed.runwieldSessionId,
+                planId: approvalSnapshot.planId,
+                planName,
+                approvedRevision: approvalSnapshot.revision,
+                approvedStatus: approvalSnapshot.status,
+                approvedMarkdown: approvedMarkdown || planBody,
+                approvalFeedback: reviewFeedback,
+                approvalImages: reviewImages,
+                preparedEvidence: preparedEvidence.evidence,
+                activeWorkflow: executionContext,
+                executionOwner: executionContext.executionAgent,
+                collaborationStyle,
+                collaborationRecommendation,
+            }),
+        };
+    }
     emitLaunchingExecutionAgent(
         hostedSession,
         getAgentDisplayName(executionContext.executionAgent, executionContext.projectRoot || hostedSession?.cwd),
@@ -609,6 +680,138 @@ export async function executeSingleEngineerPlan(
         repairRequired: false,
         executionComplete: true,
         ...(executionContext ? { executionContext } : {}),
+        ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
+    };
+}
+
+async function validateApprovedPlanSnapshotForHandoff({
+    projectRoot,
+    planName,
+    triageMeta,
+    approvalTriageMeta,
+    currentStatus,
+}) {
+    const approvalSnapshot = normalizeApprovalSnapshotForHandoff(approvalTriageMeta);
+    if (!approvalSnapshot) {
+        return {
+            kind: "rejected",
+            message: "Managed execution handoff requires complete approval-time Plan action evidence.",
+        };
+    }
+    const evidence = await loadPlanActionEvidence(projectRoot, approvalSnapshot.planId);
+    if (evidence.kind !== "success") return { kind: "rejected", message: evidence.message };
+    if (evidence.evidence.planName !== planName) {
+        return { kind: "rejected", message: "Plan action evidence no longer matches the approved Plan." };
+    }
+    if (triageMeta?.planId && triageMeta.planId !== approvalSnapshot.planId) {
+        return { kind: "rejected", message: "Plan action evidence no longer matches the approved Plan." };
+    }
+    if (evidence.evidence.revision !== approvalSnapshot.revision) {
+        return {
+            kind: "rejected",
+            message: "Plan revision changed after approval. Refresh Plan review before execution handoff.",
+        };
+    }
+    if (evidence.evidence.status !== approvalSnapshot.status || currentStatus !== evidence.evidence.status) {
+        return {
+            kind: "rejected",
+            message: "Plan status changed after approval. Refresh Plan review before execution handoff.",
+        };
+    }
+    if (!samePlanWorktreeEvidence(evidence.evidence.worktree, approvalSnapshot.worktree)) {
+        return {
+            kind: "rejected",
+            message: "Plan worktree evidence changed after approval. Refresh Plan review before execution handoff.",
+        };
+    }
+    return { kind: "ok" };
+}
+
+function normalizeApprovalSnapshotForHandoff(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return null;
+    const planId = typeof snapshot.planId === "string" && snapshot.planId.trim() ? snapshot.planId.trim() : "";
+    const revision = typeof snapshot.revision === "string" && snapshot.revision.trim() ? snapshot.revision.trim() : "";
+    const status = typeof snapshot.status === "string" && snapshot.status.trim() ? snapshot.status.trim() : "";
+    const worktree = normalizeApprovalWorktreeEvidence(snapshot.worktree || snapshot.expectedWorktree);
+    if (!planId || !revision || !status || !worktree) return null;
+    return { planId, revision, status, worktree };
+}
+
+function normalizeApprovalWorktreeEvidence(worktree): PlanWorktreeExpectation | null {
+    if (!worktree || typeof worktree !== "object") return null;
+    if (worktree.kind === "none") return { kind: "none" };
+    if (worktree.kind !== "attempt") return null;
+    const id = nonEmptyString(worktree.id);
+    const planId = nonEmptyString(worktree.planId);
+    const status = nonEmptyString(worktree.status);
+    const branch = nonEmptyString(worktree.branch);
+    const baseBranch = nonEmptyString(worktree.baseBranch);
+    const baseRef = nonEmptyString(worktree.baseRef);
+    const baseCommit = nonEmptyString(worktree.baseCommit);
+    if (!id || !planId || !status || !branch || !baseBranch || !baseRef || !baseCommit) return null;
+    return { kind: "attempt", id, planId, status, branch, baseBranch, baseRef, baseCommit };
+}
+
+function nonEmptyString(value): string {
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function samePlanWorktreeEvidence(left: PlanWorktreeExpectation, right: PlanWorktreeExpectation): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export async function executePreparedPlanSegmentHandoff({
+    continuation,
+    sessionManager,
+    hostedSession,
+}: {
+    continuation: import("./execution-segment-handoff.ts").ExecutionSegmentContinuation;
+    sessionManager?: SessionManager;
+    hostedSession: HostedSession;
+}): Promise<PlanExecutionResult> {
+    const workflow = continuation.activeWorkflow as ActiveExecutionWorkflow;
+    hostedSession.setActiveExecutionWorkflow(workflow);
+    emitLaunchingExecutionAgent(
+        hostedSession,
+        getAgentDisplayName(continuation.executionOwner, workflow.projectRoot || hostedSession.cwd),
+    );
+    const engineerResult = await runEngineerWithSegmentHandoff({
+        continuation,
+        sessionManager,
+        hostedSession,
+    });
+    if (!engineerResult.completed) {
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            executionContext: workflow,
+            ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
+            ...(engineerResult.error ? { error: engineerResult.error } : {}),
+        };
+    }
+    try {
+        await finalizePlanImplementation({
+            projectRoot: workflow.projectRoot || hostedSession.cwd,
+            planName: continuation.plan.planName,
+            triageMeta: workflow.triageMeta,
+            executionContext: workflow,
+            executionReport: engineerResult.completionReport,
+            hostedSession,
+        });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+            repairRequired: true,
+            executionComplete: false,
+            error: reason,
+            executionContext: workflow,
+            ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
+        };
+    }
+    return {
+        repairRequired: false,
+        executionComplete: true,
+        executionContext: workflow,
         ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
     };
 }

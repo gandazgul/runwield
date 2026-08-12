@@ -10,7 +10,10 @@ import {
 } from "./execution-collaboration.ts";
 import { runPlanningAgent as runPlanningAgentImpl } from "./planning-agent.ts";
 import { finalizePlanImplementation as finalizePlanImplementationImpl } from "./implementation-checkpoint.ts";
-import { executePlan as executePlanImpl } from "./plan-executor.ts";
+import {
+    executePlan as executePlanImpl,
+    executePreparedPlanSegmentHandoff as executePreparedPlanSegmentHandoffImpl,
+} from "./plan-executor.ts";
 import {
     assertReusableWorktreeTargetMatches as assertReusableWorktreeTargetMatchesImpl,
     normalizeExecutionTargetBranch as normalizeExecutionTargetBranchImpl,
@@ -65,6 +68,7 @@ export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "
  * @property {string} [error]
  * @property {string} [completionReport]
  * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow} [executionContext]
+ * @property {import('./execution-segment-handoff.ts').ExecutionSegmentContinuation} [executionSegmentHandoff]
  */
 
 /**
@@ -122,6 +126,14 @@ export function finalizePlanImplementation(options) {
  */
 export function executePlan(options) {
     return /** @type {Promise<PlanExecutionResult>} */ (executePlanImpl(options));
+}
+
+/**
+ * @param {*} options
+ * @returns {Promise<PlanExecutionResult>}
+ */
+export function executePreparedPlanSegmentHandoff(options) {
+    return /** @type {Promise<PlanExecutionResult>} */ (executePreparedPlanSegmentHandoffImpl(options));
 }
 
 /**
