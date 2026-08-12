@@ -13,7 +13,7 @@ Deno.test("prepareClaudeCliCommand sets MCP tool idle timeout environment", asyn
         Deno.env.delete("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT");
         const command = await prepareClaudeCliCommand({ selector: "sonnet", systemPrompt: "system" });
         try {
-            assertEquals(Number(command.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT) >= 600000, true);
+            assertEquals(command.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, String(24 * 60 * 60 * 1000));
         } finally {
             await disposePreparedCommand(command);
             if (prior === undefined) Deno.env.delete("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT");
@@ -25,10 +25,10 @@ Deno.test("prepareClaudeCliCommand sets MCP tool idle timeout environment", asyn
 Deno.test("prepareClaudeCliCommand preserves a longer inherited MCP tool idle timeout", async () => {
     await withProcessGlobalTestLock(async () => {
         const prior = Deno.env.get("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT");
-        Deno.env.set("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "900000");
+        Deno.env.set("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "90000000");
         const command = await prepareClaudeCliCommand({ selector: "sonnet", systemPrompt: "system" });
         try {
-            assertEquals(command.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "900000");
+            assertEquals(command.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "90000000");
         } finally {
             await disposePreparedCommand(command);
             if (prior === undefined) Deno.env.delete("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT");

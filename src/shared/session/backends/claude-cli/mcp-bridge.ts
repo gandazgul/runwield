@@ -511,7 +511,7 @@ function buildMcpConfigJson(url: string, token: string): string {
                 type: "http",
                 url,
                 headers: { Authorization: `Bearer ${token}` },
-                timeout: 600_000,
+                timeout: 24 * 60 * 60 * 1000,
             },
         },
     });

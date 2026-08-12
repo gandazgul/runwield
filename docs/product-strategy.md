@@ -104,6 +104,16 @@ RunWield should become a guide over the team's accumulated intelligence. Plans, 
 decisions, and accepted lessons should help managers, engineers, product, design, other teams, and future Agents make
 better decisions. Shared intelligence must remain reviewable, attributable, and safe to activate.
 
+### Forge as Git Upstream
+
+RunWield's default posture is to replace the workflow layers above git — intent, review, and memory — rather than build
+on a software forge's pull-request model. A forge like GitHub remains valuable as the remote git host, merge substrate,
+and identity provider, and integrating with GitHub for identity and permissions is high on the Workspace roadmap. But
+Plans, human review, and Work Records are RunWield capabilities by default: Workspace hosts the review loop (assignable
+to teammates, assisted by Agents), holds review process state outside the repository the same way it holds Sessions, and
+commits only the resulting artifacts. Teams that want forge-hosted review can opt into it per repository or team,
+including dual review, with no state synchronization between gates.
+
 ## Supporting Product Directions
 
 ### Enterprise Workflow Observability
@@ -149,20 +159,60 @@ Plans, build with precision, preserve quality as the codebase matures, and reuse
 
 ## Open Product Questions
 
-- How does RunWield help small local models?
-- Which small or midsize product organizations place the highest value on precise AI collaboration, engineering quality,
-  and long-term maintainability?
-- Which persona is the best initial buyer or champion: Engineering Manager, Head of Engineering, Product leader, or a
-  combined product-and-engineering founder?
-- What is the smallest cross-functional workflow that proves value for Product Managers, Designers, Engineering
-  Managers, and engineers?
-- What is the smallest RunWield prototype capability that materially improves alignment and expresses RunWield's
-  distinct approach?
-- How should functional prototypes become governed inputs to Plans, implementation, and validation?
-- What are the different layers of memory, and which product outcomes does each layer support?
-- How is RunWield different from Cursor, Lovable, HumanLayer, and Warp?
-- Which parts of the Multiplayer AI and Company Brain directions are near-term product bets, and which are later vision?
-- Which enterprise workflow insights create the most value for teams and leaders?
+### How does RunWield help small local models?
+
+multi_file_edit and code_batch means less tool calls which small models struggle with. We have mid-session nudges
+reminding agents of their persona and goal for short attention windows.
+
+The verification loop actually helps smaller models because they can catch things they forgot while executing.
+
+### Which small or midsize product organizations place the highest value on precise AI collaboration, engineering quality, and long-term maintainability?
+
+Any startup to mid-size company with a dev team.
+
+### Which persona is the best initial buyer or champion: Engineering Manager, Head of Engineering, Product leader, or a combined product-and-engineering founder?
+
+Combined product-and-engineering founder, and someone in engineering management. Developers can be great advocates,
+though, if they find it useful in their personal projects, which is why core must stay free.
+
+### What is the smallest cross-functional workflow that proves value for Product Managers, Designers, Engineering Managers, and engineers?
+
+Product Manager uses Ideator to plan a new feature within the context of the project, even make a high-fidelity
+prototype. Designer uses the prototype to refine the UX and aesthetics and update the design system as needed. Engineers
+take the PRD, Prototype, and other context and make one or more plans for implementation and execute them. Engineering
+managers can steer the team through the plans’ feedback loop and get metrics on the team and the outcomes.
+
+### What is the smallest RunWield prototype capability that materially improves alignment and expresses RunWield's distinct approach?
+
+We need to be able to produce the prototypes and attach them to a plan on a URL that can be shared with the team and
+linked to from the PRDs and plans.
+
+### What are the different layers of memory, and which product outcomes does each layer support?
+
+RunWield does not have one memory layer. It uses short-lived context, durable artifacts, local and shared Mnemosyne
+Memories, code intelligence, and Workspace surfaces for different outcomes.
+
+| Layer                                              | What it stores                                                                                            | Product outcome                                                                                          |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Active model context                               | The current Agent turn context, bounded briefs, selected files, and tool results.                         | Better immediate reasoning without loading the whole project into the prompt.                            |
+| Session Transcript and Session Transcript Segments | Private raw conversation and event history for one Session, split at workflow boundaries.                 | Resume, recovery, and user-visible continuity. Execution gets clean context instead of planning chatter. |
+| PRDs, prototypes, and design docs                  | Product intent, UX intent, and desired outcomes.                                                          | Alignment between product, design, engineering, and Agents.                                              |
+| ADRs and domain language                           | Accepted architecture rules and canonical vocabulary.                                                     | Stable team reasoning, fewer repeated debates, and more maintainable decisions.                          |
+| Plans and Plan Lifecycle                           | Executable strategy, Plan Status, validation state, recovery metadata, and delivery evidence.             | Controlled execution, attention state, blocker visibility, recovery, and delivery truth.                 |
+| Validation evidence and workflow state             | Mechanical validation, Semantic Code Review, worktree state, and delivery results.                        | Confidence that the result matches the approved Plan.                                                    |
+| Work Records                                       | Retrospective planning memory: what changed, deviations, deferred work, and future planning notes.        | Future Plans become smarter because Agents can retrieve verified lessons.                                |
+| Mnemosyne Local Memory                             | Concise local project facts, decisions, and preferences.                                                  | Personal continuity across Sessions and less rediscovery for one user.                                   |
+| Mnemosyne Global Memory                            | Cross-project preferences and stable user working style.                                                  | Consistent Agent behavior across repositories.                                                           |
+| Core Memory                                        | Any Local or Team Memory marked for injection into every Agent Session.                                   | Always-on critical context for safety and consistency. This layer must stay sparse.                      |
+| Team Memory                                        | Reviewable repository-versioned Memory text, reconciled into local Mnemosyne copies after trusted review. | Shared Company Brain without committing Mnemosyne databases or unreviewed prompt injection.              |
+| Code intelligence                                  | Current source structure, symbols, references, and impact data.                                           | Accurate answers, better Plans, and safer changes grounded in current implementation.                    |
+| Workspace and Project Knowledge Search             | Search and presentation across Projects, Sessions, Plans, PRDs, ADRs, Work Records, and code.             | Multiplayer AI and leadership visibility into work, blockers, decisions, evidence, and lessons.          |
+
+### How is RunWield different from Cursor, Lovable, HumanLayer, and Warp?
+
+### Which parts of the Multiplayer AI and Company Brain directions are near-term product bets, and which are later vision?
+
+### Which enterprise workflow insights create the most value for teams and leaders?
 
 ## Products to Study
 
@@ -213,9 +263,16 @@ planner must keep. A PR body cannot hold that well for four structural reasons:
 - Locality. Work Records are Markdown in the repo. They are readable offline, inside a worktree, by any Agent, with no
   API token and no vendor. Move them into PR bodies, and your planning memory now needs network and auth to think.
 
-A proven forge (e.g., GitHub) merge is an input that lets RunWield seal the Work Record. The PR is evidence of delivery.
-The Work Record is the memory. Integration does not collapse them — it gives the Work Record a stronger completion proof
-than a local merge does.
+The guarantee also runs one direction only: every validated Plan produces a Work Record with evidence of its merge, but
+not every commit on main has a Work Record. Quick fixes and merges made outside RunWield produce commits, and the git
+log is the audit trail at that level. Work Records are a layer of memory over planned work, not the authoritative
+history of the target branch, and RunWield does not police a team's commit discipline — it is responsible for the
+provenance of its own merges, with commits that point back to their Plans.
+
+Under RunWield's default posture there is no PR at all: review happens in RunWield and RunWield merges. When a team opts
+into forge-hosted review, a proven forge merge is an input that lets RunWield seal the Work Record — delivery evidence
+for the memory, never a replacement for it. Either way, selected review feedback folds back into the Work Record
+additively, because the comment that changes no code is often the one the next Plan most needs.
 
 ### Isn't a Plan just a ticket?
 
@@ -227,5 +284,7 @@ map to user stories rather than to technical execution.
 
 Keep the Plan and Work Record upstream of the forge, and a forge swap costs you nothing. A Forge like GitHub can handle
 identity, permissions, branch protection, immutable merge history, CI triggers, and the social and legal record of who
-accepted a change into a shared artifact. RunWield replaces the layers above: intent, review, and memory. With RunWield,
-your knowledge does not live inside a vendor.
+accepted a change into a shared artifact. RunWield's default posture replaces the layers above git — intent, review, and
+memory — and relegates the forge to the git upstream. Teams that want forge-hosted review can opt into it per repository
+or team, and integrating with GitHub for identity and permissions is high on the Workspace roadmap. With RunWield, your
+knowledge does not live inside a vendor.

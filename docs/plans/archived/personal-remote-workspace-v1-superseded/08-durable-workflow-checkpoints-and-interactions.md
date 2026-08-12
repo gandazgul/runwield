@@ -16,7 +16,7 @@ origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 8
 dependencies:
-    - "07-activation-enforcement-hardening-across-adapters"
+    - "07c-fenced-session-mutation-families"
 ---
 
 # Durable Workflow Checkpoints and Interactions

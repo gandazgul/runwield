@@ -355,7 +355,7 @@ Deno.test("RunWield MCP bridge lists capability aliases and exposes timeout conf
         assertEquals(listed.tools.map((tool) => tool.name), ["memory_recall"]);
         assertEquals(context.bridge.advertisedToolNames, ["memory_recall"]);
         const config = JSON.parse(context.bridge.config) as { mcpServers: { runwield: { timeout: number } } };
-        assertEquals(config.mcpServers.runwield.timeout >= 600000, true);
+        assertEquals(config.mcpServers.runwield.timeout, 24 * 60 * 60 * 1000);
         const result = await context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
         assertStringIncludes(resultText(result as { content: Array<{ type: string; text?: string }> }), "hit plans");
     });

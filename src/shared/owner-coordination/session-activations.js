@@ -16,6 +16,7 @@
  * @property {number} fence
  * @property {SessionActivationPhase} phase
  * @property {number | null} expectedGeneration
+ * @property {string | null} [expectedCurrentSegmentId]
  */
 
 /**
@@ -26,6 +27,7 @@
  * @property {string} digestHex
  * @property {string} [digestAlgorithm]
  * @property {number} [evidenceVersion]
+ * @property {string | null} [currentSegmentId]
  */
 
 /** @param {unknown} value */
@@ -62,6 +64,8 @@ function activationFromRow(row) {
         expectedGeneration: row.expected_generation === null || row.expected_generation === undefined
             ? null
             : Number(row.expected_generation),
+        currentSegmentId: row.current_segment_id,
+        expectedCurrentSegmentId: row.expected_current_segment_id,
         acquiredAt: row.acquired_at,
         heartbeatAt: row.heartbeat_at,
         heartbeatDeadlineAt: row.heartbeat_deadline_at,
@@ -84,6 +88,7 @@ function generationFromRow(row) {
         digestHex: row.digest_hex,
         operationId: row.operation_id,
         fence: Number(row.fence),
+        currentSegmentId: row.current_segment_id,
         committedAt: row.committed_at,
     };
 }
@@ -132,7 +137,8 @@ function proofMatches(current, proof) {
         current.operationId === proof.operationId &&
         current.fence === proof.fence &&
         current.phase === proof.phase &&
-        current.expectedGeneration === proof.expectedGeneration;
+        current.expectedGeneration === proof.expectedGeneration &&
+        current.expectedCurrentSegmentId === (proof.expectedCurrentSegmentId ?? null);
 }
 
 /**
@@ -148,7 +154,7 @@ function assertActiveProofFresh(ownerDb, current, proof, now) {
         ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                    operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL,
+                    operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL,
                     updated_at = ?, blocked_reason = 'heartbeat_expired'
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                 AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
@@ -189,7 +195,7 @@ export function heartbeatSessionActivation(database, proof, options = {}) {
             ownerDb.handle.prepare(
                 `UPDATE session_activation_state
                     SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                        operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL,
+                        operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL,
                         updated_at = ?, blocked_reason = 'heartbeat_expired'
                   WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                     AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
@@ -247,7 +253,7 @@ function deadlineFrom(iso) {
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ runwieldSessionId: string, projectId: string, ownerInstanceId: string, ownerProcessKind: 'workspace' | 'tui' | 'acp' | 'test', operationId?: string, expectedGeneration?: number | null, phase?: SessionActivationPhase, idFactory?: () => string, now?: () => string }} options
+ * @param {{ runwieldSessionId: string, projectId: string, ownerInstanceId: string, ownerProcessKind: 'workspace' | 'tui' | 'acp' | 'test', operationId?: string, expectedGeneration?: number | null, expectedCurrentSegmentId?: string | null, phase?: SessionActivationPhase, idFactory?: () => string, now?: () => string }} options
  * @returns {ActivationProof}
  */
 export function acquireSessionActivation(database, options) {
@@ -263,6 +269,12 @@ export function acquireSessionActivation(database, options) {
         );
         if (!current) throw new Error(`Activation state not found: ${options.runwieldSessionId}`);
         const expectedGeneration = options.expectedGeneration ?? current.latestGeneration;
+        const expectedCurrentSegmentId = options.expectedCurrentSegmentId === undefined
+            ? current.currentSegmentId ?? null
+            : options.expectedCurrentSegmentId;
+        if (expectedCurrentSegmentId !== (current.currentSegmentId ?? null)) {
+            throw new Error("Session activation current segment expectation does not match stored state");
+        }
         const isBootstrap = current.state === "uninitialized" && phase === "bootstrap" && expectedGeneration === null;
         const isPreparing = current.state === "uninitialized" && phase === "preparing" && expectedGeneration === null;
         const isNormal = current.state === "idle" && current.latestGeneration === expectedGeneration;
@@ -273,7 +285,7 @@ export function acquireSessionActivation(database, options) {
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET state = 'active', phase = ?, fence = ?, owner_instance_id = ?, owner_process_kind = ?,
-                    operation_id = ?, expected_generation = ?, acquired_at = ?, heartbeat_at = ?,
+                    operation_id = ?, expected_generation = ?, expected_current_segment_id = ?, acquired_at = ?, heartbeat_at = ?,
                     heartbeat_deadline_at = ?, updated_at = ?, blocked_reason = NULL
               WHERE runwield_session_id = ? AND project_id = ? AND state = ? AND fence = ?`,
         ).run(
@@ -283,6 +295,7 @@ export function acquireSessionActivation(database, options) {
             options.ownerProcessKind,
             operationId,
             expectedGeneration,
+            expectedCurrentSegmentId,
             now,
             now,
             deadlineFrom(now),
@@ -302,6 +315,7 @@ export function acquireSessionActivation(database, options) {
             fence: nextFence,
             phase,
             expectedGeneration,
+            expectedCurrentSegmentId,
         };
     });
 }
@@ -373,10 +387,12 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
         const previous = current.latestGeneration;
         const expectedNext = previous === null ? 0 : previous + 1;
         if (evidence.generation !== expectedNext) throw new Error(`Generation must advance to ${expectedNext}`);
+        const currentSegmentId = evidence.currentSegmentId ?? proof.expectedCurrentSegmentId ?? null;
+        if (currentSegmentId !== current.currentSegmentId) throw new Error("Current segment proof was rejected");
         ownerDb.handle.prepare(
             `INSERT INTO session_committed_generations(runwield_session_id, project_id, generation, evidence_version,
-                digest_algorithm, byte_length, terminal_entry_id, digest_hex, operation_id, fence, committed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                digest_algorithm, byte_length, terminal_entry_id, digest_hex, operation_id, fence, committed_at, current_segment_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
             proof.runwieldSessionId,
             proof.projectId,
@@ -389,11 +405,12 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
             proof.operationId,
             proof.fence,
             now,
+            currentSegmentId,
         );
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET state = 'idle', phase = NULL, latest_generation = ?, owner_instance_id = NULL,
-                    owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL, acquired_at = NULL,
+                    owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, acquired_at = NULL,
                     heartbeat_at = NULL, heartbeat_deadline_at = NULL, updated_at = ?, blocked_reason = NULL
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                 AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
@@ -439,7 +456,7 @@ export function releaseUnchangedActivation(database, proof, options = {}) {
             `UPDATE session_activation_state
                 SET state = CASE WHEN latest_generation IS NULL THEN 'uninitialized' ELSE 'idle' END,
                     phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL, operation_id = NULL,
-                    expected_generation = NULL, acquired_at = NULL, heartbeat_at = NULL, heartbeat_deadline_at = NULL,
+                    expected_generation = NULL, expected_current_segment_id = NULL, acquired_at = NULL, heartbeat_at = NULL, heartbeat_deadline_at = NULL,
                     updated_at = ?, blocked_reason = NULL
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                 AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
@@ -481,7 +498,7 @@ export function markSessionUncertain(database, proof, options = {}) {
             const result = ownerDb.handle.prepare(
                 `UPDATE session_activation_state
                     SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                        operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                        operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
                         blocked_reason = ?
                   WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                     AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
@@ -505,7 +522,7 @@ export function markSessionUncertain(database, proof, options = {}) {
     const result = ownerDb.handle.prepare(
         `UPDATE session_activation_state
             SET state = 'uncertain', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
                 blocked_reason = ?
           WHERE runwield_session_id = ? AND project_id = ?`,
     ).run(now, options.reason || "uncertain", proof.runwieldSessionId, proof.projectId);
@@ -524,7 +541,7 @@ export function markSessionReconcileRequired(database, session, options = {}) {
     const result = ownerDb.handle.prepare(
         `UPDATE session_activation_state
             SET state = 'reconcile_required', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
                 blocked_reason = ?
           WHERE runwield_session_id = ? AND project_id = ?`,
     ).run(now, options.reason || "reconcile_required", session.runwieldSessionId, session.projectId);
@@ -552,7 +569,7 @@ export function markSessionReconcileRequiredWithProof(database, proof, options =
         const result = ownerDb.handle.prepare(
             `UPDATE session_activation_state
                 SET state = 'reconcile_required', phase = NULL, owner_instance_id = NULL, owner_process_kind = NULL,
-                    operation_id = NULL, expected_generation = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
+                    operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, heartbeat_deadline_at = NULL, updated_at = ?,
                     blocked_reason = ?
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                 AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?

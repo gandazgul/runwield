@@ -16,7 +16,7 @@ export interface PreparedClaudeCliCommand {
     mcpConfigPath?: string;
 }
 
-const CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS = 600_000;
+const CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
     "Read",
