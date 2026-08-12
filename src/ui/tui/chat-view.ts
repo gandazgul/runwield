@@ -90,7 +90,11 @@ export function createPastedImagePreview(image: ImageAttachment): Image {
     });
 }
 
-export async function createChatView(options: ChatViewOptions): Promise<ChatView> {
+export function createChatView(options: ChatViewOptions): Promise<ChatView> {
+    return createChatViewInternal(options);
+}
+
+async function createChatViewInternal(options: ChatViewOptions): Promise<ChatView> {
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = options.tui;

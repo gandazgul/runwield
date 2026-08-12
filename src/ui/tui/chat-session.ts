@@ -7,7 +7,6 @@ import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { initTUI } from "./tui.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
-import { endBlink } from "./boot-logo.ts";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 import { createManagedSessionSyncController, SYSTEM_MANAGED_SESSION_TIMER } from "./managed-session-sync.js";
@@ -45,7 +44,6 @@ import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
 
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
-export const CHAT_BUILTIN_SLASH_NAMES = new Set<string>();
 export type SessionRuntime = ReturnType<typeof createSessionRuntime>;
 
 export interface InteractiveLifecycleHandle {
@@ -129,95 +127,90 @@ export async function startInteractiveSession(
     initialUserRequest: string | null,
     options: StartInteractiveSessionOptions,
 ): Promise<UiAPI> {
-    CHAT_BUILTIN_SLASH_NAMES.clear();
-    for (const command of getSlashCommandDefinitions()) CHAT_BUILTIN_SLASH_NAMES.add(command.name);
+    const chatBuiltinSlashNames = new Set<string>();
+    for (const command of getSlashCommandDefinitions()) chatBuiltinSlashNames.add(command.name);
     const ownerCoordinationStore = openOwnerCoordinationStore();
     const sessionRuntime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
-    const createdSession = await sessionRuntime.createInteractiveSession({
-        cwd: getCwd(),
-        mode: options.sessionStartMode || "new",
-    });
-    let sessionId = createdSession.sessionId;
-    const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);
-    options.onSessionReady?.(sessionId, sessionRuntime);
-    initSettings(runtimeSnapshot().cwd);
-    const sessionStartedAt = createdSession.startedAt;
-    let sessionStartedEmptyProjectDirectory = false;
+    const disposables: Array<() => void | Promise<void>> = [];
+    let uiAPIForDispose: UiAPI | null = null;
+    let lifecycleDisposed = false;
+    const lifecycleHandle: InteractiveLifecycleHandle = {
+        dispose: async () => {
+            if (lifecycleDisposed) return;
+            lifecycleDisposed = true;
+            const cleanupErrors: Error[] = [];
+            const recordCleanupError = (error: Error): void => {
+                cleanupErrors.push(error);
+            };
+            for (const dispose of disposables.toReversed()) {
+                try {
+                    await dispose();
+                } catch (error) {
+                    recordCleanupError(error instanceof Error ? error : new Error(String(error)));
+                }
+            }
+            try {
+                uiAPIForDispose?.dispose?.();
+            } catch (error) {
+                recordCleanupError(error instanceof Error ? error : new Error(String(error)));
+            }
+            try {
+                sessionRuntime.closeAllSessions?.();
+            } catch (error) {
+                recordCleanupError(error instanceof Error ? error : new Error(String(error)));
+            }
+            if (cleanupErrors.length > 0) {
+                throw new AggregateError(cleanupErrors, "Interactive TUI cleanup failed.");
+            }
+        },
+    };
+    options.onLifecycleReady?.(lifecycleHandle);
     try {
-        sessionStartedEmptyProjectDirectory = await isEmptyProjectDirectory(getCwd());
-    } catch {
-        sessionStartedEmptyProjectDirectory = false;
-    }
-    sessionRuntime.setProjectStateContext(
-        sessionId,
-        sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
-    );
-    if (!options.skipModelWelcome) await listAvailableAgents(runtimeSnapshot().cwd);
-    const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-    if (!options.skipModelWelcome) await ensureMnemosyneBinary();
-    const tui = initTUI();
-    setTerminalTitleForName(runtimeSnapshot().name || runtimeSnapshot().cwd.split("/").at(-1) || "RunWield");
-    const suppressStartupHeader = options.sessionStartMode === "continue";
-    const view = await createChatView({
-        tui,
-        sessionRuntime,
-        getSessionId: () => sessionId,
-        suppressStartupHeader,
-        setActiveModel: (model, provider) => setActiveSessionModel(sessionRuntime, sessionId, model, provider),
-        configureUiAPI: options.configureUiAPI,
-    });
-    const footer = createChatFooterController({
-        runtime: sessionRuntime,
-        getSessionId: () => sessionId,
-        requestRender: () => tui.requestRender(),
-    });
-    view.container.addChild(footer.component);
-    const uiAPI = view.uiAPI;
-    const disposables: Array<() => void | Promise<void>> = [() => footer.dispose(), () => view.dispose()];
-    let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
-    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
-        runtime: sessionRuntime,
-        sessionId,
-        uiAPI,
-        browser: options.browser,
-        notifyRunWieldEvent: notifyRunWieldEventQuietly,
-        onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
-    });
-    const managedSyncController = createManagedSessionSyncController({
-        runtime: sessionRuntime,
-        getSessionId: () => sessionId,
-        timer: SYSTEM_MANAGED_SESSION_TIMER,
-        isPaused: () => inputControllerForPause?.isProcessingSubmission() || false,
-        onError: () => {},
-    });
-    managedSyncController.start();
-    disposables.push(() => managedSyncController.dispose());
-    const promptTemplates = options.skipModelWelcome ? [] : await sessionRuntime.listSessionPromptTemplates(sessionId);
-    const skills = options.skipModelWelcome ? [] : await sessionRuntime.listSessionSkills(sessionId);
-    let builtinSlashInvocationNames = new Set<string>();
-    let invokablePromptTemplates = promptTemplates;
-    let blockedPromptTemplates = promptTemplates.slice(0, 0);
-    let promptTemplateByName = new Map<string, (typeof promptTemplates)[number]>();
-    function refreshPromptTemplateCommandGroups(): void {
-        builtinSlashInvocationNames = new Set(
-            Array.from(CHAT_BUILTIN_SLASH_NAMES).flatMap((name) => getCommandInvocationNames(commandRegistry[name])),
-        );
-        invokablePromptTemplates = promptTemplates.filter((template) =>
-            !builtinSlashInvocationNames.has(template.name)
-        );
-        blockedPromptTemplates = promptTemplates.filter((template) => builtinSlashInvocationNames.has(template.name));
-        promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
-    }
-    function replaceRuntimeSession(nextSessionId: string, replaceOptions: { oldRetired?: boolean } = {}): void {
-        const previousSessionId = sessionId;
-        tuiRuntimeAdapter.dispose();
-        if (!replaceOptions.oldRetired && previousSessionId !== nextSessionId) {
-            sessionRuntime.closeSession(previousSessionId);
+        const createdSession = await sessionRuntime.createInteractiveSession({
+            cwd: getCwd(),
+            mode: options.sessionStartMode || "new",
+        });
+        let sessionId = createdSession.sessionId;
+        const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);
+        options.onSessionReady?.(sessionId, sessionRuntime);
+        initSettings(runtimeSnapshot().cwd);
+        const sessionStartedAt = createdSession.startedAt;
+        let sessionStartedEmptyProjectDirectory = false;
+        try {
+            sessionStartedEmptyProjectDirectory = await isEmptyProjectDirectory(getCwd());
+        } catch {
+            sessionStartedEmptyProjectDirectory = false;
         }
-        sessionId = nextSessionId;
-        options.onSessionReplaced?.(sessionId, sessionRuntime);
-        footer.rebindSession(sessionId);
-        tuiRuntimeAdapter = attachTuiRuntimeAdapter({
+        sessionRuntime.setProjectStateContext(
+            sessionId,
+            sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
+        );
+        if (!options.skipModelWelcome) await listAvailableAgents(runtimeSnapshot().cwd);
+        const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
+        if (!options.skipModelWelcome) await ensureMnemosyneBinary();
+        const tui = initTUI();
+        setTerminalTitleForName(runtimeSnapshot().name || runtimeSnapshot().cwd.split("/").at(-1) || "RunWield");
+        const suppressStartupHeader = options.sessionStartMode === "continue";
+        const view = await createChatView({
+            tui,
+            sessionRuntime,
+            getSessionId: () => sessionId,
+            suppressStartupHeader,
+            setActiveModel: (model, provider) => setActiveSessionModel(sessionRuntime, sessionId, model, provider),
+            configureUiAPI: options.configureUiAPI,
+        });
+        disposables.push(() => view.dispose());
+        const footer = createChatFooterController({
+            runtime: sessionRuntime,
+            getSessionId: () => sessionId,
+            requestRender: () => tui.requestRender(),
+        });
+        disposables.push(() => footer.dispose());
+        view.container.addChild(footer.component);
+        const uiAPI = view.uiAPI;
+        uiAPIForDispose = uiAPI;
+        let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
+        let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
             runtime: sessionRuntime,
             sessionId,
             uiAPI,
@@ -225,157 +218,210 @@ export async function startInteractiveSession(
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
-        view.resetForSessionReplacement();
-    }
-    disposables.push(() => tuiRuntimeAdapter.dispose());
-    refreshPromptTemplateCommandGroups();
-    const initDone = options.skipModelWelcome ? true : await isInitDoneFn();
-    if (initDone) CHAT_BUILTIN_SLASH_NAMES.delete("init");
-    if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
-        await renderBootBanner({
-            uiAPI,
-            sessionRuntime,
-            sessionId,
-            invokablePromptTemplates,
-            blockedPromptTemplates,
-            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
-            projectRoot: runtimeSnapshot().cwd,
+        disposables.push(() => tuiRuntimeAdapter.dispose());
+        const managedSyncController = createManagedSessionSyncController({
+            runtime: sessionRuntime,
+            getSessionId: () => sessionId,
+            timer: SYSTEM_MANAGED_SESSION_TIMER,
+            isPaused: () => inputControllerForPause?.isProcessingSubmission() || false,
+            onError: () => {},
         });
-    }
-    const modelWelcomeResult = options.skipModelWelcome
-        ? { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false }
-        : await maybeShowModelWelcome({
-            uiAPI,
-            editor: view.editor,
-            tui,
-            sessionId,
-            sessionRuntime,
-            initialAgentInternalName,
-            initialAgentModel: options.initialAgentModel,
-            projectRoot: runtimeSnapshot().cwd,
-        });
-    if (!modelWelcomeResult.shown && !options.skipModelWelcome) {
-        try {
-            await sessionRuntime.switchAgent(sessionId, {
-                agentName: initialAgentInternalName,
-                model: options.initialAgentModel,
+        disposables.push(() => managedSyncController.dispose());
+        managedSyncController.start();
+        const promptTemplates = options.skipModelWelcome
+            ? []
+            : await sessionRuntime.listSessionPromptTemplates(sessionId);
+        const skills = options.skipModelWelcome ? [] : await sessionRuntime.listSessionSkills(sessionId);
+        let builtinSlashInvocationNames = new Set<string>();
+        let invokablePromptTemplates = promptTemplates;
+        let blockedPromptTemplates = promptTemplates.slice(0, 0);
+        let promptTemplateByName = new Map<string, (typeof promptTemplates)[number]>();
+        const refreshPromptTemplateCommandGroups = (): void => {
+            builtinSlashInvocationNames = new Set(
+                Array.from(chatBuiltinSlashNames).flatMap((name) => getCommandInvocationNames(commandRegistry[name])),
+            );
+            invokablePromptTemplates = promptTemplates.filter((template) =>
+                !builtinSlashInvocationNames.has(template.name)
+            );
+            blockedPromptTemplates = promptTemplates.filter((template) =>
+                builtinSlashInvocationNames.has(template.name)
+            );
+            promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
+        };
+        const replaceRuntimeSession = (nextSessionId: string, replaceOptions: { oldRetired?: boolean } = {}): void => {
+            const previousSessionId = sessionId;
+            tuiRuntimeAdapter.dispose();
+            if (!replaceOptions.oldRetired && previousSessionId !== nextSessionId) {
+                sessionRuntime.closeSession(previousSessionId);
+            }
+            sessionId = nextSessionId;
+            options.onSessionReplaced?.(sessionId, sessionRuntime);
+            footer.rebindSession(sessionId);
+            tuiRuntimeAdapter = attachTuiRuntimeAdapter({
+                runtime: sessionRuntime,
+                sessionId,
+                uiAPI,
+                browser: options.browser,
+                notifyRunWieldEvent: notifyRunWieldEventQuietly,
+                onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             });
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes("No configured model found")) {
-                await maybeShowModelWelcome({
-                    uiAPI,
-                    editor: view.editor,
-                    tui,
-                    sessionId,
-                    sessionRuntime,
-                    initialAgentInternalName,
-                    initialAgentModel: options.initialAgentModel,
-                    projectRoot: runtimeSnapshot().cwd,
-                    forceModelSelection: true,
+            view.resetForSessionReplacement();
+        };
+        refreshPromptTemplateCommandGroups();
+        const initDone = options.skipModelWelcome ? true : await isInitDoneFn();
+        if (initDone) chatBuiltinSlashNames.delete("init");
+        if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
+            await renderBootBanner({
+                uiAPI,
+                sessionRuntime,
+                sessionId,
+                invokablePromptTemplates,
+                blockedPromptTemplates,
+                chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+                projectRoot: runtimeSnapshot().cwd,
+            });
+        }
+        const modelWelcomeResult = options.skipModelWelcome
+            ? { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false }
+            : await maybeShowModelWelcome({
+                uiAPI,
+                editor: view.editor,
+                tui,
+                sessionId,
+                sessionRuntime,
+                initialAgentInternalName,
+                initialAgentModel: options.initialAgentModel,
+                projectRoot: runtimeSnapshot().cwd,
+            });
+        if (!modelWelcomeResult.shown && !options.skipModelWelcome) {
+            try {
+                await sessionRuntime.switchAgent(sessionId, {
+                    agentName: initialAgentInternalName,
+                    model: options.initialAgentModel,
                 });
-            } else uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                if (msg.includes("No configured model found")) {
+                    await maybeShowModelWelcome({
+                        uiAPI,
+                        editor: view.editor,
+                        tui,
+                        sessionId,
+                        sessionRuntime,
+                        initialAgentInternalName,
+                        initialAgentModel: options.initialAgentModel,
+                        projectRoot: runtimeSnapshot().cwd,
+                        forceModelSelection: true,
+                    });
+                } else {
+                    uiAPI.appendSystemMessage(
+                        `Failed to initialize root agent "${initialAgentInternalName}": ${msg}`,
+                    );
+                }
+            }
         }
-    }
-    function isModelSetupRecoveryCommand(userRequest: string): boolean {
-        const commandName = userRequest.trim().slice(1).split(/\s+/, 1)[0];
-        return [COMMAND_NAMES.LOGIN, COMMAND_NAMES.MODEL, COMMAND_NAMES.QUIT, COMMAND_NAMES.EXIT].includes(commandName);
-    }
-    let modelSetupRequired = modelWelcomeResult.noModel;
-    function shouldBlockForModelSetup(): boolean {
-        if (!modelSetupRequired) return false;
-        const availability = getSelectedDefaultModelAvailability(runtimeSnapshot().cwd);
-        if (availability.available) {
-            modelSetupRequired = false;
-            view.editor.disableSubmit = false;
-            return false;
+        const isModelSetupRecoveryCommand = (userRequest: string): boolean => {
+            const commandName = userRequest.trim().slice(1).split(/\s+/, 1)[0];
+            return [COMMAND_NAMES.LOGIN, COMMAND_NAMES.MODEL, COMMAND_NAMES.QUIT, COMMAND_NAMES.EXIT].includes(
+                commandName,
+            );
+        };
+        let modelSetupRequired = modelWelcomeResult.noModel;
+        const shouldBlockForModelSetup = (): boolean => {
+            if (!modelSetupRequired) return false;
+            const availability = getSelectedDefaultModelAvailability(runtimeSnapshot().cwd);
+            if (availability.available) {
+                modelSetupRequired = false;
+                view.editor.disableSubmit = false;
+                return false;
+            }
+            return true;
+        };
+        if (!sessionStartedEmptyProjectDirectory && !initDone && !modelWelcomeResult.noModel) {
+            const alreadyOffered = await isInitOfferedFn();
+            if (!alreadyOffered) {
+                const choice = await uiAPI.promptSelect("Would you like to run /init to bootstrap RunWield?", [{
+                    value: "yes",
+                    label: "Yes",
+                }, { value: "no", label: "No" }]);
+                if (choice === "yes") {
+                    await commandRegistry[COMMAND_NAMES.INIT].execute([], { uiAPI, sessionId, sessionRuntime });
+                    chatBuiltinSlashNames.delete("init");
+                } else await recordInitOfferedFn();
+                view.focusEditor();
+                view.requestRender();
+            }
         }
-        return true;
-    }
-    if (!sessionStartedEmptyProjectDirectory && !initDone && !modelWelcomeResult.noModel) {
-        const alreadyOffered = await isInitOfferedFn();
-        if (!alreadyOffered) {
-            const choice = await uiAPI.promptSelect("Would you like to run /init to bootstrap RunWield?", [{
-                value: "yes",
-                label: "Yes",
-            }, { value: "no", label: "No" }]);
-            if (choice === "yes") {
-                await commandRegistry[COMMAND_NAMES.INIT].execute([], { uiAPI, sessionId, sessionRuntime });
-                CHAT_BUILTIN_SLASH_NAMES.delete("init");
-            } else await recordInitOfferedFn();
-            view.focusEditor();
-            view.requestRender();
-        }
-    }
-    refreshPromptTemplateCommandGroups();
-    const autocompleteProvider = new CombinedAutocompleteProvider(
-        [
-            ...Array.from(CHAT_BUILTIN_SLASH_NAMES).map((name) => ({
-                name,
-                description: commandRegistry[name].description,
-                getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
-            })),
-            ...invokablePromptTemplates.map((template) => ({
-                name: template.name,
-                argumentHint: template.argumentHint,
-                description: template.description,
-            })),
-            ...skills.filter((skill) => skill.description && skill.description !== "No description provided").map((
-                skill,
-            ) => ({ name: `skill:${skill.name}`, description: skill.description })),
-        ],
-        runtimeSnapshot().cwd,
-        "fd",
-    );
-    view.installAutocompleteProvider(autocompleteProvider);
-    const inputController = createChatInputController({
-        view,
-        uiAPI,
-        runtime: sessionRuntime,
-        getSessionId: () => sessionId,
-        getProjectRoot: () => runtimeSnapshot().cwd,
-        sessionStartedAt,
-        isModelSetupRecoveryCommand,
-        shouldBlockForModelSetup,
-        isInitCommandAvailable: () => CHAT_BUILTIN_SLASH_NAMES.has("init"),
-        getPromptTemplateByName: () => promptTemplateByName,
-        getSkills: () => skills,
-        chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
-        managedSyncController,
-        replaceRuntimeSession,
-    });
-    disposables.push(() => inputController.dispose());
-    inputControllerForPause = inputController;
-    const settingsManager = getSettingsManager(runtimeSnapshot().cwd);
-    const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
-    if (savedThinkingLevel) sessionRuntime.setSessionThinkingLevel(sessionId, savedThinkingLevel);
-    view.requestRender();
-    if (
-        !suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest &&
-        !modelWelcomeResult.noModel
-    ) {
-        uiAPI.appendSystemMessage(EMPTY_PROJECT_DIRECTORY_WELCOME_BODY, false, EMPTY_PROJECT_DIRECTORY_HEADER, {
-            headingColor: "success",
-            bodyColor: "accent",
+        refreshPromptTemplateCommandGroups();
+        const autocompleteProvider = new CombinedAutocompleteProvider(
+            [
+                ...Array.from(chatBuiltinSlashNames).map((name) => ({
+                    name,
+                    description: commandRegistry[name].description,
+                    getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
+                })),
+                ...invokablePromptTemplates.map((template) => ({
+                    name: template.name,
+                    argumentHint: template.argumentHint,
+                    description: template.description,
+                })),
+                ...skills.filter((skill) => skill.description && skill.description !== "No description provided").map((
+                    skill,
+                ) => ({ name: `skill:${skill.name}`, description: skill.description })),
+            ],
+            runtimeSnapshot().cwd,
+            "fd",
+        );
+        view.installAutocompleteProvider(autocompleteProvider);
+        const inputController = createChatInputController({
+            view,
+            uiAPI,
+            runtime: sessionRuntime,
+            getSessionId: () => sessionId,
+            getProjectRoot: () => runtimeSnapshot().cwd,
+            sessionStartedAt,
+            isModelSetupRecoveryCommand,
+            shouldBlockForModelSetup,
+            isInitCommandAvailable: () => chatBuiltinSlashNames.has("init"),
+            getPromptTemplateByName: () => promptTemplateByName,
+            getSkills: () => skills,
+            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+            managedSyncController,
+            replaceRuntimeSession,
+            markCtrlCPendingExit: footer.markCtrlCPendingExit,
+            isCtrlCPendingExit: footer.isCtrlCPendingExit,
         });
+        disposables.push(() => inputController.dispose());
+        inputControllerForPause = inputController;
+        const settingsManager = getSettingsManager(runtimeSnapshot().cwd);
+        const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
+        if (savedThinkingLevel) sessionRuntime.setSessionThinkingLevel(sessionId, savedThinkingLevel);
+        view.requestRender();
+        if (
+            !suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest &&
+            !modelWelcomeResult.noModel
+        ) {
+            uiAPI.appendSystemMessage(EMPTY_PROJECT_DIRECTORY_WELCOME_BODY, false, EMPTY_PROJECT_DIRECTORY_HEADER, {
+                headingColor: "success",
+                bodyColor: "accent",
+            });
+        }
+        if (shouldReplaySessionHistory(options.sessionStartMode)) {
+            if (sessionRuntime.isManagedSessionDormant(sessionId)) {
+                await sessionRuntime.synchronizeManagedSession(sessionId, { replayFromStart: true });
+            } else await sessionRuntime.replaySession(sessionId);
+        }
+        if (initialUserRequest && !modelWelcomeResult.noModel) {
+            view.editor.setText(initialUserRequest);
+            await view.editor.onSubmit?.(initialUserRequest);
+        }
+        return uiAPI;
+    } catch (error) {
+        try {
+            await lifecycleHandle.dispose();
+        } catch (cleanupError) {
+            console.error(`Interactive TUI cleanup failed after startup error: ${cleanupError}`);
+        }
+        throw error;
     }
-    if (shouldReplaySessionHistory(options.sessionStartMode)) {
-        if (sessionRuntime.isManagedSessionDormant(sessionId)) {
-            await sessionRuntime.synchronizeManagedSession(sessionId, { replayFromStart: true });
-        } else await sessionRuntime.replaySession(sessionId);
-    }
-    if (initialUserRequest && !modelWelcomeResult.noModel) {
-        view.editor.setText(initialUserRequest);
-        await view.editor.onSubmit?.(initialUserRequest);
-    }
-    const lifecycleHandle: InteractiveLifecycleHandle = {
-        dispose: async () => {
-            for (const dispose of disposables.toReversed()) await dispose();
-            uiAPI.dispose?.();
-            sessionRuntime.closeAllSessions?.();
-            endBlink();
-        },
-    };
-    options.onLifecycleReady?.(lifecycleHandle);
-    return uiAPI;
 }

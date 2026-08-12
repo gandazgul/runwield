@@ -66,7 +66,11 @@ export async function createInteractiveTuiComposition(
         });
         if (!runtime || !sessionId) throw new Error("Interactive TUI composition did not report a Runtime session.");
     } catch (error) {
-        await cleanupCompositionState();
+        try {
+            await cleanupCompositionState();
+        } catch (cleanupError) {
+            console.error(`Interactive TUI startup cleanup failed: ${cleanupError}`);
+        }
         throw error;
     }
     const { tui, terminal } = getTUI();

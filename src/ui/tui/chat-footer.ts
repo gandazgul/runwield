@@ -64,6 +64,7 @@ export type FooterRuntimeEvent = FooterUsageEvent | { type: string };
 export interface ChatFooterController {
     component: Component;
     markCtrlCPendingExit(): void;
+    isCtrlCPendingExit(): boolean;
     rebindSession(sessionId: string): void;
     dispose(): void;
 }
@@ -378,6 +379,9 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
                 options.requestRender();
             }, 1000);
             options.requestRender();
+        },
+        isCtrlCPendingExit() {
+            return ctrlCPendingExit;
         },
         rebindSession(sessionId: string) {
             attachRuntimeTelemetry(sessionId);

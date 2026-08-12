@@ -1,8 +1,11 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
+import { createInteractiveTuiComposition } from "./interactive-tui-composition.ts";
+import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import {
     getActiveModel,
     persistThinkingLevel,
@@ -82,6 +85,29 @@ Deno.test("persistThinkingLevel stores the selected level", async () => {
     await withRuntimeCommandFixture("chat-session-thinking-persistence-", async ({ projectRoot }) => {
         await persistThinkingLevel("high", projectRoot);
         assertEquals(getSettingsManager(projectRoot).getDefaultThinkingLevel(), "high");
+    });
+});
+
+Deno.test("chat session starts a real composed TUI through the public composition interface", async () => {
+    await withRuntimeCommandFixture("chat-session-composed-startup-", async () => {
+        const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
+        const readySessions: string[] = [];
+        const composition = await createInteractiveTuiComposition(null, {
+            browser: NO_OPEN_BROWSER_PORT,
+            terminal,
+            skipModelWelcome: true,
+            sessionStartMode: "new",
+            initialAgentName: "operator",
+            onSessionReady: (sessionId) => readySessions.push(sessionId),
+        });
+        try {
+            await composition.waitForIdle();
+            assertEquals(readySessions, [composition.sessionId]);
+            assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.busy, false);
+            assertStringIncludes(terminal.getScreenText(), "RunWield");
+        } finally {
+            await composition.dispose();
+        }
     });
 });
 

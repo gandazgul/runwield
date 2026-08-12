@@ -1,4 +1,5 @@
 import { handleBashCommand } from "./bash-interceptor.js";
+import { endBlink } from "./boot-logo.ts";
 import { installKeybindings } from "./keybindings.js";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming, type SkillMeta } from "./slash-dispatch.ts";
 import { readClipboardImage } from "./clipboard.ts";
@@ -39,6 +40,8 @@ export interface ChatInputControllerOptions {
     chatPromptAgentName: string;
     managedSyncController: ManagedSyncController;
     replaceRuntimeSession(nextSessionId: string, options?: { oldRetired?: boolean }): void;
+    markCtrlCPendingExit(): void;
+    isCtrlCPendingExit(): boolean;
 }
 export interface ChatInputController {
     isProcessingSubmission(): boolean;
@@ -62,6 +65,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     const generationGuard = createGenerationGuard();
     const generationStillCurrent = generationGuard.isCurrent;
     const warnedImageRefs = new Set<string>();
+    const preflightedImageRefs = new Set<string>();
     let isProcessingSubmission = false;
     let originalHandleInput: (data: string) => void | Promise<void> = (data: string) => editor.handleInput(data);
 
@@ -193,6 +197,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             uiAPI.appendSystemMessage(preflight.message);
             return null;
         }
+        preflightedImageRefs.add(imageWarningKey(attachment));
         const pasteWarning = getPreflightWarning(preflight);
         if (pasteWarning) {
             uiAPI.appendSystemMessage(pasteWarning);
@@ -214,29 +219,38 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 true,
                 "RunWield",
             );
+            editor.setText(text);
             forceResetUI();
             return;
         }
         const managedBlockMessage = runtime.getUserTurnSubmissionBlockMessage(options.getSessionId());
         if (managedBlockMessage && !(userRequest.startsWith("/") && options.isModelSetupRecoveryCommand(userRequest))) {
             uiAPI.appendSystemMessage(managedBlockMessage, true, "RunWield");
+            editor.setText(text);
             forceResetUI();
             return;
         }
         if (images.length > 0) {
-            const preflight = await preflightCurrentImages(images);
-            if (!preflight.ok) {
-                uiAPI.appendSystemMessage(preflight.message);
-                view.requestRender();
-                return;
-            }
-            const unwarnedImages = images.filter((image) => !warnedImageRefs.has(imageWarningKey(image)));
-            const submitWarning = getPreflightWarning(preflight);
-            if (submitWarning && unwarnedImages.length > 0) {
-                uiAPI.appendSystemMessage(submitWarning);
-                for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
+            const imagesNeedingPreflight = images.filter((image) => !preflightedImageRefs.has(imageWarningKey(image)));
+            if (imagesNeedingPreflight.length > 0) {
+                const preflight = await preflightCurrentImages(imagesNeedingPreflight);
+                if (!preflight.ok) {
+                    uiAPI.appendSystemMessage(preflight.message);
+                    view.requestRender();
+                    return;
+                }
+                for (const image of imagesNeedingPreflight) preflightedImageRefs.add(imageWarningKey(image));
+                const unwarnedImages = imagesNeedingPreflight.filter((image) =>
+                    !warnedImageRefs.has(imageWarningKey(image))
+                );
+                const submitWarning = getPreflightWarning(preflight);
+                if (submitWarning && unwarnedImages.length > 0) {
+                    uiAPI.appendSystemMessage(submitWarning);
+                    for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
+                }
             }
         }
+        endBlink();
         view.clearPastedImages();
         editor.setText("");
         if (userRequest.startsWith("!")) {
@@ -261,11 +275,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 return;
             }
             if (userRequest.startsWith("/")) {
-                uiAPI.appendSystemMessage(
-                    "That slash command can only run after streaming has stopped.",
-                    false,
-                    "RunWield",
-                );
+                queueForNextTurn(userRequest, images);
                 return;
             }
             runtime.steerSession(options.getSessionId(), userRequest, images).then((result) => {
@@ -292,8 +302,8 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         dismissActivePrompt,
         dequeueLastSubmission,
         forceResetUI,
-        markCtrlCPendingExit: () => {},
-        isCtrlCPendingExit: () => false,
+        markCtrlCPendingExit: options.markCtrlCPendingExit,
+        isCtrlCPendingExit: options.isCtrlCPendingExit,
         requestKeyboardHelp: () => runtime.requestSessionHelp(options.getSessionId()),
         hideKeyboardHelp: () => uiAPI.hideKeyboardHelp?.(),
         cycleThinkingLevel,
