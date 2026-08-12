@@ -101,7 +101,7 @@ Deno.test("workflow snapshots include later tracked edits and preserve the real 
     }
 });
 
-Deno.test("restoreWorktreeTree restores baseline content and removes later files", async () => {
+Deno.test("restoreWorktreeTree refuses to overwrite checkout changes", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-snapshot-test-" });
     try {
         await git(dir, ["init"]);
@@ -114,32 +114,35 @@ Deno.test("restoreWorktreeTree restores baseline content and removes later files
         await Deno.writeTextFile(`${dir}/added.js`, "added after baseline\n");
         await Deno.writeTextFile(`${dir}/nested/later.js`, "later nested\n");
 
-        await restoreWorktreeTree(dir, baselineTree);
+        await assertRejects(
+            () => restoreWorktreeTree(dir, baselineTree),
+            Error,
+            "Refusing to restore execution baseline tree",
+        );
 
-        assertEquals(await Deno.readTextFile(`${dir}/kept.js`), "baseline\n");
-        assertEquals(await Deno.readTextFile(`${dir}/nested/baseline.js`), "nested baseline\n");
-        await assertRejectsNotFound(`${dir}/added.js`);
-        await assertRejectsNotFound(`${dir}/nested/later.js`);
-
-        const restoredTree = await captureWorktreeTree(dir);
-        assertEquals(restoredTree, baselineTree);
+        assertEquals(await Deno.readTextFile(`${dir}/kept.js`), "changed after baseline\n");
+        assertEquals(await Deno.readTextFile(`${dir}/added.js`), "added after baseline\n");
+        assertEquals(await Deno.readTextFile(`${dir}/nested/later.js`), "later nested\n");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
 });
 
-/**
- * @param {string} path
- */
-async function assertRejectsNotFound(path) {
-    let notFound = false;
+Deno.test("restoreWorktreeTree keeps a matching checkout unchanged", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-snapshot-test-" });
     try {
-        await Deno.stat(path);
-    } catch (error) {
-        notFound = error instanceof Deno.errors.NotFound;
+        await git(dir, ["init"]);
+        await Deno.writeTextFile(`${dir}/kept.js`, "baseline\n");
+        const baselineTree = await captureWorktreeTree(dir);
+
+        await restoreWorktreeTree(dir, baselineTree);
+
+        assertEquals(await Deno.readTextFile(`${dir}/kept.js`), "baseline\n");
+        assertEquals(await captureWorktreeTree(dir), baselineTree);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
     }
-    assertEquals(notFound, true);
-}
+});
 
 Deno.test("git snapshot helpers fail gracefully outside Git", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-non-git-snapshot-" });

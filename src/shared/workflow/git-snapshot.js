@@ -90,18 +90,6 @@ export async function listCommitsTouchingPathsSince(cwd, since, paths) {
 }
 
 /**
- * List file paths contained in a git tree object.
- *
- * @param {string} cwd
- * @param {string} tree
- * @returns {Promise<string[]>}
- */
-async function listTreePaths(cwd, tree) {
-    const output = await runGit(cwd, ["ls-tree", "-r", "-z", "--name-only", tree]);
-    return output.split("\0").filter(Boolean);
-}
-
-/**
  * Capture the current working tree into a git tree object without mutating the
  * repository's real index.
  *
@@ -150,8 +138,8 @@ export async function getWorkflowDiff(cwd, baselineTree) {
 
 /**
  * Restore the repository's real index and worktree to a previously captured
- * git tree. This is destructive: files that exist in the current worktree tree
- * but not the target tree are removed before checkout.
+ * git tree only when the current tree already matches the target tree. This
+ * fail-closed guard prevents stale baseline restores from deleting newer work.
  *
  * @param {string} cwd
  * @param {string} targetTree
@@ -165,18 +153,11 @@ export async function restoreWorktreeTree(cwd, targetTree) {
     }
 
     const currentTree = await captureWorktreeTree(cwd);
-    const [currentPaths, targetPaths] = await Promise.all([
-        listTreePaths(cwd, currentTree),
-        listTreePaths(cwd, targetTree),
-    ]);
-    const targetPathSet = new Set(targetPaths);
-
-    for (const path of currentPaths) {
-        if (targetPathSet.has(path)) continue;
-        await Deno.remove(join(cwd, path), { recursive: true }).catch((error) => {
-            if (error instanceof Deno.errors.NotFound) return;
-            throw error;
-        });
+    if (currentTree !== targetTree) {
+        throw new Error(
+            `Refusing to restore execution baseline tree ${targetTree} because the checkout has changed. ` +
+                "Resolve or save the current checkout changes before retrying.",
+        );
     }
 
     await runGit(cwd, ["read-tree", targetTree]);

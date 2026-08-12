@@ -75,6 +75,41 @@ Deno.test("createTestWorktreeAttempt creates a unique branch/path and registry e
     }
 });
 
+Deno.test("createTestWorktreeAttempt leaves dirty primary checkout unchanged", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    let worktree;
+    try {
+        await Deno.writeTextFile(`${projectRoot}/README.md`, "base\nprimary work\n");
+        await Deno.writeTextFile(`${projectRoot}/untracked.txt`, "must stay\n");
+        const readmeBefore = await Deno.readTextFile(`${projectRoot}/README.md`);
+        const untrackedBefore = await Deno.readTextFile(`${projectRoot}/untracked.txt`);
+
+        worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "Dirty Primary Plan",
+            planId: "plan-dirty-primary",
+            worktreeRoot,
+        });
+
+        assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), readmeBefore);
+        assertEquals(await Deno.readTextFile(`${projectRoot}/untracked.txt`), untrackedBefore);
+        const statusAfter = await git(projectRoot, ["status", "--short"]);
+        assertStringIncludes(statusAfter, "M README.md");
+        assertStringIncludes(statusAfter, "?? untracked.txt");
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({
+                projectRoot,
+                path: worktree.path,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("createTestWorktreeAttempt leaves created Git evidence when registry settlement fails", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
