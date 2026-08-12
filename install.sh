@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="${WLD_REPO:-gandazgul/runwield}"
 MNEMOSYNE_REPO="${WLD_MNEMOSYNE_REPO:-gandazgul/mnemosyne}"
 CYMBAL_REPO="${WLD_CYMBAL_REPO:-1broseidon/cymbal}"
+KETCH_REPO="${WLD_KETCH_REPO:-1broseidon/ketch}"
 SNIP_REPO="${WLD_SNIP_REPO:-edouard-claude/snip}"
 REQUESTED_VERSION="${1:-}"
 
@@ -217,6 +218,10 @@ helper_asset_name() {
     cymbal)
       [[ "$arch" == "amd64" ]] && arch="x86_64"
       echo "cymbal_${version}_${WLD_OS}_${arch}.tar.gz"
+      ;;
+    ketch)
+      [[ "$arch" == "amd64" ]] && arch="x86_64"
+      echo "ketch_${version_no_v}_${WLD_OS}_${arch}.tar.gz"
       ;;
     snip) echo "snip_${version_no_v}_${WLD_OS}_${arch}.tar.gz" ;;
     *)
@@ -575,6 +580,10 @@ if ! install_helper mnemosyne "$MNEMOSYNE_REPO" required; then
 fi
 if ! install_helper cymbal "$CYMBAL_REPO" required; then
   echo "[wld installer] Required helper Cymbal could not be installed. Rerun this installer after fixing the error above." >&2
+  exit 1
+fi
+if ! install_helper ketch "$KETCH_REPO" required; then
+  echo "[wld installer] Required helper Ketch could not be installed. Rerun this installer after fixing the error above." >&2
   exit 1
 fi
 if ! install_agent_browser; then

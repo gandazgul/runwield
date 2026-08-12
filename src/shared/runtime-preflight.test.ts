@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
-import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "./runtime-preflight.ts";
+import { ensureCymbalBinary, ensureKetchBinary, ensureMnemosyneBinary, hasSnipBinary } from "./runtime-preflight.ts";
 
 async function writeAvailableBinary(directory: string, name: string): Promise<string> {
     const path = join(directory, name);
@@ -31,18 +31,22 @@ runtimePreflightTest(
     async (dir) => {
         const mnemosyne = await writeAvailableBinary(dir, "mnemosyne");
         const cymbal = await writeAvailableBinary(dir, "cymbal");
+        const ketch = await writeAvailableBinary(dir, "ketch");
         const snip = await writeAvailableBinary(dir, "snip");
 
         await ensureMnemosyneBinary();
         await ensureCymbalBinary();
+        await ensureKetchBinary();
         assertEquals(await hasSnipBinary(), true);
 
         await Deno.remove(mnemosyne);
         await Deno.remove(cymbal);
+        await Deno.remove(ketch);
         await Deno.remove(snip);
 
         await ensureMnemosyneBinary();
         await ensureCymbalBinary();
+        await ensureKetchBinary();
         assertEquals(await hasSnipBinary(), false);
     },
 );
@@ -62,4 +66,11 @@ runtimePreflightTest("runtime preflight reports install guidance when fixture bi
         "Cymbal binary not found",
     );
     assertStringIncludes(cymbalError.message, "Rerun the RunWield installer");
+
+    const ketchError = await assertRejects(
+        () => ensureKetchBinary(),
+        Error,
+        "Ketch binary not found",
+    );
+    assertStringIncludes(ketchError.message, "Rerun the RunWield installer");
 });

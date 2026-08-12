@@ -123,6 +123,10 @@ Deno.test("Claude CLI command pre-authorizes project and workflow tools", async 
                 "runwield_triage_report",
                 "runwield_triage_report",
                 "mcp__runwield__runwield_triage_report",
+                "mcp__runwield__web_search",
+                "mcp__runwield__web_fetch",
+                "mcp__runwield__web_code_search",
+                "mcp__runwield__web_docs_search",
             ],
         });
         try {
@@ -134,8 +138,12 @@ Deno.test("Claude CLI command pre-authorizes project and workflow tools", async 
             assertEquals(allowedTools.includes("Edit"), true);
             assertEquals(allowedTools.includes("MultiEdit"), true);
             assertEquals(allowedTools.includes("Bash"), true);
-            assertEquals(allowedTools.includes("WebFetch"), true);
-            assertEquals(allowedTools.includes("WebSearch"), true);
+            assertEquals(allowedTools.includes("WebFetch"), false);
+            assertEquals(allowedTools.includes("WebSearch"), false);
+            assertEquals(allowedTools.includes("mcp__runwield__web_search"), true);
+            assertEquals(allowedTools.includes("mcp__runwield__web_fetch"), true);
+            assertEquals(allowedTools.includes("mcp__runwield__web_code_search"), true);
+            assertEquals(allowedTools.includes("mcp__runwield__web_docs_search"), true);
             assertEquals(allowedTools.includes("EnterWorktree"), true);
             assertEquals(
                 allowedTools.filter((tool) => tool === "runwield_triage_report").length,

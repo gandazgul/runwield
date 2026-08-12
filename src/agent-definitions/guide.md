@@ -32,6 +32,10 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - web_search
+    - web_fetch
+    - web_code_search
+    - web_docs_search
     - delegate_agent
 ---
 

@@ -481,10 +481,29 @@ increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-de
 
 **Custom Tool**: A RunWield-defined tool registered alongside built-in pi tools. _Avoid_: Internal tool, RunWield tool
 
+**Web Tools**: The RunWield-owned Custom Tool family for web access: `web_search`, `web_fetch`, `web_code_search`, and
+`web_docs_search`. RunWield pins every helper backend and reads the user `ketch` config for credentials only, so the
+same Agent request uses the same web surface on each model backend. _Avoid_: Ketch Skill, native web tools,
+backend-specific web access
+
+**Web-Search Tool**: The `web_search` Custom Tool that searches the public web with the pinned search backend and can
+optionally return fetched page content with each result. _Avoid_: Native WebSearch, code search, docs search
+
+**Web-Fetch Tool**: The `web_fetch` Custom Tool that fetches one URL and returns Markdown from the page. _Avoid_: Web
+search, scraper skill, crawl tool
+
+**Web-Code-Search Tool**: The `web_code_search` Custom Tool that searches public internet repositories. It is separate
+from Cymbal `code_*` tools, which search the current checkout. _Avoid_: Project code search, Cymbal search, local symbol
+search
+
+**Web-Docs-Search Tool**: The `web_docs_search` Custom Tool that searches current library and framework documentation
+with the pinned docs backend. If credentials are missing, it returns setup guidance from the helper. _Avoid_: General
+web search, local docs grep, package install lookup
+
 **Bridged Tool**: A RunWield Tool exposed to one Claude CLI turn over the authenticated loopback MCP bridge. Lifecycle
 Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases for `plan_written`, `task_completed`,
-`review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, Work Record,
-interview, edit, or caller-supplied work and use their internal names, avoiding new aliases such as
+`review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, web access, Work
+Record, interview, edit, or caller-supplied work and use their internal names, avoiding new aliases such as
 `runwield_memory_recall` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
 
 **Triage-Report Tool**: The `triage_report` Custom Tool that emits a Triage Report and ends the current Agent turn.

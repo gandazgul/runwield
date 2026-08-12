@@ -234,13 +234,13 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
 Deno.test("listSkills advertises bundled skills from the runtime-readable cache", async () => {
     await withProcessGlobalTestLock(async () => {
         const skills = await listSkills();
-        const ketch = skills.find((item) => item.name === "ketch");
+        const research = skills.find((item) => item.name === "research");
 
-        assertEquals(ketch?.source, "bundled");
-        const ketchPath = ketch?.path ?? "";
+        assertEquals(research?.source, "bundled");
+        const researchPath = research?.path ?? "";
         assertEquals(
-            ketchPath.includes(".wld/bundled-skills/ketch/SKILL.md") ||
-                ketchPath.includes("src/skills/ketch/SKILL.md"),
+            researchPath.includes(".wld/bundled-skills/research/SKILL.md") ||
+                researchPath.includes("src/skills/research/SKILL.md"),
             true,
         );
     });

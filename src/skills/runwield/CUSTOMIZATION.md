@@ -45,7 +45,6 @@ Bundled skills:
 - `front-end-framework-use`: convention-first frontend JavaScript, HTML, and CSS work.
 - `handoff`: prepare durable handoffs between agents or sessions.
 - `improve-codebase-architecture`: scan architecture and present deepening opportunities.
-- `ketch`: use web search or URL fetch through the optional `ketch` CLI.
 - `prompt-writing`: write or tighten LLM prompts and agent instructions.
 - `prototype`: build throwaway prototypes for state, business logic, or UI options.
 - `research`: capture source-backed research findings as Markdown.

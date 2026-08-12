@@ -7,7 +7,7 @@ const RUNWIELD_INSTALL_URL = "https://github.com/gandazgul/runwield#installation
 const RUNWIELD_INSTALL_COMMAND =
     "curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
 
-type RuntimeBinary = "mnemosyne" | "cymbal" | "snip";
+type RuntimeBinary = "mnemosyne" | "cymbal" | "ketch" | "snip";
 
 interface BinaryCacheRecord {
     path: string;
@@ -57,6 +57,11 @@ export async function ensureMnemosyneBinary(): Promise<void> {
 /** Ensure Cymbal is available in PATH. */
 export async function ensureCymbalBinary(): Promise<void> {
     if (!await hasRequiredBinary("cymbal")) throw missingBinaryError("Cymbal");
+}
+
+/** Ensure Ketch is available in PATH. */
+export async function ensureKetchBinary(): Promise<void> {
+    if (!await hasRequiredBinary("ketch")) throw missingBinaryError("Ketch");
 }
 
 /** Check whether optional Snip is available in PATH without caching. */

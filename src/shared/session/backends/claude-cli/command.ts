@@ -29,8 +29,6 @@ const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
     "LS",
     "TodoWrite",
     "Task",
-    "WebFetch",
-    "WebSearch",
     "NotebookRead",
     "NotebookEdit",
     "EnterWorktree",

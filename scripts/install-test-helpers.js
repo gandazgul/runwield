@@ -16,24 +16,25 @@ export function repoPath(...segments) {
 
 /** @typedef {"Darwin" | "Linux"} TestOs */
 /** @typedef {"x86_64" | "arm64"} TestArch */
-/** @typedef {"wld" | "mnemosyne" | "cymbal" | "snip"} ReleaseBinaryName */
+/** @typedef {"wld" | "mnemosyne" | "cymbal" | "ketch" | "snip"} ReleaseBinaryName */
 /** @typedef {ReleaseBinaryName | "agent-browser"} BinaryName */
 
 export const VERSIONS = {
     runwield: "v9.9.9",
     mnemosyne: "v0.2.6",
     cymbal: "v0.14.0",
+    ketch: "v0.13.0",
     snip: "v0.22.0",
 };
 
 /** @type {BinaryName[]} */
-export const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "agent-browser", "snip"];
+export const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "ketch", "agent-browser", "snip"];
 
 /** @type {ReleaseBinaryName[]} */
-export const RELEASE_BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "snip"];
+export const RELEASE_BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "ketch", "snip"];
 
 /** @type {Array<Exclude<ReleaseBinaryName, "wld">>} */
-export const HELPER_NAMES = ["mnemosyne", "cymbal", "snip"];
+export const HELPER_NAMES = ["mnemosyne", "cymbal", "ketch", "snip"];
 
 /**
  * @param {string} path
@@ -86,10 +87,12 @@ export function assetNamesFor(os, arch) {
     const helperArch = arch === "x86_64" ? "amd64" : "arm64";
     const wldArch = arch === "x86_64" ? "x64" : "arm64";
     const cymbalArch = arch === "x86_64" ? "x86_64" : "arm64";
+    const ketchArch = arch === "x86_64" ? "x86_64" : "arm64";
     return {
         wld: `wld-${VERSIONS.runwield}-${helperOs}-${wldArch}.tar.gz`,
         mnemosyne: `mnemosyne_${VERSIONS.mnemosyne.slice(1)}_${helperOs}_${helperArch}.tar.gz`,
         cymbal: `cymbal_${VERSIONS.cymbal}_${helperOs}_${cymbalArch}.tar.gz`,
+        ketch: `ketch_${VERSIONS.ketch.slice(1)}_${helperOs}_${ketchArch}.tar.gz`,
         snip: `snip_${VERSIONS.snip.slice(1)}_${helperOs}_${helperArch}.tar.gz`,
     };
 }
@@ -186,6 +189,10 @@ case "$url" in
     [[ "$latest_api_failures" == *' cymbal '* ]] && exit 22
     body='{"url":"https://api.github.com/repos/1broseidon/cymbal/releases/1","tag_name":"${VERSIONS.cymbal}"}'
     ;;
+  *api.github.com/repos/1broseidon/ketch/releases/latest*)
+    [[ "$latest_api_failures" == *' ketch '* ]] && exit 22
+    body='{"url":"https://api.github.com/repos/1broseidon/ketch/releases/1","tag_name":"${VERSIONS.ketch}"}'
+    ;;
   *api.github.com/repos/edouard-claude/snip/releases/latest*)
     [[ "$latest_api_failures" == *' snip '* ]] && exit 22
     body='{"url":"https://api.github.com/repos/edouard-claude/snip/releases/1","tag_name":"${VERSIONS.snip}"}'
@@ -193,6 +200,7 @@ case "$url" in
   *github.com/gandazgul/runwield/releases/latest*) effective_url='https://github.com/gandazgul/runwield/releases/tag/${VERSIONS.runwield}' ;;
   *github.com/gandazgul/mnemosyne/releases/latest*) effective_url='https://github.com/gandazgul/mnemosyne/releases/tag/${VERSIONS.mnemosyne}' ;;
   *github.com/1broseidon/cymbal/releases/latest*) effective_url='https://github.com/1broseidon/cymbal/releases/tag/${VERSIONS.cymbal}' ;;
+  *github.com/1broseidon/ketch/releases/latest*) effective_url='https://github.com/1broseidon/ketch/releases/tag/${VERSIONS.ketch}' ;;
   *github.com/edouard-claude/snip/releases/latest*) effective_url='https://github.com/edouard-claude/snip/releases/tag/${VERSIONS.snip}' ;;
   *api.github.com/repos/gandazgul/mnemosyne/releases/tags/*)
     [[ "$release_api_failures" == *' mnemosyne '* ]] && exit 22
@@ -202,6 +210,10 @@ case "$url" in
     [[ "$release_api_failures" == *' cymbal '* ]] && exit 22
     file='${join(fixtureDir, "cymbal-release.json")}'
     ;;
+  *api.github.com/repos/1broseidon/ketch/releases/tags/*)
+    [[ "$release_api_failures" == *' ketch '* ]] && exit 22
+    file='${join(fixtureDir, "ketch-release.json")}'
+    ;;
   *api.github.com/repos/edouard-claude/snip/releases/tags/*)
     [[ "$release_api_failures" == *' snip '* ]] && exit 22
     file='${join(fixtureDir, "snip-release.json")}'
@@ -210,6 +222,7 @@ case "$url" in
             join(fixtureDir, "mnemosyne-expanded-assets.html")
         }' ;;
   *github.com/1broseidon/cymbal/releases/expanded_assets/*) file='${join(fixtureDir, "cymbal-expanded-assets.html")}' ;;
+  *github.com/1broseidon/ketch/releases/expanded_assets/*) file='${join(fixtureDir, "ketch-expanded-assets.html")}' ;;
   *github.com/edouard-claude/snip/releases/expanded_assets/*) file='${join(fixtureDir, "snip-expanded-assets.html")}' ;;
   */SHA256SUMS) file='${join(fixtureDir, "SHA256SUMS")}' ;;
   */checksums.txt) file='${join(fixtureDir, "checksums.txt")}' ;;

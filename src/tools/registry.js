@@ -27,6 +27,11 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "code_structure",
     "code_impls",
     "code_importers",
+    // web access
+    "web_search",
+    "web_fetch",
+    "web_code_search",
+    "web_docs_search",
     // workflow tools
     "triage_report",
     "plan_written",
