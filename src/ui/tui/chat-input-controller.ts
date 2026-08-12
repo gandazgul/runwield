@@ -1,6 +1,6 @@
 import { handleBashCommand } from "./bash-interceptor.js";
 import { endBlink } from "./boot-logo.ts";
-import { installKeybindings } from "./keybindings.js";
+import { installKeybindings } from "./keybindings.ts";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming, type SkillMeta } from "./slash-dispatch.ts";
 import { readClipboardImage } from "./clipboard.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";

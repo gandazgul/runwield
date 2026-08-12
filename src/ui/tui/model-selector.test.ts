@@ -1,5 +1,5 @@
 import { assertEquals, assertInstanceOf, assertStringIncludes } from "@std/assert";
-import { Container, Editor, TUI } from "@earendil-works/pi-tui";
+import { Container, Editor, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getEditorTheme, initRunWieldTheme } from "../theme/theme.js";
@@ -23,7 +23,7 @@ class CompatibleVirtualTerminal extends VirtualTerminal {
 function makeTui(): { tui: TUI; terminal: CompatibleVirtualTerminal; container: Container; editor: Editor } {
     initRunWieldTheme();
     const terminal = new CompatibleVirtualTerminal({ columns: 120, rows: 34 });
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const container = new Container();
     const editor = new Editor(tui, getEditorTheme());
     container.addChild(editor);

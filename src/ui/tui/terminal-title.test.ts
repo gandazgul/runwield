@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
-import { TUI } from "@earendil-works/pi-tui";
+import { TuiMainScreen } from "@earendil-works/pi-tui";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
-import { initTUIWithPair, stopTUI } from "./tui.js";
+import { initTUIWithPair, stopTUI } from "./tui.ts";
 import { formatTerminalTitle, sanitizeSessionName, setTerminalTitleForName } from "./terminal-title.ts";
 
 class CompatibleVirtualTerminal extends VirtualTerminal {
@@ -33,7 +33,7 @@ Deno.test("formatTerminalTitle prefixes sanitized names and falls back to wld", 
 
 Deno.test("setTerminalTitleForName updates the active terminal", () => {
     const terminal = new CompatibleVirtualTerminal();
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     initTUIWithPair({ terminal, tui });
     try {
         assertEquals(setTerminalTitleForName("  plan\nboard  "), "wld - plan board");

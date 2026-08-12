@@ -185,7 +185,7 @@ async function runGuidedReviewCommand(): Promise<void> {
 
 main().catch(async (err: Error) => {
     try {
-        const { stopTUI } = await import("./ui/tui/tui.js");
+        const { stopTUI } = await import("./ui/tui/tui.ts");
         stopTUI();
     } catch (_error) {
         // Ignore cleanup failures during fatal error reporting.

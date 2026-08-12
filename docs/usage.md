@@ -48,6 +48,17 @@ Use:
 - `/session` to inspect the active session's history and cumulative token totals.
 - `/context` to inspect the active Agent Session's current context-window usage and resident context estimates.
 
+### Terminal Markdown math
+
+Interactive session messages render completed LaTeX math as terminal Unicode text. Supported delimiters are inline
+`$...$` and `\(...\)`, and display `$$...$$` and `\[...\]`. A formula must be complete before it renders. During
+streaming, incomplete formulas stay visible as source text. Unsupported formulas also stay visible as source text so the
+message remains readable.
+
+Unicode math and Mermaid can appear in the same message. Completed top-level Mermaid fences still render as diagrams
+after the closing fence. Math rendering and Mermaid rendering are built-in message behavior, not user-configurable
+settings.
+
 ### Image attachments with text-only models
 
 If the active model supports image input, RunWield sends pasted images directly to it. If the active model is text-only,

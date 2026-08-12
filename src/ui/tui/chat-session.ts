@@ -4,7 +4,7 @@
  */
 
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
-import { initTUI } from "./tui.js";
+import { initTUI } from "./tui.ts";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
