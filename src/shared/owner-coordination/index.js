@@ -29,13 +29,17 @@ import {
 import {
     appendSessionTranscriptSegment,
     catalogProjectSessions,
+    discardOrphanRolloverCandidate,
     ensureSessionCatalogRecord,
+    findOrphanRolloverCandidates,
     findSessionByLocator,
     getCurrentSessionSegment,
     getSessionById,
+    inspectSegmentRolloverRecovery,
     listProjectSessions,
     listSessionTranscriptSegments,
     sealSessionTranscriptSegment,
+    validateSuccessorSegmentLocator,
 } from "./sessions.js";
 import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
 import {
@@ -52,6 +56,7 @@ import {
 import {
     acquireSessionActivation,
     changeSessionActivationPhase,
+    commitSegmentRolloverAndPublish,
     createOrGetOperationReceipt,
     findOperationReceiptByRequest,
     getOperationReceipt,
@@ -90,7 +95,11 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(runwieldSessionId: string) => ReturnType<typeof listSessionTranscriptSegments>} listSessionTranscriptSegments
  * @property {(runwieldSessionId: string) => ReturnType<typeof getCurrentSessionSegment>} getCurrentSessionSegment
  * @property {(segment: Parameters<typeof appendSessionTranscriptSegment>[1]) => ReturnType<typeof appendSessionTranscriptSegment>} appendSessionTranscriptSegment
+ * @property {(locator: Parameters<typeof validateSuccessorSegmentLocator>[1]) => ReturnType<typeof validateSuccessorSegmentLocator>} validateSuccessorSegmentLocator
  * @property {(options: Parameters<typeof sealSessionTranscriptSegment>[1]) => ReturnType<typeof sealSessionTranscriptSegment>} sealSessionTranscriptSegment
+ * @property {(options: Parameters<typeof findOrphanRolloverCandidates>[1]) => ReturnType<typeof findOrphanRolloverCandidates>} findOrphanRolloverCandidates
+ * @property {(options: Parameters<typeof inspectSegmentRolloverRecovery>[1]) => ReturnType<typeof inspectSegmentRolloverRecovery>} inspectSegmentRolloverRecovery
+ * @property {(options: Parameters<typeof discardOrphanRolloverCandidate>[1]) => ReturnType<typeof discardOrphanRolloverCandidate>} discardOrphanRolloverCandidate
  * @property {(options?: Parameters<typeof createPairingRequest>[1]) => ReturnType<typeof createPairingRequest>} createPairingRequest
  * @property {(code: string, options?: Parameters<typeof approvePairingRequest>[2]) => ReturnType<typeof approvePairingRequest>} approvePairingRequest
  * @property {(proof: string, options?: Parameters<typeof getPairingRequestByProof>[2]) => ReturnType<typeof getPairingRequestByProof>} getPairingRequestByProof
@@ -108,6 +117,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(proof: Parameters<typeof heartbeatSessionActivation>[1], options?: Parameters<typeof heartbeatSessionActivation>[2]) => ReturnType<typeof heartbeatSessionActivation>} heartbeatSessionActivation
  * @property {(proof: Parameters<typeof changeSessionActivationPhase>[1], nextPhase: Parameters<typeof changeSessionActivationPhase>[2], options?: Parameters<typeof changeSessionActivationPhase>[3]) => ReturnType<typeof changeSessionActivationPhase>} changeSessionActivationPhase
  * @property {(proof: Parameters<typeof publishGenerationAndRelease>[1], evidence: Parameters<typeof publishGenerationAndRelease>[2], options?: Parameters<typeof publishGenerationAndRelease>[3]) => ReturnType<typeof publishGenerationAndRelease>} publishGenerationAndRelease
+ * @property {(proof: Parameters<typeof commitSegmentRolloverAndPublish>[1], options: Parameters<typeof commitSegmentRolloverAndPublish>[2]) => ReturnType<typeof commitSegmentRolloverAndPublish>} commitSegmentRolloverAndPublish
  * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
  * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
  * @property {(proof: Parameters<typeof markSessionReconcileRequiredWithProof>[1], options?: Parameters<typeof markSessionReconcileRequiredWithProof>[2]) => ReturnType<typeof markSessionReconcileRequiredWithProof>} markSessionReconcileRequiredWithProof
@@ -152,7 +162,11 @@ export function openOwnerCoordinationStore(options = {}) {
             listSessionTranscriptSegments(database, runwieldSessionId),
         getCurrentSessionSegment: (runwieldSessionId) => getCurrentSessionSegment(database, runwieldSessionId),
         appendSessionTranscriptSegment: (segment) => appendSessionTranscriptSegment(database, segment),
+        validateSuccessorSegmentLocator: (locator) => validateSuccessorSegmentLocator(database, locator),
         sealSessionTranscriptSegment: (segmentOptions) => sealSessionTranscriptSegment(database, segmentOptions),
+        findOrphanRolloverCandidates: (orphanOptions) => findOrphanRolloverCandidates(database, orphanOptions),
+        inspectSegmentRolloverRecovery: (rolloverOptions) => inspectSegmentRolloverRecovery(database, rolloverOptions),
+        discardOrphanRolloverCandidate: (orphanOptions) => discardOrphanRolloverCandidate(database, orphanOptions),
         createPairingRequest: (pairingOptions) => createPairingRequest(database, pairingOptions),
         approvePairingRequest: (code, pairingOptions) => approvePairingRequest(database, code, pairingOptions),
         getPairingRequestByProof: (proof, pairingOptions) => getPairingRequestByProof(database, proof, pairingOptions),
@@ -174,6 +188,8 @@ export function openOwnerCoordinationStore(options = {}) {
             changeSessionActivationPhase(database, proof, nextPhase, activationOptions),
         publishGenerationAndRelease: (proof, evidence, activationOptions) =>
             publishGenerationAndRelease(database, proof, evidence, activationOptions),
+        commitSegmentRolloverAndPublish: (proof, rolloverOptions) =>
+            commitSegmentRolloverAndPublish(database, proof, rolloverOptions),
         releaseUnchangedActivation: (proof, activationOptions) =>
             releaseUnchangedActivation(database, proof, activationOptions),
         markSessionReconcileRequired: (session, activationOptions) =>

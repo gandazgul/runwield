@@ -37,93 +37,31 @@ objectiveChecks:
     - id: "OC7"
       command: "grep -qi 'Session Transcript Segment Rollover' docs/domain-language.md && grep -qi 'Orphan Rollover Candidate' docs/domain-language.md"
       rationale: "This slice introduces two domain terms that must land in the glossary in the same change as the behavior. Neither term appears today."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-12T14:41:45.886Z"
-    head: "e52a6f3034c383e63e938dccb954de41593d9d92"
-    results:
-        - id: "OC1"
-          command: "grep -q 'commitSegmentRolloverAndPublish' src/shared/owner-coordination/session-activations.js && grep -q 'commitSegmentRolloverAndPublish' src/shared/owner-coordination/index.js"
-          rationale: "The single fenced rollover transaction must exist in session-activations.js AND be exposed through the store's index.js. Slice 8 shipped functions that were never exported from index.js; requiring both prevents repeating that. Neither symbol exists today."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 18
-          output: "\n"
-        - id: "OC2"
-          command: "test -f src/shared/session/segment-rollover.ts && grep -Eq 'export (async )?function rollSessionTranscriptSegment' src/shared/session/segment-rollover.ts"
-          rationale: "The rollover orchestration must live in its own TypeScript module rather than growing the 3561-line session-runtime.js. The file does not exist today."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 20
-          output: "\n"
-        - id: "OC3"
-          command: "grep -q 'Committed generation references an ambiguous segment lineage' src/shared/session/session-transcript-manifest.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-transcript-manifest.test.js"
-          rationale: "The ordinal>current guard at session-transcript-manifest.ts:98 has zero coverage today, making its deletion the cheapest way to fake 'the reader never degrades'. This pins the guard's exact message in the test file and requires the whole manifest suite to still pass, so the never-degraded property must be earned by publishing atomically rather than by weakening the reader."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 18
-          output: "\n"
-        - id: "OC4"
-          command: "grep -q 'currentSegmentId' src/shared/session/hosted-session.js"
-          rationale: "Managed Session metadata carries no segment identity today, which is why the operation after a rollover verifies the wrong file and reports reconcile_required. The field must exist on ManagedSessionMetadata."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC5"
-          command: "test -f src/shared/owner-coordination/segment-rollover-commit.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/owner-coordination/segment-rollover-commit.test.js"
-          rationale: "Proves the fenced transaction against a real migrated database, including the four-part rollback assertion (no successor row, predecessor unsealed, manifest pointer unmoved, no generation row). A placeholder module cannot pass this; the file does not exist today."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 13
-          output: "\n"
-        - id: "OC6"
-          command: "test -f src/shared/session/segment-rollover.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/segment-rollover.test.js"
-          rationale: "Proves the full sequence over a real session directory: reader ok before and after, continuous projection across the boundary, metadata rolled atomically, a managed operation succeeding immediately after a rollover, four consecutive rollovers, and orphan identification. The file does not exist today."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 13
-          output: "\n"
-        - id: "OC7"
-          command: "grep -qi 'Session Transcript Segment Rollover' docs/domain-language.md && grep -qi 'Orphan Rollover Candidate' docs/domain-language.md"
-          rationale: "This slice introduces two domain terms that must land in the glossary in the same change as the behavior. Neither term appears today."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 16
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T14:41:46.094Z"
-status: "in_progress"
+updatedAt: "2026-08-12T15:20:47.703Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 10
 dependencies:
     - "09-aggregate-transcript-projection-and-segment-aware-sync"
+implementedAt: "2026-08-12T15:03:31.839Z"
+verifiedAt: "2026-08-12T15:20:47.703Z"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
+executionReport: "- Implemented transactional rollover primitives: split segment seal/append internals, added `commitSegmentRolloverAndPublish`, exported store APIs, and added `rollSessionTranscriptSegment` orchestration with opaque continuation persistence.\n- Updated managed Session metadata/runtime handling with `currentSegmentId`, atomic transcript segment replacement, post-rollover evidence verification against the generation-named segment, and stale segment acquisition mapped to `refresh_required`.\n- Added orphan rollover candidate discovery/discard and glossary entries for **Session Transcript Segment Rollover** and **Orphan Rollover Candidate**.\n- Added/updated tests: +9 tests total, 0 removed; new coverage includes commit rollback, stale/wrong proofs, degraded unpublished-successor reader state, manifest `ordinal > current` guard, consecutive rollovers, metadata rollover, and orphan discard.\n- Verification passed: `deno task ci` (281 files passed, 0 failed); targeted rollover/manifest/runtime suites also passed.\n- Manual TUI/kill checks were not run because this slice exposes backend primitives only and no user-facing fixture command exists yet; the same behaviors were covered with real-session automated fixtures."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "60ec52dddf66f2ef8b65ba00935aff3c6b826c2c"
-worktreeId: "d5e70356"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-10-transactional-se-d5e70356"
-worktreeBranch: "worktree/personal-remote-workspace-v1-10-transactional-se-d5e70356"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "abb759f2275873b9128aba66eb12633d941689a4"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "becea3e9c7bc36442ed18b654b0cf3b637c4d912"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Transactional Segment Rollover Primitives

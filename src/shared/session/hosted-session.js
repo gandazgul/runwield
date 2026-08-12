@@ -116,6 +116,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} projectId
  * @property {string} piSessionId
  * @property {string} transcriptPath
+ * @property {string} [currentSegmentId]
  * @property {number | null} generation
  * @property {number | null} [acknowledgedGeneration]
  * @property {string | null} [acknowledgedEventId]
@@ -398,6 +399,24 @@ export class HostedSession {
 
     getManagedMetadata() {
         return this.managed ? { ...this.managed } : null;
+    }
+
+    /** @param {{ piSessionId: string, transcriptPath: string, currentSegmentId: string, sessionManager: MinimalSessionManagerLike }} segment */
+    replaceManagedTranscriptSegment(segment) {
+        this.assertActive();
+        if (!this.managed) throw new Error("Managed Session metadata is absent");
+        disposeIfPresent(this.rootSessionManager);
+        this.rootSessionManager = segment.sessionManager;
+        this.managed = {
+            ...this.managed,
+            piSessionId: segment.piSessionId,
+            transcriptPath: segment.transcriptPath,
+            currentSegmentId: segment.currentSegmentId,
+        };
+        const persisted = readPersistedWorkflowContext(
+            /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (segment.sessionManager),
+        );
+        if (persisted) this.replaceWorkflowContext(persisted, { persist: false });
     }
 
     /** @param {PendingManagedTurnIntent} intent */

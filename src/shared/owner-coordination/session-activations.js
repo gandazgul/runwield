@@ -30,6 +30,8 @@
  * @property {string | null} [currentSegmentId]
  */
 
+import { insertSessionTranscriptSegmentRow, sealSessionTranscriptSegmentRow } from "./sessions.js";
+
 /** @param {unknown} value */
 function requireDatabase(value) {
     if (!value || typeof value !== "object" || !("handle" in value)) throw new Error("Owner database is required");
@@ -366,6 +368,99 @@ export function changeSessionActivationPhase(database, proof, nextPhase, options
 }
 
 /**
+ * @param {import('./database.js').OwnerCoordinationDatabase} ownerDb
+ * @param {ActivationProof} proof
+ */
+function loadActiveActivation(ownerDb, proof) {
+    const current = activationFromRow(
+        ownerDb.handle.prepare(
+            "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+        ).get(proof.runwieldSessionId, proof.projectId),
+    );
+    if (!current) throw new Error("Activation is not active");
+    return current;
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} ownerDb
+ * @param {NonNullable<ReturnType<typeof activationFromRow>>} current
+ * @param {ActivationProof} proof
+ * @param {string} now
+ */
+function assertPublicationPhase(ownerDb, current, proof, now) {
+    assertActiveProofFresh(ownerDb, current, proof, now);
+    if (proof.phase !== "checkpointing") throw new Error("Generation publication requires checkpointing phase");
+}
+
+/**
+ * @param {NonNullable<ReturnType<typeof activationFromRow>>} current
+ * @param {GenerationEvidence} evidence
+ */
+function assertGenerationAdvances(current, evidence) {
+    const previous = current.latestGeneration;
+    const expectedNext = previous === null ? 0 : previous + 1;
+    if (evidence.generation !== expectedNext) throw new Error(`Generation must advance to ${expectedNext}`);
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} ownerDb
+ * @param {ActivationProof} proof
+ * @param {GenerationEvidence} evidence
+ * @param {string | null} currentSegmentId
+ * @param {string} now
+ */
+function insertCommittedGenerationRow(ownerDb, proof, evidence, currentSegmentId, now) {
+    ownerDb.handle.prepare(
+        `INSERT INTO session_committed_generations(runwield_session_id, project_id, generation, evidence_version,
+            digest_algorithm, byte_length, terminal_entry_id, digest_hex, operation_id, fence, committed_at, current_segment_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+        proof.runwieldSessionId,
+        proof.projectId,
+        evidence.generation,
+        evidence.evidenceVersion || 1,
+        evidence.digestAlgorithm || "sha256",
+        evidence.byteLength,
+        evidence.terminalEntryId ?? null,
+        evidence.digestHex,
+        proof.operationId,
+        proof.fence,
+        now,
+        currentSegmentId,
+    );
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} ownerDb
+ * @param {ActivationProof} proof
+ * @param {number} generation
+ * @param {string} now
+ */
+function releaseActivationAfterGeneration(ownerDb, proof, generation, now) {
+    const result = ownerDb.handle.prepare(
+        `UPDATE session_activation_state
+            SET state = 'idle', phase = NULL, latest_generation = ?, owner_instance_id = NULL,
+                owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, acquired_at = NULL,
+                heartbeat_at = NULL, heartbeat_deadline_at = NULL, updated_at = ?, blocked_reason = NULL
+          WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
+            AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
+            AND expected_generation IS ?`,
+    ).run(
+        generation,
+        now,
+        proof.runwieldSessionId,
+        proof.projectId,
+        proof.ownerInstanceId,
+        proof.ownerProcessKind,
+        proof.operationId,
+        proof.fence,
+        proof.phase,
+        proof.expectedGeneration ?? null,
+    );
+    if (result.changes !== 1) throw new Error("Activation release proof was rejected");
+}
+
+/**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {ActivationProof} proof
  * @param {GenerationEvidence} evidence
@@ -376,47 +471,53 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
     const ownerDb = requireDatabase(database);
     const now = isoNow(options.now);
     return ownerDb.transaction(() => {
-        const current = activationFromRow(
-            ownerDb.handle.prepare(
-                "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
-            ).get(proof.runwieldSessionId, proof.projectId),
-        );
-        if (!current) throw new Error("Activation is not active");
-        assertActiveProofFresh(ownerDb, current, proof, now);
-        if (proof.phase !== "checkpointing") throw new Error("Generation publication requires checkpointing phase");
-        const previous = current.latestGeneration;
-        const expectedNext = previous === null ? 0 : previous + 1;
-        if (evidence.generation !== expectedNext) throw new Error(`Generation must advance to ${expectedNext}`);
+        const current = loadActiveActivation(ownerDb, proof);
+        assertPublicationPhase(ownerDb, current, proof, now);
+        assertGenerationAdvances(current, evidence);
         const currentSegmentId = evidence.currentSegmentId ?? proof.expectedCurrentSegmentId ?? null;
         if (currentSegmentId !== current.currentSegmentId) throw new Error("Current segment proof was rejected");
-        ownerDb.handle.prepare(
-            `INSERT INTO session_committed_generations(runwield_session_id, project_id, generation, evidence_version,
-                digest_algorithm, byte_length, terminal_entry_id, digest_hex, operation_id, fence, committed_at, current_segment_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-            proof.runwieldSessionId,
-            proof.projectId,
-            evidence.generation,
-            evidence.evidenceVersion || 1,
-            evidence.digestAlgorithm || "sha256",
-            evidence.byteLength,
-            evidence.terminalEntryId ?? null,
-            evidence.digestHex,
-            proof.operationId,
-            proof.fence,
-            now,
-            currentSegmentId,
-        );
-        const result = ownerDb.handle.prepare(
+        insertCommittedGenerationRow(ownerDb, proof, evidence, currentSegmentId, now);
+        releaseActivationAfterGeneration(ownerDb, proof, evidence.generation, now);
+        return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
+    });
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {ActivationProof} proof
+ * @param {{ predecessorSegmentId: string, predecessorEvidence: { byteLength: number, digestHex: string, terminalEntryId: string | null }, successor: Parameters<typeof insertSessionTranscriptSegmentRow>[1], successorSafeLocator: Parameters<typeof insertSessionTranscriptSegmentRow>[2], generationEvidence: GenerationEvidence, now?: () => string }} options
+ */
+export function commitSegmentRolloverAndPublish(database, proof, options) {
+    requireProof(proof);
+    const ownerDb = requireDatabase(database);
+    const now = isoNow(options.now);
+    return ownerDb.transaction(() => {
+        const current = loadActiveActivation(ownerDb, proof);
+        assertPublicationPhase(ownerDb, current, proof, now);
+        if ((proof.expectedCurrentSegmentId ?? null) !== options.predecessorSegmentId) {
+            throw new Error("Rollover predecessor proof was rejected");
+        }
+        if (current.currentSegmentId !== options.predecessorSegmentId) {
+            throw new Error("Rollover predecessor proof was rejected");
+        }
+        sealSessionTranscriptSegmentRow(ownerDb, {
+            runwieldSessionId: proof.runwieldSessionId,
+            segmentId: options.predecessorSegmentId,
+            evidence: options.predecessorEvidence,
+            now: () => now,
+        });
+        const successor = insertSessionTranscriptSegmentRow(ownerDb, options.successor, options.successorSafeLocator);
+        const expectedSuccessorId = options.generationEvidence.currentSegmentId ?? successor.segmentId;
+        if (expectedSuccessorId !== successor.segmentId) throw new Error("Current segment proof was rejected");
+        const pointerUpdate = ownerDb.handle.prepare(
             `UPDATE session_activation_state
-                SET state = 'idle', phase = NULL, latest_generation = ?, owner_instance_id = NULL,
-                    owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL, expected_current_segment_id = NULL, acquired_at = NULL,
-                    heartbeat_at = NULL, heartbeat_deadline_at = NULL, updated_at = ?, blocked_reason = NULL
+                SET current_segment_id = ?, expected_current_segment_id = ?, updated_at = ?
               WHERE runwield_session_id = ? AND project_id = ? AND state = 'active'
                 AND owner_instance_id = ? AND owner_process_kind = ? AND operation_id = ? AND fence = ? AND phase = ?
-                AND expected_generation IS ?`,
+                AND expected_generation IS ? AND expected_current_segment_id IS ?`,
         ).run(
-            evidence.generation,
+            successor.segmentId,
+            successor.segmentId,
             now,
             proof.runwieldSessionId,
             proof.projectId,
@@ -426,9 +527,12 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
             proof.fence,
             proof.phase,
             proof.expectedGeneration ?? null,
+            options.predecessorSegmentId,
         );
-        if (result.changes !== 1) throw new Error("Activation release proof was rejected");
-        return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
+        if (pointerUpdate.changes !== 1) throw new Error("Current segment proof was rejected");
+        insertCommittedGenerationRow(ownerDb, proof, options.generationEvidence, successor.segmentId, now);
+        releaseActivationAfterGeneration(ownerDb, proof, options.generationEvidence.generation, now);
+        return { ...inspectSessionActivation(ownerDb, proof.runwieldSessionId), successor };
     });
 }
 

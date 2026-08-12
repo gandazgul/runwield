@@ -26,12 +26,11 @@ import {
     exportRootSessionToHtml,
     exportRootSessionToJsonl,
     getRootSessionBranchEntries,
-    getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
-    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
+    resolveCreatedRootSessionPath,
 } from "./root-session.js";
 import {
     createSessionRuntimeEvent,
@@ -53,6 +52,7 @@ import {
     toProjectionFailure,
 } from "./session-transcript-projection.js";
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
+import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import {
     modelSupportsImageInput,
@@ -67,7 +67,7 @@ import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager, setGlobalCompactionSetting } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
 import { deriveWorkflowContextFromExecutionWorkflow } from "./workflow-context-session.js";
-import { basename, dirname, isAbsolute } from "@std/path";
+import { dirname, isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
     "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
@@ -429,6 +429,7 @@ export class SessionRuntime {
                 ? {
                     runwieldSessionId: managed.runwieldSessionId,
                     projectId: managed.projectId,
+                    currentSegmentId: managed.currentSegmentId,
                     generation: managed.generation,
                     acknowledgedGeneration: managed.acknowledgedGeneration ?? managed.generation ?? null,
                     acknowledgedEventId: managed.acknowledgedEventId ?? null,
@@ -2147,6 +2148,10 @@ export class SessionRuntime {
                     transcriptCwd: hostedSession.cwd,
                     source: "created",
                 });
+                const managedSegment = this.#ownerCoordinationStore.getCurrentSessionSegment(
+                    managedSession.runwieldSessionId,
+                );
+                if (!managedSegment) throw new Error("Created managed Session has no current segment");
                 pendingCreation = this.#ownerCoordinationStore.acquireSessionActivation({
                     runwieldSessionId: managedSession.runwieldSessionId,
                     projectId: managedSession.projectId,
@@ -2160,6 +2165,7 @@ export class SessionRuntime {
                     projectId: managedSession.projectId,
                     piSessionId: managedSession.piSessionId,
                     transcriptPath: managedSession.transcriptPath,
+                    currentSegmentId: managedSegment.segmentId,
                     generation: null,
                     acknowledgedGeneration: null,
                     acknowledgedEventId: null,
@@ -2228,6 +2234,7 @@ export class SessionRuntime {
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
                 digestHex: evidence.digestHex,
+                currentSegmentId: managed.currentSegmentId,
             });
             hostedSession.setManagedMetadata({ ...managed, generation: 0, acknowledgedGeneration: 0 });
             this.#pendingManagedCreations.delete(hostedSession.id);
@@ -2323,21 +2330,7 @@ export class SessionRuntime {
 
     /** @param {string} cwd @param {any} sessionManager */
     async #resolveCreatedSessionPath(cwd, sessionManager) {
-        const piSessionId = sessionManager.getSessionId?.();
-        if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
-        const sessions = await listPersistedRootSessions(cwd);
-        const match = sessions.find((session) => session.id === piSessionId);
-        if (match?.path) return match.path;
-        const transcriptPath = sessionManager.getSessionFile?.();
-        const sessionDir = getRunWieldSessionDir(cwd);
-        if (
-            !transcriptPath || typeof transcriptPath !== "string" || !isAbsolute(transcriptPath) ||
-            !isPathInside(transcriptPath, sessionDir) || !basename(transcriptPath).includes(piSessionId)
-        ) {
-            throw new Error(`Created Session transcript was not found: ${piSessionId}`);
-        }
-        await this.#ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath);
-        return transcriptPath;
+        return await resolveCreatedRootSessionPath(cwd, sessionManager);
     }
 
     /**
@@ -2548,6 +2541,9 @@ export class SessionRuntime {
                 projectId: cataloged.projectId,
                 piSessionId: cataloged.piSessionId,
                 transcriptPath: cataloged.transcriptPath,
+                currentSegmentId:
+                    this.#ownerCoordinationStore?.getCurrentSessionSegment(cataloged.runwieldSessionId)?.segmentId ||
+                    "",
                 generation: options.generation ?? null,
                 acknowledgedGeneration: options.generation ?? null,
                 acknowledgedEventId: options.acknowledgedEventId ?? null,
@@ -2653,10 +2649,20 @@ export class SessionRuntime {
                 ownerInstanceId: this.#ownerInstanceId,
                 ownerProcessKind: this.#ownerProcessKind,
                 expectedGeneration,
+                expectedCurrentSegmentId: managed.currentSegmentId ?? state.activation?.currentSegmentId ?? null,
                 phase: "preparing",
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            if (message.includes("current segment expectation")) {
+                return {
+                    ok: false,
+                    turns: 0,
+                    handoffs: 0,
+                    handoffLimitReached: false,
+                    error: "refresh_required",
+                };
+            }
             if (message.includes("Session activation is not available") || message.includes("activation race lost")) {
                 return {
                     ok: false,
@@ -2699,12 +2705,17 @@ export class SessionRuntime {
         try {
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
+                const generationSegment = this.#ownerCoordinationStore.listSessionTranscriptSegments(
+                    managed.runwieldSessionId,
+                )
+                    .find((segment) => segment.segmentId === state.generation?.currentSegmentId);
+                if (!generationSegment) throw new Error("Committed generation current segment is absent from manifest");
                 const currentEvidence = await captureTranscriptEvidence({
-                    transcriptPath: managed.transcriptPath,
-                    transcriptCwd: hostedSession.cwd,
+                    transcriptPath: generationSegment.transcriptPath,
+                    transcriptCwd: generationSegment.transcriptCwd,
                     byteLength: state.generation.byteLength,
                 });
-                const stat = await Deno.stat(managed.transcriptPath);
+                const stat = await Deno.stat(generationSegment.transcriptPath);
                 if (
                     stat.size !== state.generation.byteLength ||
                     currentEvidence.digestHex !== state.generation.digestHex ||
@@ -2811,6 +2822,7 @@ export class SessionRuntime {
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
                 digestHex: evidence.digestHex,
+                currentSegmentId: managed.currentSegmentId,
             });
             hostedSession.setManagedMetadata(nextManaged);
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
@@ -2873,6 +2885,26 @@ export class SessionRuntime {
         }
         delete (/** @type {any} */ (result))._validationResult;
         return result;
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {{ kind: 'execution' | 'semantic_repair', continuation: import('./segment-rollover.ts').SegmentRolloverResult['continuation'], expectedGeneration?: number | null, lineageGroupKey?: string | null }} options
+     */
+    async rollManagedSessionSegment(sessionId, options) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) throw new Error("SessionRuntime.rollManagedSessionSegment: session not found");
+        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        return await rollSessionTranscriptSegment({
+            hostedSession,
+            ownerCoordinationStore: this.#ownerCoordinationStore,
+            ownerInstanceId: this.#ownerInstanceId,
+            ownerProcessKind: this.#ownerProcessKind,
+            kind: options.kind,
+            continuation: options.continuation,
+            expectedGeneration: options.expectedGeneration,
+            lineageGroupKey: options.lineageGroupKey,
+        });
     }
 
     /**
@@ -2950,6 +2982,7 @@ export class SessionRuntime {
             ? null
             : await createRootSessionManager(options.mode || "new", options.cwd);
         let managedSession = null;
+        let managedCurrentSegmentId = "";
         let managedProof = null;
         if (managedProject && ownerCoordinationStore && !deferManagedCreation) {
             try {
@@ -2963,6 +2996,11 @@ export class SessionRuntime {
                     transcriptCwd: options.cwd,
                     source: "created",
                 });
+                const managedSegment = ownerCoordinationStore.getCurrentSessionSegment(
+                    managedSession.runwieldSessionId,
+                );
+                if (!managedSegment) throw new Error("Created managed Session has no current segment");
+                managedCurrentSegmentId = managedSegment.segmentId;
                 managedProof = ownerCoordinationStore.acquireSessionActivation({
                     runwieldSessionId: managedSession.runwieldSessionId,
                     projectId: managedSession.projectId,
@@ -2986,6 +3024,7 @@ export class SessionRuntime {
                     projectId: managedSession.projectId,
                     piSessionId: managedSession.piSessionId,
                     transcriptPath: managedSession.transcriptPath,
+                    currentSegmentId: managedCurrentSegmentId,
                     generation: null,
                     acknowledgedGeneration: null,
                     acknowledgedEventId: null,
