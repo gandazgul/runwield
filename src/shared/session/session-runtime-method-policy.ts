@@ -57,6 +57,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     rollManagedSessionSegment: "fenced_standalone_mutation",
     runIsolatedAgent: "nested_only_mutation",
     runLocalShellCommand: "fenced_standalone_mutation",
+    runPlanAction: "fenced_standalone_mutation",
     runPlanningAgent: "fenced_standalone_mutation",
     runSlicerAgent: "fenced_standalone_mutation",
     runValidation: "fenced_standalone_mutation",

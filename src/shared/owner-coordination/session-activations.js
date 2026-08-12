@@ -48,6 +48,29 @@ function newId(idFactory) {
     return idFactory ? idFactory() : crypto.randomUUID();
 }
 
+const MAX_OPERATION_RESULT_JSON_BYTES = 32 * 1024;
+
+/** @param {unknown} result */
+function encodeOperationResult(result) {
+    if (result === undefined) return null;
+    const text = JSON.stringify(result);
+    if (new TextEncoder().encode(text).byteLength > MAX_OPERATION_RESULT_JSON_BYTES) {
+        throw new Error("Operation receipt result is too large");
+    }
+    return text;
+}
+
+/** @param {unknown} value */
+function decodeOperationResult(value) {
+    if (typeof value !== "string") return null;
+    if (!value) return null;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+}
+
 /** @param {any} row */
 function activationFromRow(row) {
     if (!row) return null;
@@ -697,7 +720,7 @@ export function markSessionReconcileRequiredWithProof(database, proof, options =
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ deviceId?: string | null, requestId: string, requestHash: string, runwieldSessionId: string, projectId: string, expectedGeneration?: number | null, kind: 'bootstrap' | 'continuation', operationId?: string, idFactory?: () => string, now?: () => string }} options
+ * @param {{ deviceId?: string | null, requestId: string, requestHash: string, runwieldSessionId: string, projectId: string, expectedGeneration?: number | null, kind: 'bootstrap' | 'continuation' | 'plan_action', operationId?: string, idFactory?: () => string, now?: () => string }} options
  */
 export function createOrGetOperationReceipt(database, options) {
     const ownerDb = requireDatabase(database);
@@ -710,7 +733,7 @@ export function createOrGetOperationReceipt(database, options) {
             if (existing.request_hash !== options.requestHash) {
                 throw new Error("Operation request id was reused with different input");
             }
-            return operationFromRow(existing);
+            return { ...operationFromRow(existing), wasCreated: false };
         }
         const id = newId(options.idFactory);
         const operationId = options.operationId || newId(options.idFactory);
@@ -731,7 +754,10 @@ export function createOrGetOperationReceipt(database, options) {
             now,
             now,
         );
-        return operationFromRow(ownerDb.handle.prepare("SELECT * FROM owner_session_operations WHERE id = ?").get(id));
+        const created = operationFromRow(
+            ownerDb.handle.prepare("SELECT * FROM owner_session_operations WHERE id = ?").get(id),
+        );
+        return { ...created, wasCreated: true };
     });
 }
 
@@ -754,7 +780,7 @@ export function findOperationReceiptByRequest(database, options) {
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {string} operationId
- * @param {{ status: 'accepted' | 'running' | 'completed' | 'failed' | 'conflict', resultGeneration?: number | null, errorCode?: string | null, errorMessage?: string | null, now?: () => string }} updates
+ * @param {{ status: 'accepted' | 'running' | 'completed' | 'failed' | 'conflict', resultGeneration?: number | null, resultHttpStatus?: number | null, resultBody?: unknown, errorCode?: string | null, errorMessage?: string | null, now?: () => string }} updates
  */
 export function updateOperationReceipt(database, operationId, updates) {
     const ownerDb = requireDatabase(database);
@@ -762,16 +788,25 @@ export function updateOperationReceipt(database, operationId, updates) {
     const completedAt = updates.status === "completed" || updates.status === "failed" || updates.status === "conflict"
         ? now
         : null;
+    if (updates.resultHttpStatus !== undefined && updates.resultHttpStatus !== null) {
+        const status = Number(updates.resultHttpStatus);
+        if (!Number.isInteger(status) || status < 100 || status > 599) {
+            throw new Error("Operation receipt result HTTP status is invalid");
+        }
+    }
+    const resultJson = encodeOperationResult(updates.resultBody);
     const result = ownerDb.handle.prepare(
         `UPDATE owner_session_operations
             SET status = ?, updated_at = ?, completed_at = COALESCE(?, completed_at), result_generation = ?,
-                error_code = ?, error_message = ?
+                result_http_status = ?, result_json = COALESCE(?, result_json), error_code = ?, error_message = ?
           WHERE operation_id = ?`,
     ).run(
         updates.status,
         now,
         completedAt,
         updates.resultGeneration ?? null,
+        updates.resultHttpStatus ?? null,
+        resultJson,
         updates.errorCode ?? null,
         updates.errorMessage ?? null,
         operationId,
@@ -813,6 +848,10 @@ function operationFromRow(row) {
         resultGeneration: row.result_generation === null || row.result_generation === undefined
             ? null
             : Number(row.result_generation),
+        resultHttpStatus: row.result_http_status === null || row.result_http_status === undefined
+            ? null
+            : Number(row.result_http_status),
+        resultBody: decodeOperationResult(row.result_json),
         errorCode: row.error_code,
         errorMessage: row.error_message,
     };

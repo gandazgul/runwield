@@ -23,61 +23,31 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q \"'plan_action'\" src/shared/owner-coordination/schema.js && grep -q 'result_json' src/shared/owner-coordination/schema.js && grep -q 'result_http_status' src/shared/owner-coordination/schema.js && deno run -A scripts/run-tests.js src/shared/owner-coordination/database.test.js src/shared/owner-coordination/session-activations.test.js"
       rationale: "Schema 7 cannot store a Plan-action result or classify the receipt today. Migration and receipt tests must add bounded result persistence without breaking existing receipts."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-12T16:49:49.295Z"
-    head: "df2977ca7b476bc3a4b456cd6c4379b3b7bde6b2"
-    results:
-        - id: "OC1"
-          command: "grep -q 'rejects stale Plan revision before lifecycle mutation' src/shared/workflow/plan-action-evidence.test.ts && grep -q 'rejects replaced worktree evidence before lifecycle mutation' src/shared/workflow/plan-action-evidence.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-action-evidence.test.ts"
-          rationale: "The shared evidence module and its named behavioral tests do not exist today. Both stale Plan bytes and replaced worktree identity must block the lifecycle mutation."
-          status: "unmet"
-          stdout: ""
-          stderr: "grep: src/shared/workflow/plan-action-evidence.test.ts: No such file or directory\n"
-          exitCode: 2
-          durationMs: 22
-          output: "\ngrep: src/shared/workflow/plan-action-evidence.test.ts: No such file or directory\n"
-        - id: "OC2"
-          command: "grep -q 'returns the stored result for an exact duplicate request' src/ui/workspace/owner-plan-actions.test.ts && grep -q 'revalidates canonical evidence for a new request id' src/ui/workspace/owner-plan-actions.test.ts && deno run -A scripts/run-tests.js src/ui/workspace/owner-plan-actions.test.ts"
-          rationale: "The activated owner Plan-action service does not exist today. Its integration tests must distinguish exact HTTP deduplication from a new action-time evidence check."
-          status: "unmet"
-          stdout: ""
-          stderr: "grep: src/ui/workspace/owner-plan-actions.test.ts: No such file or directory\n"
-          exitCode: 2
-          durationMs: 17
-          output: "\ngrep: src/ui/workspace/owner-plan-actions.test.ts: No such file or directory\n"
-        - id: "OC3"
-          command: "grep -q \"'plan_action'\" src/shared/owner-coordination/schema.js && grep -q 'result_json' src/shared/owner-coordination/schema.js && grep -q 'result_http_status' src/shared/owner-coordination/schema.js && deno run -A scripts/run-tests.js src/shared/owner-coordination/database.test.js src/shared/owner-coordination/session-activations.test.js"
-          rationale: "Schema 7 cannot store a Plan-action result or classify the receipt today. Migration and receipt tests must add bounded result persistence without breaking existing receipts."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 17
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T17:40:11.648Z"
-status: "implemented"
+updatedAt: "2026-08-12T19:05:57.160Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 12
 dependencies:
     - "11-simplify-session-continuity"
 implementedAt: "2026-08-12T17:40:11.648Z"
+verifiedAt: "2026-08-12T19:05:57.160Z"
 userVerifiedAt: null
 executionReport: "- Implemented shared Plan Action Evidence Check and executor in `src/shared/workflow/plan-actions.ts` with canonical Plan revision/status/worktree validation and typed refresh/recovery/invalid/activation results.\n- Added read-only Plan/worktree evidence helpers, owner coordination migration 8, bounded `plan_action` receipt result storage/replay, and receipt tests.\n- Wired `SessionRuntime.runPlanAction`, load-plan session surface/types, owner Workspace API route/service, and local Workspace lifecycle adapter through the shared executor while preserving local shared-Plan lock behavior.\n- Added focused behavioral tests: stale revision, replaced worktree, valid lifecycle action, exact duplicate replay, new request revalidation, request-ID hash conflict, and bounded receipt persistence.\n- Updated existing session architecture/policy tests for the new explicit fenced Runtime Plan-action method and approved owner Plan-action service.\n- Verification passed: objective grep/test checks OC1/OC2/OC3; focused suite `deno run -A scripts/run-tests.js src/shared/workflow/plan-action-evidence.test.ts src/shared/owner-coordination/session-activations.test.js src/shared/owner-coordination/database.test.js src/ui/workspace/owner-plan-actions.test.ts src/cmd/load-plan/index.integration.test.ts`; `deno task seams:check`; full `deno task ci`.\n- Test coverage added only; no tests were removed or replaced. New generated `src/shared/version.js` was created by `deno task ci`/`scripts/write-version.js` as required for verification."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "d96076576e0a256bab3e5b4a33bb2ba74793564b"
-worktreeId: "65bb276e"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-12-session-activate-65bb276e"
-worktreeBranch: "worktree/personal-remote-workspace-v1-12-session-activate-65bb276e"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "5ec09c6e3c7db3228455146d51b38fdf1df5f766"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "9171b151ec15991f2e3f8d4d3b8adf39878e2936"
 validationCiAttempts: 0
-validationSemanticRounds: 0
+validationSemanticRounds: 2
 ---
 
 # Session-Activated Plan Actions

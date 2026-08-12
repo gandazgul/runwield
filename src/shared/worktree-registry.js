@@ -813,6 +813,49 @@ export async function findByPlanId(projectRoot, planId) {
 }
 
 /**
+ * Read-only evidence snapshot for Plan action preconditions.
+ *
+ * @param {string} projectRoot
+ * @param {string} planId
+ * @param {{ expectedWorktreeId?: string | null }} [options]
+ * @returns {Promise<{ kind: "ok", live: WorktreeRegistryEntry | null, entries: WorktreeRegistryEntry[] } | { kind: "ambiguous" | "unreadable", message: string, entryIds: string[] }>}
+ */
+export async function readPlanActionWorktreeEvidence(projectRoot, planId, options = {}) {
+    const inspected = await inspectWorktreeRegistry(projectRoot);
+    if (inspected.readError) {
+        return { kind: "unreadable", message: inspected.readError.message, entryIds: [] };
+    }
+    const integrityIssue = inspected.integrityIssues[0];
+    if (integrityIssue) {
+        return { kind: "ambiguous", message: integrityIssue.message, entryIds: integrityIssue.ids };
+    }
+    const expectedWorktreeId = typeof options.expectedWorktreeId === "string" && options.expectedWorktreeId.trim()
+        ? options.expectedWorktreeId.trim()
+        : null;
+    if (expectedWorktreeId) {
+        const expectedIdEntries = inspected.entries.filter((entry) => entry.id === expectedWorktreeId);
+        const identityConflict = expectedIdEntries.find((entry) => entry.planId !== planId);
+        if (identityConflict) {
+            return {
+                kind: "ambiguous",
+                message: "Plan worktree identity does not match the worktree registry entry.",
+                entryIds: [identityConflict.id],
+            };
+        }
+    }
+    const entries = inspected.entries.filter((entry) => entry.planId === planId);
+    const live = entries.filter((entry) => NONTERMINAL_STATUSES.has(entry.status));
+    if (live.length > 1) {
+        return {
+            kind: "ambiguous",
+            message: duplicateLiveAttemptError(live[0].planName, live).message,
+            entryIds: live.map((entry) => entry.id),
+        };
+    }
+    return { kind: "ok", live: live[0] || null, entries };
+}
+
+/**
  * Look up one registry entry by attempt id.
  *
  * Pass `{ migrate: false }` from any caller that must not disturb Plan files —

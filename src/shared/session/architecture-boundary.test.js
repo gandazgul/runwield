@@ -178,7 +178,8 @@ Deno.test("owner-coordination lease mutators stay behind approved state-machine 
                 path.startsWith("src/shared/owner-coordination/") ||
                 path === "src/shared/session/segment-rollover.ts" ||
                 path === "src/shared/session/session-runtime.js" ||
-                path === "src/ui/workspace/server/session-continuation.js",
+                path === "src/ui/workspace/server/session-continuation.js" ||
+                path === "src/ui/workspace/server/owner-plan-actions.ts",
         },
     ]);
     assertEquals(violations, []);
@@ -403,6 +404,7 @@ Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", 
         "rollManagedSessionSegment",
         "runIsolatedAgent",
         "runLocalShellCommand",
+        "runPlanAction",
         "runPlanningAgent",
         "runSlicerAgent",
         "runValidation",

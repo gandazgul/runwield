@@ -67,6 +67,7 @@ import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager, setGlobalCompactionSetting } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
 import { deriveWorkflowContextFromExecutionWorkflow } from "./workflow-context-session.js";
+import { executePlanAction } from "../workflow/plan-actions.ts";
 import { dirname, isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -1131,6 +1132,51 @@ export class SessionRuntime {
             },
             async () => await operation(),
         );
+        if (result?.ok === false && result.error) throw new Error(result.error);
+        return result;
+    }
+
+    /**
+     * Run a repository-only Plan action under managed Session Activation without hydrating Pi.
+     * @param {string} sessionId
+     * @param {import('../workflow/plan-actions.ts').PlanActionRequest} request
+     */
+    async runPlanAction(sessionId, request) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) throw new Error("SessionRuntime.runPlanAction: session not found");
+        const managed = session.getManagedMetadata?.();
+        if (!managed) return await executePlanAction(session.cwd, request);
+        if (session.getRootSessionManager?.()) throw new Error("managed_operation_in_progress");
+        const result = await this.#runManagedOperation(
+            session.id,
+            {
+                name: "workflow_operation",
+                options: { expectedGeneration: managed.generation ?? undefined },
+                activateAgent: false,
+                hydrate: false,
+                emitPromptEvents: false,
+            },
+            async () => await executePlanAction(session.cwd, request),
+        );
+        if (result?.ok === false && result.error === "refresh_required") {
+            return {
+                kind: "refresh_required",
+                message: "Session generation changed. Refresh and retry.",
+                evidence: {
+                    planId: request.planId,
+                    planName: "",
+                    revision: request.expectedRevision,
+                    status: request.expectedStatus,
+                    worktree: request.expectedWorktree,
+                },
+            };
+        }
+        if (result?.ok === false && result.error === "managed_operation_in_progress") {
+            return {
+                kind: "activation_unavailable",
+                message: "Session activation is not available for this Plan action.",
+            };
+        }
         if (result?.ok === false && result.error) throw new Error(result.error);
         return result;
     }
@@ -2736,6 +2782,27 @@ export class SessionRuntime {
             heartbeatTimer = setInterval(heartbeat, 10_000);
             const acceptedTurnId = options.turnId || crypto.randomUUID();
             const hasPendingImages = (options.initialImages || []).some((image) => !image.path && !image.ref);
+            if (descriptor.hydrate === false) {
+                const result = await body({ acceptedTurnId, hasPendingImages, capability });
+                if (capability.heartbeatFailureReason) {
+                    try {
+                        this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                            reason: capability.heartbeatFailureReason,
+                        });
+                    } catch {
+                        // Heartbeat expiry already moved the activation out of active state.
+                    }
+                    return {
+                        ok: false,
+                        turns: 0,
+                        handoffs: 0,
+                        handoffLimitReached: false,
+                        error: "reconcile_required",
+                    };
+                }
+                this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                return result;
+            }
             const shouldEmitPromptEvents = options.initialRequest !== undefined &&
                 descriptor.emitPromptEvents !== false;
             if (shouldEmitPromptEvents && !hasPendingImages) {

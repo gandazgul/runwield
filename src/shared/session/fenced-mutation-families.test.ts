@@ -15,6 +15,7 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     renameSession: "renameSession(",
     rollManagedSessionSegment: "rollSessionTranscriptSegment(",
     runLocalShellCommand: "runLocalShellCommand(",
+    runPlanAction: "runPlanAction(",
     runPlanningAgent: "runPlanningAgent(",
     runSlicerAgent: "runSlicerAgent(",
     runValidation: "runValidation(",

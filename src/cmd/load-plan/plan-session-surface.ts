@@ -88,6 +88,7 @@ export function createPlanSessionSurface(
         runPlanningAgent: runners.runPlanningAgent,
         runValidation: runners.runValidation,
         runSlicerAgent: runners.runSlicerAgent,
+        runPlanAction: (request) => runtime.runPlanAction(sessionId, request),
         getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
         setActiveExecutionWorkflow: (workflow) => {
             runtime.setActiveExecutionWorkflow(sessionId, workflow);

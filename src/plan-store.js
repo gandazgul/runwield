@@ -3400,6 +3400,48 @@ export async function findPlanById(cwd, planId) {
 }
 
 /**
+ * Find a Plan by durable ID without writing missing identity metadata.
+ *
+ * @param {string} cwd
+ * @param {string} planId
+ * @returns {Promise<PlanResource>}
+ */
+export async function findPlanEvidenceById(cwd, planId) {
+    const normalized = normalizePlanId(planId);
+    if (!normalized) throw new Error("Plan ID cannot be empty");
+    const plans = await listPlans(cwd);
+    const matches = plans.filter((plan) => {
+        if (plan.attrs.planId === normalized) return true;
+        const stripped = stripSequencePrefix(plan.attrs.planId || "");
+        return stripped === normalized;
+    });
+    if (matches.length > 1) {
+        throw new Error(`Duplicate planId values found for ${normalized}; repair plan front matter before continuing.`);
+    }
+    if (matches.length === 0) throw new Error(`Plan not found for planId: ${normalized}`);
+    const loaded = await loadPlanStrict(cwd, matches[0].name);
+    if (loaded.kind !== "loaded") {
+        if (loaded.kind === "malformed") throw loaded.error;
+        throw new Error(`Plan not found for planId: ${normalized}`);
+    }
+    const durableId = loaded.attrs.planId;
+    if (!durableId) {
+        throw new Error("Plan is missing durable planId metadata; adopt or repair it locally before remote action.");
+    }
+    return {
+        planName: matches[0].name,
+        name: matches[0].name,
+        relativePath: `${PLANS_DIR_NAME}/${matches[0].name}.md`,
+        path: loaded.path,
+        planId: durableId,
+        attrs: loaded.attrs,
+        body: loaded.body,
+        markdown: loaded.markdown,
+        revision: loaded.revision,
+    };
+}
+
+/**
  * @typedef {PlanResource & { bodyHash: string }} PlanBodyResource
  */
 
