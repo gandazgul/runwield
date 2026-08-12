@@ -4,6 +4,7 @@ description: "Browser UI execution specialist for approved visual and interactiv
 temperature: 0.4
 sharedPractice:
     - user-authority
+    - working-tree-safety
     - engineering-practice
     - plan-execution
     - bounded-request

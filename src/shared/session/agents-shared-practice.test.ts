@@ -5,13 +5,34 @@ import { listAgentDefNames, loadAgentDef } from "./agents.js";
 const BUNDLED_AGENT_DEFS = join("src", "agent-definitions");
 const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 
+/** The execution personas claim identical practice; naming it once is what keeps them identical. */
+const EXECUTION_FRAGMENTS = [
+    "user-authority",
+    "working-tree-safety",
+    "engineering-practice",
+    "plan-execution",
+    "bounded-request",
+] as const;
+
 /** Personas that compose shared practice, and the fragments each one claims. */
 const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["engineer", ["user-authority", "engineering-practice", "plan-execution", "bounded-request"]],
-    ["frontend-engineer", ["user-authority", "engineering-practice", "plan-execution", "bounded-request"]],
+    ["engineer", EXECUTION_FRAGMENTS],
+    ["frontend-engineer", EXECUTION_FRAGMENTS],
+];
+
+/** Every persona that can run git or delete files, including the non-engineering one. */
+const WORKING_TREE_CONSUMERS: readonly string[] = ["engineer", "frontend-engineer", "operator"];
+
+/** Planning personas that compose the explanation practice on top of user authority. */
+const PLANNING_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
+    ["planner", ["user-authority", "show-the-work"]],
+    ["architect", ["user-authority", "show-the-work"]],
+    ["ideator", ["user-authority", "show-the-work"]],
 ];
 
 const USER_AUTHORITY_MARKER = "After one concern, the discussion is complete. The user decides. Continue the work.";
+const SHOW_THE_WORK_MARKER = "Explain the work the way you would at a whiteboard with a coworker";
+const WORKING_TREE_MARKER = "`git stash` is the last resort when you genuinely cannot proceed";
 
 interface ProjectAgentFile {
     path: string;
@@ -128,10 +149,13 @@ Deno.test("shared practice fragments are never offered as agents", async () => {
 });
 
 Deno.test("every bundled fragment is claimed by at least one agent", async () => {
-    const claimed = new Set(SHARED_PRACTICE_CONSUMERS.flatMap(([, fragments]) => fragments));
+    const claimed = new Set(
+        [...SHARED_PRACTICE_CONSUMERS, ...PLANNING_PRACTICE_CONSUMERS].flatMap(([, fragments]) => fragments),
+    );
     // The Reviewer-Feedback Engineer is a workflow-only subagent, so it is not in
     // the loadAgentDef listing above; it claims engineering-practice on its own.
     claimed.add("engineering-practice");
+    claimed.add("working-tree-safety");
 
     for await (const entry of Deno.readDir(SHARED_PRACTICE_DIR)) {
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;
@@ -154,6 +178,32 @@ Deno.test("every bundled top-level agent receives the user-authority policy", as
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, USER_AUTHORITY_MARKER, `${agentName} is missing user authority`);
     }
+});
+
+Deno.test("every persona that can run git is told not to destroy pending changes", async () => {
+    // Operator is not an engineering persona and does not compose engineering-practice,
+    // but its prompt lists git operations — the rule has to reach it by its own claim.
+    for (const agentName of WORKING_TREE_CONSUMERS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        assertStringIncludes(systemPrompt, WORKING_TREE_MARKER, `${agentName} may destroy uncommitted work`);
+    }
+});
+
+Deno.test("planning personas receive the show-the-work practice", async () => {
+    for (const [agentName] of PLANNING_PRACTICE_CONSUMERS) {
+        const def = await loadAgentDef(agentName);
+        assertStringIncludes(def.systemPrompt, SHOW_THE_WORK_MARKER, `${agentName} is missing show-the-work`);
+    }
+});
+
+Deno.test("the Slicer receives the show-the-work practice through the subagent registry", async () => {
+    // Slicer is a workflow-only subagent, so it never appears in the agent listing.
+    // It shapes the child Plans a person reads, so the practice must reach it too.
+    const { loadSubAgentDefinition } = await import("./subagent-definitions.ts");
+    const { SUBAGENTS } = await import("../../constants.js");
+    const slicer = await loadSubAgentDefinition(SUBAGENTS.SLICER);
+
+    assertStringIncludes(slicer.systemPrompt, SHOW_THE_WORK_MARKER);
 });
 
 Deno.test("both execution personas receive the same bounded-request contract", async () => {

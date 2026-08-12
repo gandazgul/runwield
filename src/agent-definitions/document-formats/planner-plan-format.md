@@ -35,6 +35,10 @@ What will be built/changed and why.
 
 Recommended implementation approach (focused, practical, no long alternatives section).
 
+Show it where showing reads faster than describing: the call path the change travels, a few lines of pseudo code for a
+new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a before/after pair. Add
+one line for the main option you set aside and what it would have cost. Skip all of it when a sentence is clearer.
+
 ## Files to Modify
 
 - `path/to/file` — what changes here and why

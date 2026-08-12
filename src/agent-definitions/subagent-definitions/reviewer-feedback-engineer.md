@@ -4,6 +4,7 @@ description: "Focused repair agent that fixes review findings in fresh context a
 temperature: 0.4
 sharedPractice:
     - user-authority
+    - working-tree-safety
     - engineering-practice
 tools:
     - read

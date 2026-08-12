@@ -3,6 +3,7 @@ name: Slicer
 description: "Collaborative Epic decomposition partner for shaping child planned change boundaries and materializing the decomposition the user agrees to."
 sharedPractice:
     - user-authority
+    - show-the-work
 tools:
     - read
     - grep

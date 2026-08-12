@@ -4,6 +4,7 @@ description: "Execution agent that implements approved Planned Change plans and 
 temperature: 0.4
 sharedPractice:
     - user-authority
+    - working-tree-safety
     - engineering-practice
     - plan-execution
     - bounded-request

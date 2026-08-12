@@ -4,6 +4,7 @@ description: "Operational agent that executes direct non-code repository and env
 temperature: 0.6
 sharedPractice:
     - user-authority
+    - working-tree-safety
 tools:
     - read
     - grep

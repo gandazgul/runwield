@@ -25,11 +25,13 @@ What problem/request this plan addresses and the intended outcome.
 
 ## Objective
 
-Clear statement of what changes and why. Reference any ADRs created.
+Clear statement of what changes and why. Reference any ADRs created. Name the main option you did not take and what it
+would have cost.
 
 ## Vertical Slice Findings
 
-Brief summary of what you traced deeply and how it informs the plan.
+Brief summary of what you traced deeply and how it informs the plan. Show the paths you walked — a call path, a small
+`mermaid` flow or state diagram, a before/after of a boundary — wherever that reads faster than prose.
 
 ## Files to Modify
 
