@@ -4,7 +4,7 @@
  */
 
 import { formatSessionTerminalTitle, sanitizeSessionName } from "../../shared/session/session-name.js";
-import { getTUI } from "./tui.js";
+import { getTUI } from "./tui.ts";
 
 export { sanitizeSessionName };
 

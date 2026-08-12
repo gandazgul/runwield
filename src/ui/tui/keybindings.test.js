@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Image } from "@earendil-works/pi-tui";
 import { initRunWieldTheme } from "../theme/theme.js";
-import { installKeybindings } from "./keybindings.js";
+import { installKeybindings } from "./keybindings.ts";
 
 const RAW_KEY = {
     escape: "\x1b",
@@ -45,8 +45,9 @@ function makeContext(overrides = {}) {
             text = value;
         },
         getText: () => text,
-        addNewLine: () => {
-            newlineCount++;
+        insertTextAtCursor: (/** @type {string} */ value) => {
+            if (value === "\n") newlineCount++;
+            else text += value;
         },
         isEditorEmpty: () => text.length === 0,
     };

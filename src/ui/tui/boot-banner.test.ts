@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { Container, TUI } from "@earendil-works/pi-tui";
+import { Container, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getCwdInitState } from "../../cmd/init/init-state.ts";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
@@ -32,7 +32,7 @@ class CompatibleVirtualTerminal extends VirtualTerminal {
 
 function makeBannerHarness(): BannerHarness {
     const terminal = new CompatibleVirtualTerminal({ columns: 120, rows: 40 });
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const messageList = new Container();
     tui.addChild(messageList);
     return {

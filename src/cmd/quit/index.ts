@@ -1,5 +1,5 @@
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
-import { stopTUI } from "../../ui/tui/tui.js";
+import { stopTUI } from "../../ui/tui/tui.ts";
 
 interface QuitCommandEditor {
     setText(text: string): void;

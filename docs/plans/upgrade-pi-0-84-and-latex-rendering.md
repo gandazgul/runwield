@@ -113,7 +113,6 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T15:26:09-04:00"
 updatedAt: "2026-08-11T14:07:57.107Z"
-status: "implemented"
 origin: "internal"
 dependencies:
     - "split-and-convert-tui-chat-session"
@@ -134,6 +133,7 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+status: "ready_for_work"
 ---
 
 # Upgrade Pi to 0.84 and Render LaTeX

@@ -1,5 +1,5 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
-import { Container, Editor, Image, Spacer, TUI } from "@earendil-works/pi-tui";
+import { Container, Editor, Image, Spacer, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
@@ -37,7 +37,7 @@ class CompatibleVirtualTerminal extends VirtualTerminal {
 function makeHarness(projectRoot = "/fixture/project"): OverridesHarness {
     initRunWieldTheme();
     const terminal = new CompatibleVirtualTerminal({ columns: 100, rows: 30 });
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const container = new Container();
     const messageList = new Container();
     const activeInteraction = new Container();

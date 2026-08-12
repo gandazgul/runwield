@@ -909,7 +909,7 @@ async function runComposedTuiScenario(scenario, options) {
                 } else if (typed.type === "startConcurrentSession") {
                     const name = String(typed.name || `session-${concurrentSessions.size + 1}`);
                     const concurrentTerminal = new VirtualTerminal(typed.terminal || scenario.terminal);
-                    const { stopTUI } = await import("../tui.js");
+                    const { stopTUI } = await import("../tui.ts");
                     stopTUI();
                     const concurrentComposition = await createInteractiveTuiComposition(null, {
                         browser: NO_OPEN_BROWSER_PORT,

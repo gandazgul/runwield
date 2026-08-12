@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertMatch } from "@std/assert";
+import { assert, assertEquals, assertMatch, assertThrows } from "@std/assert";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { AgentSession, createAgentSession, estimateTokens } from "@earendil-works/pi-coding-agent";
@@ -60,10 +60,24 @@ function messageStream(message) {
             stream.end(message);
             return;
         }
-        stream.push({ type: "done", reason: message.stopReason, message });
+        stream.push({ type: "done", reason: finalDoneStopReason(message.stopReason), message });
         stream.end(message);
     });
     return stream;
+}
+
+/**
+ * @param {import('@earendil-works/pi-ai').AssistantMessage["stopReason"]} stopReason
+ * @returns {Exclude<import('@earendil-works/pi-ai').AssistantMessage["stopReason"], "pending" | "error" | "aborted">}
+ */
+function finalDoneStopReason(stopReason) {
+    if (stopReason === "pending") {
+        throw new Error('messageStream fixture cannot emit final done with stopReason "pending".');
+    }
+    if (stopReason === "error" || stopReason === "aborted") {
+        throw new Error(`messageStream fixture must emit ${stopReason} as an error event.`);
+    }
+    return stopReason;
 }
 
 /**
@@ -85,6 +99,14 @@ function estimateContextMessagesTokens(messages) {
 function hasCompactionSummary(messages) {
     return JSON.stringify(messages).includes("Compaction Summary");
 }
+
+Deno.test("messageStream fixture rejects pending as a final done stop reason", () => {
+    assertThrows(
+        () => finalDoneStopReason("pending"),
+        Error,
+        'messageStream fixture cannot emit final done with stopReason "pending".',
+    );
+});
 
 Deno.test("RunWield/Pi seam currently submits another provider call after tool-result pressure without compaction", async () => {
     const providerContexts =

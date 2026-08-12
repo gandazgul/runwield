@@ -8,7 +8,7 @@
  */
 
 import { Spacer, Text } from "@earendil-works/pi-tui";
-import { getTUI } from "./tui.js";
+import { getTUI } from "./tui.ts";
 import { theme } from "../theme/theme.js";
 
 interface BootLogoContainer {

@@ -168,6 +168,7 @@ function createToolContext(cwd: string, signal?: AbortSignal): ExtensionContext 
         sessionManager: undefined as never,
         modelRegistry: undefined as never,
         model: undefined,
+        scopedModels: [],
         isIdle: () => true,
         isProjectTrusted: () => true,
         signal,

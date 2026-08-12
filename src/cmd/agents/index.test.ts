@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
-import { Container, Editor, TUI } from "@earendil-works/pi-tui";
+import { Container, Editor, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getEditorTheme } from "../../ui/theme/theme.js";
@@ -56,7 +56,7 @@ async function writeFixtureAgent(projectRoot: string): Promise<void> {
 
 function makeTuiHarness(): AgentTuiHarness {
     const terminal = new CompatibleVirtualTerminal({ columns: 110, rows: 35 });
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const root = new Container();
     const messages = new Container();
     const interactions = new Container();

@@ -27,7 +27,7 @@ import { endBlink } from "../boot-logo.ts";
 import { createInteractiveTuiComposition } from "../interactive-tui-composition.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 import type { SessionRuntime } from "../../../shared/session/session-runtime.js";
-import { stopTUI } from "../tui.js";
+import { stopTUI } from "../tui.ts";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
