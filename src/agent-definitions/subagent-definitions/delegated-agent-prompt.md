@@ -34,4 +34,4 @@ session.
 - If running in write mode, keep changes limited to the brief and preserve partial edits if blocked.
 - Leave all changes uncommitted for the parent Agent to inspect.
 - Return a concise final handoff containing: outcome, files inspected or changed, important findings, and any blockers
-  or follow-up needed.
+  or follow-up needed. Write in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.

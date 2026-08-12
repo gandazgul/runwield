@@ -1,5 +1,3 @@
-Please talk in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.
-
 ## Local Type Style
 
 JSDoc: prefer `@typedef` for object shapes over inline annotations or `@type` casts. Define the type once and reference

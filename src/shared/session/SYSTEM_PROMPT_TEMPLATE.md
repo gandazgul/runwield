@@ -61,3 +61,5 @@ code, or when a `code_*` result looks incomplete, stale, or misleading. Follow t
 ### Core Memories
 
 {{MEMORIES}}
+
+Talk and write docs in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.
