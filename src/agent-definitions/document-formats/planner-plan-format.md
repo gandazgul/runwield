@@ -9,6 +9,9 @@ affectedPaths:
 # Optional: only when the user identifies external demand URLs as Tickets.
 # tickets:
 #     - url: "https://example.com/tickets/ABC-123"
+# Optional: Work Record IDs this Plan will materially replace. Include only after user confirmation during approval.
+# supersedes:
+#     - "<work-record-id>"
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
@@ -62,6 +65,12 @@ any step.
 
 When applicable, include an explicit step that updates the applicable domain-language file in the same change as the
 behavior it describes.
+
+## Approval Confirmation
+
+Before approval, show each proposed `supersedes` Work Record ID and explain why this Plan will materially replace that
+record rather than only overlap it. Ask the user to confirm the list. Do not write a `supersedes` value until the user
+confirms it. An existing declared value is already confirmed; preserve it unless the user changes it.
 
 ## Verification Plan
 

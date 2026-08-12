@@ -187,8 +187,13 @@ Agent retrieval. _Avoid_: Approved record, generated internal record, memory
 **Pending Verification Work Record**: An internal Work Record generated before a terminal Plan outcome and excluded from
 default search or Agent retrieval until then. _Avoid_: Draft Work Record, approved record, review guide
 
-**Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
-Archived record, deleted record, draft record
+**Superseded Work Record**: A Work Record whose planning guidance has been replaced by a confirmed successor Work
+Record. The successor must exist, and the supersession relation must be confirmed. A pending Supersession Proposal does
+not make the earlier record superseded. _Avoid_: Archived record, deleted record, draft record
+
+**Supersession Proposal**: A Recorder-proposed relation in a successor Work Record's `supersessionProposal` Front Matter
+that requires a separate user decision for each proposed predecessor. While pending, it has no effect on default search
+or Agent retrieval. _Avoid_: Superseded Work Record, automatic replacement, confirmed supersession
 
 **Archived Work Record**: A Work Record hidden from default human search and Agent retrieval while remaining available
 by explicit request. _Avoid_: Superseded record, deleted record, draft record
@@ -596,8 +601,17 @@ hydration
 - Every **Work Record** has **Work Record Provenance**.
 - A **Draft Work Record** requires human approval before default Agent retrieval.
 - A **Pending Verification Work Record** requires a terminal Plan outcome before default Agent retrieval.
+- A correcting approved **Plan** can declare confirmed predecessor Work Record IDs in `supersedes`. Work Record
+  generation applies these declarations when the successor Work Record exists.
+- If the correction becomes clear only during execution or review, the **Recorder** can create a **Supersession
+  Proposal**. RunWield asks for a separate decision for each proposed predecessor in the interactive TUI and after
+  interactive backfill.
+- Headless completion leaves each **Supersession Proposal** pending and reports `wld wr supersede
+  <successorRecordId>`
+  for later confirmation or rejection. The command also lists pending proposals and their reasons.
 - **Superseded Work Records** and **Archived Work Records** remain durable but are excluded from default planning
-  retrieval.
+  retrieval. Supersession does not change a Work Record's completion mode or remove its applicable confidence notices
+  from explicit retrieval.
 - One implementation attempt has at most one temporary **Review Issue Ledger**.
 - A **Review Issue** blocks Semantic Code Review approval; a **Review Advisory** does not.
 - Denied Plan review produces **Feedback**, and each response to Feedback produces one **Revision**.

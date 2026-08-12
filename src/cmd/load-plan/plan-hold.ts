@@ -11,6 +11,7 @@ import { findPlansByParent } from "../../plan-store.js";
 import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
+import { resolveWorkRecordSupersessionProposalsWithUi } from "../../shared/workflow/validation-helpers.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
@@ -240,13 +241,14 @@ export async function markPlanUserVerified(
     });
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
     let workRecordMessage = "";
+    let workRecordResult: Awaited<ReturnType<typeof autoGenerateWorkRecordForCompletedPlan>> | undefined;
     try {
-        const result = await autoGenerateWorkRecordForCompletedPlan({
+        workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: plan.planName,
             mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
         });
-        workRecordMessage = ` ${result.message}`;
+        workRecordMessage = ` ${workRecordResult.message}`;
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         workRecordMessage = ` ${
@@ -263,6 +265,18 @@ export async function markPlanUserVerified(
         false,
         "RunWield",
     );
+    if (
+        workRecordResult && (workRecordResult.status === "generated" || workRecordResult.status === "linked") &&
+        workRecordResult.recordId && workRecordResult.supersessionProposals?.length
+    ) {
+        await resolveWorkRecordSupersessionProposalsWithUi({
+            projectRoot,
+            successorRecordId: workRecordResult.recordId,
+            proposals: workRecordResult.supersessionProposals,
+            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            uiAPI,
+        });
+    }
     return true;
 }
 

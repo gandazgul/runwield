@@ -6,14 +6,17 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { getCwd } from "../../constants.js";
 import {
+    confirmWorkRecordSupersessionProposal,
     formatWorkRecordBackfillOutcomes,
     formatWorkRecordBackfillPreview,
     formatWorkRecordList,
     formatWorkRecordSearchResults,
     listWorkRecords,
+    listWorkRecordSupersessionProposals,
     previewWorkRecordBackfill,
     readWorkRecordById,
     rebuildWorkRecordIndex,
+    rejectWorkRecordSupersessionProposal,
     runWorkRecordBackfill,
     searchWorkRecords,
 } from "../../shared/work-records/index.ts";
@@ -21,10 +24,49 @@ import type { WorkRecordMnemosynePort } from "../../shared/work-records/mnemosyn
 import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 import { printCommandHelp } from "../help/index.js";
+import {
+    resolveWorkRecordSupersessionProposals,
+    type WorkRecordSupersessionDecision,
+} from "../../shared/workflow/validation-helpers.ts";
+import type { WorkRecordSupersessionCandidate } from "../../shared/work-records/schema.js";
 
 export interface WorkRecordCommandOptions {
-    uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
+    uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage" | "promptSelect">;
     mnemosynePort: WorkRecordMnemosynePort;
+}
+
+async function chooseSupersessionDecision(
+    proposal: WorkRecordSupersessionCandidate,
+    options: WorkRecordCommandOptions,
+): Promise<WorkRecordSupersessionDecision | null> {
+    const promptText = `Supersede ${proposal.recordId}? Reason: ${proposal.reason}`;
+    if (options.uiAPI) {
+        const answer = await options.uiAPI.promptSelect(promptText, [
+            { value: "confirm", label: "Confirm supersession" },
+            { value: "reject", label: "Reject proposal" },
+            { value: "later", label: "Decide later" },
+        ]);
+        return ["confirm", "reject", "later"].includes(String(answer))
+            ? answer as WorkRecordSupersessionDecision
+            : null;
+    }
+    const answer = prompt(`${promptText}\nType confirm, reject, or later:`)?.trim().toLowerCase();
+    return answer === "confirm" || answer === "reject" || answer === "later" ? answer : null;
+}
+
+async function resolveCommandProposals(
+    successorRecordId: string,
+    proposals: WorkRecordSupersessionCandidate[],
+    options: WorkRecordCommandOptions,
+): Promise<void> {
+    await resolveWorkRecordSupersessionProposals({
+        projectRoot: getCwd(),
+        successorRecordId,
+        proposals,
+        mnemosynePort: options.mnemosynePort,
+        choose: (proposal) => chooseSupersessionDecision(proposal, options),
+        notify: (message) => console.log(`[RunWield] ${message}`),
+    });
 }
 
 function promptForBackfillConfirmation(message: string): boolean {
@@ -131,6 +173,101 @@ export async function runWorkRecordsCommand(
         }
         const result = await runWorkRecordBackfill(getCwd(), { mnemosynePort });
         console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
+        for (const outcome of result.outcomes) {
+            if (
+                (outcome.status === "generated" || outcome.status === "linked") && outcome.recordId &&
+                outcome.supersessionProposals?.length
+            ) {
+                await resolveCommandProposals(outcome.recordId, outcome.supersessionProposals, options);
+            }
+        }
+        return;
+    }
+
+    if (subcommand === "supersede") {
+        const parsed = parseArgs(rest, {
+            boolean: ["help"],
+            string: ["confirm", "reject"],
+            alias: { h: "help" },
+        });
+        if (parsed.help) {
+            printCommandHelp("wr");
+            return;
+        }
+        rejectUnknownFlags(parsed, ["confirm", "reject"]);
+        const confirmCount = rest.filter((arg) => arg === "--confirm" || arg.startsWith("--confirm=")).length;
+        const rejectCount = rest.filter((arg) => arg === "--reject" || arg.startsWith("--reject=")).length;
+        if (confirmCount > 1 || rejectCount > 1) {
+            throw new Error("--confirm and --reject each accept exactly one predecessorRecordId.");
+        }
+        if (parsed.confirm && parsed.reject) throw new Error("Cannot combine --confirm with --reject.");
+        if (parsed._.length > 1) {
+            throw new Error(
+                "Usage: wld wr supersede [successorRecordId] [--confirm predecessorRecordId | --reject predecessorRecordId]",
+            );
+        }
+        const proposals = await listWorkRecordSupersessionProposals(getCwd());
+        const successorRecordId = parsed._.length === 1 ? String(parsed._[0]) : "";
+        if (!successorRecordId) {
+            if (parsed.confirm || parsed.reject) {
+                throw new Error("A successorRecordId is required with --confirm or --reject.");
+            }
+            if (!proposals.length) {
+                console.log("[RunWield] No pending Work Record supersession proposals.");
+                return;
+            }
+            console.log("[RunWield] Pending Work Record supersession proposals:");
+            for (const proposal of proposals) {
+                console.log(
+                    `  ${proposal.successorRecordId} may supersede ${proposal.predecessorRecordId}: ${proposal.reason}`,
+                );
+            }
+            return;
+        }
+        const candidates = proposals.filter((proposal) =>
+            proposal.successorRecordId.toLowerCase() === successorRecordId.toLowerCase()
+        );
+        if (parsed.confirm || parsed.reject) {
+            const predecessorRecordId = String(parsed.confirm || parsed.reject);
+            const proposal = candidates.find((item) =>
+                item.predecessorRecordId.toLowerCase() === predecessorRecordId.toLowerCase()
+            );
+            if (!proposal) {
+                throw new Error(
+                    `Supersession proposal is not pending: ${predecessorRecordId} -> ${successorRecordId}.`,
+                );
+            }
+            const decision = parsed.confirm ? "confirm" : "reject";
+            const canonicalSuccessorRecordId = proposal.successorRecordId;
+            const canonicalPredecessorRecordId = proposal.predecessorRecordId;
+            const result = decision === "confirm"
+                ? await confirmWorkRecordSupersessionProposal(getCwd(), {
+                    successorRecordId: canonicalSuccessorRecordId,
+                    predecessorRecordId: canonicalPredecessorRecordId,
+                    mnemosynePort,
+                })
+                : await rejectWorkRecordSupersessionProposal(getCwd(), {
+                    successorRecordId: canonicalSuccessorRecordId,
+                    predecessorRecordId: canonicalPredecessorRecordId,
+                    mnemosynePort,
+                });
+            console.log(
+                `[RunWield] ${
+                    decision === "confirm" ? "Confirmed" : "Rejected"
+                } Work Record supersession proposal: ${canonicalPredecessorRecordId} -> ${canonicalSuccessorRecordId}.`,
+            );
+            if (result.indexWarning) console.log(`[RunWield] Warning: ${result.indexWarning}`);
+            return;
+        }
+        if (!candidates.length) {
+            console.log(`[RunWield] No pending supersession proposals for ${successorRecordId}.`);
+            return;
+        }
+        await resolveCommandProposals(
+            candidates[0].successorRecordId,
+            candidates.map((proposal) => ({ recordId: proposal.predecessorRecordId, reason: proposal.reason })),
+            options,
+        );
         return;
     }
 

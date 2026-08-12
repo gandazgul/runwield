@@ -197,6 +197,17 @@ Deno.test("front matter key constants expose canonical planning metadata order",
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.devServerUrl), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers), true);
+    assertEquals(PLAN_FRONT_MATTER_KEYS.supersedes, "supersedes");
+    assertEquals(
+        PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.tickets) <
+            PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.supersedes),
+        true,
+    );
+    assertEquals(
+        PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.supersedes) <
+            PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.executionAgent),
+        true,
+    );
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
     assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
 });
@@ -572,6 +583,30 @@ Deno.test("planId round trips and blank values normalize away", () => {
     const blank = injectFrontMatter("## Plan", { planId: "" });
     assertEquals(parsePlanFrontMatter(blank).attrs.planId, undefined);
     assertEquals(blank.includes("planId:"), false);
+});
+
+Deno.test("supersedes front matter normalizes, deduplicates, and round trips in canonical order", () => {
+    const markdown = injectFrontMatter("## Plan", {
+        tickets: [{ url: "https://example.com/tickets/ABC-123" }],
+        supersedes: [" record-b ", "record-a", "", "record-b", "   "],
+        executionAgent: "engineer",
+    });
+    const { attrs } = parsePlanFrontMatter(markdown);
+
+    assertEquals(attrs.supersedes, ["record-b", "record-a"]);
+    assertEquals(markdown.indexOf("tickets:") < markdown.indexOf("supersedes:"), true);
+    assertEquals(markdown.indexOf("supersedes:") < markdown.indexOf("executionAgent:"), true);
+});
+
+Deno.test("malformed or empty supersedes front matter is omitted", () => {
+    const scalar = parsePlanFrontMatter("---\nsupersedes: record-a\n---\n# Plan\n");
+    const mixed = parsePlanFrontMatter("---\nsupersedes:\n    - record-a\n    - 7\n---\n# Plan\n");
+    const blank = injectFrontMatter("# Plan", { supersedes: [" ", ""] });
+
+    assertEquals(scalar.attrs.supersedes, undefined);
+    assertEquals(mixed.attrs.supersedes, undefined);
+    assertEquals(parsePlanFrontMatter(blank).attrs.supersedes, undefined);
+    assertEquals(blank.includes("supersedes:"), false);
 });
 
 Deno.test("documentation Work Kind front matter round trips and unknown values normalize away", () => {
@@ -2552,6 +2587,27 @@ testWithFs("clearPlanCollaborationMetadata requires exact unshare bypass", async
         Error,
         "unshare collaboration lock bypass",
     );
+});
+
+testWithFs("supersedes survives Plan revisions and archival", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "superseding-plan", "# Superseding Plan", {
+            planId: "superseding-plan-id",
+            status: "draft",
+            supersedes: [" old-record ", "old-record", "older-record"],
+        });
+
+        const revised = await updatePlanFrontMatterForTest(cwd, "superseding-plan", { status: "verified" });
+        assertEquals(revised.supersedes, ["old-record", "older-record"]);
+
+        await archivePlan(cwd, "superseding-plan", { now: "2026-07-15T00:00:00.000Z" });
+        const archived = await loadArchivedPlan(cwd, "superseding-plan");
+        assertEquals(archived?.attrs.supersedes, ["old-record", "older-record"]);
+        assertEquals(archived?.attrs.archivedAt, "2026-07-15T00:00:00.000Z");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 testWithFs("updateArchivedPlanFrontMatter preserves archive metadata while adding Work Record backlink", async () => {

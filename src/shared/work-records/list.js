@@ -49,6 +49,13 @@ export function workRecordNotices(record) {
     if (record.attrs.status === "superseded" || record.attrs.supersededBy) {
         notices.push(`WARNING: superseded${record.attrs.supersededBy ? ` by ${record.attrs.supersededBy}` : ""}.`);
     }
+    if (record.attrs.supersessionProposal?.candidates.length) {
+        notices.push(
+            `NOTICE: supersession proposal pending for ${
+                record.attrs.supersessionProposal.candidates.map((candidate) => candidate.recordId).join(", ")
+            }.`,
+        );
+    }
     return notices;
 }
 

@@ -3,6 +3,7 @@ export * from "./markdown.js";
 export * from "./store.js";
 export * from "./lifecycle.js";
 export * from "./list.js";
+export * from "./supersession.ts";
 export * from "./generation.js";
 export * from "./auto-generation.ts";
 export * from "./index-adapter.js";

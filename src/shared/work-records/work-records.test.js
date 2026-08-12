@@ -110,6 +110,74 @@ Deno.test("Work Record markdown parses nested provenance and body sections", () 
     assertStringIncludes(markdown, "    evidence:\n        - path:");
 });
 
+Deno.test("Work Record supersession proposals normalize, deduplicate, and round-trip", () => {
+    const markdown = formatWorkRecordMarkdown({
+        ...INTERNAL_ATTRS,
+        supersessionProposal: {
+            candidates: [
+                { recordId: " 33333333-3333-4333-8333-333333333333 ", reason: " First reason. " },
+                { recordId: "33333333-3333-4333-8333-333333333333", reason: "Duplicate." },
+            ],
+        },
+    }, BODY);
+    const parsed = parseWorkRecordMarkdown(markdown);
+    assertEquals(parsed.attrs.supersessionProposal?.candidates, [{
+        recordId: "33333333-3333-4333-8333-333333333333",
+        reason: "First reason.",
+    }]);
+    assertStringIncludes(markdown, "supersessionProposal:");
+    assertThrows(
+        () => parseWorkRecordMarkdown(markdown.replace('reason: "First reason."', 'reason: "   "')),
+        Error,
+        "candidate reason must be a non-blank string",
+    );
+});
+
+Deno.test("Work Record supersession proposals reject every malformed candidate before deduplication", () => {
+    const malformedCandidates = [
+        {},
+        { recordId: "", reason: "Reason." },
+        { recordId: "33333333-3333-4333-8333-333333333333", reason: "   " },
+        "33333333-3333-4333-8333-333333333333",
+    ];
+    for (const candidate of malformedCandidates) {
+        assertThrows(
+            () =>
+                formatWorkRecordMarkdown(
+                    /** @type {any} */ ({
+                        ...INTERNAL_ATTRS,
+                        supersessionProposal: { candidates: [candidate] },
+                    }),
+                    BODY,
+                ),
+            Error,
+            "supersessionProposal candidate",
+        );
+    }
+    assertThrows(
+        () =>
+            formatWorkRecordMarkdown(
+                /** @type {any} */ ({
+                    ...INTERNAL_ATTRS,
+                    supersessionProposal: {
+                        candidates: [
+                            { recordId: "33333333-3333-4333-8333-333333333333", reason: "Valid." },
+                            { recordId: "33333333-3333-4333-8333-333333333333", reason: " " },
+                        ],
+                    },
+                }),
+                BODY,
+            ),
+        Error,
+        "reason must be a non-blank string",
+    );
+    const empty = formatWorkRecordMarkdown({
+        ...INTERNAL_ATTRS,
+        supersessionProposal: { candidates: [] },
+    }, BODY);
+    assertEquals(empty.includes("supersessionProposal:"), false);
+});
+
 Deno.test("Work Record validation rejects missing required fields", () => {
     assertThrows(
         () => parseWorkRecordMarkdown(`---\nkind: work_record\n---\n# Missing\n\n## Summary\n\nNo metadata.`),
@@ -161,13 +229,37 @@ Deno.test("Work Record store writes flat files and resolves by recordId", async 
     try {
         const written = await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "2026-07-14-example.md" });
         assertEquals(written.relativePath, "docs/work-records/2026-07-14-example.md");
-        const found = await findWorkRecordById(cwd, INTERNAL_ATTRS.recordId);
+        const found = await findWorkRecordById(cwd, INTERNAL_ATTRS.recordId.toUpperCase());
         assertEquals(found?.title, "Example Work");
         await assertRejects(
             () => writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "../escape.md" }),
             Error,
             "flat Markdown filename",
         );
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
+Deno.test("Work Record create collision preserves the old record and uses a deterministic identity path", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const fileName = "2026-07-14-example.md";
+        const oldRecord = await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName });
+        const newAttrs = { ...INTERNAL_ATTRS, recordId: "33333333-3333-4333-8333-333333333333" };
+        const newRecord = await writeWorkRecord(cwd, newAttrs, BODY.replaceAll("Example", "Replacement"), { fileName });
+
+        assertEquals((await findWorkRecordById(cwd, INTERNAL_ATTRS.recordId))?.markdown, oldRecord.markdown);
+        assertEquals(
+            newRecord.relativePath,
+            "docs/work-records/2026-07-14-example-33333333-3333-4333-8333-333333333333.md",
+        );
+        await assertRejects(
+            () => writeWorkRecord(cwd, newAttrs, BODY.replaceAll("Example", "Third"), { fileName }),
+            Error,
+            "No file was overwritten",
+        );
+        assertEquals((await findWorkRecordById(cwd, newAttrs.recordId))?.markdown, newRecord.markdown);
     } finally {
         await cleanupTempProject(cwd);
     }
@@ -240,6 +332,30 @@ Deno.test("Recorder structured output parses JSON and rejects empty sections", (
         () => parseRecorderSections('{"title":"Outcome","summary":""}'),
         Error,
         "non-empty summary",
+    );
+    assertThrows(
+        () =>
+            parseRecorderSections(
+                '{"title":"Outcome","summary":"Done.","supersessionProposals":[{"recordId":"not-a-uuid","reason":"Replace it."}]}',
+            ),
+        Error,
+        "valid UUID",
+    );
+    assertThrows(
+        () =>
+            parseRecorderSections(
+                '{"title":"Outcome","summary":"Done.","supersessionProposals":[{"recordId":"11111111-1111-4111-8111-111111111111","reason":"   "}]}',
+            ),
+        Error,
+        "non-blank",
+    );
+    assertThrows(
+        () =>
+            parseRecorderSections(
+                '{"title":"Outcome","summary":"Done.","supersessionProposals":[{"recordId":"11111111-1111-4111-8111-111111111111","reason":"Valid."},{"recordId":"11111111-1111-4111-8111-111111111111","reason":" "}]}',
+            ),
+        Error,
+        "non-blank",
     );
 });
 
@@ -370,6 +486,54 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
         assertEquals(plan?.attrs.status, "verified");
     } finally {
         await cleanupTempProject(cwd);
+    }
+});
+
+Deno.test("Work Record generation rejects missing and self Recorder proposals before successor write", async () => {
+    const cases = [
+        {
+            name: "missing-proposal",
+            successorId: "45454545-4545-4545-8545-454545454545",
+            candidateId: "55555555-5555-4555-8555-555555555555",
+            error: "was not found",
+        },
+        {
+            name: "self-proposal",
+            successorId: "56565656-5656-4565-8565-565656565656",
+            candidateId: "56565656-5656-4565-8565-565656565656",
+            error: "cannot target the successor",
+        },
+    ];
+    for (const testCase of cases) {
+        const cwd = await Deno.makeTempDir();
+        try {
+            await savePlan(cwd, testCase.name, `# ${testCase.name}\n\n## Plan\n\nBody`, {
+                planId: `plan-${testCase.name}`,
+                classification: "FEATURE",
+                complexity: "LOW",
+                summary: "Proposal validation fixture.",
+                affectedPaths: [],
+                createdAt: "2026-07-14T00:00:00.000Z",
+                status: "verified",
+            });
+            const source = (await previewWorkRecordBackfill(cwd)).eligible[0];
+            const outcome = await generateWorkRecordForSource(cwd, source, {
+                mnemosynePort: createWorkRecordMnemosyneFixture(),
+                idGenerator: () => testCase.successorId,
+                runRecorderPrompt: () =>
+                    Promise.resolve(JSON.stringify({
+                        title: "Invalid Proposal Outcome",
+                        summary: "Must not be written.",
+                        supersessionProposals: [{ recordId: testCase.candidateId, reason: "Material correction." }],
+                    })),
+            });
+
+            assertEquals(outcome.status, "failed");
+            assertStringIncludes(outcome.error || "", testCase.error);
+            assertEquals(await findWorkRecordById(cwd, testCase.successorId), null);
+        } finally {
+            await cleanupTempProject(cwd);
+        }
     }
 });
 

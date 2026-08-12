@@ -6,8 +6,8 @@ import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runWorkRecordsCommand, type WorkRecordCommandOptions } from "./index.ts";
 
-const CURRENT_RECORD_ID = "11111111-1111-4111-8111-111111111111";
-const ARCHIVED_RECORD_ID = "22222222-2222-4222-8222-222222222222";
+const CURRENT_RECORD_ID = "a1111111-1111-4111-8111-111111111111";
+const ARCHIVED_RECORD_ID = "b2222222-2222-4222-8222-222222222222";
 
 function recordAttrs(
     recordId: string,
@@ -39,6 +39,26 @@ async function writeFixtureRecords(projectRoot: string): Promise<void> {
         recordAttrs(ARCHIVED_RECORD_ID, "plan-archived", "2026-07-15T00:00:00.000Z"),
         "# Archived Record\n\n## Summary\n\nPreserved the obsolete zephyr history.",
         { fileName: "2026-07-14-archived.md" },
+    );
+}
+
+async function writeSupersessionFixture(projectRoot: string): Promise<void> {
+    await writeWorkRecord(
+        projectRoot,
+        recordAttrs(CURRENT_RECORD_ID, "plan-current"),
+        "# Current Record\n\n## Summary\n\nOlder implementation.",
+        { fileName: "2026-07-14-current.md" },
+    );
+    await writeWorkRecord(
+        projectRoot,
+        {
+            ...recordAttrs(ARCHIVED_RECORD_ID, "plan-successor"),
+            supersessionProposal: {
+                candidates: [{ recordId: CURRENT_RECORD_ID, reason: "The newer outcome replaces the old path." }],
+            },
+        },
+        "# Successor Record\n\n## Summary\n\nNewer implementation.",
+        { fileName: "2026-07-15-successor.md" },
     );
 }
 
@@ -216,6 +236,81 @@ Deno.test("wld wr read --no-open serves canonical Markdown without launching a b
 
         assertEquals(logs.some((line) => line.includes("Could not open your browser automatically")), false);
         assertStringIncludes(readUrl, "/review/plan?token=");
+    });
+});
+
+Deno.test("wld wr supersede lists pending reasons and confirms one pending relation", async () => {
+    await withRuntimeCommandFixture("wr-supersede-confirm-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await writeSupersessionFixture(projectRoot);
+        const options = { mnemosynePort: createWorkRecordMnemosyneFixture() };
+
+        const pending = await captureCommand(["supersede"], options);
+        assertStringIncludes(pending, "The newer outcome replaces the old path.");
+        assertStringIncludes(pending, `${ARCHIVED_RECORD_ID} may supersede ${CURRENT_RECORD_ID}`);
+
+        const output = await captureCommand(
+            ["supersede", ARCHIVED_RECORD_ID, "--confirm", CURRENT_RECORD_ID],
+            options,
+        );
+        assertStringIncludes(output, "Confirmed Work Record supersession proposal");
+        assertEquals(
+            (await findWorkRecordById(projectRoot, CURRENT_RECORD_ID))?.attrs.supersededBy,
+            ARCHIVED_RECORD_ID,
+        );
+        assertEquals((await findWorkRecordById(projectRoot, ARCHIVED_RECORD_ID))?.attrs.supersedes, [
+            CURRENT_RECORD_ID,
+        ]);
+    });
+});
+
+Deno.test("wld wr supersede matches explicit UUID arguments case-insensitively", async () => {
+    await withRuntimeCommandFixture("wr-supersede-case-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await writeSupersessionFixture(projectRoot);
+
+        const output = await captureCommand(
+            ["supersede", ARCHIVED_RECORD_ID.toUpperCase(), "--confirm", CURRENT_RECORD_ID.toUpperCase()],
+            { mnemosynePort: createWorkRecordMnemosyneFixture() },
+        );
+
+        assertStringIncludes(output, `${CURRENT_RECORD_ID} -> ${ARCHIVED_RECORD_ID}`);
+        assertEquals(
+            (await findWorkRecordById(projectRoot, CURRENT_RECORD_ID))?.attrs.supersededBy,
+            ARCHIVED_RECORD_ID,
+        );
+    });
+});
+
+Deno.test("wld wr supersede supports reject and interactive cancel without losing pending state", async () => {
+    await withRuntimeCommandFixture("wr-supersede-reject-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await writeSupersessionFixture(projectRoot);
+        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const messages: string[] = [];
+        const canceled = await captureCommand(["supersede", ARCHIVED_RECORD_ID], {
+            mnemosynePort,
+            uiAPI: {
+                appendSystemMessage: (message) => messages.push(message),
+                promptSelect: () => Promise.resolve(null),
+            },
+        });
+        assertStringIncludes(canceled, "remains pending");
+        assertEquals(
+            (await findWorkRecordById(projectRoot, ARCHIVED_RECORD_ID))?.attrs.supersessionProposal?.candidates.length,
+            1,
+        );
+
+        const rejected = await captureCommand(
+            ["supersede", ARCHIVED_RECORD_ID, "--reject", CURRENT_RECORD_ID],
+            { mnemosynePort },
+        );
+        assertStringIncludes(rejected, "Rejected Work Record supersession proposal");
+        assertEquals(
+            (await findWorkRecordById(projectRoot, ARCHIVED_RECORD_ID))?.attrs.supersessionProposal,
+            undefined,
+        );
+        assertEquals((await findWorkRecordById(projectRoot, CURRENT_RECORD_ID))?.attrs.supersededBy, undefined);
     });
 });
 

@@ -3,7 +3,7 @@
  * Canonical Work Record filesystem store.
  */
 
-import { basename, join, relative } from "@std/path";
+import { basename, dirname, join, relative, resolve } from "@std/path";
 import { WORK_RECORDS_DIR_NAME } from "../../constants.js";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
 
@@ -102,8 +102,40 @@ export async function listWorkRecords(cwd, options = {}) {
  * @param {string} recordId
  */
 export async function findWorkRecordById(cwd, recordId) {
+    const identity = String(recordId).toLowerCase();
     const records = await listWorkRecords(cwd);
-    return records.find((record) => record.attrs.recordId === recordId) || null;
+    return records.find((record) => record.attrs.recordId.toLowerCase() === identity) || null;
+}
+
+/**
+ * Publish validated Markdown without replacing an existing canonical path.
+ * @param {string} directory
+ * @param {string} filePath
+ * @param {string} markdown
+ */
+async function createCanonicalFile(directory, filePath, markdown) {
+    const tempPath = join(directory, `.${basename(filePath)}.${crypto.randomUUID()}.tmp`);
+    let file;
+    try {
+        file = await Deno.open(tempPath, { createNew: true, write: true });
+        await file.write(new TextEncoder().encode(markdown));
+        await file.sync();
+        file.close();
+        file = undefined;
+        await Deno.link(tempPath, filePath);
+        await syncDirectory(directory);
+    } finally {
+        if (file) file.close();
+        await Deno.remove(tempPath).catch(() => {});
+    }
+}
+
+/**
+ * @param {string} fileName
+ * @param {string} recordId
+ */
+function collisionFileName(fileName, recordId) {
+    return `${fileName.slice(0, -3)}-${recordId.toLowerCase()}.md`;
 }
 
 /**
@@ -113,14 +145,118 @@ export async function findWorkRecordById(cwd, recordId) {
  * @param {{ fileName?: string }} [options]
  */
 export async function writeWorkRecord(cwd, attrs, body, options = {}) {
-    await ensureWorkRecordsDir(cwd);
+    const directory = await ensureWorkRecordsDir(cwd);
     const title = body.match(/^#\s+(.+)$/m)?.[1] || attrs.recordId;
-    const fileName = options.fileName || buildWorkRecordFileName(title);
-    const filePath = resolveWorkRecordPath(cwd, fileName);
+    const requestedFileName = options.fileName || buildWorkRecordFileName(title);
+    let filePath = resolveWorkRecordPath(cwd, requestedFileName);
     const markdown = formatWorkRecordMarkdown(attrs, body);
-    parseWorkRecordMarkdown(markdown, { path: filePath, relativePath: relativeWorkRecordPath(cwd, filePath) });
-    const tempPath = `${filePath}.tmp-${crypto.randomUUID()}`;
-    await Deno.writeTextFile(tempPath, markdown);
-    await Deno.rename(tempPath, filePath);
+    const validated = parseWorkRecordMarkdown(markdown, {
+        path: filePath,
+        relativePath: relativeWorkRecordPath(cwd, filePath),
+    });
+    try {
+        await createCanonicalFile(directory, filePath, markdown);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+        const alternateName = collisionFileName(requestedFileName, validated.attrs.recordId);
+        filePath = resolveWorkRecordPath(cwd, alternateName);
+        try {
+            await createCanonicalFile(directory, filePath, markdown);
+        } catch (alternateError) {
+            if (alternateError instanceof Deno.errors.AlreadyExists) {
+                throw new Error(
+                    `Work Record canonical paths already exist: ${requestedFileName} and ${alternateName}. No file was overwritten.`,
+                    { cause: alternateError },
+                );
+            }
+            throw alternateError;
+        }
+    }
     return parseWorkRecordMarkdown(markdown, { path: filePath, relativePath: relativeWorkRecordPath(cwd, filePath) });
+}
+
+/** @param {string} directory */
+async function syncDirectory(directory) {
+    try {
+        const handle = await Deno.open(directory, { read: true });
+        try {
+            await handle.sync();
+        } finally {
+            handle.close();
+        }
+    } catch {
+        // Some filesystems do not support directory sync. Rename is still atomic.
+    }
+}
+
+/**
+ * Delete one canonical Work Record only when its path and identity still match.
+ * @param {string} cwd
+ * @param {import('./schema.js').WorkRecordResource} currentRecord
+ */
+export async function deleteWorkRecord(cwd, currentRecord) {
+    const expectedDir = resolve(getWorkRecordsDir(cwd));
+    const currentPath = resolve(currentRecord.path || "");
+    if (dirname(currentPath) !== expectedDir || !currentRecord.relativePath || !currentPath.endsWith(".md")) {
+        throw new Error("Current Work Record path must identify a canonical flat Work Record file.");
+    }
+    const expectedPath = resolveWorkRecordPath(cwd, basename(currentPath));
+    if (
+        resolve(expectedPath) !== currentPath ||
+        currentRecord.relativePath !== relativeWorkRecordPath(cwd, expectedPath)
+    ) {
+        throw new Error("Current Work Record path is outside the Work Record store or does not match relativePath.");
+    }
+    const onDisk = await readWorkRecord(cwd, basename(currentPath));
+    if (onDisk.attrs.recordId.toLowerCase() !== currentRecord.attrs.recordId.toLowerCase()) {
+        throw new Error("Current Work Record identity does not match the file at its canonical path.");
+    }
+    await Deno.remove(currentPath);
+    await syncDirectory(expectedDir);
+}
+
+/**
+ * Atomically replace one canonical Work Record without permitting an identity or path change.
+ * @param {string} cwd
+ * @param {import('./schema.js').WorkRecordResource} currentRecord
+ * @param {string} markdown
+ */
+export async function replaceWorkRecord(cwd, currentRecord, markdown) {
+    const expectedDir = resolve(getWorkRecordsDir(cwd));
+    const currentPath = resolve(currentRecord.path || "");
+    if (dirname(currentPath) !== expectedDir || !currentRecord.relativePath || !currentPath.endsWith(".md")) {
+        throw new Error("Current Work Record path must identify a canonical flat Work Record file.");
+    }
+    const expectedPath = resolveWorkRecordPath(cwd, basename(currentPath));
+    const expectedRelativePath = relativeWorkRecordPath(cwd, expectedPath);
+    if (resolve(expectedPath) !== currentPath || currentRecord.relativePath !== expectedRelativePath) {
+        throw new Error("Current Work Record path is outside the Work Record store or does not match relativePath.");
+    }
+    const parsed = parseWorkRecordMarkdown(markdown, {
+        path: currentPath,
+        relativePath: relativeWorkRecordPath(cwd, currentPath),
+    });
+    if (parsed.attrs.recordId.toLowerCase() !== currentRecord.attrs.recordId.toLowerCase()) {
+        throw new Error("Replacement Work Record recordId must match the current Work Record identity.");
+    }
+    const onDisk = await readWorkRecord(cwd, basename(currentPath));
+    if (onDisk.attrs.recordId.toLowerCase() !== currentRecord.attrs.recordId.toLowerCase()) {
+        throw new Error("Current Work Record identity does not match the file at its canonical path.");
+    }
+    const tempPath = join(expectedDir, `.${basename(currentPath)}.${crypto.randomUUID()}.tmp`);
+    let file;
+    try {
+        file = await Deno.open(tempPath, { createNew: true, write: true });
+        await file.write(new TextEncoder().encode(markdown));
+        await file.sync();
+        file.close();
+        file = undefined;
+        await Deno.rename(tempPath, currentPath);
+        await syncDirectory(expectedDir);
+    } catch (error) {
+        if (file) file.close();
+        await Deno.remove(tempPath).catch(() => {});
+        throw error;
+    }
+    return parsed;
 }

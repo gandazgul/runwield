@@ -125,11 +125,16 @@ Folding is strictly additive:
 - feedback that invalidates a PRD or ADR assumption should route upstream to that artifact, because a Work Record cannot
   correct the source of the error;
 - when later work proves an earlier record's premise wrong, the correcting Plan's Work Record should supersede the
-  earlier record. The primary path is declaration in advance: the Planner records the intended supersession on the
-  correcting Plan, the Recorder honors it at generation, and Plan approval counts as the user confirmation. When the
-  correction only emerges during execution or review, the Recorder may propose the supersession at generation time and
-  the user confirms it then. The lifecycle module supports supersession today, but no production command surface exists
-  yet; adding one is future work.
+  earlier record. The primary path is an approved Plan declaration: the Planner records each confirmed predecessor Work
+  Record ID in Plan `supersedes`, and Work Record generation applies the declaration after the successor Work Record
+  exists. If the correction becomes clear only during execution or review, the Recorder stores each suggested relation
+  in the successor Work Record's pending `supersessionProposal`. A pending proposal has no effect on default search or
+  Agent retrieval. RunWield asks for a separate decision for each target in the interactive TUI and after interactive
+  backfill, including backfill started with `--yes`. Headless completion keeps proposals pending and reports
+  `wld wr
+  supersede <successorRecordId>` for later confirmation or rejection. A Work Record becomes superseded only
+  after that confirmed successor relation is written. Supersession preserves every completion mode and its applicable
+  confidence notices on explicit retrieval.
 
 The same folding rule applies to feedback from any review source: Forge review today, and Workspace-hosted review later.
 

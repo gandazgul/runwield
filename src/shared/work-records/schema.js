@@ -41,6 +41,7 @@ export const WORK_RECORD_FRONT_MATTER_KEYS = Object.freeze({
     archivedAt: "archivedAt",
     supersedes: "supersedes",
     supersededBy: "supersededBy",
+    supersessionProposal: "supersessionProposal",
     provenance: "provenance",
 });
 
@@ -59,6 +60,17 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  */
 
 /**
+ * @typedef {Object} WorkRecordSupersessionCandidate
+ * @property {string} recordId
+ * @property {string} reason
+ */
+
+/**
+ * @typedef {Object} WorkRecordSupersessionProposal
+ * @property {WorkRecordSupersessionCandidate[]} candidates
+ */
+
+/**
  * @typedef {Object} WorkRecordFrontMatter
  * @property {"work_record"} kind
  * @property {string} recordId
@@ -72,6 +84,7 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  * @property {string} [archivedAt]
  * @property {string|string[]} [supersedes]
  * @property {string} [supersededBy]
+ * @property {WorkRecordSupersessionProposal} [supersessionProposal]
  * @property {WorkRecordProvenance} [provenance]
  */
 

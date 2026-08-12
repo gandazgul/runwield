@@ -19,8 +19,11 @@ import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
 import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
-import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
+import { buildWorkRecordFileName, deleteWorkRecord, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
+import { applyWorkRecordSupersession, WorkRecordSupersessionRollbackError } from "./supersession.ts";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
 const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
@@ -52,6 +55,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {string} [deviationsFromPlan]
  * @property {string} [deferredWork]
  * @property {string} [futurePlanningNotes]
+ * @property {import('./schema.js').WorkRecordSupersessionCandidate[]} [supersessionProposals]
  */
 
 /**
@@ -71,7 +75,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {WorkRecordSource[]} sources
  * @property {WorkRecordSource[]} eligible
  * @property {WorkRecordSource[]} skipped
- * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string, indexWarning?: string }>} outcomes
+ * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string, indexWarning?: string, supersessionProposals?: import('./schema.js').WorkRecordSupersessionCandidate[] }>} outcomes
  */
 
 /** @param {Date} date */
@@ -92,7 +96,9 @@ function extractTitle(body) {
 /** @param {unknown} value */
 function conciseError(value) {
     const message = value instanceof Error ? value.message : String(value || "Unknown Work Record generation failure.");
-    return message.replace(/\s+/g, " ").trim().slice(0, 240) || "Unknown Work Record generation failure.";
+    const normalized = message.replace(/\s+/g, " ").trim();
+    if (value instanceof WorkRecordSupersessionRollbackError) return normalized;
+    return normalized.slice(0, 240) || "Unknown Work Record generation failure.";
 }
 
 /** @param {unknown} value */
@@ -118,6 +124,34 @@ function parseJsonObjectFromText(text) {
 
 /**
  * @param {unknown} value
+ * @returns {import('./schema.js').WorkRecordSupersessionCandidate[] | undefined}
+ */
+function normalizeSupersessionProposals(value) {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value)) throw new Error("Recorder supersessionProposals must be an array.");
+    const candidates = [];
+    const seen = new Set();
+    for (const item of value) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            throw new Error("Each Recorder supersession proposal must be an object.");
+        }
+        const candidate = /** @type {Record<string, unknown>} */ (item);
+        const recordId = optionalTrimmedString(candidate.recordId);
+        const reason = optionalTrimmedString(candidate.reason);
+        if (!recordId || !UUID_RE.test(recordId)) {
+            throw new Error("Recorder supersession proposal recordId must be a valid UUID.");
+        }
+        if (!reason) throw new Error("Recorder supersession proposal reason must be non-blank.");
+        const identity = recordId.toLowerCase();
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        candidates.push({ recordId, reason });
+    }
+    return candidates.length ? candidates : undefined;
+}
+
+/**
+ * @param {unknown} value
  * @returns {GeneratedWorkRecordSections}
  */
 export function normalizeRecorderOutput(value) {
@@ -129,6 +163,7 @@ export function normalizeRecorderOutput(value) {
     const summary = optionalTrimmedString(record.summary);
     if (!title) throw new Error("Recorder output requires a non-empty title.");
     if (!summary) throw new Error("Recorder output requires a non-empty summary.");
+    const supersessionProposals = normalizeSupersessionProposals(record.supersessionProposals);
     return {
         title,
         summary,
@@ -141,6 +176,7 @@ export function normalizeRecorderOutput(value) {
         ...(optionalTrimmedString(record.futurePlanningNotes)
             ? { futurePlanningNotes: optionalTrimmedString(record.futurePlanningNotes) }
             : {}),
+        ...(supersessionProposals ? { supersessionProposals } : {}),
     };
 }
 
@@ -367,15 +403,90 @@ function stripMarkdown(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+/** @param {WorkRecordSource} source */
+function declaredSupersessionIds(source) {
+    const values = source.attrs.supersedes || [];
+    const ids = [];
+    const seen = new Set();
+    for (const value of values) {
+        const id = nonEmptyString(value);
+        if (!UUID_RE.test(id)) {
+            throw new Error(`Plan supersedes contains an invalid Work Record UUID: ${id || "blank"}.`);
+        }
+        const identity = id.toLowerCase();
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        ids.push(id);
+    }
+    return ids;
+}
+
+/**
+ * Validate against a fresh canonical read. The supersession operation repeats these checks under its lock.
+ * @param {string} cwd
+ * @param {string} successorRecordId
+ * @param {string[]} predecessorRecordIds
+ */
+async function validateDeclaredSupersession(cwd, successorRecordId, predecessorRecordIds) {
+    if (!predecessorRecordIds.length) return [];
+    const records = await listWorkRecords(cwd, { createDir: false });
+    const byId = new Map(records.map((record) => [record.attrs.recordId.toLowerCase(), record]));
+    const canonicalIds = [];
+    for (const predecessorRecordId of predecessorRecordIds) {
+        const identity = predecessorRecordId.toLowerCase();
+        if (identity === successorRecordId.toLowerCase()) throw new Error("A Work Record cannot supersede itself.");
+        const predecessor = byId.get(identity);
+        if (!predecessor) throw new Error(`Declared predecessor Work Record was not found: ${predecessorRecordId}.`);
+        if (
+            predecessor.attrs.supersededBy &&
+            predecessor.attrs.supersededBy.toLowerCase() !== successorRecordId.toLowerCase()
+        ) {
+            throw new Error(
+                `Work Record ${predecessor.attrs.recordId} is already superseded by ${predecessor.attrs.supersededBy}.`,
+            );
+        }
+        canonicalIds.push(predecessor.attrs.recordId);
+    }
+    return canonicalIds;
+}
+
+/**
+ * Recorder proposals must identify canonical Work Records. Superseded records are
+ * still valid candidates because the recorded reason supplies their status context.
+ * @param {string} cwd
+ * @param {string} successorRecordId
+ * @param {import('./schema.js').WorkRecordSupersessionCandidate[]} candidates
+ */
+async function validateRecorderProposals(cwd, successorRecordId, candidates) {
+    if (!candidates.length) return [];
+    const records = await listWorkRecords(cwd, { createDir: false });
+    const byId = new Map(records.map((record) => [record.attrs.recordId.toLowerCase(), record]));
+    return candidates.map((candidate) => {
+        const identity = candidate.recordId.toLowerCase();
+        if (identity === successorRecordId.toLowerCase()) {
+            throw new Error("Recorder supersession proposal cannot target the successor Work Record itself.");
+        }
+        const target = byId.get(identity);
+        if (!target) {
+            throw new Error(`Recorder supersession proposal Work Record was not found: ${candidate.recordId}.`);
+        }
+        return { ...candidate, recordId: target.attrs.recordId };
+    });
+}
+
 /**
  * @param {WorkRecordSource} source
+ * @param {string} successorRecordId
+ * @param {string[]} settledSupersedes
  * @returns {string}
  */
-function buildRecorderPrompt(source) {
+function buildRecorderPrompt(source, successorRecordId, settledSupersedes) {
     return JSON.stringify(
         {
             instruction:
-                "Generate a concise Work Record body draft as JSON only: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
+                "Generate a concise Work Record body draft as JSON only: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes, and optional supersessionProposals. supersessionProposals must be an array of {recordId, reason}; each recordId must be a plain UUID and each reason must be non-blank. settledSupersedes are already confirmed and must not be proposed again. Propose only other existing Work Records that this result appears to replace. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
+            successorRecordId,
+            settledSupersedes,
             source: {
                 name: source.name,
                 path: source.relativePath,
@@ -405,10 +516,18 @@ function buildRecorderPrompt(source) {
  * @param {string} cwd
  * @param {WorkRecordSource} source
  * @param {GenerationOptions} [options]
+ * @param {string} [successorRecordId]
+ * @param {string[]} [settledSupersedes]
  * @returns {Promise<GeneratedWorkRecordSections>}
  */
-export async function generateRecorderSections(cwd, source, options = {}) {
-    const prompt = buildRecorderPrompt(source);
+export async function generateRecorderSections(
+    cwd,
+    source,
+    options = {},
+    successorRecordId = crypto.randomUUID(),
+    settledSupersedes = [],
+) {
+    const prompt = buildRecorderPrompt(source, successorRecordId, settledSupersedes);
     const text = options.runRecorderPrompt ? await options.runRecorderPrompt(prompt) : extractAssistantOutput(
         await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.RECORDER, userRequest: prompt }),
     ) || "";
@@ -587,6 +706,11 @@ async function recordGenerationFailure(cwd, source, now, error) {
     }
 }
 
+/** @param {import('./schema.js').WorkRecordResource} record */
+function pendingSupersessionCandidates(record) {
+    return record.attrs.supersessionProposal?.candidates || [];
+}
+
 /**
  * @param {string} cwd
  * @param {WorkRecordSource} inputSource
@@ -602,22 +726,47 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
         if (source.skipReason) {
             throw new Error(`Source is not eligible for Work Record generation: ${source.skipReason}.`);
         }
+        let declaredIds = declaredSupersessionIds(source);
         if (source.existingRecord) {
-            await linkSourceToRecord(cwd, source, source.existingRecord, now);
-            const indexWarning = await bestEffortSyncGeneratedRecord(cwd, source.existingRecord, options);
+            let record = source.existingRecord;
+            let indexWarning = "";
+            declaredIds = await validateDeclaredSupersession(cwd, record.attrs.recordId, declaredIds);
+            if (declaredIds.length) {
+                const applied = await applyWorkRecordSupersession(cwd, {
+                    successorRecordId: record.attrs.recordId,
+                    predecessorRecordIds: declaredIds,
+                    mnemosynePort: options.mnemosynePort,
+                });
+                record = applied.records.find((candidate) => candidate.attrs.recordId === record.attrs.recordId) ||
+                    record;
+                indexWarning = applied.indexWarning || "";
+            } else {
+                indexWarning = await bestEffortSyncGeneratedRecord(cwd, record, options);
+            }
+            await linkSourceToRecord(cwd, source, record, now);
+            const supersessionProposals = pendingSupersessionCandidates(record);
             return {
                 source,
                 status: "linked",
-                recordId: source.existingRecord.attrs.recordId,
-                path: source.existingRecord.relativePath,
+                recordId: record.attrs.recordId,
+                path: record.relativePath,
+                ...(supersessionProposals.length ? { supersessionProposals } : {}),
                 ...(indexWarning ? { indexWarning } : {}),
             };
         }
-        const sections = await generateRecorderSections(cwd, source, options);
+
+        const recordId = options.idGenerator ? options.idGenerator() : crypto.randomUUID();
+        declaredIds = await validateDeclaredSupersession(cwd, recordId, declaredIds);
+        const sections = await generateRecorderSections(cwd, source, options, recordId, declaredIds);
+        const declaredIdentities = new Set(declaredIds.map((id) => id.toLowerCase()));
+        const undeclaredProposals = (sections.supersessionProposals || []).filter((candidate) =>
+            !declaredIdentities.has(candidate.recordId.toLowerCase())
+        );
+        const supersessionProposals = await validateRecorderProposals(cwd, recordId, undeclaredProposals);
         /** @type {import('./schema.js').WorkRecordFrontMatter} */
         const attrs = {
             kind: "work_record",
-            recordId: options.idGenerator ? options.idGenerator() : crypto.randomUUID(),
+            recordId,
             status: "approved",
             scope: /** @type {"planned_change"|"epic"} */ (source.scope),
             workKind: source.attrs.workKind,
@@ -627,6 +776,8 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
                     .completionMode),
             createdAt: iso(now),
             ...(aggregateWorkRecordTickets(source) ? { tickets: aggregateWorkRecordTickets(source) } : {}),
+            ...(declaredIds.length ? { supersedes: declaredIds } : {}),
+            ...(supersessionProposals.length ? { supersessionProposal: { candidates: supersessionProposals } } : {}),
             provenance: {
                 sourcePlans: [source.planId],
                 ...(source.attrs.objectiveCheckWaivers?.length
@@ -642,13 +793,42 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
         const body = buildBody(source, sections);
         const title = body.match(/^#\s+(.+)$/m)?.[1] || attrs.recordId;
         const record = await writeWorkRecord(cwd, attrs, body, { fileName: buildWorkRecordFileName(title, now) });
-        await linkSourceToRecord(cwd, source, record, now);
-        const indexWarning = await bestEffortSyncGeneratedRecord(cwd, record, options);
+        let settledRecord = record;
+        let indexWarning = "";
+        if (declaredIds.length) {
+            try {
+                const applied = await applyWorkRecordSupersession(cwd, {
+                    successorRecordId: recordId,
+                    predecessorRecordIds: declaredIds,
+                    mnemosynePort: options.mnemosynePort,
+                });
+                settledRecord = applied.records.find((candidate) => candidate.attrs.recordId === recordId) || record;
+                indexWarning = applied.indexWarning || "";
+            } catch (error) {
+                if (error instanceof WorkRecordSupersessionRollbackError) throw error;
+                try {
+                    await deleteWorkRecord(cwd, record);
+                } catch (cleanupError) {
+                    throw new Error(
+                        `${conciseError(error)} Generated Work Record cleanup also failed: ${
+                            conciseError(cleanupError)
+                        }`,
+                        { cause: error },
+                    );
+                }
+                throw error;
+            }
+        } else {
+            indexWarning = await bestEffortSyncGeneratedRecord(cwd, settledRecord, options);
+        }
+        await linkSourceToRecord(cwd, source, settledRecord, now);
+        const pending = pendingSupersessionCandidates(settledRecord);
         return {
             source,
             status: "generated",
-            recordId: record.attrs.recordId,
-            path: record.relativePath,
+            recordId: settledRecord.attrs.recordId,
+            path: settledRecord.relativePath,
+            ...(pending.length ? { supersessionProposals: pending } : {}),
             ...(indexWarning ? { indexWarning } : {}),
         };
     } catch (error) {
@@ -720,6 +900,13 @@ export function formatWorkRecordBackfillOutcomes(outcomes) {
             lines.push(
                 `  ${outcome.status === "linked" ? "Linked" : "Generated"} ${outcome.source.name}: ${outcome.path}`,
             );
+            if (outcome.supersessionProposals?.length) {
+                lines.push("    Pending supersession proposals:");
+                for (const candidate of outcome.supersessionProposals) {
+                    lines.push(`      - ${candidate.recordId}: ${candidate.reason}`);
+                }
+                lines.push(`    Run wld wr supersede ${outcome.recordId}.`);
+            }
             if (outcome.indexWarning) lines.push(`    WARNING: ${outcome.indexWarning}`);
         }
     }
