@@ -31,7 +31,6 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-07T23:34:33-04:00"
 updatedAt: "2026-08-08T03:57:38.698Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 humanReviewMode: null
@@ -40,6 +39,7 @@ worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "RunWield usage skill"
 planId: "49566e81-b105-4637-a0c7-1a465c6752b6"
+status: "validated_reviewer"
 ---
 
 # RunWield Usage Skill
