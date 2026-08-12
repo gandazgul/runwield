@@ -586,25 +586,36 @@ Deno.test("planId round trips and blank values normalize away", () => {
 });
 
 Deno.test("supersedes front matter normalizes, deduplicates, and round trips in canonical order", () => {
+    const recordB = "550e8400-e29b-41d4-a716-446655440000";
+    const recordA = "550e8400-e29b-41d4-a716-446655440001";
     const markdown = injectFrontMatter("## Plan", {
         tickets: [{ url: "https://example.com/tickets/ABC-123" }],
-        supersedes: [" record-b ", "record-a", "", "record-b", "   "],
+        supersedes: [` ${recordB} `, recordA, "", recordB.toUpperCase(), "   "],
         executionAgent: "engineer",
     });
     const { attrs } = parsePlanFrontMatter(markdown);
 
-    assertEquals(attrs.supersedes, ["record-b", "record-a"]);
+    assertEquals(attrs.supersedes, [recordB, recordA]);
     assertEquals(markdown.indexOf("tickets:") < markdown.indexOf("supersedes:"), true);
     assertEquals(markdown.indexOf("supersedes:") < markdown.indexOf("executionAgent:"), true);
 });
 
 Deno.test("malformed or empty supersedes front matter is omitted", () => {
     const scalar = parsePlanFrontMatter("---\nsupersedes: record-a\n---\n# Plan\n");
-    const mixed = parsePlanFrontMatter("---\nsupersedes:\n    - record-a\n    - 7\n---\n# Plan\n");
+    const mixed = parsePlanFrontMatter(
+        "---\nsupersedes:\n    - 550e8400-e29b-41d4-a716-446655440000\n    - docs/old-record.md\n---\n# Plan\n",
+    );
+    const nonString = parsePlanFrontMatter(
+        "---\nsupersedes:\n    - 550e8400-e29b-41d4-a716-446655440000\n    - 7\n---\n# Plan\n",
+    );
+    const malformed = injectFrontMatter("# Plan", { supersedes: ["old-record", "plan-123", "docs/record.md"] });
     const blank = injectFrontMatter("# Plan", { supersedes: [" ", ""] });
 
     assertEquals(scalar.attrs.supersedes, undefined);
     assertEquals(mixed.attrs.supersedes, undefined);
+    assertEquals(nonString.attrs.supersedes, undefined);
+    assertEquals(parsePlanFrontMatter(malformed).attrs.supersedes, undefined);
+    assertEquals(malformed.includes("supersedes:"), false);
     assertEquals(parsePlanFrontMatter(blank).attrs.supersedes, undefined);
     assertEquals(blank.includes("supersedes:"), false);
 });
@@ -2591,19 +2602,21 @@ testWithFs("clearPlanCollaborationMetadata requires exact unshare bypass", async
 
 testWithFs("supersedes survives Plan revisions and archival", async () => {
     const cwd = await Deno.makeTempDir();
+    const recordA = "550e8400-e29b-41d4-a716-446655440000";
+    const recordB = "550e8400-e29b-41d4-a716-446655440001";
     try {
         await savePlan(cwd, "superseding-plan", "# Superseding Plan", {
             planId: "superseding-plan-id",
             status: "draft",
-            supersedes: [" old-record ", "old-record", "older-record"],
+            supersedes: [` ${recordA} `, recordA, recordB],
         });
 
         const revised = await updatePlanFrontMatterForTest(cwd, "superseding-plan", { status: "verified" });
-        assertEquals(revised.supersedes, ["old-record", "older-record"]);
+        assertEquals(revised.supersedes, [recordA, recordB]);
 
         await archivePlan(cwd, "superseding-plan", { now: "2026-07-15T00:00:00.000Z" });
         const archived = await loadArchivedPlan(cwd, "superseding-plan");
-        assertEquals(archived?.attrs.supersedes, ["old-record", "older-record"]);
+        assertEquals(archived?.attrs.supersedes, [recordA, recordB]);
         assertEquals(archived?.attrs.archivedAt, "2026-07-15T00:00:00.000Z");
     } finally {
         await Deno.remove(cwd, { recursive: true });

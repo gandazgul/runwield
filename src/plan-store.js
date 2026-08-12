@@ -789,6 +789,8 @@ function normalizeStringList(value) {
     return Array.isArray(value) ? value.map(String) : undefined;
 }
 
+const WORK_RECORD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Normalize optional Work Record supersession IDs without coercing malformed values.
  * @param {unknown} value
@@ -800,8 +802,11 @@ function normalizeSupersedes(value) {
     const seen = new Set();
     for (const item of value) {
         const recordId = item.trim();
-        if (!recordId || seen.has(recordId)) continue;
-        seen.add(recordId);
+        if (!recordId) continue;
+        if (!WORK_RECORD_ID_RE.test(recordId)) return undefined;
+        const identity = recordId.toLowerCase();
+        if (seen.has(identity)) continue;
+        seen.add(identity);
         normalized.push(recordId);
     }
     return normalized.length > 0 ? normalized : undefined;
