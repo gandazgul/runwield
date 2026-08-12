@@ -36,29 +36,30 @@ function normalizeReplayTimestamp(timestamp) {
     return undefined;
 }
 
-/** @param {unknown} entry */
-function replayMeta(entry) {
+/** @param {unknown} entry @param {string | null} [segmentId] */
+function replayMeta(entry, segmentId = null) {
     const value =
         /** @type {{ id?: string, type?: string, timestamp?: unknown, message?: { role?: string } }} */ (entry || {});
     const timestamp = normalizeReplayTimestamp(value.timestamp);
     return {
         replay: true,
-        ...(value.id ? { entryId: value.id } : {}),
+        ...(value.id ? { entryId: segmentId ? `${segmentId}:${value.id}` : value.id } : {}),
         ...(value.type ? { entryType: value.type } : {}),
         ...(value.message?.role ? { role: value.message.role } : {}),
         ...(timestamp ? { timestamp } : {}),
     };
 }
 
-/** @param {unknown} entry @param {string} fallback */
-function entryMessageId(entry, fallback) {
+/** @param {unknown} entry @param {string} fallback @param {string | null} [segmentId] */
+function entryMessageId(entry, fallback, segmentId = null) {
     const value = /** @type {{ id?: string }} */ (entry || {});
-    return value.id || fallback;
+    const id = value.id || fallback;
+    return segmentId ? `${segmentId}:${id}` : id;
 }
 
-/** @param {unknown} entry @param {string} eventKind @param {number} blockIndex */
-function makeEventId(entry, eventKind, blockIndex) {
-    const entryId = entryMessageId(entry, "entry");
+/** @param {unknown} entry @param {string} eventKind @param {number} blockIndex @param {string | null} [segmentId] */
+function makeEventId(entry, eventKind, blockIndex, segmentId = null) {
+    const entryId = entryMessageId(entry, "entry", segmentId);
     return `${entryId}:${eventKind}:${blockIndex}`;
 }
 
@@ -70,9 +71,11 @@ function claudeBackendStatusLevel(kind) {
 /**
  * @param {string} sessionId
  * @param {unknown[]} entries
+ * @param {{ segmentId?: string | null }} [options]
  * @returns {Array<Record<string, any> & { type: string, eventId: string }>}
  */
-export function createReplayEvents(sessionId, entries) {
+export function createReplayEvents(sessionId, entries, options = {}) {
+    const segmentId = options.segmentId || null;
     /** @type {Array<Record<string, any> & { type: string, eventId: string }>} */
     const events = [];
     /** @type {string | null} */
@@ -93,20 +96,20 @@ export function createReplayEvents(sessionId, entries) {
     for (const entry of entries) {
         if (!entry || typeof entry !== "object") continue;
         const value = /** @type {any} */ (entry);
-        const meta = replayMeta(value);
+        const meta = replayMeta(value, segmentId);
         const common = { timestamp: normalizeReplayTimestamp(value.timestamp), _meta: meta };
         if (value.type === "message") {
             const role = value.message?.role || "unknown";
             const content = value.message?.content;
             if (role === "toolResult" || role === "tool_result") {
-                const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`);
+                const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`, segmentId);
                 const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
                 const toolName = value.message?.toolName || value.message?.tool_name || "tool";
                 const toolResult = normalizeRuntimeToolResult(value.message);
                 events.push({
                     ...common,
                     type: RuntimeEventTypes.TOOL_END,
-                    eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, 0),
+                    eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, 0, segmentId),
                     messageId,
                     toolCallId,
                     ...(replayTools.get(toolCallId) || describeRuntimeTool(toolName, undefined)),
@@ -123,7 +126,7 @@ export function createReplayEvents(sessionId, entries) {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                        eventId: makeEventId(value, "task_completed", 1),
+                        eventId: makeEventId(value, "task_completed", 1, segmentId),
                         messageId: `${messageId}:workflow`,
                         delta: formatTaskCompletedMarkdown(taskCompletedMessage),
                         agentName: replayAgentName,
@@ -137,7 +140,7 @@ export function createReplayEvents(sessionId, entries) {
             let blockIndex = 0;
             for (const block of blocks) {
                 const typed = /** @type {any} */ (block || {});
-                const messageId = `${entryMessageId(value, `${sessionId}:replay`)}:${blockIndex}`;
+                const messageId = `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:${blockIndex}`;
                 const eventBlockIndex = blockIndex++;
                 if (typed.type === "thinking" || typed.type === "reasoning") {
                     const delta = toReplayText(typed.text || typed.thinking || typed.content || "");
@@ -145,7 +148,12 @@ export function createReplayEvents(sessionId, entries) {
                         events.push({
                             ...common,
                             type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
-                            eventId: makeEventId(value, RuntimeEventTypes.ASSISTANT_THINKING_DELTA, eventBlockIndex),
+                            eventId: makeEventId(
+                                value,
+                                RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+                                eventBlockIndex,
+                                segmentId,
+                            ),
                             messageId,
                             delta,
                             agentName: replayAgentName,
@@ -153,7 +161,12 @@ export function createReplayEvents(sessionId, entries) {
                         events.push({
                             ...common,
                             type: RuntimeEventTypes.ASSISTANT_THINKING_END,
-                            eventId: makeEventId(value, RuntimeEventTypes.ASSISTANT_THINKING_END, eventBlockIndex),
+                            eventId: makeEventId(
+                                value,
+                                RuntimeEventTypes.ASSISTANT_THINKING_END,
+                                eventBlockIndex,
+                                segmentId,
+                            ),
                             messageId,
                             agentName: replayAgentName,
                         });
@@ -171,7 +184,7 @@ export function createReplayEvents(sessionId, entries) {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.TOOL_START,
-                        eventId: makeEventId(value, RuntimeEventTypes.TOOL_START, eventBlockIndex),
+                        eventId: makeEventId(value, RuntimeEventTypes.TOOL_START, eventBlockIndex, segmentId),
                         messageId,
                         toolCallId,
                         ...runtimeTool,
@@ -184,7 +197,7 @@ export function createReplayEvents(sessionId, entries) {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.TOOL_END,
-                        eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, eventBlockIndex),
+                        eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, eventBlockIndex, segmentId),
                         messageId,
                         toolCallId,
                         ...(replayTools.get(toolCallId) || describeRuntimeTool("tool", undefined)),
@@ -200,7 +213,7 @@ export function createReplayEvents(sessionId, entries) {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.USER_MESSAGE,
-                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, eventBlockIndex),
+                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, eventBlockIndex, segmentId),
                         messageId,
                         text,
                         images: [],
@@ -209,7 +222,7 @@ export function createReplayEvents(sessionId, entries) {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                        eventId: makeEventId(value, RuntimeEventTypes.ASSISTANT_TEXT_DELTA, eventBlockIndex),
+                        eventId: makeEventId(value, RuntimeEventTypes.ASSISTANT_TEXT_DELTA, eventBlockIndex, segmentId),
                         messageId,
                         delta: text,
                         agentName: replayAgentName,
@@ -218,7 +231,7 @@ export function createReplayEvents(sessionId, entries) {
                 } else {events.push({
                         ...common,
                         type: RuntimeEventTypes.SYSTEM_STATUS,
-                        eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, eventBlockIndex),
+                        eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, eventBlockIndex, segmentId),
                         messageId,
                         message: text,
                         level: "info",
@@ -228,8 +241,8 @@ export function createReplayEvents(sessionId, entries) {
                 events.push({
                     ...common,
                     type: RuntimeEventTypes.USAGE,
-                    eventId: makeEventId(value, RuntimeEventTypes.USAGE, 0),
-                    messageId: `${entryMessageId(value, `${sessionId}:replay`)}:usage`,
+                    eventId: makeEventId(value, RuntimeEventTypes.USAGE, 0, segmentId),
+                    messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:usage`,
                     usage: normalizeRuntimeUsage(value.message.usage),
                 });
             }
@@ -239,8 +252,8 @@ export function createReplayEvents(sessionId, entries) {
             events.push({
                 ...common,
                 type: RuntimeEventTypes.SYSTEM_STATUS,
-                eventId: makeEventId(value, value.type, 0),
-                messageId: entryMessageId(value, value.type),
+                eventId: makeEventId(value, value.type, 0, segmentId),
+                messageId: entryMessageId(value, value.type, segmentId),
                 message: value.summary || `${value.type} replayed`,
                 level: "info",
             });
@@ -252,8 +265,8 @@ export function createReplayEvents(sessionId, entries) {
                 events.push({
                     ...common,
                     type: RuntimeEventTypes.SYSTEM_STATUS,
-                    eventId: makeEventId(value, RuntimeEventTypes.MODEL_CHANGED, 0),
-                    messageId: entryMessageId(value, value.type),
+                    eventId: makeEventId(value, RuntimeEventTypes.MODEL_CHANGED, 0, segmentId),
+                    messageId: entryMessageId(value, value.type, segmentId),
                     message: `Model changed: ${nextModel}`,
                     level: "info",
                 });
@@ -267,8 +280,8 @@ export function createReplayEvents(sessionId, entries) {
                 events.push({
                     ...common,
                     type: RuntimeEventTypes.SYSTEM_STATUS,
-                    eventId: makeEventId(value, RuntimeEventTypes.THINKING_LEVEL_CHANGED, 0),
-                    messageId: entryMessageId(value, value.type),
+                    eventId: makeEventId(value, RuntimeEventTypes.THINKING_LEVEL_CHANGED, 0, segmentId),
+                    messageId: entryMessageId(value, value.type, segmentId),
                     message: `Thinking level changed: ${nextThinkingLevel}`,
                     level: "info",
                 });
@@ -287,8 +300,8 @@ export function createReplayEvents(sessionId, entries) {
             events.push({
                 ...common,
                 type: RuntimeEventTypes.SYSTEM_STATUS,
-                eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, 0),
-                messageId: entryMessageId(value, `${sessionId}:claude-backend-status`),
+                eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, 0, segmentId),
+                messageId: entryMessageId(value, `${sessionId}:claude-backend-status`, segmentId),
                 message,
                 level: claudeBackendStatusLevel(kind),
             });
@@ -299,8 +312,8 @@ export function createReplayEvents(sessionId, entries) {
             events.push({
                 ...common,
                 type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                eventId: makeEventId(value, "manual_qa_checklist", 0),
-                messageId: entryMessageId(value, `${sessionId}:manual-qa`),
+                eventId: makeEventId(value, "manual_qa_checklist", 0, segmentId),
+                messageId: entryMessageId(value, `${sessionId}:manual-qa`, segmentId),
                 delta: manualQaChecklist.text,
                 agentName: manualQaChecklist.agentName,
                 messageKind: "workflow",

@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { DatabaseSync } from "node:sqlite";
 import { getRunWieldSessionDir } from "../session/root-session.js";
+import { captureTranscriptEvidence } from "../session/session-transcript-projection.js";
 import { openOwnerCoordinationDatabase } from "./database.js";
 import { registerProject } from "./projects.js";
 import {
@@ -140,9 +141,13 @@ Deno.test("segments append after sealing and preserve ordering while allowing du
             });
             const first = getCurrentSessionSegment(database, session.runwieldSessionId);
             assert(first);
-            sealSessionTranscriptSegment(database, {
+            await sealSessionTranscriptSegment(database, {
                 runwieldSessionId: session.runwieldSessionId,
                 segmentId: first.segmentId,
+                evidence: await captureTranscriptEvidence({
+                    transcriptPath: first.transcriptPath,
+                    transcriptCwd: root,
+                }),
                 now: () => "t2",
             });
             const secondPath = await writeTranscript(root, "pi-same", { timestamp: "2026-01-01T00:00:01.000Z" });
@@ -189,9 +194,13 @@ Deno.test("append rejects transcript paths outside the Project root and missing 
             });
             const first = getCurrentSessionSegment(database, session.runwieldSessionId);
             assert(first);
-            sealSessionTranscriptSegment(database, {
+            await sealSessionTranscriptSegment(database, {
                 runwieldSessionId: session.runwieldSessionId,
                 segmentId: first.segmentId,
+                evidence: await captureTranscriptEvidence({
+                    transcriptPath: first.transcriptPath,
+                    transcriptCwd: root,
+                }),
             });
             const outsidePath = await writeTranscript(outside, "pi-2");
             await assertRejects(

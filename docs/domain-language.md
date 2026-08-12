@@ -535,6 +535,14 @@ eligible agent shell commands. _Avoid_: Required tool, agent tool, search tool
 **Prompt Template**: A layered markdown template that defines a slash command available in the TUI. _Avoid_: Slash
 command definition, prompt command
 
+**Sealed Session Transcript Segment**: A Session Transcript Segment that is no longer writable and has recorded byte
+length, digest, and terminal-entry evidence for its final JSONL contents. _Avoid_: Archived transcript, old session,
+closed file
+
+**Aggregate Transcript Projection**: A read-only projection that renders verified sealed segments plus the committed
+prefix of the current segment as one ordered Session timeline. _Avoid_: Concatenated transcript, merged session, segment
+hydration
+
 ## Relationships
 
 - One **Attached Workflow** governs one **User Request** inside one **External Agent Host**.
@@ -542,6 +550,8 @@ command definition, prompt command
   truth, review, validation, recovery evidence, Work Records, and organizational memory.
 - An **Attached Workflow** persists structured evidence and durable artifacts without copying the host conversation into
   a **Session Transcript**.
+- An **Aggregate Transcript Projection** emits no part of a generation until every included **Sealed Session Transcript
+  Segment** and the current committed segment prefix have verified.
 - A **Verified Plan** has the same meaning in **RunWield Connect** and **RunWield Core**, regardless of which
   **Execution Backend** Core uses.
 - An **External Work Source** owns **Tickets** and demand management; RunWield owns planning, execution, **Plan

@@ -75,6 +75,9 @@
  * @property {string | null} lineageParentPiSessionId
  * @property {string | null} lineageGroupKey
  * @property {string | null} lineageRecordedAt
+ * @property {number | null} sealedByteLength
+ * @property {string | null} sealedDigestHex
+ * @property {string | null} sealedTerminalEntryId
  */
 
 /**

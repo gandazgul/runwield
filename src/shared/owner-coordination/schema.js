@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 6;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 7;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -444,4 +444,27 @@ BEGIN
        AND current_segment_id = NEW.id
        AND state <> 'active';
 END;
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V7_SQL = `
+ALTER TABLE session_transcript_segments ADD COLUMN sealed_byte_length INTEGER CHECK (sealed_byte_length IS NULL OR sealed_byte_length >= 0);
+ALTER TABLE session_transcript_segments ADD COLUMN sealed_digest_hex TEXT;
+ALTER TABLE session_transcript_segments ADD COLUMN sealed_terminal_entry_id TEXT;
+
+UPDATE session_committed_generations
+   SET current_segment_id = (
+       SELECT only_segments.id
+         FROM session_transcript_segments only_segments
+        WHERE only_segments.runwield_session_id = session_committed_generations.runwield_session_id
+          AND only_segments.project_id = session_committed_generations.project_id
+        GROUP BY only_segments.runwield_session_id, only_segments.project_id
+       HAVING COUNT(*) = 1
+   )
+ WHERE current_segment_id IS NULL
+   AND 1 = (
+       SELECT COUNT(*)
+         FROM session_transcript_segments count_segments
+        WHERE count_segments.runwield_session_id = session_committed_generations.runwield_session_id
+          AND count_segments.project_id = session_committed_generations.project_id
+   );
 `;

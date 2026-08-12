@@ -4,6 +4,7 @@
  */
 
 import { isAbsolute, join, resolve } from "@std/path";
+import { createHash } from "node:crypto";
 import {
     getRunWieldSessionDir,
     isPathInside,
@@ -97,6 +98,47 @@ function segmentFromRow(row) {
             : String(row.lineage_parent_pi_session_id),
         lineageGroupKey: row.lineage_group_key === null ? null : String(row.lineage_group_key),
         lineageRecordedAt: row.lineage_recorded_at === null ? null : String(row.lineage_recorded_at),
+        sealedByteLength: row.sealed_byte_length === null || row.sealed_byte_length === undefined
+            ? null
+            : Number(row.sealed_byte_length),
+        sealedDigestHex: row.sealed_digest_hex === null || row.sealed_digest_hex === undefined
+            ? null
+            : String(row.sealed_digest_hex),
+        sealedTerminalEntryId: row.sealed_terminal_entry_id === null || row.sealed_terminal_entry_id === undefined
+            ? null
+            : String(row.sealed_terminal_entry_id),
+    };
+}
+
+/** @param {Uint8Array} bytes */
+function sha256HexSync(bytes) {
+    return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** @param {unknown[]} entries */
+function terminalEntryId(entries) {
+    const last = entries.at(-1);
+    return last && typeof last === "object" && typeof /** @type {any} */ (last).id === "string"
+        ? /** @type {any} */ (last).id
+        : null;
+}
+
+/** @param {string} transcriptPath @param {number} byteLength */
+function captureTranscriptEvidenceSync(transcriptPath, byteLength) {
+    const stat = Deno.statSync(transcriptPath);
+    if (stat.size < byteLength) throw new Error("Sealed segment transcript is shorter than supplied evidence");
+    const fullBytes = Deno.readFileSync(transcriptPath);
+    const bytes = fullBytes.subarray(0, byteLength);
+    if (bytes.byteLength !== byteLength) throw new Error("Unable to read sealed segment transcript evidence");
+    const text = new TextDecoder().decode(bytes);
+    if (text.length > 0 && !text.endsWith("\n")) {
+        throw new Error("Sealed segment transcript evidence must end at a JSONL boundary");
+    }
+    const entries = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    return {
+        byteLength,
+        terminalEntryId: terminalEntryId(entries),
+        digestHex: sha256HexSync(bytes),
     };
 }
 
@@ -674,18 +716,41 @@ export async function appendSessionTranscriptSegment(database, segment) {
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ runwieldSessionId: string, segmentId: string, now?: () => string }} options
+ * @param {{ runwieldSessionId: string, segmentId: string, evidence?: { byteLength: number, digestHex: string, terminalEntryId: string | null }, now?: () => string }} options
  * @returns {import('../types.js').SessionTranscriptSegment}
  */
 export function sealSessionTranscriptSegment(database, options) {
     const ownerDb = requireDatabase(database);
+    const supplied = options.evidence || null;
+    if (!supplied || !Number.isInteger(supplied.byteLength) || typeof supplied.digestHex !== "string") {
+        throw new Error("Sealed segment evidence is required");
+    }
     const now = isoNow(options.now);
     return ownerDb.transaction(() => {
-        const current = getCurrentSessionSegment(ownerDb, options.runwieldSessionId);
-        if (!current || current.segmentId !== options.segmentId) throw new Error("Segment is not current");
+        const currentInTransaction = getCurrentSessionSegment(ownerDb, options.runwieldSessionId);
+        if (!currentInTransaction || currentInTransaction.segmentId !== options.segmentId) {
+            throw new Error("Segment is not current");
+        }
+        const actual = captureTranscriptEvidenceSync(currentInTransaction.transcriptPath, supplied.byteLength);
+        if (
+            actual.byteLength !== supplied.byteLength || actual.digestHex !== supplied.digestHex ||
+            actual.terminalEntryId !== supplied.terminalEntryId
+        ) {
+            throw new Error("Sealed segment evidence does not match transcript on disk");
+        }
         const result = ownerDb.handle.prepare(
-            "UPDATE session_transcript_segments SET sealed_at = ?, last_cataloged_at = ? WHERE id = ? AND runwield_session_id = ? AND sealed_at IS NULL",
-        ).run(now, now, options.segmentId, options.runwieldSessionId);
+            `UPDATE session_transcript_segments
+                SET sealed_at = ?, last_cataloged_at = ?, sealed_byte_length = ?, sealed_digest_hex = ?, sealed_terminal_entry_id = ?
+              WHERE id = ? AND runwield_session_id = ? AND sealed_at IS NULL`,
+        ).run(
+            now,
+            now,
+            supplied.byteLength,
+            supplied.digestHex,
+            supplied.terminalEntryId ?? null,
+            options.segmentId,
+            options.runwieldSessionId,
+        );
         if (result.changes !== 1) throw new Error("Segment seal proof was rejected");
         return /** @type {import('../types.js').SessionTranscriptSegment} */ (listSessionTranscriptSegments(
             ownerDb,
