@@ -37,8 +37,7 @@ import { AUTOMATIC_ROUNDS, DISCOVERY_ROUNDS } from "./validation-types.ts";
 import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
-import { runHumanReviewPhase } from "./validation-human-review.ts";
-import { persistHumanReviewMetadata } from "./validation-human-review.ts";
+import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-human-review.ts";
 import { runPublicationPhase } from "./validation-publication.ts";
 import { UserActionPause } from "./validation-types.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
@@ -182,86 +181,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         });
 
         const repairBaselineTree = await captureWorktreeTree(context.executionCwd);
-        const repair = await dispatchReviewFeedbackRepair(args, context, {
-            diffText,
-            findingsSection: openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback,
-            repairKind: "semantic",
-            reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
-            activeWorkflow: {
-                semanticRound: nextRound,
-                reviewLedger: review.ledger,
-                repairBaselineTree,
-            },
-        });
-        if (!repair.completed) {
-            const reason = repair.reason ||
-                "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
-            await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
-            return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
-        }
-
-        // Asked after the repair and after the tests run over it, not before: the
-        // choice is about the repaired code, and the user needs to know whether it
-        // still builds before deciding to ship it or look at it themselves. Running
-        // the tests here is also what keeps a repair from reaching publication
-        // unbuilt, now that a Retry re-enters at the reviewer rather than going back
-        // around through the mechanical phase.
-        if (nextRound >= AUTOMATIC_ROUNDS) {
-            // At the limit the repair is tested right here instead of going back
-            // around, so the loop stays in this phase rather than the mechanical one
-            // the dispatch above pinned it to.
-            args.session.rememberPosition(args.planName, { phase: "semantic" });
-            emitStatus(args, `Running CI Validation in ${context.executionCwd}.`);
-            const ciResult = await args.localCI.run({ cwd: context.executionCwd });
-            const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
-            emitStatus(
-                args,
-                testsPass ? "Build and tests passed." : "Build and tests are failing after the repair.",
-                testsPass ? "success" : "warning",
-            );
-            const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
-            if (action === "code_review") {
-                await persistHumanReviewMetadata(args, context.projectRoot, {
-                    humanReviewMode: "always",
-                    humanReviewDecision: null,
-                    humanReviewedAt: null,
-                });
-                await recordLifecycleEvent(
-                    args,
-                    context.projectRoot,
-                    "semantic_review_passed",
-                    "validated_ci",
-                    undefined,
-                    { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
-                );
-                return {
-                    kind: "paused",
-                    planName: args.planName,
-                    projectRoot: context.projectRoot,
-                    reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
-                };
-            }
-            if (action === "stop") {
-                // Nothing is recorded, so the Plan stays at `validated_ci` with its
-                // passing tests and its open findings intact. Running it again reopens
-                // the review exactly here rather than starting the pipeline over.
-                return {
-                    kind: "paused",
-                    planName: args.planName,
-                    projectRoot: context.projectRoot,
-                    reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ${
-                        testsPass ? "The tests still pass and the findings are saved." : "The tests are failing too."
-                    } Run this Plan again when you want to pick it back up.`,
-                };
-            }
-            state.repairBaselineTree = repairBaselineTree;
-            state.lastRepairReport = repair.report;
-            round = nextRound;
-            ledger = review.ledger;
-            diffText = await getDiffText(context.baselineTree, context.executionCwd);
-            continue;
-        }
-
+        const findingsSection = openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback;
         await recordLifecycleEvent(
             args,
             context.projectRoot,
@@ -269,11 +189,105 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             "validated_ci",
             review.outcome.feedback || "Semantic Code Review requested changes.",
         );
+        args.session.setActiveWorkflow({
+            ...context.workflowBase,
+            semanticRound: nextRound,
+            reviewLedger: review.ledger,
+            repairBaselineTree,
+        });
+        if (!args.supportsSemanticRepairHandoff) {
+            const repair = await dispatchReviewFeedbackRepair(args, context, {
+                diffText,
+                findingsSection,
+                repairKind: "semantic",
+                reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+                activeWorkflow: {
+                    semanticRound: nextRound,
+                    reviewLedger: review.ledger,
+                    repairBaselineTree,
+                },
+            });
+            if (!repair.completed) {
+                const reason = repair.reason ||
+                    "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
+                await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
+                return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+            }
+            if (nextRound >= AUTOMATIC_ROUNDS) {
+                args.session.rememberPosition(args.planName, { phase: "semantic" });
+                emitStatus(args, `Running CI Validation in ${context.executionCwd}.`);
+                const ciResult = await args.localCI.run({ cwd: context.executionCwd });
+                const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
+                emitStatus(
+                    args,
+                    testsPass ? "Build and tests passed." : "Build and tests are failing after the repair.",
+                    testsPass ? "success" : "warning",
+                );
+                const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
+                if (action === "code_review") {
+                    await persistHumanReviewMetadata(args, context.projectRoot, {
+                        humanReviewMode: "always",
+                        humanReviewDecision: null,
+                        humanReviewedAt: null,
+                    });
+                    await recordLifecycleEvent(
+                        args,
+                        context.projectRoot,
+                        "semantic_review_passed",
+                        "validated_ci",
+                        undefined,
+                        { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+                    );
+                    return {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: context.projectRoot,
+                        reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                    };
+                }
+                if (action === "stop") {
+                    return {
+                        kind: "paused",
+                        planName: args.planName,
+                        projectRoot: context.projectRoot,
+                        reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ${
+                            testsPass
+                                ? "The tests still pass and the findings are saved."
+                                : "The tests are failing too."
+                        } Run this Plan again when you want to pick it back up.`,
+                    };
+                }
+                state.repairBaselineTree = repairBaselineTree;
+                state.lastRepairReport = repair.report;
+                round = nextRound;
+                ledger = review.ledger;
+                diffText = await getDiffText(context.baselineTree, context.executionCwd);
+                continue;
+            }
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: "Semantic Code Review requested changes; repair dispatched.",
+            };
+        }
         return {
-            kind: "paused",
+            kind: "semantic_repair_handoff",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review requested changes; repair dispatched.",
+            reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
+            semanticRepairHandoff: {
+                semanticRound: nextRound,
+                reviewLedger: review.ledger,
+                repairBaselineTree,
+                diffText,
+                findingsSection,
+                activeWorkflow: {
+                    semanticRound: nextRound,
+                    reviewLedger: review.ledger,
+                    repairBaselineTree,
+                },
+            },
         };
     }
 }

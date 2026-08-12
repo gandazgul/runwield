@@ -292,6 +292,30 @@ export class WorkspaceSessionContinuationService {
         return { operationId: receipt.operationId, status: "running" };
     }
 
+    /**
+     * @param {{ runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
+     */
+    async startPlanExecutionHandoff(options) {
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
+            throw new Error("Plan execution requires the exact committed generation.");
+        }
+        const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
+        try {
+            return await this.runtime.executePlan(adopted.sessionId, {
+                planName: options.planName,
+                triageMeta: options.triageMeta || {},
+                reviewFeedback: options.reviewFeedback,
+                reviewImages: options.reviewImages,
+                expectedGeneration: options.expectedGeneration,
+            });
+        } finally {
+            this.runtime.closeSessionWhenIdle(adopted.sessionId);
+        }
+    }
+
     /** @param {string} operationId */
     getOperation(operationId) {
         const live = this.operations.get(operationId);

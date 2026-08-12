@@ -62,6 +62,7 @@ export type ValidationLoopArgs = {
     semanticReviewPort?: SemanticReviewPort;
     localCI: LocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
+    supportsSemanticRepairHandoff?: boolean;
 };
 
 type MechanicalValidationArgs = {
@@ -120,5 +121,6 @@ function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
             run: ({ cwd }) => args.localCI.run({ hostedSession: args.hostedSession, cwd }),
         },
         workRecordMnemosynePort: args.workRecordMnemosynePort,
+        supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
     };
 }

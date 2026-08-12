@@ -1,6 +1,6 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
-import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { getPlanRevisionForText, loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { join } from "@std/path";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -22,7 +22,9 @@ import { CollaborationStyles, selectRuntimeCollaborationStyle } from "./executio
 import { ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
 import { finalizePlanImplementation } from "./implementation-checkpoint.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
-import { runEngineerWithPlan } from "./engineer-runner.ts";
+import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
+import { loadPlanActionEvidence } from "./plan-actions.ts";
+import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-runner.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -53,6 +55,7 @@ export interface PlanExecutionResult {
     error?: string;
     completionReport?: string;
     executionContext?: ActiveExecutionWorkflow;
+    executionSegmentHandoff?: import("./execution-segment-handoff.ts").ExecutionSegmentContinuation;
 }
 
 export interface ExecutePlanOptions {
@@ -63,11 +66,13 @@ export interface ExecutePlanOptions {
     routerMessage?: string;
     reviewFeedback?: string;
     reviewImages?: Array<{ base64: string; mimeType: string }>;
+    prepareSegmentHandoff?: boolean;
 }
 
 export interface ExecuteSingleEngineerPlanOptions {
     planName: string;
     planBody: string;
+    approvedMarkdown?: string;
     triageMeta: Partial<PlanFrontMatter>;
     sessionManager?: SessionManager;
     currentStatus: import("./plan-lifecycle.js").PlanStatus;
@@ -77,6 +82,7 @@ export interface ExecuteSingleEngineerPlanOptions {
     reviewImages?: Array<{ base64: string; mimeType: string }>;
     collaborationStyle?: "autonomous" | "pair";
     collaborationRecommendation?: "autonomous" | "pair";
+    prepareSegmentHandoff?: boolean;
 }
 
 export async function executePlan({
@@ -87,6 +93,7 @@ export async function executePlan({
     routerMessage,
     reviewFeedback,
     reviewImages,
+    prepareSegmentHandoff = false,
 }: ExecutePlanOptions): Promise<PlanExecutionResult> {
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
     const projectRoot = hostedSession.cwd;
@@ -383,6 +390,7 @@ export async function executePlan({
     const result = await executeSingleEngineerPlan({
         planName,
         planBody: plan.body,
+        approvedMarkdown: plan.markdown,
         triageMeta: effectiveMeta,
         sessionManager,
         currentStatus: plan.attrs.status,
@@ -392,6 +400,7 @@ export async function executePlan({
         reviewImages: effectiveReviewImages,
         collaborationStyle: collaboration.style,
         collaborationRecommendation: collaboration.recommendation,
+        prepareSegmentHandoff,
     });
     if (!result.executionComplete) {
         if (result.baselineRejected) {
@@ -528,6 +537,7 @@ export async function executeSingleEngineerPlan(
     {
         planName,
         planBody,
+        approvedMarkdown,
         triageMeta,
         sessionManager,
         currentStatus,
@@ -537,6 +547,7 @@ export async function executeSingleEngineerPlan(
         reviewImages,
         collaborationStyle = CollaborationStyles.AUTONOMOUS,
         collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
+        prepareSegmentHandoff = false,
     }: ExecuteSingleEngineerPlanOptions,
 ): Promise<PlanExecutionResult> {
     let executionContext;
@@ -580,6 +591,54 @@ export async function executeSingleEngineerPlan(
         });
         return { repairRequired: false, executionComplete: false, error: message };
     }
+    if (prepareSegmentHandoff) {
+        const managed = hostedSession.getManagedMetadata?.();
+        if (!managed?.runwieldSessionId) {
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                error: "Managed execution handoff requires Session metadata.",
+            };
+        }
+        const planId = typeof triageMeta.planId === "string" ? triageMeta.planId : "";
+        if (!planId) {
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                error: "Managed execution handoff requires Plan identity.",
+            };
+        }
+        const preparedEvidence = await loadPlanActionEvidence(
+            executionContext.projectRoot || hostedSession.cwd,
+            planId,
+        );
+        if (preparedEvidence.kind !== "success") {
+            return { repairRequired: false, executionComplete: false, error: preparedEvidence.message };
+        }
+        const approvedRevision = typeof triageMeta.revision === "string" && triageMeta.revision.trim()
+            ? triageMeta.revision
+            : await getPlanRevisionForText(planBody);
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            executionContext,
+            executionSegmentHandoff: buildExecutionSegmentContinuation({
+                runwieldSessionId: managed.runwieldSessionId,
+                planId,
+                planName,
+                approvedRevision,
+                approvedStatus: currentStatus,
+                approvedMarkdown: approvedMarkdown || planBody,
+                approvalFeedback: reviewFeedback,
+                approvalImages: reviewImages,
+                preparedEvidence: preparedEvidence.evidence,
+                activeWorkflow: executionContext,
+                executionOwner: executionContext.executionAgent,
+                collaborationStyle,
+                collaborationRecommendation,
+            }),
+        };
+    }
     emitLaunchingExecutionAgent(
         hostedSession,
         getAgentDisplayName(executionContext.executionAgent, executionContext.projectRoot || hostedSession?.cwd),
@@ -609,6 +668,62 @@ export async function executeSingleEngineerPlan(
         repairRequired: false,
         executionComplete: true,
         ...(executionContext ? { executionContext } : {}),
+        ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
+    };
+}
+
+export async function executePreparedPlanSegmentHandoff({
+    continuation,
+    sessionManager,
+    hostedSession,
+}: {
+    continuation: import("./execution-segment-handoff.ts").ExecutionSegmentContinuation;
+    sessionManager?: SessionManager;
+    hostedSession: HostedSession;
+}): Promise<PlanExecutionResult> {
+    const workflow = continuation.activeWorkflow as ActiveExecutionWorkflow;
+    hostedSession.setActiveExecutionWorkflow(workflow);
+    emitLaunchingExecutionAgent(
+        hostedSession,
+        getAgentDisplayName(continuation.executionOwner, workflow.projectRoot || hostedSession.cwd),
+    );
+    const engineerResult = await runEngineerWithSegmentHandoff({
+        continuation,
+        sessionManager,
+        hostedSession,
+    });
+    if (!engineerResult.completed) {
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            executionContext: workflow,
+            ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
+            ...(engineerResult.error ? { error: engineerResult.error } : {}),
+        };
+    }
+    try {
+        await finalizePlanImplementation({
+            projectRoot: workflow.projectRoot || hostedSession.cwd,
+            planName: continuation.plan.planName,
+            triageMeta: workflow.triageMeta,
+            executionContext: workflow,
+            executionReport: engineerResult.completionReport,
+            hostedSession,
+        });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+            repairRequired: true,
+            executionComplete: false,
+            error: reason,
+            executionContext: workflow,
+            ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
+        };
+    }
+    return {
+        repairRequired: false,
+        executionComplete: true,
+        executionContext: workflow,
         ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
     };
 }

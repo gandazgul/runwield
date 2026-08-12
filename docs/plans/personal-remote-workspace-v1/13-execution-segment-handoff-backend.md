@@ -16,13 +16,13 @@ affectedPaths:
 executionAgent: "engineer"
 createdAt: "2026-07-26T20:48:25.377Z"
 updatedAt: "2026-07-27T19:30:00.000Z"
-status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 13
 dependencies:
     - "12-session-activated-plan-actions"
 planId: "4f16e83d-f127-42cd-8ea3-39fbbfec35fb"
+status: "ready_for_work"
 ---
 
 # Execution and Semantic Repair Segment Handoff Backend

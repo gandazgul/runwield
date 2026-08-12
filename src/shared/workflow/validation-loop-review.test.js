@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
@@ -376,7 +376,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     const repairActiveOwners = /** @type {Array<string | undefined>} */ ([]);
     const repairActivePlanNames = /** @type {Array<string | null>} */ ([]);
 
-    await runValidationPhase({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p\n\nApproved Plan body",
@@ -386,6 +386,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
             complexity: "MEDIUM",
             executionAgent: "frontend-engineer",
         },
+        supportsSemanticRepairHandoff: true,
         semanticReviewPort: reviewPort({
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 sessions.push(opts);
@@ -406,22 +407,18 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     });
 
     const plan = await loadPlan(projectRoot, "p");
-    const repairSession = sessions.find((opts) => opts.agentName === "reviewer-feedback-engineer");
-    assertEquals(sessions.map((opts) => opts.agentName), ["reviewer", "reviewer-feedback-engineer"]);
-    assertEquals(Boolean(repairSession), true);
-    assertStringIncludes(repairSession.userRequest, "Missing guard");
-    assertStringIncludes(repairSession.userRequest, "R1-1");
-    assertStringIncludes(repairSession.userRequest, "[docs/plans/p.md]");
-    assertEquals(repairSession.userRequest.includes("Approved Plan body"), false);
+    assertEquals(result.kind, "semantic_repair_handoff");
+    assertStringIncludes(result.semanticRepairHandoff?.findingsSection || "", "Missing guard");
+    assertEquals(sessions.map((opts) => opts.agentName), ["reviewer"]);
     assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext]);
-    assertEquals(repairWorkflowContexts, [expectedWorkflowContext]);
-    assertEquals(repairActiveOwners, ["frontend-engineer"]);
-    assertEquals(repairActivePlanNames, ["p"]);
+    assertEquals(repairWorkflowContexts, []);
+    assertEquals(repairActiveOwners, []);
+    assertEquals(repairActivePlanNames, []);
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "Dispatching repair");
+    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Code Review round");
 });
 
 Deno.test("runValidationPhase carries existing ledger identities and repair report into the next semantic round", async () => {
@@ -629,11 +626,12 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
         },
     });
 
-    await runValidationPhase({
+    const result = await runValidationPhase({
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        supportsSemanticRepairHandoff: true,
         semanticReviewPort: roundLimitPort(),
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
@@ -641,18 +639,12 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
     });
 
     const plan = await loadPlan(projectRoot, "p");
-    const choice = interactions.find((request) => request.type === "select");
-    assertStringIncludes(choice.prompt, 'looked at "p" 3 times');
-    // Three ways forward, and Stop is one of them: a menu with no exit is not the
-    // same thing as never stranding someone.
-    assertEquals(choice.options.map((/** @type {{ value: string }} */ option) => option.value), [
-        "continue",
-        "code_review",
-        "stop",
-    ]);
-    assertEquals(plan?.attrs.status, "validated_reviewer");
-    assertEquals(plan?.attrs.humanReviewMode, "always");
-    assertEquals(plan?.attrs.humanReviewDecision, null);
+    assertEquals(interactions.length, 0);
+    assertEquals(result.kind, "semantic_repair_handoff");
+    assertEquals(result.semanticRepairHandoff?.semanticRound, 3);
+    assertEquals(plan?.attrs.status, "implemented");
+    assertEquals(plan?.attrs.humanReviewMode, undefined);
+    assertEquals(plan?.attrs.humanReviewDecision, undefined);
 });
 
 Deno.test("Stop at the review round limit keeps the passing tests and the open findings", async () => {
@@ -670,17 +662,18 @@ Deno.test("Stop at the review round limit keeps the passing tests and the open f
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        supportsSemanticRepairHandoff: true,
         semanticReviewPort: roundLimitPort(),
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
         },
     });
 
-    assertEquals(result.kind, "paused");
-    assertStringIncludes(result.reason || "", "Run this Plan again");
-    // Still at validated_ci, so running it again reopens the review rather than
-    // starting the pipeline over. No repair was dispatched on the way out.
-    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+    assertEquals(result.kind, "semantic_repair_handoff");
+    assertStringIncludes(result.reason || "", "Dispatching repair");
+    assertEquals(result.semanticRepairHandoff?.semanticRound, 3);
+    // Semantic feedback reopens implementation; Runtime rolls to a repair segment and resumes validation after repair.
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
 Deno.test("look again re-enters at the focused reviewer, after the repair and its tests", async () => {
@@ -688,18 +681,13 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
     /** @type {Array<"discovery" | "verify">} */
     const modes = [];
     let ciRuns = 0;
-    let round = 0;
     let asks = 0;
-    const answers = ["continue"];
+    let round = 0;
 
     hostedSession.setInteractionAdapter({
         requestInteraction: (/** @type {any} */ request) => {
-            if (request.type !== "select") return Promise.resolve({ outcome: "canceled" });
-            if (!String(request.prompt).includes("looked at")) {
-                return Promise.resolve({ outcome: "selected", value: "stop" });
-            }
-            asks += 1;
-            return Promise.resolve({ outcome: "selected", value: answers.shift() || "stop" });
+            if (request.type === "select") asks += 1;
+            return Promise.resolve({ outcome: "selected", value: "continue" });
         },
     });
 
@@ -708,23 +696,11 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        supportsSemanticRepairHandoff: true,
         semanticReviewPort: {
             ...roundLimitPort(),
-            runIsolatedAgentSession: (/** @type {any} */ options) => {
+            runIsolatedAgentSession: () => {
                 modes.push("verify");
-                if (options?.agentName === "reviewer-feedback-engineer") {
-                    return Promise.resolve(
-                        /** @type {any[]} */ ([{
-                            role: "toolResult",
-                            toolName: "task_completed",
-                            toolCallId: `repair-${round}`,
-                            content: [],
-                            isError: false,
-                            timestamp: new Date().toISOString(),
-                            details: { outcome: "task_completed", message: "- Addressed the finding." },
-                        }]),
-                    );
-                }
                 round += 1;
                 return Promise.resolve(
                     reviewerMessages({ approved: false, findings: [{ title: "Issue from round 1" }] }),
@@ -739,27 +715,13 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
         },
     });
 
-    // Round three, repair, tests, ask. "Look again" re-enters at the reviewer for
-    // round four — not back through the mechanical phase, and never a fresh sweep.
-    // Every reviewer prompt loaded was the focused one — rounds three and four never
-    // sweep the whole Plan again. (One round can load its prompt more than once when
-    // the reviewer needs a nudge, so this asserts the mode, not the count.)
-    assert(modes.length >= 2 && modes.every((mode) => mode === "verify"), `Expected focused rounds, got ${modes}`);
-    // Two rounds at the limit: round three, then the one "look again" bought.
-    // The ordering claim: the repair ran, the tests ran over it, and only then was
-    // the user asked — one ask, one CI, in that order.
-    // The ordering claim: the repair ran, the tests ran over it, and only then was
-    // the user asked — one ask, one CI, in that order.
-    assertEquals(asks, 1);
-    assertEquals(ciRuns, 1, "the tests run over the repair before the user is asked about it");
-    // And "look again" re-entered at the reviewer: another round started without the
-    // Plan ever going back to `implemented` for a mechanical pass.
-    assert(round > 2, `Expected a further reviewer round after "look again", saw ${round} reviewer turns`);
-    assertEquals(result.kind, "paused");
-    assertEquals(result.kind, "paused");
-    // Untouched at validated_ci throughout: the in-memory rounds never send the Plan
-    // back to implemented, so returning later resumes at the review.
-    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+    assertEquals(modes, ["verify"]);
+    assertEquals(asks, 0);
+    assertEquals(ciRuns, 0);
+    assertEquals(round, 1);
+    assertEquals(result.kind, "semantic_repair_handoff");
+    assertEquals(result.semanticRepairHandoff?.semanticRound, 3);
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
 Deno.test("^Claude MCP review completion waives only review_diff inspection$", async () => {

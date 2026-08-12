@@ -133,8 +133,8 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         const before = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
         result = await runValidationPhase(phaseArgs);
         if (result.kind !== "paused") {
-            // Verified or failed, the run is finished and its position dies with it.
-            args.session.clearPosition(args.planName);
+            // Verified/failed finish; a semantic repair handoff pauses outside this activated operation.
+            if (result.kind !== "semantic_repair_handoff") args.session.clearPosition(args.planName);
             return result;
         }
         // A mechanical repair turn is not a completion signal. The repair Agent
