@@ -41,7 +41,7 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
     if (canonicalPlan.kind === "blocked") return canonicalPlan.result;
     const canonicalArgs: ValidationLoopArgs = {
         ...args,
-        triageMeta: { ...args.triageMeta, ...canonicalPlan.attrs },
+        triageMeta: canonicalPlan.attrs as ValidationLoopArgs["triageMeta"],
         planContent: canonicalPlan.markdown,
     };
     const nextPhase = resolveNextPhase(args, canonicalPlan.status);

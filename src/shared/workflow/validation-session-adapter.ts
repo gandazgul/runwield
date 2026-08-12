@@ -153,7 +153,11 @@ async function runIsolatedRequest(
     const report = readLatestTaskCompletedReport(messages);
     return {
         kind: "feedback_engineer",
-        taskReport: { completed: report.completed, report: report.message, brokenObjectiveChecks: [] },
+        taskReport: {
+            completed: report.completed,
+            report: report.message,
+            brokenObjectiveChecks: report.brokenObjectiveChecks || [],
+        },
     };
 }
 

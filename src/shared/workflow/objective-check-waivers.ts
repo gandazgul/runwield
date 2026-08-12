@@ -50,11 +50,11 @@ export async function persistObjectiveCheckWaiver({
     results,
     waivedAt = new Date().toISOString(),
 }: PersistObjectiveCheckWaiverOptions): Promise<ObjectiveCheckWaiver[]> {
-    const brokenResults = brokenObjectiveCheckResults(results);
-    if (!brokenResults.length) throw new Error("Objective Check waiver needs at least one broken check result.");
+    const waiverResults = source === "engineer_report" ? results : brokenObjectiveCheckResults(results);
+    if (!waiverResults.length) throw new Error("Objective Check waiver needs at least one selected check result.");
     const nextWaivers = normalizeObjectiveCheckWaivers([
         ...(existingWaivers || []),
-        ...brokenResults.map((result) => ({
+        ...waiverResults.map((result) => ({
             id: result.id,
             command: result.command,
             source,

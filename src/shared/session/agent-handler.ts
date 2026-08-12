@@ -540,7 +540,6 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                             }
                         }
                     }
-                    acknowledgeCompletion();
                 }
 
                 let planContent = "";
@@ -556,12 +555,10 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     hostedSession,
                     planName: workflow.planName,
                     planContent,
-                    triageMeta: {
-                        ...workflow.triageMeta,
-                        ...(acceptedCompletion.brokenObjectiveChecks?.length
-                            ? { engineerReportedBrokenObjectiveChecks: acceptedCompletion.brokenObjectiveChecks }
-                            : {}),
-                    },
+                    triageMeta: workflow.triageMeta,
+                    ...(acceptedCompletion.brokenObjectiveChecks?.length
+                        ? { engineerReportedBrokenObjectiveChecks: acceptedCompletion.brokenObjectiveChecks }
+                        : {}),
                     sessionManager,
                     finalAgentName: agentName,
                     git: createGitPort(),
@@ -569,6 +566,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                 });
+                acknowledgeCompletion();
                 if (validationResult?.epicContinuation) {
                     return { kind: "complete", validationResult };
                 }

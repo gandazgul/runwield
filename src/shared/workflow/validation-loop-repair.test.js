@@ -14,6 +14,8 @@ import {
     runValidationLoop,
     runValidationPhase,
 } from "./validation-test-helpers.js";
+import { runPlanObjectiveChecks } from "./validation-mechanical.ts";
+import { createValidationSessionPort } from "./validation-session-adapter.ts";
 
 function makeValidationUi(cwd = Deno.cwd()) {
     const uiAPI = makeUi();
@@ -97,6 +99,70 @@ async function withIncompleteRepairModel(prefix, attrs, run) {
     });
 }
 
+Deno.test("Engineer-reported defective checks reach user judgement for met unmet and broken results", async () => {
+    const objectiveChecks = [
+        { id: "OC1", command: "true" },
+        { id: "OC2", command: "false" },
+        { id: "OC3", command: "not-a-real-runwield-command" },
+    ];
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        objectiveChecks,
+    });
+    const { hostedSession } = makeValidationUi(projectRoot);
+    try {
+        /** @type {import('./validation-types.ts').ValidationLoopArgs} */
+        const loopArgs = {
+            session: createValidationSessionPort(hostedSession),
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+            git: /** @type {import('../git-port.ts').GitPort} */ ({}),
+            workRecordMnemosynePort:
+                /** @type {import('../work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} */ ({}),
+        };
+        const outcome = await runPlanObjectiveChecks(
+            loopArgs,
+            {
+                args: loopArgs,
+                projectRoot,
+                executionContext: /** @type {import('./execution-context.ts').ResolvedValidationContext} */ ({
+                    planName: "p",
+                    projectRoot,
+                    executionCwd: projectRoot,
+                    executionMode: "non_git_in_place",
+                    source: "active_session",
+                }),
+                executionCwd: projectRoot,
+                executionAgent: "engineer",
+                nonGitInPlace: true,
+                workflowBase: {
+                    planName: "p",
+                    triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                    executionAgent: "engineer",
+                },
+            },
+            0,
+            [
+                { id: "OC1", command: "true", explanation: "zero-test filter selected no tests" },
+                { id: "OC2", command: "false", explanation: "invalid option makes the check defective" },
+                { id: "OC3", command: "not-a-real-runwield-command", explanation: "tool does not exist" },
+            ],
+        );
+
+        assertEquals(outcome.kind, "broken");
+        if (outcome.kind !== "broken") throw new Error("expected broken outcome");
+        assertEquals(outcome.results.map((result) => result.id), ["OC1", "OC2", "OC3"]);
+        assertEquals(outcome.results.map((result) => result.status), ["met", "unmet", "broken"]);
+        assertStringIncludes(outcome.reason, "Engineer reported defective Objective-Failing Checks");
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
 Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
     await withIncompleteRepairModel("validation-repair-ci-", {}, async ({ projectRoot, hostedSession, prompts }) => {
         const result = await runValidationPhase({
@@ -166,13 +232,9 @@ Deno.test("runValidationLoop sends rejected broken Objective-Failing Check waive
 
             const plan = await loadPlan(projectRoot, "p");
             assertEquals(result.kind, "paused");
-            assertStringIncludes(
-                result.reason || "",
-                "without task_completed during broken Objective-Failing Check repair",
-            );
-            assertEquals(prompts.length, 1);
-            assertStringIncludes(prompts[0], "User feedback");
-            assertEquals(plan?.attrs.validationCiAttempts, 1);
+            assertStringIncludes(result.reason || "", "Objective-Failing Check judgement");
+            assertEquals(prompts.length, 0);
+            assertEquals(plan?.attrs.validationCiAttempts, undefined);
             assertEquals(plan?.attrs.objectiveCheckWaivers, undefined);
         },
     );
