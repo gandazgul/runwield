@@ -1,7 +1,8 @@
 ---
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
+workKind: "MAINTENANCE"
 complexity: "MEDIUM"
-summary: "Add integration tests, diagnostics, and recovery checks that prove the segment, checkpoint, activation, and Plan lease invariants before larger Workspace UX builds on them. This is an executable hardening checkpoint rather than a review-only slice."
+summary: "Harden cross-surface Session activation, segment generation and projection, canonical Plan checks, and execution handoff context boundaries."
 affectedPaths:
     - "src/shared/owner-coordination/"
     - "src/shared/session/"
@@ -27,87 +28,62 @@ planId: "3ad362d3-ea4c-4cb2-bebe-755e85a6361a"
 
 ## Context
 
-The backend foundation now spans owner coordination, segmented transcript projection, activation leases, durable
-checkpoints, Plan Workflow Leases, and execution handoff. Before investing in the larger browser UX, Personal Workspace
-needs an executable confidence checkpoint that proves the architecture holds across TUI, Workspace, ACP, CLI commands,
-process restart, and crash-point recovery.
-
-This is not a review-only task. It adds tests, diagnostics, and targeted hardening changes that make the invariants
-observable and enforceable.
+The backend foundation spans Session Activation, ordered transcript segments, aggregate projection, action-time
+canonical Plan checks, and execution/repair handoff. Before larger browser UX builds on it, integration tests must prove
+these invariants across TUI, Workspace, ACP, commands, process restart, and rollover crash points.
 
 ## Objective
 
-Harden and verify cross-surface workflow invariants so that:
+Harden and test only these authority boundaries:
 
-- only one process can hydrate or mutate a stable Session at a time;
-- observers can read aggregate committed timelines without writable hydration;
-- Session generation, current segment, checkpoint, and Plan lease evidence are validated consistently;
-- Plan approval and execution segment handoff never leak Planner context into Engineer context;
-- stale fences, wrong segments, duplicate checkpoint submissions, and competing Plan actions fail closed;
-- diagnostics explain blocked, uncertain, reconcile-required, and recovery states without exposing sensitive internals;
-- existing TUI, ACP, Workspace, QUICK_FIX, non-Git, Shared Plan, Plan Lifecycle, validation, and worktree behavior
-  remains compatible where it does not violate the new invariants.
+- one activated process mutates a stable Session;
+- readers validate committed generation and current-segment evidence before aggregate projection;
+- writable hydration uses the committed current segment;
+- consequential Plan actions revalidate canonical revision, lifecycle status, and worktree evidence;
+- execution and repair handoffs preserve their bounded context rules; and
+- diagnostics explain activation, segment integrity, stale canonical evidence, and recovery failures.
 
 ## Approach
 
-Build multi-process and crash-point integration tests around the critical seams. Add small diagnostics and repair
-affordances where failures are currently opaque. Use the existing architecture-boundary tests to keep adapter dependency
-direction intact. Do not introduce new product UI beyond minimal status surfaces needed to understand recovery states.
+Build multi-process and crash-point tests around existing boundaries. Add only targeted diagnostics and fixes revealed
+by the tests. Preserve sibling adapter direction and avoid new product UI.
 
 ## Files to Modify
 
-- `src/shared/owner-coordination/` — add invariant tests and diagnostics for schema, activation, segments, checkpoints,
-  and leases.
-- `src/shared/session/` — add projection, hydration, current-segment, context-boundary, and recovery tests.
-- `src/shared/workflow/` — add Plan lease, execution handoff, validation, and crash-point tests.
-- `src/ui/tui/` — verify idle sync, draft preservation, blocked ownership states, and recovery messages.
-- `src/acp/` — verify stable RunWield Session identity, aggregate loading, and activation rejection/continuation.
-- `src/ui/workspace/server/` — verify checkpoint resolution APIs, Session control checks, and Shared Space separation at
-  the server boundary.
-- `src/cmd/` — verify standalone commands cannot bypass activation or Plan leases.
-- `docs/usage.md` — document upgraded protocol refusal, recovery guidance, and private-network operational cautions if
-  gaps are found.
+- `src/shared/owner-coordination/` — activation, generation, segment, and operation-receipt tests and diagnostics.
+- `src/shared/session/` — current-segment hydration, aggregate projection, and context-boundary tests.
+- `src/shared/workflow/` — canonical Plan/worktree checks and execution-handoff crash tests.
+- `src/ui/tui/`, `src/acp/`, and `src/ui/workspace/server/` — cross-surface activation and projection scenarios.
+- `src/cmd/` — prove applicable commands use the shared canonical checks.
+- `docs/usage.md` — document recovery and unsupported direct-writer behavior if gaps are found.
 
 ## Reuse Opportunities
 
-Existing functions, modules, or patterns to reuse:
-
-- `src/shared/session/architecture-boundary.test.js` — extend adapter dependency boundary coverage.
-- Existing activation, projection, owner DB, Workspace, ACP, Plan Lifecycle, and worktree tests — convert key cases into
-  cross-surface scenarios.
-- `src/ui/tui/system-notifications.js` — reuse status/attention language for blocked and recovery states.
-- Durable checkpoint and lease diagnostics from earlier slices — surface consistent recovery reasons.
+- `src/shared/session/architecture-boundary.test.js`.
+- Existing activation, projection, owner DB, Plan Lifecycle, worktree, Workspace, and ACP fixtures.
+- `src/ui/tui/system-notifications.js` for actionable recovery language.
 
 ## Implementation Steps
 
-- [ ] Build multi-process test fixtures for competing TUI/Workspace/ACP mutation attempts and read-only observation.
-- [ ] Add crash-point tests covering transcript-ahead/database-behind, database-ahead detection, checkpoint resolution
-      before consumption, lease generation mismatch, and execution handoff interruption.
-- [ ] Add context-boundary tests proving Engineer receives approved execution seed only and aggregate owner timeline
-      still includes planning history.
-- [ ] Add bypass tests for CLI commands, Workspace handlers, ACP loading, validation, worktree registry mutation,
-      cancellation, compaction, settings/model changes, images, and local shell execution.
-- [ ] Add diagnostics for blocked activation, uncertain effects, stale protocol, wrong-current-segment proof,
-      sealed-segment integrity failure, and Plan lease conflict.
-- [ ] Update documentation for any manual recovery states and unsupported mixed-version/direct-Pi writer cases.
+- [ ] Build multi-process fixtures for competing mutations and read-only aggregate observation.
+- [ ] Test current generation/segment proof, sealed evidence, activation loss, and transcript-ahead reconciliation.
+- [ ] Test canonical Plan revision/status and worktree checks through Workspace and command entry points.
+- [ ] Test execution and repair rollover interruption plus Planner/Engineer/Reviewer context exclusion.
+- [ ] Add sanitized diagnostics for blocked activation, stale protocol, wrong current segment, damaged sealed evidence,
+      changed canonical Plan evidence, and rollover recovery.
 - [ ] Run and stabilize the full quality gate.
 
 ## Verification Plan
 
 - Automated: run `deno task ci`.
-- Automated: new integration tests should fail if any adapter can mutate a managed Session without Session Activation
-  and correct current-segment proof.
-- Automated: tests should fail if any Plan lifecycle/worktree/validation path can bypass Plan Workflow Lease ownership.
-- Automated: tests should fail if Approve & Run can create duplicate execution segments, duplicate Engineer starts, or
-  Planner-context leakage.
-- Manual: perform a small cross-surface smoke test with TUI and Workspace open to the same Session, confirming one
-  writer wins, the loser refreshes, and drafts survive.
+- Automated: fail if any adapter mutates a managed Session without Session Activation and current-segment proof.
+- Automated: fail if covered Plan actions bypass current canonical status/revision/worktree checks.
+- Automated: fail if aggregate projection emits partial unverified generations or handoff leaks predecessor context.
+- Manual: open TUI and Workspace on one Session, confirm one writer wins, the observer refreshes, and drafts survive.
 
 ## Edge Cases & Considerations
 
-- Heartbeat age is evidence, not permission to replay uncertain effects.
-- Older/direct Pi writers cannot be fenced retroactively; detected conflicting evidence must block mutation and route to
-  recovery.
-- Keep diagnostics sanitized and actionable for a local owner.
-- This slice may reveal small fixes in previous modules; keep fixes targeted to invariant enforcement rather than
-  expanding product scope.
+- Heartbeat age alone is not permission to take over uncertain work.
+- Unsupported direct Pi writers cannot be fenced retroactively; conflicting evidence blocks mutation.
+- Keep diagnostics sanitized and owner-actionable.
+- Keep fixes proportional to the tested invariants.

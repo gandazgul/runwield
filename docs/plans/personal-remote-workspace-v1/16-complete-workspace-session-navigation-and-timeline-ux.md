@@ -1,7 +1,8 @@
 ---
-classification: "FEATURE"
+classification: "PLANNED_CHANGE"
+workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Expand the phone ideation tracer bullet into the full Workspace Session surface with Project navigation, aggregate semantic timelines, ownership handoff, reconnect behavior, and Session creation/continuation polish."
+summary: "Expand the phone tracer bullet into complete Workspace Session navigation and aggregate timelines for committed Pi history, with explicit retry after owner-process loss."
 affectedPaths:
     - "src/ui/workspace/pages/"
     - "src/ui/workspace/components/"
@@ -30,80 +31,70 @@ planId: "7d873089-5c41-4c43-95cd-e748fdc6b38a"
 
 ## Context
 
-The earlier phone ideation tracer bullet proved minimal remote continuation. Personal Workspace now needs the complete
-everyday Session surface: Project and Session navigation, segmented aggregate timeline rendering, ownership handoff
-visibility, reconnect behavior, Session creation, and clear paths back to dashboard and Plan review workflows.
+The phone ideation tracer bullet proved minimal remote continuation. The complete Session surface must combine Project
+navigation, ordered aggregate history, ownership visibility, reconnect behavior, creation, and continuation while
+preserving one stable Session identity.
+
+Pi persists completed tool calls and results in Session JSONL. A structured interaction that is still waiting belongs to
+the live owning process. If that process is lost, Workspace reloads committed history and tells the owner to ask the
+Agent to retry; it does not recreate the unfinished interaction.
 
 ## Objective
 
-Complete Workspace Session UX so that:
-
-- the owner can navigate Projects, Session lists, recent activity, and Session detail from phone and desktop;
-- semantic timelines render messages, thinking, tools, interactions, workflow events, usage, attention, checkpoint,
-  segment, and recovery events;
-- aggregate segmented history appears as one stable RunWield Session without exposing Pi segment IDs as separate
-  Sessions;
-- activation-aware ownership state and handoff behavior are visible across Workspace, TUI, and ACP;
-- reconnect and refresh preserve drafts, attachments, and local annotations;
-- Session creation and continuation entry points reject competing turns safely and guide resubmission after refresh.
+- Navigate Projects, Session lists, recent activity, and Session detail on phone and desktop.
+- Render messages, thinking, completed tools/interactions, workflow events, usage, attention, segment boundaries, and
+  recovery events from aggregate committed projection.
+- Show a live process-local wait while its owner remains connected, without presenting it as persisted history.
+- After owner-process loss, remove the stale wait and provide explicit retry guidance.
+- Preserve stable Session identity across segments and activation handoff.
+- Preserve drafts, attachments, and local annotations across refresh/reconnect.
+- Reject competing turns safely and require resubmission after refresh.
 
 ## Approach
 
-Build on the tracer-bullet routes and components from slice 5 and the dashboard deep-link model from slice 15. Promote
-useful pieces into reusable Workspace Session components. Render from committed projection data and semantic Runtime
-events rather than raw transcript parsing in the UI. Add polish without changing activation/checkpoint invariants.
+Build reusable components from slice 5 and dashboard navigation from slice 15. Render committed Pi semantic events from
+shared projection APIs. Overlay live process state only while connected to its owner. Keep activation proof details and
+Pi segment IDs out of user-facing navigation.
 
 ## Files to Modify
 
-- `src/ui/workspace/pages/` — expand Session routes, Project navigation, creation flows, and deep-link handling.
-- `src/ui/workspace/components/` — add reusable timeline entries, tool cards, thinking states, interaction states,
-  checkpoint states, ownership banners, and navigation components.
-- `src/ui/workspace/islands/` — add live updates, reconnect, draft preservation, prompt submission, competing-turn
-  rejection, filters, and attachment handling.
-- `src/ui/workspace/react/` — integrate React components where existing Workspace/Plannotator surfaces require them.
-- `src/ui/workspace/server/` — provide complete Session list/detail/create/update APIs backed by shared Session
-  coordination services.
-- `src/shared/session/` — add adapter-neutral UI summary helpers where needed.
-- `docs/design-system.md` — document any reusable timeline or ownership state patterns added to the design system.
+- `src/ui/workspace/pages/` — Session routes, Project navigation, creation, and deep links.
+- `src/ui/workspace/components/` — timeline entries, completed interaction/tool cards, live-wait state, ownership, and
+  navigation.
+- `src/ui/workspace/islands/` — live updates, reconnect, draft preservation, submission, filters, and attachments.
+- `src/ui/workspace/react/` — integrate with existing React/Plannotator surfaces where needed.
+- `src/ui/workspace/server/` — Session list/detail/create/update APIs over shared coordination services.
+- `src/shared/session/` — adapter-neutral display summaries where necessary.
+- `docs/design-system.md` — document reusable timeline/ownership patterns only if newly introduced.
 
 ## Reuse Opportunities
 
-Existing functions, modules, or patterns to reuse:
-
-- `src/shared/session/session-runtime-events.js` — render stable semantic events.
-- Aggregate projection APIs from slice 9 — consume segment-namespaced events and cursors.
-- `src/ui/tui/runtime-adapter.js` — reuse semantic event interpretation concepts without importing TUI UI code.
-- Existing Workspace Plan/Epic components — reuse cards, status badges, navigation, and responsive patterns.
-- `src/ui/design-system/` and `docs/design-system.md` — preserve Workspace visual language and accessibility
-  expectations.
+- `src/shared/session/session-runtime-events.js` semantic events.
+- Slice 9 aggregate projection and segment-namespaced cursors.
+- `src/ui/tui/runtime-adapter.js` interpretation concepts without UI imports.
+- Existing Workspace navigation, cards, badges, and RunWield primitives.
 
 ## Implementation Steps
 
-- [ ] Refactor tracer-bullet Session UI into reusable Project/Session navigation and timeline components.
-- [ ] Add Session list, creation, continuation, search/filter, recent activity, and dashboard deep-link entry points.
-- [ ] Render all supported semantic event families with segment-namespaced stable keys and accessible summaries.
-- [ ] Add ownership handoff, activation-lost, waiting-for-human, running, failed, recovery, idle, and segment-boundary
-      states.
-- [ ] Add reconnect handling that refreshes committed events and preserves prompt drafts, attachments, and local
-      annotations.
-- [ ] Reject unseen competing turns after activation races and guide explicit resubmission after refresh.
-- [ ] Add browser and component tests for timeline rendering, navigation, reconnect, draft preservation, attachment
-      preservation, and ownership status.
+- [ ] Refactor the tracer bullet into reusable Project/Session navigation and timeline components.
+- [ ] Add Session list, creation, continuation, filtering, recent activity, and dashboard deep links.
+- [ ] Render committed semantic event families, including completed Pi tool calls/results, with stable aggregate keys.
+- [ ] Render connected process-local waits distinctly; on owner loss, replace them with retry guidance.
+- [ ] Add activation/handoff, running, failed, recovery, idle, and segment-boundary states.
+- [ ] Refresh committed events after reconnect while preserving drafts, attachments, and annotations.
+- [ ] Test rendering, navigation, owner loss, retry guidance, reconnect, and local-state preservation.
 
 ## Verification Plan
 
 - Automated: run `deno task ci`.
-- Automated: Workspace tests should cover semantic event rendering, aggregate segment timeline rendering, Session
-  navigation, Session creation, activation-lost states, reconnect refresh, and draft/attachment preservation.
-- Manual headed browser: run `deno task workspace:dev`, open phone-sized and desktop-sized Workspace, navigate across
-  Projects/Sessions, continue an ideation turn, disconnect/reconnect the browser, and verify timeline continuity and
-  local draft behavior.
-- Manual cross-surface: continue a Session from TUI to Workspace and back; each turn has one writer, history remains
-  linear, and ownership transitions are visible but unobtrusive.
+- Automated: cover completed interaction rendering, live wait removal after owner loss, aggregate timelines, activation
+  loss, reconnect, and draft/attachment preservation.
+- Manual: continue a Session TUI → Workspace → TUI and confirm one writer, linear history, completed interaction cards,
+  unobtrusive ownership changes, and explicit retry after terminating a pending interaction's process.
 
 ## Edge Cases & Considerations
 
-- Do not queue unseen competing turns when activation is lost; refresh and ask the owner to submit again if needed.
-- Browser-owned work should continue or wait durably according to checkpoint policy, not connection lifetime.
-- Avoid duplicate visual systems; use RunWield tokens and existing Workspace patterns.
-- UI summaries must stay faithful to semantic events and must not expose private activation proof details.
+- A displayed live wait is not committed transcript history.
+- Do not queue unseen competing turns after activation loss.
+- Browser disconnect alone does not end a wait if its owning process remains alive.
+- Use semantic `--rw-*` tokens and existing Workspace patterns.
