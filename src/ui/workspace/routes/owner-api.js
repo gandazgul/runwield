@@ -7,6 +7,7 @@ import {
     getCookie,
 } from "../server/owner-auth.js";
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
+import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 
@@ -24,6 +25,13 @@ async function readJson(request) {
     const text = await request.text();
     if (text.length > MAX_JSON_BYTES) throw new Error("Request body is too large.");
     return text ? JSON.parse(text) : {};
+}
+
+/** @param {unknown} value */
+async function requestHash(value) {
+    const text = JSON.stringify(value);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** @param {unknown} error */
@@ -219,6 +227,38 @@ export async function ownerProjectPlanDetailApi(ctx) {
         return ownerJson({ projectId: ctx.params.projectId, plan: sanitizeOwnerPlanValue(plan), readOnly: true });
     } catch (error) {
         return ownerErrorJson(error, 404);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerProjectPlanActionApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        if (typeof body.requestId !== "string" || !body.requestId) {
+            throw new Error("Plan action requestId is required.");
+        }
+        if (typeof body.runwieldSessionId !== "string" || !body.runwieldSessionId) {
+            throw new Error("Plan action stable Session ID is required.");
+        }
+        const action = { ...(body.action || {}), planId: ctx.params.planId };
+        const hash = await requestHash({
+            projectId: ctx.params.projectId,
+            runwieldSessionId: body.runwieldSessionId,
+            expectedGeneration: body.expectedGeneration,
+            action,
+        });
+        const result = await runOwnerPlanAction(ctx.state.store, {
+            projectId: ctx.params.projectId,
+            runwieldSessionId: body.runwieldSessionId,
+            deviceId: ctx.state.ownerDevice?.deviceId || null,
+            requestId: body.requestId,
+            requestHash: hash,
+            expectedGeneration: Number(body.expectedGeneration),
+            action,
+        });
+        return ownerJson(sanitizeOwnerPlanValue(result.body), result.status);
+    } catch (error) {
+        return ownerErrorJson(error);
     }
 }
 

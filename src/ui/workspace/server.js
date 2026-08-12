@@ -48,6 +48,7 @@ import {
     devicesApi,
     ownerErrorJson,
     ownerProjectBoardApi,
+    ownerProjectPlanActionApi,
     ownerProjectPlanDetailApi,
     pairingClaimApi,
     pairingRequestApi,
@@ -264,6 +265,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/view/:view", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
+    app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);

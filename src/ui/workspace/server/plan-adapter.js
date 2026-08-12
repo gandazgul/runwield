@@ -21,14 +21,18 @@ import {
     getPlanLifecycleActionMetadata,
     ON_HOLD_PLAN_STATUSES,
     PLAN_STATUSES,
-    recordPlanEvent,
 } from "../../../shared/workflow/plan-lifecycle.js";
-import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
+import {
+    isSharedPlanLocked,
+    SHARED_PLAN_LOCK_REPAIR,
+    SharedPlanLockError,
+} from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
 import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../../shared/work-records/auto-generation.js";
+import { executePlanAction, loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
@@ -825,49 +829,21 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
  */
 export async function applyWorkspaceLifecycleAction(cwd, planId, payload, options) {
     const request = validateLifecycleActionPayload(payload, { requireRevision: true });
-    const expectedRevision = String(request.expectedRevision);
+    const evidenceResult = await loadPlanActionEvidence(cwd, planId);
+    if (evidenceResult.kind !== "success") throw new Error(evidenceResult.message);
     const resource = await findPlanById(cwd, planId);
     const attrs = safeObject(resource.attrs);
-    const currentStatus = /** @type {any} */ (String(attrs.status || "draft"));
-    const action = String(request.action);
-    const metadata = getPlanLifecycleActionMetadata(currentStatus, attrs);
-    /** @type {any} */
-    const details = { triageMeta: attrs };
-    /** @type {any} */
-    let event = "manual_status_change";
-    let message = "Plan lifecycle action applied.";
+    if (isSharedPlanLocked(attrs)) {
+        const lockError = new SharedPlanLockError(attrs);
+        return {
+            blocked: true,
+            status: 409,
+            body: { error: lockError.message, blockedReason: lockError.blockedReason, repair: SHARED_PLAN_LOCK_REPAIR },
+        };
+    }
     let resumeCheck = null;
-
-    if (action === PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS) {
-        const targetStatus = String(request.targetStatus);
-        if (!metadata.allowedManualTargetStatuses.includes(/** @type {any} */ (targetStatus))) {
-            throw new Error(metadata.blockedReasons.move_status || `Manual move to ${targetStatus} is blocked.`);
-        }
-        details.manualTargetStatus = targetStatus;
-        message = `Plan moved to ${statusOption(targetStatus).label}.`;
-    } else if (action === PLAN_LIFECYCLE_ACTIONS.USER_VERIFY) {
-        if (!metadata.canUserVerify) throw new Error(metadata.blockedReasons.user_verify);
-        event = "manual_user_verified";
-        details.userVerificationNote = request.userVerificationNote;
-        message = "Plan marked User Verified. RunWield Workflow Validation was not claimed.";
-    } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
-        if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
-        event = "manual_closed_without_verification";
-        details.closedWithoutVerificationReason = request.closedWithoutVerificationReason;
-        message = "Plan closed without Workflow Validation.";
-    } else if (action === PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD) {
-        if (!metadata.canPutOnHold) throw new Error(metadata.blockedReasons.put_on_hold);
-        event = "plan_held";
-        if (typeof request.holdReason === "string") details.holdReason = request.holdReason;
-        details.heldFromStatus = currentStatus;
-        details.holdStalenessBaseline = typeof attrs.executionBaselineTree === "string"
-            ? attrs.executionBaselineTree
-            : undefined;
-        message = attrs.classification === "PROJECT"
-            ? "Epic put on hold. Child Plan statuses were not changed."
-            : "Plan put on hold.";
-    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {
-        if (!metadata.canResumeFromHold) throw new Error(metadata.blockedReasons.resume_from_hold);
+    const action = String(request.action);
+    if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {
         resumeCheck = await runWorkspaceResumeCheck(cwd, attrs);
         if (resumeCheck.failures.length) {
             return {
@@ -883,37 +859,48 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, option
                 body: { error: resumeCheck.message, resumeCheck, requiresConfirmation: true },
             };
         }
-        event = "hold_resumed";
-        details.heldFromStatus = attrs.heldFromStatus;
-        message = `Plan resumed to ${statusOption(String(attrs.heldFromStatus)).label}.`;
-    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT) {
-        if (!metadata.canResetToDraft) throw new Error(metadata.blockedReasons.reset_to_draft);
-        if (attrs.worktreeStatus && !["merged", "abandoned", "none"].includes(String(attrs.worktreeStatus))) {
-            throw new Error("Reset to draft is blocked until the recorded worktree attempt is abandoned or settled.");
-        }
-        event = "hold_reset_to_draft";
-        message = "Held Plan reset to draft after worktree attempt resolution.";
     }
-
-    const planName = resource.planName || resource.name;
-    await recordPlanEvent({ cwd, planName, event, currentStatus, details, expectedRevision });
-    if (event === "manual_closed_without_verification" || event === "manual_user_verified") {
+    const result = await executePlanAction(cwd, {
+        planId,
+        expectedRevision: String(request.expectedRevision),
+        expectedStatus: evidenceResult.evidence.status,
+        expectedWorktree: evidenceResult.evidence.worktree,
+        action: /** @type {import('../../../shared/workflow/plan-actions.ts').PlanActionName} */ (action),
+        targetStatus: typeof request.targetStatus === "string" ? request.targetStatus : undefined,
+        holdReason: typeof request.holdReason === "string" ? request.holdReason : undefined,
+        acceptResumeWarnings: request.acceptResumeWarnings === true,
+        userVerificationNote: typeof request.userVerificationNote === "string"
+            ? request.userVerificationNote
+            : undefined,
+        closedWithoutVerificationReason: typeof request.closedWithoutVerificationReason === "string"
+            ? request.closedWithoutVerificationReason
+            : undefined,
+    });
+    if (result.kind === "refresh_required") {
+        return { blocked: true, status: 409, body: { error: result.message, result } };
+    }
+    if (result.kind === "recovery_required") {
+        return { blocked: true, status: 409, body: { error: result.message, result } };
+    }
+    if (result.kind !== "success") throw new Error(result.message);
+    let message = result.message;
+    if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION || action === PLAN_LIFECYCLE_ACTIONS.USER_VERIFY) {
         let workRecordResult;
         try {
             workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
                 cwd,
-                planName,
+                planName: result.evidence.planName,
                 mnemosynePort: options.mnemosynePort,
             });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             workRecordResult = {
                 status: /** @type {const} */ ("failed"),
-                planName,
+                planName: result.evidence.planName,
                 error: reason,
                 message: formatWorkRecordAutoGenerationResult({
                     status: "failed",
-                    planName,
+                    planName: result.evidence.planName,
                     error: reason,
                     message: "",
                 }),

@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 7;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 8;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -467,4 +467,43 @@ UPDATE session_committed_generations
         WHERE count_segments.runwield_session_id = session_committed_generations.runwield_session_id
           AND count_segments.project_id = session_committed_generations.project_id
    );
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V8_SQL = `
+CREATE TABLE owner_session_operations_v8 (
+    id TEXT PRIMARY KEY,
+    device_id TEXT,
+    request_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    runwield_session_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    expected_generation INTEGER,
+    kind TEXT NOT NULL CHECK (kind IN ('bootstrap', 'continuation', 'plan_action')),
+    status TEXT NOT NULL CHECK (status IN ('accepted', 'running', 'completed', 'failed', 'conflict')),
+    operation_id TEXT NOT NULL UNIQUE,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    result_generation INTEGER,
+    result_http_status INTEGER CHECK (result_http_status IS NULL OR (result_http_status >= 100 AND result_http_status <= 599)),
+    result_json TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
+    UNIQUE(device_id, runwield_session_id, request_id)
+);
+
+INSERT INTO owner_session_operations_v8(
+    id, device_id, request_id, request_hash, runwield_session_id, project_id, expected_generation,
+    kind, status, operation_id, started_at, updated_at, completed_at, result_generation, error_code, error_message
+)
+SELECT id, device_id, request_id, request_hash, runwield_session_id, project_id, expected_generation,
+       kind, status, operation_id, started_at, updated_at, completed_at, result_generation, error_code, error_message
+  FROM owner_session_operations;
+
+DROP TABLE owner_session_operations;
+ALTER TABLE owner_session_operations_v8 RENAME TO owner_session_operations;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_session_operations_request
+    ON owner_session_operations(COALESCE(device_id, '__owner_device_null__'), runwield_session_id, request_id);
 `;

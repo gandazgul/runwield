@@ -8,6 +8,7 @@
 
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
+import type { PlanActionRequest, PlanActionResult } from "../../shared/workflow/plan-actions.ts";
 
 /** An image attached to a review decision. */
 export interface ReviewImage {
@@ -63,6 +64,7 @@ export interface PlanSessionSurface {
     runValidation: (options: Record<string, any>) => Promise<any>;
     // deno-lint-ignore no-explicit-any
     runSlicerAgent: (options: Record<string, any>) => Promise<any>;
+    runPlanAction?: (request: PlanActionRequest) => Promise<PlanActionResult>;
     // deno-lint-ignore no-explicit-any
     getActiveExecutionWorkflow: () => Record<string, any> | null;
     // deno-lint-ignore no-explicit-any

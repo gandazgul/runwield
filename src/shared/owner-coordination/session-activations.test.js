@@ -4,12 +4,14 @@ import { acknowledgeActivationProtocol, getActivationProtocolStatus } from "./ac
 import {
     acquireSessionActivation,
     changeSessionActivationPhase,
+    createOrGetOperationReceipt,
     heartbeatSessionActivation,
     inspectSessionActivation,
     markSessionReconcileRequired,
     markSessionReconcileRequiredWithProof,
     markSessionUncertain,
     publishGenerationAndRelease,
+    updateOperationReceipt,
 } from "./session-activations.js";
 
 /** @param {import('./database.js').OwnerCoordinationDatabase} database */
@@ -225,6 +227,63 @@ Deno.test("proof-fenced unhealthy transitions reject a superseded activation", a
                 now: () => "2026-01-01T00:00:04.000Z",
             });
             assertEquals(inspectSessionActivation(database, "session-1").activation?.state, "reconcile_required");
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("plan_action operation receipts preserve bounded results", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-plan-action-receipt-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSession(database);
+            const receipt = createOrGetOperationReceipt(database, {
+                deviceId: "device-1",
+                requestId: "request-1",
+                requestHash: "hash-1",
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                expectedGeneration: 0,
+                kind: "plan_action",
+                operationId: "operation-1",
+            });
+            if (!receipt) throw new Error("receipt was not created");
+            const completed = updateOperationReceipt(database, receipt.operationId, {
+                status: "completed",
+                resultGeneration: 0,
+                resultHttpStatus: 409,
+                resultBody: {
+                    result: {
+                        kind: "refresh_required",
+                        message: "refresh",
+                        evidence: {
+                            planId: "plan-1",
+                            planName: "p",
+                            revision: "r2",
+                            status: "draft",
+                            worktree: { kind: "none" },
+                        },
+                    },
+                },
+            });
+            if (!completed) throw new Error("receipt was not completed");
+            assertEquals(completed.resultHttpStatus, 409);
+            assertEquals(completed.resultBody.result.kind, "refresh_required");
+            assertThrows(() =>
+                createOrGetOperationReceipt(database, {
+                    deviceId: "device-1",
+                    requestId: "request-1",
+                    requestHash: "different",
+                    runwieldSessionId: "session-1",
+                    projectId: "project-1",
+                    expectedGeneration: 0,
+                    kind: "plan_action",
+                })
+            );
         } finally {
             database.close();
         }

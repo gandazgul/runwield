@@ -813,6 +813,34 @@ export async function findByPlanId(projectRoot, planId) {
 }
 
 /**
+ * Read-only evidence snapshot for Plan action preconditions.
+ *
+ * @param {string} projectRoot
+ * @param {string} planId
+ * @returns {Promise<{ kind: "ok", live: WorktreeRegistryEntry | null, entries: WorktreeRegistryEntry[] } | { kind: "ambiguous" | "unreadable", message: string, entryIds: string[] }>}
+ */
+export async function readPlanActionWorktreeEvidence(projectRoot, planId) {
+    const inspected = await inspectWorktreeRegistry(projectRoot);
+    if (inspected.readError) {
+        return { kind: "unreadable", message: inspected.readError.message, entryIds: [] };
+    }
+    const duplicateLive = inspected.integrityIssues.find((issue) => issue.kind === "duplicate_live_attempt");
+    if (duplicateLive) {
+        return { kind: "ambiguous", message: duplicateLive.message, entryIds: duplicateLive.ids };
+    }
+    const entries = inspected.entries.filter((entry) => entry.planId === planId);
+    const live = entries.filter((entry) => NONTERMINAL_STATUSES.has(entry.status));
+    if (live.length > 1) {
+        return {
+            kind: "ambiguous",
+            message: duplicateLiveAttemptError(live[0].planName, live).message,
+            entryIds: live.map((entry) => entry.id),
+        };
+    }
+    return { kind: "ok", live: live[0] || null, entries };
+}
+
+/**
  * Look up one registry entry by attempt id.
  *
  * Pass `{ migrate: false }` from any caller that must not disturb Plan files —
