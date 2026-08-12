@@ -81,25 +81,6 @@ type AggregateProjectionResult = {
     cursorReset: boolean;
 };
 
-type SegmentVerificationCacheRecord = {
-    size: number;
-    mtimeMs: number | null;
-    byteLength: number;
-    terminalEntryId: string | null;
-    digestHex: string;
-    entries: JsonValue[];
-};
-
-const sealedVerificationCache = new Map<string, SegmentVerificationCacheRecord>();
-
-function statMtimeMs(stat: Deno.FileInfo) {
-    return stat.mtime ? stat.mtime.getTime() : null;
-}
-
-function segmentCacheKey(segment: TranscriptSegment) {
-    return segment.segmentId;
-}
-
 function requireOrderedManifest(options: ProjectAggregateTranscriptOptions) {
     const segments = [...options.segments].sort((left, right) => left.ordinal - right.ordinal);
     if (segments.length === 0) throw new Error("Segment manifest is empty");
@@ -137,9 +118,6 @@ async function verifySealedSegment(segment: TranscriptSegment, sessionDir: strin
     const transcriptPath = await verifyPath(segment, sessionDir);
     const stat = await Deno.stat(transcriptPath);
     if (stat.size !== segment.sealedByteLength) throw new Error("Sealed segment byte length does not match evidence");
-    const cache = sealedVerificationCache.get(segmentCacheKey(segment));
-    const mtimeMs = statMtimeMs(stat);
-    if (cache && cache.size === stat.size && cache.mtimeMs === mtimeMs) return cache;
     const evidence = await captureTranscriptEvidence({
         transcriptPath,
         transcriptCwd: segment.transcriptCwd,
@@ -151,16 +129,7 @@ async function verifySealedSegment(segment: TranscriptSegment, sessionDir: strin
     if (evidence.terminalEntryId !== segment.sealedTerminalEntryId) {
         throw new Error("Sealed segment terminal entry does not match evidence");
     }
-    const record = {
-        size: stat.size,
-        mtimeMs,
-        byteLength: evidence.byteLength,
-        terminalEntryId: evidence.terminalEntryId,
-        digestHex: evidence.digestHex,
-        entries: evidence.entries,
-    };
-    sealedVerificationCache.set(segmentCacheKey(segment), record);
-    return record;
+    return evidence;
 }
 
 async function verifyCurrentSegment(segment: TranscriptSegment, generation: CommittedGeneration, sessionDir: string) {

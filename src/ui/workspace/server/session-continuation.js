@@ -4,10 +4,10 @@ import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
 import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
+import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import {
     captureTranscriptEvidence,
     getCommittedTranscriptAuthorityFacts,
-    projectCommittedTranscript,
 } from "../../../shared/session/session-transcript-projection.js";
 
 const WORKSPACE_IDEATOR_CONVERSATION_TOOLS = [
@@ -101,14 +101,12 @@ export class WorkspaceSessionContinuationService {
         if (!inspected.generation) {
             return { state, activeSurface, bootstrapRequired: true, generation: null, complete: true, events: [] };
         }
-        const projection = await projectCommittedTranscript({
+        const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,
             sessionDir: getRunWieldSessionDir(session.transcriptCwd),
-            sessionPath: session.transcriptPath,
-            generation: inspected.generation.generation,
-            byteLength: inspected.generation.byteLength,
-            terminalEntryId: inspected.generation.terminalEntryId,
-            digestHex: inspected.generation.digestHex,
+            runwieldSessionId,
+            generation: inspected.generation,
+            segments: this.store.listSessionTranscriptSegments(runwieldSessionId),
             cursorEventId: options.cursorEventId,
             limit: options.limit,
         });
@@ -211,16 +209,15 @@ export class WorkspaceSessionContinuationService {
         if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
             throw new Error("Continuation requires the exact committed generation.");
         }
-        const projection = await projectCommittedTranscript({
+        const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,
             sessionDir: getRunWieldSessionDir(session.transcriptCwd),
-            sessionPath: session.transcriptPath,
-            generation: inspected.generation.generation,
-            byteLength: inspected.generation.byteLength,
-            terminalEntryId: inspected.generation.terminalEntryId,
-            digestHex: inspected.generation.digestHex,
+            runwieldSessionId: options.runwieldSessionId,
+            generation: inspected.generation,
+            segments: this.store.listSessionTranscriptSegments(options.runwieldSessionId),
             limit: 1,
         });
+        if (!projection.ok) throw new Error(projection.message);
         const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
         if (committedFacts.activeAgent !== AGENTS.IDEATOR || committedFacts.workflowContext) {
             throw new Error("Workspace continuation is only supported for idle Ideator conversation Sessions.");

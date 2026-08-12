@@ -171,7 +171,7 @@ Deno.test("aggregate projection replays from start when a cursor is absent after
     }
 });
 
-Deno.test("aggregate projection caches sealed segment digest verification by size and mtime", async () => {
+Deno.test("aggregate projection fails closed after a same-size sealed segment mutation with restored mtime", async () => {
     const fixture = await createTwoSegmentFixture();
     try {
         const firstProjection = await projectAggregateTranscript({
@@ -193,8 +193,8 @@ Deno.test("aggregate projection caches sealed segment digest verification by siz
             generation: fixture.generation,
             segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
         });
-        assert(secondProjection.ok);
-        assertEquals(secondProjection.events.length, 2);
+        assertEquals(secondProjection.ok, false);
+        assertEquals(secondProjection.events, []);
     } finally {
         await cleanupFixture(fixture);
     }

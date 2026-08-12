@@ -1291,7 +1291,7 @@ export class SessionRuntime {
         if (managed && !manager) {
             const projected = await this.#readManagedCommittedProjection(sessionId);
             if (!projected.ok) return { ok: false, replayed: 0, error: projected.error };
-            const events = createProjectedReplayEvents(sessionId, projected.entries);
+            const events = projected.projection.events || [];
             for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
             return { ok: true, replayed: events.length };
         }
@@ -3092,7 +3092,7 @@ export class SessionRuntime {
                             createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
                         )
                         : [],
-                    sessionManagerId: managedSession.piSessionId,
+                    sessionManagerId: managedSession.runwieldSessionId,
                     sessionPath: managedSession.transcriptPath,
                 };
             }
