@@ -561,7 +561,7 @@ async function runComposedTuiScenario(scenario, options) {
         const actor = new GoldenScenarioActor(scenario.script || []);
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
-        const { createInteractiveTuiComposition } = await import("../chat-session.js");
+        const { createInteractiveTuiComposition } = await import("../interactive-tui-composition.ts");
         let terminal = new VirtualTerminal(scenario.terminal);
         /** @type {Awaited<ReturnType<typeof createInteractiveTuiComposition>> | null} */
         let composition = null;

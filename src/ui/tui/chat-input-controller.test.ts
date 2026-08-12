@@ -1,0 +1,312 @@
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
+import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
+import { VirtualTerminal } from "./testing/virtual-terminal.js";
+
+interface DeferredSignal {
+    promise: Promise<void>;
+    resolve(): void;
+}
+
+function deferredSignal(): DeferredSignal {
+    let resolvePromise: () => void = () => {};
+    const promise = new Promise<void>((resolve) => {
+        resolvePromise = resolve;
+    });
+    return { promise, resolve: resolvePromise };
+}
+
+async function waitFor(
+    predicate: () => boolean,
+    description: string,
+    timeoutMs = 5_000,
+): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        if (predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`Timed out waiting for ${description}.`);
+}
+
+async function submitText(terminal: VirtualTerminal, text: string): Promise<void> {
+    terminal.typeText(text);
+    terminal.pressEnter();
+    await terminal.flush();
+}
+
+async function startComposition(
+    sessionStartMode: "new" | "continue" = "new",
+): Promise<{ composition: InteractiveTuiComposition; terminal: VirtualTerminal }> {
+    const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
+    const composition = await createInteractiveTuiComposition(null, {
+        browser: NO_OPEN_BROWSER_PORT,
+        terminal,
+        skipModelWelcome: false,
+        sessionStartMode,
+        initialAgentName: "operator",
+    });
+    await composition.waitForIdle();
+    return { composition, terminal };
+}
+
+async function seedActiveElsewhereManagedSession(projectRoot: string): Promise<void> {
+    const store = openOwnerCoordinationStore();
+    try {
+        store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+        store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
+        const runtime = createSessionRuntime({
+            ownerCoordinationStore: store,
+            ownerProcessKind: "test",
+            ownerInstanceId: "chat-input-managed-seed",
+        });
+        try {
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                enableManagedActivation: true,
+            });
+            await runtime.switchAgent(created.sessionId, { agentName: "operator" });
+            const managed = runtime.getSessionSnapshot(created.sessionId)?.managed;
+            if (!managed) throw new Error("Managed Session seed did not create managed metadata.");
+            store.acquireSessionActivation({
+                runwieldSessionId: managed.runwieldSessionId,
+                projectId: managed.projectId,
+                ownerInstanceId: "chat-input-workspace-owner",
+                ownerProcessKind: "workspace",
+                expectedGeneration: managed.generation,
+                phase: "turning",
+            });
+        } finally {
+            await runtime.closeAllSessionsWhenIdle?.();
+        }
+    } finally {
+        store.close();
+    }
+}
+
+async function installFakeClipboardCommands(projectRoot: string): Promise<string> {
+    const previousPath = Deno.env.get("PATH") || "";
+    const binDir = `${projectRoot}/clipboard-bin`;
+    await Deno.mkdir(binDir, { recursive: true });
+    const osascriptPath = `${binDir}/osascript`;
+    await Deno.writeTextFile(
+        osascriptPath,
+        [
+            "#!/bin/sh",
+            'script="$2"',
+            "if printf '%s' \"$script\" | grep -q 'return \"image\"'; then",
+            "  echo image",
+            "  exit 0",
+            "fi",
+            "temp_file=$(printf '%s' \"$script\" | sed -n 's/^[[:space:]]*set tempFile to \"\\(.*\\)\"$/\\1/p')",
+            'printf fixture-png > "$temp_file"',
+            "exit 0",
+            "",
+        ].join("\n"),
+    );
+    await Deno.chmod(osascriptPath, 0o755);
+    Deno.env.set("PATH", `${binDir}:${previousPath}`);
+    return previousPath;
+}
+
+Deno.test("chat input controller sends accepted editor input through the real composed Runtime", async () => {
+    await withRuntimeCommandFixture("chat-input-real-submit-", async ({ setModelResponseFactory }) => {
+        const modelRequests: string[] = [];
+        setModelResponseFactory((context) => {
+            modelRequests.push(JSON.stringify(context.messages));
+            return fauxAssistantMessage(fauxText("Fixture response."));
+        });
+        const { composition, terminal } = await startComposition();
+        try {
+            await submitText(terminal, "hello from tui");
+            await waitFor(() => modelRequests.some((request) => request.includes("hello from tui")), "model request");
+            await composition.waitForIdle();
+            assert(modelRequests.some((request) => request.includes("hello from tui")));
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller runs local commands while a real Runtime turn is active", async () => {
+    await withRuntimeCommandFixture("chat-input-real-bash-", async ({ setModelResponseFactory }) => {
+        const releaseModel = deferredSignal();
+        let modelStarted = false;
+        setModelResponseFactory(async () => {
+            modelStarted = true;
+            await releaseModel.promise;
+            return fauxAssistantMessage(fauxText("Delayed response."));
+        });
+        const { composition, terminal } = await startComposition();
+        try {
+            await submitText(terminal, "hold turn");
+            await waitFor(() => modelStarted, "active model turn");
+            await submitText(terminal, "!printf local-output");
+            await waitFor(() => terminal.getScrollbackText().includes("local-output"), "local command output");
+            assertStringIncludes(terminal.getScrollbackText(), "local-output");
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
+            releaseModel.resolve();
+            await composition.waitForIdle();
+        } finally {
+            releaseModel.resolve();
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller queues deferred slash input for the next turn during a real Runtime turn", async () => {
+    await withRuntimeCommandFixture("chat-input-real-slash-queue-", async ({ setModelResponseFactory }) => {
+        const releaseModel = deferredSignal();
+        let modelStarted = false;
+        setModelResponseFactory(async () => {
+            modelStarted = true;
+            await releaseModel.promise;
+            return fauxAssistantMessage(fauxText("Delayed response."));
+        });
+        const { composition, terminal } = await startComposition();
+        try {
+            await submitText(terminal, "hold turn");
+            await waitFor(() => modelStarted, "active model turn");
+            await submitText(terminal, "/not-a-command args");
+            await waitFor(
+                () =>
+                    composition.runtime.getQueuedMessages(composition.sessionId).some((item) =>
+                        item.text === "/not-a-command args" && item.delivery === "next_turn"
+                    ),
+                "queued deferred slash message",
+            );
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).map((item) => item.text), [
+                "/not-a-command args",
+            ]);
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId)[0]?.delivery, "next_turn");
+            releaseModel.resolve();
+            await composition.waitForIdle();
+        } finally {
+            releaseModel.resolve();
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller restores the last queued draft through real keybindings", async () => {
+    await withRuntimeCommandFixture("chat-input-real-restore-", async () => {
+        const { composition, terminal } = await startComposition();
+        try {
+            composition.runtime.queueNextTurnMessage(composition.sessionId, "restore me", []);
+            terminal.input("\x1b[A");
+            await terminal.flush();
+            await waitFor(() => terminal.getScreenText().includes("restore me"), "restored draft");
+            assertStringIncludes(terminal.getScreenText(), "restore me");
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller preflights pasted image attachments through the composed TUI", async () => {
+    await withRuntimeCommandFixture(
+        "chat-input-real-image-preflight-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            if (Deno.build.os !== "darwin") return;
+            const previousPath = await installFakeClipboardCommands(projectRoot);
+            const modelRequests: string[] = [];
+            setModelResponseFactory((context) => {
+                modelRequests.push(JSON.stringify(context.messages));
+                return fauxAssistantMessage(fauxText("Saw image."));
+            });
+            const { composition, terminal } = await startComposition();
+            try {
+                terminal.input("\x16");
+                await terminal.flush();
+                await new Promise((resolve) => setTimeout(resolve, 500));
+                await terminal.flush();
+                await submitText(terminal, "describe pasted image");
+                await waitFor(
+                    () =>
+                        modelRequests.some((request) =>
+                            request.includes("describe pasted image") &&
+                            (request.includes("image/png") || request.includes("attachment:"))
+                        ),
+                    "model request with pasted image",
+                );
+                assert(
+                    modelRequests.some((request) =>
+                        request.includes("describe pasted image") &&
+                        (request.includes("image/png") || request.includes("attachment:"))
+                    ),
+                );
+            } finally {
+                Deno.env.set("PATH", previousPath);
+                await composition.dispose();
+            }
+        },
+    );
+});
+
+Deno.test("chat input controller preserves input while model setup blocks through the composed TUI", async () => {
+    await withRuntimeCommandFixture("chat-input-real-model-block-", async () => {
+        const harness = createInteractiveCompositionHarness({});
+        try {
+            await harness.waitForScreen("Only showing models from configured providers");
+            await harness.pressKey("escape");
+            await harness.waitForScreen("No model was selected");
+            await harness.waitForComposition(20_000);
+            await harness.type("keep me");
+            await waitFor(() => harness.terminal.getScreenText().includes("keep me"), "typed blocked draft");
+            await harness.type("\r");
+            await waitFor(
+                () => harness.terminal.getScrollbackText().includes("Choose a default model"),
+                "model setup block message",
+            );
+            assertStringIncludes(harness.terminal.getScreenText(), "keep me");
+            assertStringIncludes(harness.terminal.getScrollbackText(), "Choose a default model");
+        } finally {
+            await harness.dispose();
+        }
+    }, { providerState: "provider-no-model" });
+});
+
+Deno.test("chat input controller preserves input while managed-session state blocks through the composed TUI", async () => {
+    await withRuntimeCommandFixture("chat-input-real-managed-block-", async ({ alternateRoot }) => {
+        await seedActiveElsewhereManagedSession(alternateRoot);
+        const { composition, terminal } = await startComposition("continue");
+        try {
+            await composition.runtime.synchronizeManagedSession(composition.sessionId);
+            assertEquals(
+                composition.runtime.getUserTurnSubmissionBlockMessage(composition.sessionId),
+                "This managed Session is active in workspace. Wait for it to finish before sending from this surface.",
+            );
+            await submitText(terminal, "keep managed draft");
+            await waitFor(() => terminal.getScreenText().includes("keep managed draft"), "typed managed draft");
+            assertStringIncludes(terminal.getScreenText(), "Read-only: another surface is active");
+            assertStringIncludes(terminal.getScreenText(), "keep managed draft");
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller connects Ctrl+C pending-exit state through real keybindings", async () => {
+    await withRuntimeCommandFixture("chat-input-real-ctrl-c-", async () => {
+        const { composition, terminal } = await startComposition();
+        try {
+            terminal.pressCtrlC();
+            await terminal.flush();
+            await waitFor(
+                () => terminal.getScreenText().includes("Ctrl+C - Press again to exit"),
+                "pending exit notice",
+            );
+            assertStringIncludes(terminal.getScreenText(), "Ctrl+C - Press again to exit");
+        } finally {
+            await composition.dispose();
+        }
+    });
+});

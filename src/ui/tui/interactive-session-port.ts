@@ -1,6 +1,6 @@
 /** The slow interactive-session boundary used by CLI commands. */
 
-import { startInteractiveSession } from "./chat-session.js";
+import { startInteractiveSession } from "./chat-session.ts";
 import type { UiAPI } from "./types.js";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 
