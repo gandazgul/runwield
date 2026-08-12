@@ -474,7 +474,12 @@ async function askBrokered(
             message: "No hosted session is available for this interview prompt.",
         };
     }
-    return await requestHostedSessionInteraction(hostedSession, request);
+    return await requestHostedSessionInteraction(
+        hostedSession,
+        request,
+        undefined,
+        hostedSession.getManagedOperationCapability?.() || null,
+    );
 }
 
 function withRecommendedSuffix(label: string): string {

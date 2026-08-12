@@ -172,15 +172,20 @@ async function confirmNonGitQuickFixExecution(
     hostedSession: import("../session/hosted-session.js").HostedSession,
     projectRoot: string,
 ): Promise<boolean> {
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt:
-            "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
-        options: [
-            { value: "proceed", label: "Proceed in current files and remember for QUICK_FIX work" },
-            { value: "cancel", label: "Cancel QUICK_FIX" },
-        ],
-    });
+    const response = await requestHostedSessionInteraction(
+        hostedSession,
+        {
+            type: RuntimeInteractionTypes.SELECT,
+            prompt:
+                "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
+            options: [
+                { value: "proceed", label: "Proceed in current files and remember for QUICK_FIX work" },
+                { value: "cancel", label: "Cancel QUICK_FIX" },
+            ],
+        },
+        undefined,
+        hostedSession.getManagedOperationCapability?.() || null,
+    );
     if (response.outcome !== "selected" || response.value !== "proceed") return false;
     await rememberNonGitExecutionConsent("quickFix", projectRoot);
     return true;

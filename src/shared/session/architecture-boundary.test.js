@@ -318,7 +318,7 @@ Deno.test("command surfaces do not use SessionSnapshot as active runtime authori
 
 Deno.test("managed projection caches do not drive live activation transitions", async () => {
     const runtimeSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
-    const workflowOperationIndex = runtimeSource.indexOf("async #runWorkflowOperation(");
+    const workflowOperationIndex = runtimeSource.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
     const promptManagedIndex = runtimeSource.indexOf("async promptManagedSession(");
     const activationTail = promptManagedIndex >= 0
         ? runtimeSource.slice(workflowOperationIndex, promptManagedIndex)

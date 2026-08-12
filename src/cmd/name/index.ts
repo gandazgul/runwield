@@ -17,7 +17,6 @@ interface NameCommandOptions {
     sessionId?: string;
 }
 
-// deno-lint-ignore require-await
 export async function runNameCommand(argv: string[], options: NameCommandOptions = {}): Promise<void> {
     if (!options.uiAPI) {
         console.error("The /name command is only available inside an interactive session.");

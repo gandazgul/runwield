@@ -52,6 +52,8 @@ export type ManagedOperationCapability = {
     readonly proof: ActivationProof;
     readonly settled: boolean;
     readonly heartbeatFailureReason: string | null;
+    readonly signal?: AbortSignal;
+    cancel?(): void;
     updateProof(proof: ActivationProof): void;
     latchHeartbeatFailure(error: Error | string): void;
     assertLive(): void;

@@ -138,6 +138,8 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {boolean} [includeEditFallback]
  * @property {string} [turnId]
  * @property {boolean} [emitInitialEvents]
+ * @property {boolean} [suppressEpicContinuation]
+ * @property {AbortSignal} [signal]
  */
 
 /**
@@ -220,6 +222,7 @@ class ManagedOperationCapability {
     #settled = false;
     /** @type {string | null} */
     #heartbeatFailureReason = null;
+    #abortController = new AbortController();
 
     get proof() {
         return this.#proof;
@@ -231,6 +234,15 @@ class ManagedOperationCapability {
 
     get heartbeatFailureReason() {
         return this.#heartbeatFailureReason;
+    }
+
+    get signal() {
+        return this.#abortController.signal;
+    }
+
+    cancel() {
+        this.assertLive();
+        this.#abortController.abort();
     }
 
     /** @param {import('../owner-coordination/session-activations.js').ActivationProof} proof */
@@ -344,6 +356,8 @@ export class SessionRuntime {
     #pendingManagedCreations;
     /** @type {Map<string, import('./managed-operation.ts').ManagedOperationCapability>} */
     #currentManagedOperations;
+    /** @type {Map<string, Promise<unknown>>} */
+    #currentManagedOperationSettlements;
     /** @type {Map<string, { projectId: string }>} */
     #pendingManagedCreationProjects;
     /** @type {Map<string, string | null>} */
@@ -365,6 +379,7 @@ export class SessionRuntime {
         this.#busyOperationDepths = new Map();
         this.#pendingManagedCreations = new Map();
         this.#currentManagedOperations = new Map();
+        this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
         this.#observedAttentionEventIds = new Map();
         this.#ownerCoordinationStore = composition.ownerCoordinationStore;
@@ -691,6 +706,8 @@ export class SessionRuntime {
     async steerSession(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession");
+        if (managedRejection) return { ...managedRejection, queued: false };
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
@@ -733,7 +750,10 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
         const managed = hostedSession.getManagedMetadata?.();
-        if (managed && !hostedSession.getRootSessionManager?.()) {
+        if (managed) {
+            if (hostedSession.getRootSessionManager?.()) {
+                return { ok: false, queued: false, error: "managed_operation_in_progress" };
+            }
             return this.#runManagedStandaloneMutation(sessionId, "submit_user_turn", (activeSession) => {
                 const message = /** @type {RuntimeQueuedMessageState} */ ({
                     id: crypto.randomUUID(),
@@ -766,6 +786,8 @@ export class SessionRuntime {
     takeNextTurnMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage");
+        if (managedRejection) return { ...managedRejection, message: null };
         const selected = (this.#queuedMessages.get(hostedSession.id) || [])
             .find((message) => message.delivery === "next_turn");
         if (!selected) return { ok: true, message: null };
@@ -805,6 +827,8 @@ export class SessionRuntime {
     async dequeueLastQueuedMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "dequeueLastQueuedMessage");
+        if (managedRejection) return { ...managedRejection, message: null };
         const queue = this.#queuedMessages.get(hostedSession.id) || [];
         const selected = queue.at(-1);
         if (!selected) return { ok: true, message: null };
@@ -877,9 +901,28 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {string} [reason]
      */
-    clearQueuedMessages(sessionId, reason = "cleared") {
+    async clearQueuedMessages(sessionId, reason = "cleared") {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, cleared: 0, error: "not_found" };
+        const managed = hostedSession.getManagedMetadata?.();
+        if (managed && !hostedSession.getRootSessionManager?.()) {
+            return await this.#runManagedStandaloneMutation(
+                sessionId,
+                "submit_user_turn",
+                (activeSession) => this.#clearQueuedMessages(activeSession, reason),
+                { activateAgent: false },
+            );
+        }
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "clearQueuedMessages");
+        if (managedRejection) return { ...managedRejection, cleared: 0 };
+        return this.#clearQueuedMessages(hostedSession, reason);
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     * @param {string} reason
+     */
+    #clearQueuedMessages(hostedSession, reason) {
         const messages = [...(this.#queuedMessages.get(hostedSession.id) || [])];
         const sources = new Set(messages.map((message) => message.sourceSession).filter(Boolean));
         const clearedSources = new Set();
@@ -915,8 +958,14 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return /** @type {any} */ ({ ok: false, error: "not_found" });
         const managed = session.getManagedMetadata?.();
-        if (!managed || session.getRootSessionManager?.()) {
-            return await operation(session, /** @type {any} */ (session.getManagedOperationCapability?.() || null));
+        if (this.#pendingManagedCreations.has(sessionId) || this.#pendingManagedCreationProjects.has(sessionId)) {
+            return { ok: false, error: "managed_operation_in_progress" };
+        }
+        if (!managed) {
+            return await operation(session, /** @type {any} */ (null));
+        }
+        if (session.getRootSessionManager?.()) {
+            return { ok: false, error: "managed_operation_in_progress" };
         }
         return await this.#runManagedOperation(
             sessionId,
@@ -1021,11 +1070,7 @@ export class SessionRuntime {
     async runIsolatedAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(
-            session,
-            "runIsolatedAgent",
-            /** @type {any} */ (session.getManagedOperationCapability?.() || null),
-        );
+        const managedRejection = this.#rejectManagedPublicMutation(session, "runIsolatedAgent");
         if (managedRejection) throw new Error("managed_operation_required");
         return await this.#runBusyOperation(session.id, () =>
             runIsolatedAgentSession({
@@ -1060,15 +1105,18 @@ export class SessionRuntime {
     /**
      * @template T
      * @param {import('./hosted-session.js').HostedSession} session
-     * @param {string} operationName
+     * @param {string} _operationName
      * @param {Record<string, any>} options
      * @param {() => Promise<T>} operation
      * @returns {Promise<T>}
      */
-    async #runWorkflowOperation(session, operationName, options, operation) {
+    async #runWorkflowOperation(session, _operationName, options, operation) {
         const managed = session.getManagedMetadata?.();
-        if (!managed || session.getRootSessionManager?.()) {
+        if (!managed) {
             return await this.#runBusyOperation(session.id, operation);
+        }
+        if (session.getRootSessionManager?.()) {
+            throw new Error("managed_operation_in_progress");
         }
         const result = await this.#runManagedOperation(
             session.id,
@@ -1286,6 +1334,15 @@ export class SessionRuntime {
                 throw error;
             }
         }
+        return await this.#persistActiveSessionImage(session, image);
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment} image
+     * @returns {Promise<any>}
+     */
+    async #persistActiveSessionImage(session, image) {
         const sessionManager = session.getRootSessionManager();
         return await persistImageAttachment(
             image,
@@ -1406,10 +1463,24 @@ export class SessionRuntime {
                     options: { expectedGeneration: managed.generation ?? undefined },
                     activateAgent: false,
                 },
-                async () => await this.runLocalShellCommand(sessionId, options),
+                async ({ capability }) => await this.#runLocalShellCommandInSession(session, options, capability),
             );
         }
+        if (managed) {
+            return { ok: false, exitCode: 1, output: "", error: "managed_operation_in_progress" };
+        }
+        return await this.#runLocalShellCommandInSession(session, options, null);
+    }
 
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {{ command: string, userRequest?: string, persist?: boolean }} options
+     * @param {import('./managed-operation.ts').ManagedOperationCapability | null} capability
+     * @returns {Promise<any>}
+     */
+    async #runLocalShellCommandInSession(session, options, capability) {
+        const sessionId = session.id;
+        const command = String(options?.command || "").trim();
         const persist = options.persist !== false && !session.isTurnActive();
         const userRequest = options.userRequest || `!${command}`;
         const toolCallId = `bash-${crypto.randomUUID()}`;
@@ -1426,8 +1497,10 @@ export class SessionRuntime {
 
         const abort = () => {
             canceled = true;
+            if (!abortController.signal.aborted) abortController.abort();
         };
         abortController.signal.addEventListener("abort", abort, { once: true });
+        capability?.signal?.addEventListener("abort", abort, { once: true });
         session.addActiveInteraction(interactionId, { abortController });
 
         if (persist) {
@@ -1492,6 +1565,7 @@ export class SessionRuntime {
             exitCode = canceled ? 130 : 1;
         } finally {
             abortController.signal.removeEventListener("abort", abort);
+            capability?.signal?.removeEventListener("abort", abort);
             session.removeActiveInteraction(interactionId);
         }
 
@@ -1902,7 +1976,10 @@ export class SessionRuntime {
     /** @param {string} id */
     closeSession(id) {
         const hostedSession = this.#sessionHost.getSession(id);
-        if (hostedSession) this.clearQueuedMessages(hostedSession.id, "session_closed");
+        if (hostedSession && this.#currentManagedOperations.has(hostedSession.id)) {
+            return this.#closeSessionAfterManagedOperation(hostedSession.id);
+        }
+        if (hostedSession) this.#clearQueuedMessages(hostedSession, "session_closed");
         const closed = this.#sessionHost.disposeSession(id);
         if (closed) {
             this.#emitSessionEvent(id, { type: RuntimeEventTypes.SESSION_CLOSED });
@@ -1920,6 +1997,28 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {string} sessionId
+     * @returns {Promise<{ ok: boolean, closed: boolean }>}
+     */
+    async #closeSessionAfterManagedOperation(sessionId) {
+        await this.#awaitManagedOperationSettlement(sessionId);
+        return this.closeSession(sessionId);
+    }
+
+    /**
+     * @param {string} sessionId
+     * @returns {Promise<void>}
+     */
+    async #awaitManagedOperationSettlement(sessionId) {
+        while (this.#currentManagedOperations.has(sessionId)) {
+            await this.#currentManagedOperationSettlements.get(sessionId)?.catch(() => undefined);
+            if (this.#currentManagedOperations.has(sessionId)) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+        }
+    }
+
+    /**
      * Cancel an active turn, wait for the underlying Agent Session prompt to
      * settle, then dispose the Hosted Session.
      *
@@ -1932,13 +2031,11 @@ export class SessionRuntime {
             this.cancelSession(session.id);
             await this.#turnSettlements.get(session.id);
         }
-        while (this.#currentManagedOperations.has(session.id)) {
-            await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        return this.closeSession(session.id);
+        await this.#awaitManagedOperationSettlement(session.id);
+        return await this.closeSession(session.id);
     }
 
-    closeAllSessions() {
+    async closeAllSessions() {
         const sessions = this.listSessions();
         for (const session of sessions) {
             try {
@@ -1947,7 +2044,7 @@ export class SessionRuntime {
             } catch {
                 // Shutdown cleanup is best effort.
             }
-            this.closeSession(session.id);
+            await this.closeSession(session.id);
         }
         return { ok: true, closed: sessions.length };
     }
@@ -2099,6 +2196,14 @@ export class SessionRuntime {
             proof: activeProof,
         });
         this.#currentManagedOperations.set(hostedSession.id, capability);
+        /** @type {() => void} */
+        let settleManagedCreation = () => {};
+        this.#currentManagedOperationSettlements.set(
+            hostedSession.id,
+            new Promise((resolve) => {
+                settleManagedCreation = () => resolve(undefined);
+            }),
+        );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
         try {
@@ -2148,6 +2253,8 @@ export class SessionRuntime {
         } finally {
             capability.settle();
             this.#currentManagedOperations.delete(hostedSession.id);
+            this.#currentManagedOperationSettlements.delete(hostedSession.id);
+            settleManagedCreation();
             hostedSession.setManagedOperationCapability(null);
         }
     }
@@ -2538,14 +2645,30 @@ export class SessionRuntime {
         if (latestGeneration !== expectedGeneration) {
             return { ok: false, turns: 0, handoffs: 0, handoffLimitReached: false, error: "refresh_required" };
         }
-        let activeProof = this.#ownerCoordinationStore.acquireSessionActivation({
-            runwieldSessionId: managed.runwieldSessionId,
-            projectId: managed.projectId,
-            ownerInstanceId: this.#ownerInstanceId,
-            ownerProcessKind: this.#ownerProcessKind,
-            expectedGeneration,
-            phase: "preparing",
-        });
+        /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
+        let activeProof;
+        try {
+            activeProof = this.#ownerCoordinationStore.acquireSessionActivation({
+                runwieldSessionId: managed.runwieldSessionId,
+                projectId: managed.projectId,
+                ownerInstanceId: this.#ownerInstanceId,
+                ownerProcessKind: this.#ownerProcessKind,
+                expectedGeneration,
+                phase: "preparing",
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes("Session activation is not available") || message.includes("activation race lost")) {
+                return {
+                    ok: false,
+                    turns: 0,
+                    handoffs: 0,
+                    handoffLimitReached: false,
+                    error: "managed_operation_in_progress",
+                };
+            }
+            throw error;
+        }
         const capability = new ManagedOperationCapability({
             runtimeSessionId: sessionId,
             runwieldSessionId: managed.runwieldSessionId,
@@ -2553,6 +2676,14 @@ export class SessionRuntime {
             proof: activeProof,
         });
         this.#currentManagedOperations.set(sessionId, capability);
+        /** @type {() => void} */
+        let settleManagedOperation = () => {};
+        this.#currentManagedOperationSettlements.set(
+            sessionId,
+            new Promise((resolve) => {
+                settleManagedOperation = () => resolve(undefined);
+            }),
+        );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
         /** @type {ReturnType<typeof setInterval> | null} */
@@ -2663,7 +2794,7 @@ export class SessionRuntime {
                 ...managed,
                 generation: expectedGeneration + 1,
                 acknowledgedGeneration: expectedGeneration + 1,
-                activeAgent: hostedSession.getRootAgentName?.() || managed.activeAgent || null,
+                activeAgent: hostedSession.getRootAgentName?.() || null,
                 model: modelState.model || managed.model || "",
                 provider: modelState.provider || managed.provider || "",
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
@@ -2706,6 +2837,8 @@ export class SessionRuntime {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
             capability.settle();
             this.#currentManagedOperations.delete(sessionId);
+            this.#currentManagedOperationSettlements.delete(sessionId);
+            settleManagedOperation();
             hostedSession.setManagedOperationCapability(null);
             this.#endBusyOperation(sessionId);
         }
@@ -2720,16 +2853,27 @@ export class SessionRuntime {
         if (!hostedSession) throw new Error("SessionRuntime.promptManagedSession: session not found");
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) return await this.promptSession(sessionId, options);
-        return await this.#runManagedOperation(
+        const result = await this.#runManagedOperation(
             sessionId,
             { name: "prompt", options },
-            async ({ acceptedTurnId, hasPendingImages }) =>
+            async ({ acceptedTurnId, hasPendingImages, capability }) =>
                 await this.promptSession(sessionId, {
                     ...options,
                     turnId: acceptedTurnId,
                     emitInitialEvents: hasPendingImages,
+                    suppressEpicContinuation: true,
+                    signal: capability.signal,
                 }),
         );
+        if (result?.ok && /** @type {any} */ (result)._validationResult?.epicContinuation) {
+            const replacement = await this.#continueEpicAfterValidation(
+                hostedSession,
+                /** @type {any} */ (result)._validationResult,
+            );
+            if (replacement.sessionId) result.replacementSessionId = replacement.sessionId;
+        }
+        delete (/** @type {any} */ (result))._validationResult;
+        return result;
     }
 
     /**
@@ -2896,7 +3040,7 @@ export class SessionRuntime {
             });
             return hostedSession.id;
         } catch (error) {
-            this.closeSession(hostedSession.id);
+            await this.closeSession(hostedSession.id);
             throw error;
         }
     }
@@ -2989,7 +3133,7 @@ export class SessionRuntime {
                 sessionPath: resolved.sessionPath,
             };
         } catch (error) {
-            this.closeSession(hostedSession.id);
+            await this.closeSession(hostedSession.id);
             throw error;
         }
     }
@@ -3013,7 +3157,7 @@ export class SessionRuntime {
     async requestInteraction(sessionId, request, signal) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { outcome: "unsupported", message: "Session not found." };
-        return await requestHostedSessionInteraction(session, request, signal);
+        return await requestHostedSessionInteraction(session, request, signal, null);
     }
 
     /**
@@ -3053,32 +3197,84 @@ export class SessionRuntime {
             const action = /** @type {"plan"|"readiness_execute"|"execute"} */ (resolution.kind);
 
             const adapter = currentOldSession.getInteractionAdapter();
-            const newSessionId = await this.createPromptReadySession({
-                cwd: currentContinuation.projectRoot,
-                agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
-            });
-            const newSession = this.#sessionHost.getSession(newSessionId);
-            if (!newSession) throw new Error("Epic continuation replacement session was not retained");
-            newSession.setInteractionAdapter(adapter);
-            await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
-            this.#emitSessionEvent(currentOldSession.id, {
-                type: RuntimeEventTypes.SESSION_REPLACED,
-                oldSessionId: currentOldSession.id,
-                newSessionId,
-                reason: "epic_continuation",
-                parentPlanName: resolution.parentPlanName,
-                completedPlanName: resolution.completedPlanName,
-                childPlanName: resolution.childPlanName,
-                action,
-            });
-            this.closeSession(currentOldSession.id);
-            latestSessionId = newSessionId;
-            const nextResult = await this.#runBusyOperation(newSessionId, () =>
-                runEpicChildContinuation({
-                    hostedSession: newSession,
-                    resolution,
-                    sessionManager: /** @type {any} */ (newSession.getRootSessionManager() || undefined),
-                }));
+            const sourceManaged = currentOldSession.getManagedMetadata?.() || null;
+            /** @type {string} */
+            let newSessionId;
+            /** @type {import('./hosted-session.js').HostedSession | null | undefined} */
+            let newSession;
+            /** @type {any} */
+            let nextResult;
+            if (!sourceManaged) {
+                newSessionId = await this.createPromptReadySession({
+                    cwd: currentContinuation.projectRoot,
+                    agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
+                });
+                newSession = this.#sessionHost.getSession(newSessionId);
+                if (!newSession) throw new Error("Epic continuation replacement session was not retained");
+                newSession.setInteractionAdapter(adapter);
+                await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+                this.#emitSessionEvent(currentOldSession.id, {
+                    type: RuntimeEventTypes.SESSION_REPLACED,
+                    oldSessionId: currentOldSession.id,
+                    newSessionId,
+                    reason: "epic_continuation",
+                    parentPlanName: resolution.parentPlanName,
+                    completedPlanName: resolution.completedPlanName,
+                    childPlanName: resolution.childPlanName,
+                    action,
+                });
+                await this.closeSession(currentOldSession.id);
+                latestSessionId = newSessionId;
+                nextResult = await this.#runBusyOperation(newSessionId, () =>
+                    runEpicChildContinuation({
+                        hostedSession: /** @type {import('./hosted-session.js').HostedSession} */ (newSession),
+                        resolution,
+                        sessionManager: /** @type {any} */ (newSession?.getRootSessionManager() || undefined),
+                    }));
+            } else {
+                const created = await this.createInteractiveSession({
+                    cwd: currentContinuation.projectRoot,
+                    mode: "new",
+                    enableManagedActivation: true,
+                    deferManagedActivationUntilAgentReady: true,
+                });
+                newSessionId = created.sessionId;
+                newSession = this.#sessionHost.getSession(newSessionId);
+                if (!newSession) throw new Error("Epic continuation replacement session was not retained");
+                newSession.setInteractionAdapter(adapter);
+                await this.#activateSessionAgent(newSession, {
+                    agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
+                });
+                await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+                this.#emitSessionEvent(currentOldSession.id, {
+                    type: RuntimeEventTypes.SESSION_REPLACED,
+                    oldSessionId: currentOldSession.id,
+                    newSessionId,
+                    reason: "epic_continuation",
+                    parentPlanName: resolution.parentPlanName,
+                    completedPlanName: resolution.completedPlanName,
+                    childPlanName: resolution.childPlanName,
+                    action,
+                });
+                await this.closeSession(currentOldSession.id);
+                latestSessionId = newSessionId;
+                const nextManaged = newSession.getManagedMetadata?.();
+                if (!nextManaged) throw new Error("Epic continuation destination is not managed");
+                nextResult = await this.#runManagedOperation(
+                    newSessionId,
+                    {
+                        name: "workflow_operation",
+                        options: { expectedGeneration: nextManaged.generation ?? undefined },
+                        activateAgent: true,
+                    },
+                    async () =>
+                        await runEpicChildContinuation({
+                            hostedSession: /** @type {import('./hosted-session.js').HostedSession} */ (newSession),
+                            resolution,
+                            sessionManager: /** @type {any} */ (newSession?.getRootSessionManager() || undefined),
+                        }),
+                );
+            }
             currentContinuation = nextResult?.epicContinuation || null;
             currentOldSession = newSession;
         }
@@ -3093,6 +3289,12 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
+        if (this.#pendingManagedCreations.has(sessionId) || this.#pendingManagedCreationProjects.has(sessionId)) {
+            if (this.#currentManagedOperations.has(sessionId)) {
+                return { ok: false, error: "managed_operation_in_progress" };
+            }
+            return await this.#activateSessionAgent(session, options);
+        }
         return await this.#runManagedStandaloneMutation(
             sessionId,
             "switch_agent",
@@ -3110,6 +3312,31 @@ export class SessionRuntime {
     cancelSession(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, aborted: false, error: "not_found" };
+        const currentOperation = this.#currentManagedOperations.get(session.id) || null;
+        if (currentOperation) {
+            let aborted = false;
+            try {
+                currentOperation.cancel?.();
+                aborted = true;
+                session.suppressNextAgentStoppedAttention();
+            } finally {
+                this.#emitSessionEvent(session.id, {
+                    type: RuntimeEventTypes.CANCELLATION,
+                    aborted,
+                    reason: "session_cancel",
+                    ...(aborted ? { scope: "operation", message: "Operation cancellation requested." } : {}),
+                });
+            }
+            return { ok: true, aborted };
+        }
+        if (session.getManagedMetadata?.()) {
+            this.#emitSessionEvent(session.id, {
+                type: RuntimeEventTypes.CANCELLATION,
+                aborted: false,
+                reason: "session_cancel",
+            });
+            return { ok: true, aborted: false };
+        }
         let aborted = false;
         let operationCanceled = false;
         let agentCanceled = false;
@@ -3121,7 +3348,7 @@ export class SessionRuntime {
                 rootAgentSession.abortCompaction();
                 operationCanceled = true;
             }
-            this.clearQueuedMessages(session.id, "session_cancel");
+            this.#clearQueuedMessages(session, "session_cancel");
             agentCanceled = abortActiveSessionFn(session);
             if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
             aborted = operationCanceled || agentCanceled;
@@ -3169,6 +3396,9 @@ export class SessionRuntime {
         let busyStarted = false;
         /** @type {import('../workflow/validation.ts').WorkflowValidationResult | null} */
         let validationResult = null;
+        const managedCapability = /** @type {import('./managed-operation.ts').ManagedOperationCapability | null} */ (
+            hostedSession.getManagedOperationCapability?.() || null
+        );
         let result =
             /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string } | null} */ (null);
 
@@ -3236,6 +3466,7 @@ export class SessionRuntime {
                     request,
                     images,
                     hostedSession.getRootSessionManager() || undefined,
+                    options.signal || managedCapability?.signal,
                 );
                 turns++;
 
@@ -3262,6 +3493,7 @@ export class SessionRuntime {
                 await this.#activateSessionAgent(hostedSession, {
                     agentName: turnResult.agentName,
                     model: turnResult.model,
+                    managedOperationCapability: managedCapability || undefined,
                 });
                 request = turnResult.userRequest;
                 images = [];
@@ -3302,7 +3534,10 @@ export class SessionRuntime {
             if (this.#turnSettlements.get(hostedSession.id) === turnSettlement) {
                 this.#turnSettlements.delete(hostedSession.id);
             }
-            if (ok && validationResult?.epicContinuation && result) {
+            if (validationResult && result) {
+                /** @type {any} */ (result)._validationResult = validationResult;
+            }
+            if (!options.suppressEpicContinuation && ok && validationResult?.epicContinuation && result) {
                 const replacement = await this.#continueEpicAfterValidation(hostedSession, validationResult);
                 if (replacement.sessionId) result.replacementSessionId = replacement.sessionId;
             }

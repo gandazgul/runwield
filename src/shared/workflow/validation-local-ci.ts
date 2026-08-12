@@ -43,11 +43,16 @@ async function getOrAskForValidationCommand(
     }
 
     emitSystemStatus(hostedSession, "No validation command found in project settings.");
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.TEXT,
-        prompt: "Enter the command to validate this project (e.g., 'deno task ci', 'npm test'): ",
-        allowEmpty: false,
-    });
+    const response = await requestHostedSessionInteraction(
+        hostedSession,
+        {
+            type: RuntimeInteractionTypes.TEXT,
+            prompt: "Enter the command to validate this project (e.g., 'deno task ci', 'npm test'): ",
+            allowEmpty: false,
+        },
+        undefined,
+        hostedSession.getManagedOperationCapability?.() || null,
+    );
     const userInput = response.outcome === "text" ? String(response.value || "") : "";
 
     if (!userInput) {

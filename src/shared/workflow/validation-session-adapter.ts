@@ -183,7 +183,13 @@ export function createValidationSessionPort(
                 progress as RuntimeValidationProgress | undefined,
             );
         },
-        requestInteraction: (request) => requestHostedSessionInteraction(hostedSession, request),
+        requestInteraction: (request) =>
+            requestHostedSessionInteraction(
+                hostedSession,
+                request,
+                undefined,
+                hostedSession.getManagedOperationCapability?.() || null,
+            ),
         registerActiveInteraction: (id, abortController) => hostedSession.addActiveInteraction(id, { abortController }),
         unregisterActiveInteraction: (id) => hostedSession.removeActiveInteraction(id),
         runIndependentRepairTurn: async ({ agentName, userRequest, cwd }) => {

@@ -169,12 +169,17 @@ export function createPairCheckpointTool(
                 );
             }
 
-            const response = await requestHostedSessionInteraction(hostedSession, {
-                type: RuntimeInteractionTypes.PAIR_CHECKPOINT,
-                prompt: params.summary,
-                toolCallId,
-                _meta: { ...params, checkpointNumber },
-            }, signal);
+            const response = await requestHostedSessionInteraction(
+                hostedSession,
+                {
+                    type: RuntimeInteractionTypes.PAIR_CHECKPOINT,
+                    prompt: params.summary,
+                    toolCallId,
+                    _meta: { ...params, checkpointNumber },
+                },
+                signal,
+                hostedSession.getManagedOperationCapability?.() || null,
+            );
 
             if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
                 hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });

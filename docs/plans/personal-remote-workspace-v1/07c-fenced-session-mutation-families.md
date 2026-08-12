@@ -26,7 +26,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Fenced Session Mutation Families

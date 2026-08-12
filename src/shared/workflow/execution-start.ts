@@ -102,15 +102,20 @@ async function runCymbalIndexForExecutionWorktree(hostedSession, worktreePath) {
  * @returns {Promise<boolean>}
  */
 export async function confirmNonGitFeaturePlanExecution(hostedSession, projectRoot) {
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt:
-            "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
-        options: [
-            { value: "proceed", label: "Proceed in current files and remember for planned Plan work" },
-            { value: "cancel", label: "Cancel execution" },
-        ],
-    });
+    const response = await requestHostedSessionInteraction(
+        hostedSession,
+        {
+            type: RuntimeInteractionTypes.SELECT,
+            prompt:
+                "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
+            options: [
+                { value: "proceed", label: "Proceed in current files and remember for planned Plan work" },
+                { value: "cancel", label: "Cancel execution" },
+            ],
+        },
+        undefined,
+        hostedSession.getManagedOperationCapability?.() || null,
+    );
     if (response.outcome !== "selected" || response.value !== "proceed") return false;
     await rememberNonGitExecutionConsent("featurePlan", projectRoot);
     return true;

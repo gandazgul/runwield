@@ -519,18 +519,23 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
-                    requestHostedSessionInteraction(hostedSession, {
-                        type: RuntimeInteractionTypes.PLAN_REVIEW,
-                        prompt: `Review plan "${planName}"`,
-                        _meta: {
-                            cwd,
-                            planName,
-                            planPath,
-                            triageMeta: effectiveMeta,
-                            onOutput: onReviewServerOutput,
-                            onSurfaceReady: onReviewSurfaceReady,
+                    requestHostedSessionInteraction(
+                        hostedSession,
+                        {
+                            type: RuntimeInteractionTypes.PLAN_REVIEW,
+                            prompt: `Review plan "${planName}"`,
+                            _meta: {
+                                cwd,
+                                planName,
+                                planPath,
+                                triageMeta: effectiveMeta,
+                                onOutput: onReviewServerOutput,
+                                onSurfaceReady: onReviewSurfaceReady,
+                            },
                         },
-                    }),
+                        undefined,
+                        hostedSession.getManagedOperationCapability?.() || null,
+                    ),
                 requestRetry: (details) =>
                     requestPlanReviewRetryConfirmation(hostedSession, requestHostedSessionInteraction, details),
                 onUnanswered: ({ reason }) => {

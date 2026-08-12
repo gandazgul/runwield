@@ -707,7 +707,7 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
     }
 });
 
-Deno.test("SessionRuntime records dormant managed local changes as pending turn intent", async () => {
+Deno.test("SessionRuntime does not apply dormant managed local mutations without activation authority", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-pending-agent",
@@ -732,31 +732,29 @@ Deno.test("SessionRuntime records dormant managed local changes as pending turn 
         if (event.type === RuntimeEventTypes.AGENT_CHANGED) changedAgents.push(event.agentName);
     });
 
-    const result = await runtime.switchAgent(session.id, { agentName: "engineer" });
-    const modelResult = await runtime.reconfigureSessionModel(session.id, "gpt-next", "test-provider");
-    const thinkingResult = runtime.setSessionThinkingLevel(session.id, "high");
-    session.setManagedMetadata({
-        .../** @type {NonNullable<ReturnType<typeof session.getManagedMetadata>>} */ (session.getManagedMetadata()),
-        activeAgent: "router",
-        model: "old-model",
-        provider: "old-provider",
-        thinkingLevel: "low",
-    });
+    await assertRejects(
+        () => runtime.switchAgent(session.id, { agentName: "engineer" }),
+        Error,
+        "Session activation protocol is not enabled",
+    );
+    await assertRejects(
+        () => runtime.reconfigureSessionModel(session.id, "gpt-next", "test-provider"),
+        Error,
+        "Session activation protocol is not enabled",
+    );
+    await assertRejects(
+        () => Promise.resolve(runtime.setSessionThinkingLevel(session.id, "high")),
+        Error,
+        "Session activation protocol is not enabled",
+    );
+
     const snapshot = runtime.getSessionSnapshot(session.id);
 
-    assertEquals(result, { ok: true, agentName: "engineer", model: undefined, changed: true });
-    assertEquals(modelResult, { ok: true, model: "gpt-next", provider: "test-provider" });
-    assertEquals(thinkingResult, { ok: true, thinkingLevel: "high" });
-    assertEquals(changedAgents, ["engineer"]);
-    assertEquals(session.getPendingManagedTurnIntent(), {
-        agentName: "engineer",
-        model: "gpt-next",
-        provider: "test-provider",
-        thinkingLevel: "high",
-    });
-    assertEquals(snapshot?.activeAgent, "engineer");
-    assertEquals(snapshot?.activeModel, { model: "gpt-next", provider: "test-provider" });
-    assertEquals(snapshot?.thinkingLevel, "high");
+    assertEquals(changedAgents, []);
+    assertEquals(session.getPendingManagedTurnIntent(), {});
+    assertEquals(snapshot?.activeAgent, "router");
+    assertEquals(snapshot?.activeModel, { model: "", provider: "" });
+    assertEquals(snapshot?.thinkingLevel, "off");
 });
 
 Deno.test("SessionRuntime emits projected attention only when the attention record changes", () => {
@@ -781,7 +779,7 @@ Deno.test("SessionRuntime emits projected attention only when the attention reco
     assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 
-Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", async () => {
+Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-authority-separation",
@@ -818,13 +816,13 @@ Deno.test("SessionRuntime keeps dormant managed projection separate from runtime
         complexity: "LOW",
     });
 
-    await runtime.switchAgent(session.id, { agentName: "engineer" });
+    assertEquals(session.getRootSessionManager?.(), null);
 
-    assertEquals(runtime.getRuntimeActiveAgentName(session.id), "engineer");
-    assertEquals(runtime.getSessionSnapshot(session.id)?.activeAgent, "engineer");
+    assertEquals(runtime.getRuntimeActiveAgentName(session.id), null);
+    assertEquals(runtime.getSessionSnapshot(session.id)?.activeAgent, "router");
 });
 
-Deno.test("SessionRuntime defers reload and rejects compaction for dormant managed Sessions", async () => {
+Deno.test("SessionRuntime blocks dormant managed reload and compaction without activation authority", async () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({
         id: "managed-reload-compact",
@@ -844,11 +842,15 @@ Deno.test("SessionRuntime defers reload and rejects compaction for dormant manag
     });
     const runtime = makeRuntime({ sessionHost });
 
-    assertEquals(await runtime.reloadSession(session.id), { ok: true, deferred: true });
+    await assertRejects(
+        () => runtime.reloadSession(session.id),
+        Error,
+        "Session activation protocol is not enabled",
+    );
     await assertRejects(
         () => runtime.compactSession(session.id),
         Error,
-        "managed_unsupported",
+        "Session activation protocol is not enabled",
     );
 });
 
@@ -914,7 +916,7 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
     const pendingIntentIndex = source.indexOf("const pendingIntent =", promptManagedIndex);
     const openIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
     const agentSelectionIndex = source.indexOf(
-        "const agentName = options.agentName || pendingIntent.agentName ||",
+        "let agentName = options.agentName || pendingIntent.agentName || null;",
         openIndex,
     );
     const resumeFallbackIndex = source.indexOf(
@@ -935,25 +937,25 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
 
 Deno.test("SessionRuntime managed operation prefers persisted active agent over stale catalog summary", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const managedOperationIndex = source.indexOf("async #runWorkflowOperation(");
+    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
     const openIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
-    const persistedAgentIndex = source.indexOf(
-        "const persistedAgentName = await resolveResumeAgentName(sessionManager);",
+    const agentSelectionIndex = source.indexOf(
+        "let agentName = options.agentName || pendingIntent.agentName || null;",
         openIndex,
     );
-    const agentSelectionIndex = source.indexOf(
-        "const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;",
-        persistedAgentIndex,
+    const persistedAgentIndex = source.indexOf(
+        "agentName ||= await resolveResumeAgentName(sessionManager);",
+        agentSelectionIndex,
     );
-    const cacheFallbackIndex = source.indexOf("|| managed.activeAgent", persistedAgentIndex);
-    const activateIndex = source.indexOf("await this.#activateSessionAgent(session, {", agentSelectionIndex);
+    const cacheFallbackIndex = source.indexOf("|| managed.activeAgent", openIndex);
+    const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", persistedAgentIndex);
 
     assertEquals(managedOperationIndex >= 0, true);
     assertEquals(openIndex > managedOperationIndex, true);
-    assertEquals(persistedAgentIndex > openIndex, true);
-    assertEquals(agentSelectionIndex > persistedAgentIndex, true);
+    assertEquals(agentSelectionIndex > openIndex, true);
+    assertEquals(persistedAgentIndex > agentSelectionIndex, true);
     assertEquals(cacheFallbackIndex, -1);
-    assertEquals(activateIndex > agentSelectionIndex, true);
+    assertEquals(activateIndex > persistedAgentIndex, true);
 });
 
 Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
@@ -1001,24 +1003,30 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
 
 Deno.test("SessionRuntime managed workflow operations acquire activation before hydration and checkpoint before publish", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const managedOperationIndex = source.indexOf("async #runWorkflowOperation(");
-    const nextMethodIndex = source.indexOf("async executePlan(sessionId, options)", managedOperationIndex);
+    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
+    const nextMethodIndex = source.indexOf("async promptManagedSession(sessionId, options)", managedOperationIndex);
     const operationBody = source.slice(managedOperationIndex, nextMethodIndex);
     const inspectIndex = operationBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = operationBody.indexOf("acquireSessionActivation({", inspectIndex);
     const hydratedIndex = operationBody.indexOf('changeSessionActivationPhase(activeProof, "hydrated")', acquireIndex);
     const openIndex = operationBody.indexOf("await openPersistedRootSession({", hydratedIndex);
-    const persistedAgentIndex = operationBody.indexOf(
-        "const persistedAgentName = await resolveResumeAgentName(sessionManager);",
+    const agentSelectionIndex = operationBody.indexOf(
+        "let agentName = options.agentName || pendingIntent.agentName || null;",
         openIndex,
     );
-    const agentSelectionIndex = operationBody.indexOf(
-        "const agentName = options.agentName || pendingIntent.agentName || persistedAgentName;",
+    const persistedAgentIndex = operationBody.indexOf(
+        "agentName ||= await resolveResumeAgentName(sessionManager);",
+        agentSelectionIndex,
+    );
+    const activateIndex = operationBody.indexOf(
+        "await this.#activateSessionAgent(hostedSession, {",
         persistedAgentIndex,
     );
-    const activateIndex = operationBody.indexOf("await this.#activateSessionAgent(session, {", agentSelectionIndex);
     const turningIndex = operationBody.indexOf('changeSessionActivationPhase(activeProof, "turning")', activateIndex);
-    const operationIndex = operationBody.indexOf("const result = await operation();", turningIndex);
+    const operationIndex = operationBody.indexOf(
+        "const result = await body({ acceptedTurnId, hasPendingImages, capability });",
+        turningIndex,
+    );
     const checkpointIndex = operationBody.indexOf(
         'changeSessionActivationPhase(activeProof, "checkpointing")',
         operationIndex,
@@ -1031,8 +1039,8 @@ Deno.test("SessionRuntime managed workflow operations acquire activation before 
     assertEquals(acquireIndex > inspectIndex, true);
     assertEquals(hydratedIndex > acquireIndex, true);
     assertEquals(openIndex > hydratedIndex, true);
-    assertEquals(persistedAgentIndex > openIndex, true);
-    assertEquals(agentSelectionIndex > persistedAgentIndex, true);
+    assertEquals(agentSelectionIndex > openIndex, true);
+    assertEquals(persistedAgentIndex > agentSelectionIndex, true);
     assertEquals(cacheFallbackIndex, -1);
     assertEquals(activateIndex > agentSelectionIndex, true);
     assertEquals(turningIndex > activateIndex, true);
