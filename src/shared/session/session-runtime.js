@@ -49,10 +49,10 @@ import {
     exportProjectedTranscript,
     getProjectedLastAssistantText,
     inspectProjectedTranscript,
-    projectCommittedTranscript,
     syncTranscriptFileAndParent,
     toProjectionFailure,
 } from "./session-transcript-projection.js";
+import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import {
     modelSupportsImageInput,
@@ -1260,16 +1260,16 @@ export class SessionRuntime {
             return { ok: false, error: "committed_generation_unavailable", message: "Managed read is unavailable." };
         }
         try {
-            const projection = await projectCommittedTranscript({
+            const segments = this.#ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId);
+            const projection = await projectAggregateTranscript({
                 cwd: session.cwd,
                 sessionDir: dirname(managed.transcriptPath),
-                sessionPath: managed.transcriptPath,
+                runwieldSessionId: managed.runwieldSessionId,
                 runtimeSessionId: sessionId,
-                generation: inspected.generation.generation,
-                byteLength: inspected.generation.byteLength,
-                terminalEntryId: inspected.generation.terminalEntryId,
-                digestHex: inspected.generation.digestHex,
+                generation: inspected.generation,
+                segments,
             });
+            if (!projection.ok) return { ok: false, error: projection.code, message: projection.message };
             const evidence = await captureTranscriptEvidence({
                 transcriptPath: managed.transcriptPath,
                 transcriptCwd: session.cwd,
@@ -1291,7 +1291,7 @@ export class SessionRuntime {
         if (managed && !manager) {
             const projected = await this.#readManagedCommittedProjection(sessionId);
             if (!projected.ok) return { ok: false, replayed: 0, error: projected.error };
-            const events = createProjectedReplayEvents(sessionId, projected.entries);
+            const events = projected.projection.events || [];
             for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
             return { ok: true, replayed: events.length };
         }
@@ -2450,26 +2450,25 @@ export class SessionRuntime {
                 ? managed.acknowledgedEventOrdinal
                 : null;
             do {
-                projected = await projectCommittedTranscript({
+                projected = await projectAggregateTranscript({
                     cwd: hostedSession.cwd,
                     sessionDir: dirname(managed.transcriptPath),
-                    sessionPath: managed.transcriptPath,
+                    runwieldSessionId: managed.runwieldSessionId,
                     runtimeSessionId: sessionId,
-                    generation: activationState.generation.generation,
-                    byteLength: activationState.generation.byteLength,
-                    terminalEntryId: activationState.generation.terminalEntryId,
-                    digestHex: activationState.generation.digestHex,
+                    generation: activationState.generation,
+                    segments: this.#ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId),
                     cursorEventId,
                     cursorEventOrdinal,
                     limit: options.limit,
                 });
+                if (!projected.ok) throw new Error(projected.message);
                 events.push(...(projected.events || []));
                 cursorEventId = projected.nextCursor || cursorEventId;
                 cursorEventOrdinal = Number.isInteger(projected.nextCursorOrdinal)
                     ? projected.nextCursorOrdinal
                     : cursorEventOrdinal;
             } while (!projected.complete);
-            const summary = projected.snapshot || {};
+            const summary = /** @type {any} */ (projected.snapshot || {});
             /** @type {import('./hosted-session.js').ManagedSessionMetadata} */
             const nextMetadata = {
                 ...managed,
@@ -3093,7 +3092,7 @@ export class SessionRuntime {
                             createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
                         )
                         : [],
-                    sessionManagerId: managedSession.piSessionId,
+                    sessionManagerId: managedSession.runwieldSessionId,
                     sessionPath: managedSession.transcriptPath,
                 };
             }

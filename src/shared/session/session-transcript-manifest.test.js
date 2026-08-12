@@ -1,0 +1,222 @@
+import { assert, assertEquals } from "@std/assert";
+import { join } from "@std/path";
+import { openOwnerCoordinationDatabase } from "../owner-coordination/database.js";
+import { registerProject } from "../owner-coordination/projects.js";
+import {
+    appendSessionTranscriptSegment,
+    ensureSessionCatalogRecord,
+    getCurrentSessionSegment,
+    listSessionTranscriptSegments,
+    sealSessionTranscriptSegment,
+} from "../owner-coordination/sessions.js";
+import { captureTranscriptEvidence } from "./session-transcript-projection.js";
+import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
+import { getRunWieldSessionDir } from "./root-session.js";
+
+function idFactory(prefix = "id") {
+    let next = 0;
+    return () => `${prefix}-${++next}`;
+}
+
+/** @param {string} cwd @param {string} piSessionId @param {string} timestamp @param {Array<Record<string, unknown>>} bodyEntries */
+async function writeTranscript(cwd, piSessionId, timestamp, bodyEntries) {
+    const sessionDir = getRunWieldSessionDir(cwd);
+    await Deno.mkdir(sessionDir, { recursive: true });
+    const path = join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${piSessionId}.jsonl`);
+    const entries = [
+        { type: "session", id: piSessionId, cwd, timestamp },
+        ...bodyEntries,
+    ];
+    await Deno.writeTextFile(path, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return { path, entries };
+}
+
+async function createTwoSegmentFixture() {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-aggregate-transcript-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    const root = `${dir}/repo`;
+    await Deno.mkdir(root);
+    const project = registerProject(database, { root, idFactory: idFactory("project"), now: () => "t0" });
+    const first = await writeTranscript(root, "pi-one", "2026-01-01T00:00:00.000Z", [
+        {
+            type: "message",
+            id: "duplicate",
+            timestamp: "2026-01-01T00:00:01.000Z",
+            message: { role: "user", content: "first" },
+        },
+    ]);
+    const session = await ensureSessionCatalogRecord(database, {
+        projectId: project.projectId,
+        piSessionId: "pi-one",
+        transcriptPath: first.path,
+        transcriptCwd: root,
+        idFactory: idFactory("session"),
+        now: () => "t1",
+    });
+    const firstSegment = getCurrentSessionSegment(database, session.runwieldSessionId);
+    assert(firstSegment);
+    const firstEvidence = await captureTranscriptEvidence({ transcriptPath: first.path, transcriptCwd: root });
+    await sealSessionTranscriptSegment(database, {
+        runwieldSessionId: session.runwieldSessionId,
+        segmentId: firstSegment.segmentId,
+        evidence: firstEvidence,
+        now: () => "t2",
+    });
+    const second = await writeTranscript(root, "pi-two", "2026-01-01T00:00:02.000Z", [
+        {
+            type: "message",
+            id: "duplicate",
+            timestamp: "2026-01-01T00:00:03.000Z",
+            message: { role: "assistant", content: "second" },
+        },
+    ]);
+    const secondSegment = await appendSessionTranscriptSegment(database, {
+        runwieldSessionId: session.runwieldSessionId,
+        projectId: project.projectId,
+        piSessionId: "pi-two",
+        transcriptPath: second.path,
+        transcriptCwd: root,
+        kind: "execution",
+        lineageParentSegmentId: firstSegment.segmentId,
+        idFactory: idFactory("segment"),
+        now: () => "t3",
+    });
+    const secondEvidence = await captureTranscriptEvidence({ transcriptPath: second.path, transcriptCwd: root });
+    const generation = {
+        generation: 1,
+        byteLength: secondEvidence.byteLength,
+        terminalEntryId: secondEvidence.terminalEntryId,
+        digestHex: secondEvidence.digestHex,
+        currentSegmentId: secondSegment.segmentId,
+    };
+    return { dir, database, root, session, firstSegment, firstEvidence, first, second, secondSegment, generation };
+}
+
+/** @param {Awaited<ReturnType<typeof createTwoSegmentFixture>>} fixture */
+async function cleanupFixture(fixture) {
+    fixture.database.close();
+    await Deno.remove(fixture.dir, { recursive: true });
+}
+
+Deno.test("aggregate projection replays ordered segments and namespaces duplicate Pi entry ids", async () => {
+    const fixture = await createTwoSegmentFixture();
+    try {
+        const projected = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+        });
+        assert(projected.ok);
+        assertEquals(projected.events.map((event) => event.eventId), [
+            `${fixture.firstSegment.segmentId}:duplicate:user_message:0`,
+            `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
+        ]);
+        assertEquals(projected.snapshot.name, null);
+        assertEquals(projected.segments.map((segment) => segment.segmentId), [
+            fixture.firstSegment.segmentId,
+            fixture.secondSegment.segmentId,
+        ]);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});
+
+Deno.test("aggregate projection fails closed with zero events when sealed segment evidence is unavailable", async () => {
+    for (const mutate of ["missing", "truncated", "extended", "byte-modified"]) {
+        const fixture = await createTwoSegmentFixture();
+        try {
+            if (mutate === "missing") await Deno.remove(fixture.first.path);
+            if (mutate === "truncated") await Deno.truncate(fixture.first.path, fixture.firstEvidence.byteLength - 1);
+            if (mutate === "extended") await Deno.writeTextFile(fixture.first.path, "{}\n", { append: true });
+            if (mutate === "byte-modified") {
+                const text = await Deno.readTextFile(fixture.first.path);
+                await Deno.writeTextFile(fixture.first.path, text.replace("first", "FIrst"));
+            }
+            const projected = await projectAggregateTranscript({
+                cwd: fixture.root,
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                runtimeSessionId: "runtime-1",
+                generation: fixture.generation,
+                segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+                cursorEventId: mutate === "missing"
+                    ? `${fixture.firstSegment.segmentId}:duplicate:user_message:0`
+                    : null,
+            });
+            assertEquals(projected.ok, false, mutate);
+            assertEquals(projected.events, [], mutate);
+        } finally {
+            await cleanupFixture(fixture);
+        }
+    }
+});
+
+Deno.test("aggregate projection replays from start when a cursor is absent after full verification", async () => {
+    const fixture = await createTwoSegmentFixture();
+    try {
+        const projected = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+            cursorEventId: "old-client-cursor",
+        });
+        assert(projected.ok);
+        assertEquals(projected.cursorReset, true);
+        assertEquals(projected.events.length, 2);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});
+
+Deno.test("aggregate projection fails closed after a same-size sealed segment mutation with restored mtime", async () => {
+    const fixture = await createTwoSegmentFixture();
+    try {
+        const firstProjection = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+        });
+        assert(firstProjection.ok);
+        const stat = await Deno.stat(fixture.first.path);
+        const text = await Deno.readTextFile(fixture.first.path);
+        await Deno.writeTextFile(fixture.first.path, text.replace("first", "FIrst"));
+        if (stat.atime && stat.mtime) await Deno.utime(fixture.first.path, stat.atime, stat.mtime);
+        const secondProjection = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+        });
+        assertEquals(secondProjection.ok, false);
+        assertEquals(secondProjection.events, []);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});
+
+Deno.test("aggregate projection resumes across a segment boundary", async () => {
+    const fixture = await createTwoSegmentFixture();
+    try {
+        const projected = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+            cursorEventId: `${fixture.firstSegment.segmentId}:duplicate:user_message:0`,
+            cursorEventOrdinal: 0,
+        });
+        assert(projected.ok);
+        assertEquals(projected.events.map((event) => event.eventId), [
+            `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
+        ]);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});

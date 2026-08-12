@@ -41,95 +41,29 @@ objectiveChecks:
     - id: "OC7"
       command: "test -f src/shared/session/session-transcript-manifest.test.js && grep -q 'Deno.utime' src/shared/session/session-transcript-manifest.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-transcript-manifest.test.js"
       rationale: "Red today: the file does not exist. Pins the no-re-hash steady state, which OC3 permits an implementation to ignore by hashing every sealed segment on every poll. Deno.utime is the only way to write the caching assertion without a seam: rewrite a verified segment's bytes at identical length, restore its mtime, and project again. An implementation that re-hashes each read fails closed there, so the grep cannot be satisfied by a token mention that never runs."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-12T02:56:43.560Z"
-    head: "24a01af1a96ede99f110860acd475e62785dd5dd"
-    results:
-        - id: "OC1"
-          command: "grep -q 'OWNER_COORDINATION_SCHEMA_VERSION = 7' src/shared/owner-coordination/schema.js && grep -q 'OWNER_COORDINATION_SCHEMA_V7_SQL' src/shared/owner-coordination/database.js && awk '/OWNER_COORDINATION_SCHEMA_V7_SQL/,0' src/shared/owner-coordination/schema.js | grep -q 'sealed_byte_length' && awk '/OWNER_COORDINATION_SCHEMA_V7_SQL/,0' src/shared/owner-coordination/schema.js | grep -q 'sealed_digest_hex' && awk '/OWNER_COORDINATION_SCHEMA_V7_SQL/,0' src/shared/owner-coordination/schema.js | grep -q 'UPDATE session_committed_generations'"
-          rationale: "Red today: the version constant is 6 and no V7 block exists. The database.js clause matters because schema.js only exports SQL text; a V7 block never exec'd by the migration runner leaves every real owner database at version 6. The digest column pins tamper evidence rather than a bookkeeping-only column, and the UPDATE clause pins the legacy generation backfill, without which every pre-slice-8 Session goes degraded."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 20
-          output: "\n"
-        - id: "OC2"
-          command: "test -f src/shared/owner-coordination/session-segment-evidence.test.js && grep -q 'openOwnerCoordinationDatabase' src/shared/owner-coordination/session-segment-evidence.test.js && grep -q 'sealSessionTranscriptSegment' src/shared/owner-coordination/session-segment-evidence.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/owner-coordination/session-segment-evidence.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/owner-coordination/session-segments.test.js"
-          rationale: "Red today: the file does not exist, so the guard fails before the runner. OC1 is satisfied by empty columns nothing ever writes; this forces seal-time capture to actually happen. openOwnerCoordinationDatabase forces the test through the real migration runner rather than hand-built rows. The trailing session-segments.test.js clause passes today, so slice 8's manifest behavior cannot be regressed to buy evidence capture, nor escaped by deleting that suite."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 15
-          output: "\n"
-        - id: "OC3"
-          command: "test -f src/shared/session/session-transcript-manifest.ts && grep -qE '^export (async )?function projectAggregateTranscript\\(' src/shared/session/session-transcript-manifest.ts && test -f src/shared/session/session-transcript-manifest.test.js && grep -q 'listSessionTranscriptSegments' src/shared/session/session-transcript-manifest.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-transcript-manifest.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-transcript-projection.test.js"
-          rationale: "Red today: neither file exists. The ^export anchor blocks satisfying this with a local helper or a re-exported alias of projectCommittedTranscript. Naming listSessionTranscriptSegments forces the test through the real manifest rather than a hand-passed file list, so a single-segment pass-through cannot pass. The trailing projection suite passes today and holds single-segment and digest-mismatch behavior, so aggregation cannot be bought by weakening the existing reader."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC4"
-          command: "test -f src/ui/tui/segment-aware-sync.test.js && grep -q 'projectAggregateTranscript' src/ui/tui/segment-aware-sync.test.js && grep -q 'session_replaced' src/ui/tui/segment-aware-sync.test.js && grep -q 'session-transcript-manifest' src/shared/session/session-runtime.js && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/segment-aware-sync.test.js && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/runtime-adapter.test.js"
-          rationale: "Red today: the file does not exist and session-runtime.js imports no manifest module. Covers the half of the objective that is not storage. The session-runtime.js clause stops the manifest module landing green while the runtime still reads one file, which OC3 alone permits. Naming session_replaced forces the no-replacement property to be asserted. The trailing runtime-adapter.test.js clause passes today and holds eventId deduplication."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC5"
-          command: "test -f src/acp/segment-stable-identity.test.js && grep -q 'piSessionId' src/acp/segment-stable-identity.test.js && grep -q 'runwieldSessionId' src/acp/segment-stable-identity.test.js && deno run -A scripts/run-tests.js -A --no-check src/acp/segment-stable-identity.test.js && deno run -A scripts/run-tests.js -A --no-check src/acp/session-map.test.js"
-          rationale: "Red today: the file does not exist. Covers the transport-identity property, which no other check reaches. Naming both piSessionId and runwieldSessionId forces the test to actually distinguish the two rather than asserting an id is merely non-empty. The trailing session-map.test.js clause passes today, so stable identity cannot be bought by regressing existing ACP session mapping."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC6"
-          command: "grep -q 'Sealed Session Transcript Segment' docs/domain-language.md && grep -q 'Aggregate Transcript Projection' docs/domain-language.md"
-          rationale: "Red today: neither term appears in the glossary. This is the weakest check in the set - a text match cannot prove the definitions are good - but the glossary step is part of the objective and the surrounding behavioral checks carry the real proof. It exists so the documentation step cannot be silently dropped."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 14
-          output: "\n"
-        - id: "OC7"
-          command: "test -f src/shared/session/session-transcript-manifest.test.js && grep -q 'Deno.utime' src/shared/session/session-transcript-manifest.test.js && deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-transcript-manifest.test.js"
-          rationale: "Red today: the file does not exist. Pins the no-re-hash steady state, which OC3 permits an implementation to ignore by hashing every sealed segment on every poll. Deno.utime is the only way to write the caching assertion without a seam: rewrite a verified segment's bytes at identical length, restore its mtime, and project again. An implementation that re-hashes each read fails closed there, so the grep cannot be satisfied by a token mention that never runs."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 12
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-08-12T04:22:49.683Z"
-status: "validated_ci"
+updatedAt: "2026-08-12T13:34:01.491Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 9
 dependencies:
     - "08-segment-manifest-and-legacy-migration"
 implementedAt: "2026-08-12T04:11:14.914Z"
+verifiedAt: "2026-08-12T13:34:01.491Z"
 userVerifiedAt: null
 executionReport: "- Implemented schema v7 migration, sealed-segment evidence columns, migration execution, and legacy generation `current_segment_id` backfill.\n- Updated `sealSessionTranscriptSegment` to require supplied evidence, verify it against disk inside the transaction, and store sealed byte length/digest/terminal entry without leaving mismatched seals behind.\n- Added aggregate manifest projection with ordered manifest validation, sealed/current evidence verification, segment-namespaced replay IDs, cursor replay-from-start recovery, and per-process sealed digest caching keyed by segment/size/mtime.\n- Routed managed Session read/sync through `projectAggregateTranscript`; exposed segment APIs on `openOwnerCoordinationStore`; preserved current-segment-only writable/context behavior.\n- Added coverage for seal evidence, multi-segment projection, duplicate Pi entry IDs, missing/truncated/extended/byte-modified sealed segments, cursor resume/recovery, hash-once cache behavior via `Deno.utime`, TUI no-`session_replaced` dedupe, and ACP stable RunWield identity.\n- Updated `docs/domain-language.md` with Sealed Session Transcript Segment and Aggregate Transcript Projection terminology.\n- Verification passed: `deno task ci`; targeted plan suites also passed (`session-transcript-manifest`, `session-segment-evidence`, TUI segment/runtime-adapter, ACP segment/session-map).\n- Test count delta: added 4 test files; no tests removed or replaced."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 executionMode: "worktree"
-executionBaselineTree: "d90d8b62cd4c68d930699677f6e1cfdcdf542450"
-worktreeId: "60093a40"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-09-aggregate-transc-60093a40"
-worktreeBranch: "worktree/personal-remote-workspace-v1-09-aggregate-transc-60093a40"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "633ee235cbe9fcfb3723d74c9c2a0b6149c6d43c"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "4c175965b4197bab194f9b8e707d5223faa8fb6f"
 validationCiAttempts: 0
 validationSemanticRounds: 1
 ---

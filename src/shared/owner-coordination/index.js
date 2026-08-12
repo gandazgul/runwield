@@ -27,11 +27,15 @@ import {
     setProjectEnabled,
 } from "./projects.js";
 import {
+    appendSessionTranscriptSegment,
     catalogProjectSessions,
     ensureSessionCatalogRecord,
     findSessionByLocator,
+    getCurrentSessionSegment,
     getSessionById,
     listProjectSessions,
+    listSessionTranscriptSegments,
+    sealSessionTranscriptSegment,
 } from "./sessions.js";
 import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
 import {
@@ -83,6 +87,10 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(runwieldSessionId: string) => ReturnType<typeof getSessionById>} getSessionById
  * @property {(projectId: string, options?: Parameters<typeof listProjectSessions>[2]) => ReturnType<typeof listProjectSessions>} listProjectSessions
  * @property {(projectId: string, options?: Parameters<typeof catalogProjectSessions>[2]) => ReturnType<typeof catalogProjectSessions>} catalogProjectSessions
+ * @property {(runwieldSessionId: string) => ReturnType<typeof listSessionTranscriptSegments>} listSessionTranscriptSegments
+ * @property {(runwieldSessionId: string) => ReturnType<typeof getCurrentSessionSegment>} getCurrentSessionSegment
+ * @property {(segment: Parameters<typeof appendSessionTranscriptSegment>[1]) => ReturnType<typeof appendSessionTranscriptSegment>} appendSessionTranscriptSegment
+ * @property {(options: Parameters<typeof sealSessionTranscriptSegment>[1]) => ReturnType<typeof sealSessionTranscriptSegment>} sealSessionTranscriptSegment
  * @property {(options?: Parameters<typeof createPairingRequest>[1]) => ReturnType<typeof createPairingRequest>} createPairingRequest
  * @property {(code: string, options?: Parameters<typeof approvePairingRequest>[2]) => ReturnType<typeof approvePairingRequest>} approvePairingRequest
  * @property {(proof: string, options?: Parameters<typeof getPairingRequestByProof>[2]) => ReturnType<typeof getPairingRequestByProof>} getPairingRequestByProof
@@ -140,6 +148,11 @@ export function openOwnerCoordinationStore(options = {}) {
         listProjectSessions: (projectId, sessionOptions) => listProjectSessions(database, projectId, sessionOptions),
         catalogProjectSessions: (projectId, sessionOptions) =>
             catalogProjectSessions(database, projectId, sessionOptions),
+        listSessionTranscriptSegments: (runwieldSessionId) =>
+            listSessionTranscriptSegments(database, runwieldSessionId),
+        getCurrentSessionSegment: (runwieldSessionId) => getCurrentSessionSegment(database, runwieldSessionId),
+        appendSessionTranscriptSegment: (segment) => appendSessionTranscriptSegment(database, segment),
+        sealSessionTranscriptSegment: (segmentOptions) => sealSessionTranscriptSegment(database, segmentOptions),
         createPairingRequest: (pairingOptions) => createPairingRequest(database, pairingOptions),
         approvePairingRequest: (code, pairingOptions) => approvePairingRequest(database, code, pairingOptions),
         getPairingRequestByProof: (proof, pairingOptions) => getPairingRequestByProof(database, proof, pairingOptions),
