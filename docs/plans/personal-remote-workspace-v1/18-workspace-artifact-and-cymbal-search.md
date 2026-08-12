@@ -9,7 +9,7 @@ affectedPaths:
     - "src/ui/workspace/pages/"
     - "src/ui/workspace/components/"
     - "src/ui/workspace/islands/"
-    - "docs/prd/runwield-workspace-PRD.md"
+    - "docs/prd/runwield-workspace-prd.md"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
@@ -67,7 +67,7 @@ failure reporting, and grouped results. Leave code-server lifecycle and deep lin
 - `src/ui/workspace/pages/` — add Workspace search routes.
 - `src/ui/workspace/components/` and `src/ui/workspace/islands/` — add search forms, result groups, Project filters,
   artifact/code mode distinction, empty states, and partial failure states.
-- `docs/prd/runwield-workspace-PRD.md` — document search privacy boundaries and optional future Sourcebot deferral if
+- `docs/prd/runwield-workspace-prd.md` — document search privacy boundaries and optional future Sourcebot deferral if
   needed.
 
 ## Reuse Opportunities

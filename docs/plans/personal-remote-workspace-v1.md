@@ -4,7 +4,7 @@ classification: "PROJECT"
 complexity: "HIGH"
 summary: "Evolve RunWield Workspace into a secure personal multi-Project environment with durable segmented cross-surface Sessions, workflow ownership, remote browser access, search, and a subordinate Code Surface."
 affectedPaths:
-    - "docs/prd/runwield-workspace-PRD.md"
+    - "docs/prd/runwield-workspace-prd.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/runwield-acp-session-host-PRD.md"
     - "docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md"
@@ -33,10 +33,15 @@ worktreeStatus: "abandoned"
 
 # Personal Remote Workspace v1
 
+Recommendation: use SQLite FTS5 as the default Personal Workspace v1 durable-artifact index, with canonical Markdown
+hydration remaining the source of truth. Keep Typesense behind a replaceable artifact-search provider seam for later
+adoption if search UX, facets, typo tolerance, hybrid semantic search, or SaaS-scale needs justify the extra server
+process.
+
 ## Context
 
 RunWield's current browser Workspace is a strong single-checkout Plan surface, but it is not yet the persistent browser
-environment described by [`docs/prd/runwield-workspace-PRD.md`](../prd/runwield-workspace-PRD.md). The owner cannot
+environment described by [`docs/prd/runwield-workspace-prd.md`](../prd/runwield-workspace-prd.md). The owner cannot
 register multiple trusted Projects, continue one durable Session across TUI, Workspace, and ACP, see attention across
 Projects, or search eligible artifacts and source code from one remote interface.
 
@@ -408,7 +413,7 @@ headed browser verification; core persistence, fencing, projection, and ACP beha
 
 ## Files to Modify
 
-- `docs/prd/runwield-workspace-PRD.md` — replace the central authoritative-live-Host assumption with exclusive Session
+- `docs/prd/runwield-workspace-prd.md` — replace the central authoritative-live-Host assumption with exclusive Session
   activation, durable checkpoint handoff, and automatic idle-client synchronization while preserving the Personal
   Workspace product journey.
 - `docs/prd/runwield-core-prd.md` — update the Core runtime roadmap from its partially stale future Session Host and

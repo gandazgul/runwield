@@ -46,7 +46,6 @@ Workspace focuses on:
 - Plan-centered collaboration
 - shared backlog and in-progress planning flow
 - collaborative Plan review
-- assignable human code review with Agent assistance, replacing forge pull-request review by default
 - PRD, ADR, and Work Record visibility
 - cross-project planning memory
 - relevant retrieval for new planning work
@@ -55,7 +54,7 @@ Workspace focuses on:
 Workspace should not initially lead with hosted execution. Hosted AFK `wld` agents may become a later capability for
 executing ready Plans, but the first SaaS wedge is collaborative planning and records.
 
-The detailed Workspace product requirements live in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md). That PRD
+The detailed Workspace product requirements live in [runwield-workspace-prd.md](./runwield-workspace-prd.md). That PRD
 marries the local Plan management UI and encrypted collaborative planning directions into the self-hostable and hosted
 Workspace story.
 
@@ -153,13 +152,8 @@ Work Records should be:
 - searchable and retrievable by relevance for future planning
 - compressible or reorganizable later without mutating source Plans
 
-Work Records are not generated for no-plan `QUICK_FIX` work or for merges made outside RunWield. Quick fixes are usually
-local, one-off, and too granular for durable planning memory, and those changes are explained by their commit messages.
-
-The guarantee runs one direction: every verified Plan produces a Work Record with delivery evidence, but no merge is
-required to have a Plan or a Work Record. Work Records are a layer of memory over planned work, not the authoritative
-history of the target branch — the git log owns commit-level history. RunWield is responsible for the provenance of its
-own merges, with clear commits that point back to their Plans; each team owns its commit discipline for everything else.
+Work Records should not be generated for no-plan `QUICK_FIX` work initially. Quick fixes are usually local, one-off, and
+too granular for durable planning memory.
 
 ## 5. RunWield Core Requirements
 
@@ -300,7 +294,7 @@ Generation policy:
 - verified Planned Change Plan -> one Planned Change Work Record, preserving Work Kind when known
 - verified PROJECT Epic -> one Epic Work Record
 - Epic marked done enough -> one Epic Work Record with informational `completionMode: done_enough`
-- no-plan QUICK_FIX -> no Work Record; the commit message is the record at that level
+- no-plan QUICK_FIX -> no Work Record initially
 
 Child slices of an Epic are implementation details. The Epic Work Record should summarize the meaningful product or
 technical outcome and may reference child Plans as source material when useful.
@@ -400,9 +394,6 @@ Requirements:
 - Plans, PRDs, ADRs, and Work Records are team-visible artifacts according to workspace permissions.
 - User/agent working conversations are private-first by default.
 - Individual chat messages should not be attached to Plans by default.
-- Code-review discussion, assignment, and approval state are collaboration process data. Workspace hosts them outside
-  the repository, as it does working conversations; only durable results — Plans, Work Records, and commits — enter the
-  repo.
 - Artifact metadata can store user and Agent authorship.
 - Details screens can show quiet metadata such as author, drafting Agent, approval mode, and source references.
 - Admin/debug session access may exist where policy allows.
@@ -459,23 +450,6 @@ Workspace should extend Core's repo-local records with:
 
 This is a key reason to pay for Workspace. It should strengthen planning without reframing RunWield as hosted agent
 management.
-
-### 6.6 Code Review and Merge
-
-Under the default posture, Workspace replaces the forge pull-request loop for teams that adopt it:
-
-- human code review happens in Workspace and can be assigned to a teammate, with Agents available to reviewer and author
-  for context and changes;
-- a Workspace merge component lands validated, approved work on the target branch under team-granted permissions;
-- identity, audit, and person provenance are Workspace responsibilities, with GitHub identity and permission integration
-  high on the roadmap;
-- per repository, team, or instance, a team can instead keep forge-hosted review or run both review gates; the two gates
-  never synchronize state;
-- externally contributed work (for example, a drive-by pull request from someone without RunWield) becomes source
-  material for a maintainer-owned Plan, preserving both author and maintainer provenance.
-
-Local validation never replaces shared CI. Teams integrated with a forge keep a fast local validation tier and a fuller
-shared CI tier, mirroring this repository's `deno task ci` versus `deno task release:check` separation.
 
 ## 7. Advanced Core Capabilities
 
@@ -559,9 +533,6 @@ explicitly by the host.
 - Do not persist raw chat traces as team planning memory by default.
 - Do not make Git, GitHub, pull requests, or any external tracker mandatory artifact schema concepts.
 - Do not make RunWield Workspace dependent on job-title-specific roles.
-- Do not treat forge pull requests as the default human review loop; forge-hosted review is an opt-in per repository or
-  team.
-- Do not treat Work Records as the audit history of the target branch; the git log owns commit-level history.
 
 ## 10. Success Metrics
 

@@ -9,7 +9,7 @@ affectedPaths:
     - "src/ui/workspace/islands/"
     - "src/cmd/"
     - "docs/usage.md"
-    - "docs/prd/runwield-workspace-PRD.md"
+    - "docs/prd/runwield-workspace-prd.md"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
@@ -65,7 +65,7 @@ registered main-checkout containment.
 - `src/cmd/` — add code-server prerequisite checks or launch helpers if useful for Workspace startup diagnostics.
 - `docs/usage.md` — document local code-server prerequisite, private network/TLS guidance, and operational trust
   boundary.
-- `docs/prd/runwield-workspace-PRD.md` — align product wording with subordinate Code Surface constraints if needed.
+- `docs/prd/runwield-workspace-prd.md` — align product wording with subordinate Code Surface constraints if needed.
 
 ## Reuse Opportunities
 

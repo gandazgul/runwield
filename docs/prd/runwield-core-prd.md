@@ -250,7 +250,7 @@ Current local Workspace requirements:
 
 The local Workspace is a Core client and remains supported alongside the later persistent owner Workspace. Broader
 Workspace, Personal Remote Workspace, and SaaS requirements live in
-[runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
+[runwield-workspace-prd.md](./runwield-workspace-prd.md).
 
 ## 5. Current Collaborative Planning Surface
 
@@ -276,11 +276,8 @@ Deferred collaboration surface:
 - hosted RunWield Workspace / Cloudflare D1 deployment
 - browser-side push, close, unshare/delete, or Plan body editing
 - automated notifications
-- Forge Change Request Delivery through GitHub or GitLab as an explicitly selected delivery and review mode (see
-  [forge-change-request-delivery-prd.md](./forge-change-request-delivery-prd.md)); RunWield-native review and Direct
-  Delivery remain the default
 
-The full collaboration and Workspace story lives in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
+The full collaboration and Workspace story lives in [runwield-workspace-prd.md](./runwield-workspace-prd.md).
 
 ## 6. Memory, Context, and Code Intelligence
 

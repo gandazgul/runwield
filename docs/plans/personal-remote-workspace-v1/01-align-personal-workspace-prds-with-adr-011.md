@@ -4,7 +4,7 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Align the Workspace, Core, and ACP PRDs with ADR-011 by replacing central authoritative Session Host assumptions with exclusive Session activation, Durable Workflow Checkpoints, automatic synchronization, and trust-separated owner Workspace boundaries."
 affectedPaths:
-    - "docs/prd/runwield-workspace-PRD.md"
+    - "docs/prd/runwield-workspace-prd.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/runwield-acp-session-host-PRD.md"
 executionAgent: "engineer"
@@ -19,7 +19,7 @@ dependencies:
     []
 implementedAt: "2026-07-22T13:39:39.646Z"
 verifiedAt: "2026-07-22T14:00:14.318Z"
-executionReport: "- Updated `docs/prd/runwield-workspace-PRD.md` to replace central live-host/Session Control language with stable Session identity, fenced Session Activation Leases, Durable Workflow Checkpoints, automatic read synchronization, owner coordination DB boundaries, TLS/Origin/CSRF trust notes, and ADR-011 references.\n- Updated `docs/prd/runwield-core-prd.md` to mark `SessionHost`/`HostedSession`, `SessionRuntime`, ACP, Work Records, and Shared Plan lifecycle as current foundations, and to define the next ADR-011 coordination requirements below sibling adapters.\n- Updated `docs/prd/runwield-acp-session-host-PRD.md` so ACP durable `sessionId` maps to stable RunWield Sessions, load/mutation paths are activation-aware, checkpoint/recovery behavior is idempotent, and Workspace remains a sibling Runtime consumer rather than an ACP child or parent.\n- Verification passed: `deno fmt docs/prd/runwield-workspace-PRD.md docs/prd/runwield-core-prd.md docs/prd/runwield-acp-session-host-PRD.md`; `deno fmt --check ...`; `git diff --check -- ...`; `deno task ci`.\n- Text audits passed: no remaining `Session Control` references and no remaining central authoritative Session Host claims in the three PRDs."
+executionReport: "- Updated `docs/prd/runwield-workspace-prd.md` to replace central live-host/Session Control language with stable Session identity, fenced Session Activation Leases, Durable Workflow Checkpoints, automatic read synchronization, owner coordination DB boundaries, TLS/Origin/CSRF trust notes, and ADR-011 references.\n- Updated `docs/prd/runwield-core-prd.md` to mark `SessionHost`/`HostedSession`, `SessionRuntime`, ACP, Work Records, and Shared Plan lifecycle as current foundations, and to define the next ADR-011 coordination requirements below sibling adapters.\n- Updated `docs/prd/runwield-acp-session-host-PRD.md` so ACP durable `sessionId` maps to stable RunWield Sessions, load/mutation paths are activation-aware, checkpoint/recovery behavior is idempotent, and Workspace remains a sibling Runtime consumer rather than an ACP child or parent.\n- Verification passed: `deno fmt docs/prd/runwield-workspace-prd.md docs/prd/runwield-core-prd.md docs/prd/runwield-acp-session-host-PRD.md`; `deno fmt --check ...`; `git diff --check -- ...`; `deno task ci`.\n- Text audits passed: no remaining `Session Control` references and no remaining central authoritative Session Host claims in the three PRDs."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
@@ -68,7 +68,7 @@ planning time.
 
 ## Files to Modify
 
-- `docs/prd/runwield-workspace-PRD.md` — replace authoritative-host and Session Control language across the problem,
+- `docs/prd/runwield-workspace-prd.md` — replace authoritative-host and Session Control language across the problem,
   principles, Session experience, technical approach, acceptance criteria, risks, and sequencing; add activation,
   checkpoint, automatic synchronization, owner-store, and trust-separation requirements.
 - `docs/prd/runwield-core-prd.md` — correct stale current/future claims and define the next Core coordination boundary
@@ -95,7 +95,7 @@ Existing documents and patterns to reuse:
 - [ ] Build a section-level contradiction checklist before editing: Workspace §§2–4, 6.4–6.6, 7.1, 8–10, and 12; Core
       §§1–2 and 10–12; and ACP §§1–4, 6, and 9–10. Include every assertion of a central authoritative live Host,
       simultaneous writable attachment, or Workspace/ACP parent-child Runtime dependency.
-- [ ] Update `docs/prd/runwield-workspace-PRD.md` so its product model and Session journey use stable Session identity,
+- [ ] Update `docs/prd/runwield-workspace-prd.md` so its product model and Session journey use stable Session identity,
       exclusive Session activation, committed generations, Durable Workflow Checkpoints, and automatic read
       synchronization. Replace §6.5 Session Control with the activation/checkpoint/read model; require non-mutating
       replay of unseen stable entries, draft preservation, visible current activation ownership, and writable Runtime
@@ -140,7 +140,7 @@ Existing documents and patterns to reuse:
 ## Verification Plan
 
 - Automated: run
-  `deno fmt docs/prd/runwield-workspace-PRD.md docs/prd/runwield-core-prd.md docs/prd/runwield-acp-session-host-PRD.md`.
+  `deno fmt docs/prd/runwield-workspace-prd.md docs/prd/runwield-core-prd.md docs/prd/runwield-acp-session-host-PRD.md`.
 - Automated/text audit: confirm the three PRDs contain no remaining `Session Control` references and no normative claim
   that one persistent Workspace Session Host is the central live authority or mandatory Runtime proxy for TUI/ACP.
 - Manual consistency review: verify all three documents describe stable RunWield Session identity separately from Pi and
