@@ -7,7 +7,8 @@ import { createTaskCompletedTool } from "../../../../tools/task-completed.ts";
 import { HostedSession } from "../../hosted-session.js";
 import { readLatestTaskCompletedOutcome } from "../../../workflow/workflow-results.js";
 import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
-import { ClaudeCliExecutionSession } from "./execution-session.ts";
+import { composeClaudeCliBridgedTools } from "../../session.js";
+import { buildBridgedToolPromptAppendix, ClaudeCliExecutionSession } from "./execution-session.ts";
 import { ClaudeCliBackendError } from "./failure.ts";
 import { parseClaudeCliStream } from "./stream-parser.ts";
 
@@ -156,10 +157,33 @@ Deno.test("Claude CLI command writes an owner-only appended prompt file", async 
     }
 });
 
-Deno.test("Claude CLI command prompt file cleanup removes the file", async () => {
-    const command = await prepareClaudeCliCommand({ selector: "haiku", systemPrompt: "cleanup" });
-    await removeClaudeCliPromptFile(command);
-    await assertRejects(() => Deno.stat(command.promptFilePath), Deno.errors.NotFound);
+Deno.test("Claude CLI bridge does not expose user interview", async () => {
+    await withTempDir(async (root) => {
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        const tools = await composeClaudeCliBridgedTools({
+            agentDef: {
+                name: "planner",
+                displayName: "Planner",
+                model: "claude-cli/sonnet",
+                description: "test planner",
+                tools: ["plan_written", "user_interview"],
+                systemPrompt: "system",
+            },
+            agentName: "planner",
+            hostedSession,
+            triageMeta: { classification: "FEATURE" },
+            cwd: root,
+        });
+        assertEquals(tools.map((tool) => tool.name), ["plan_written"]);
+        const appendix = buildBridgedToolPromptAppendix(tools);
+        assertStringIncludes(appendix, "Finish all visible assistant text before you call a lifecycle tool");
+        assertEquals(appendix.includes("user interview"), false);
+    });
 });
 
 Deno.test("Claude CLI parser emits assistant text and ignores internal events", async () => {

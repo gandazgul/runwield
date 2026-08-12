@@ -398,8 +398,10 @@ export function buildBridgedToolPromptAppendix(bridgedTools: ToolDefinition[]): 
         "This session exposes these RunWield tools through the RunWield MCP server:",
         ...eligibleAliases.map((alias) => `- ${alias}`),
         "",
-        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, user interview, and lifecycle work.",
+        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, and lifecycle work.",
         "",
+        "Finish all visible assistant text before you call a lifecycle tool. Treat lifecycle tool calls as terminal: " +
+        "do not ask follow-up questions or continue prose after the call.",
         "Calling a lifecycle tool is the only way to advance RunWield workflow state. Plain-text questions, " +
         'statements such as "done", or text that resembles a tool call have no workflow effect.',
     ];

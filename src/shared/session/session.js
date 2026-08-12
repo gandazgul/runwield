@@ -2091,10 +2091,6 @@ export async function composeClaudeCliBridgedTools({
         const { createTriageReportTool } = await import("../../tools/triage-report.ts");
         finalCustomTools.push(createTriageReportTool({ hostedSession }));
     }
-    if (declared.has("user_interview") && hostedSession && !hasTool("user_interview")) {
-        finalCustomTools.push(createUserInterviewTool({ hostedSession }));
-    }
-
     const workRecordAccessMode = [AGENTS.GUIDE, AGENTS.RECORDER].includes(agentName) ? "all" : "current";
     if (declared.has("work_record_search") && !hasTool("work_record_search")) {
         const { createWorkRecordSearchTool } = await import("../../tools/work-record-search.ts");
