@@ -54,7 +54,7 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T15:26:09-04:00"
-updatedAt: "2026-08-12T04:19:28.540Z"
+updatedAt: "2026-08-12T04:19:46.383Z"
 status: "verified"
 origin: "internal"
 dependencies:
@@ -63,6 +63,11 @@ implementedAt: "2026-08-12T03:26:19.444Z"
 verifiedAt: "2026-08-12T04:19:28.540Z"
 userVerifiedAt: null
 executionReport: "- Implemented Pi package upgrade to `^0.84.0`, regenerated `deno.lock`, kept `beautiful-mermaid` direct, and left `grok-mermaid` only transitive with no RunWield source imports.\n- Replaced the old TUI singleton/keybinding JS modules with typed `tui.ts` and `keybindings.ts`; production and deterministic paths now use Pi `TuiMainScreen` regular mode, with no direct `new TUI(...)` construction left.\n- Added `scopedModels: []` to the Claude CLI MCP bridge context and guarded the session resilience stream helper against final `done` events with `stopReason: \"pending\"`.\n- Added RunWield-level Unicode LaTeX coverage through `MermaidMarkdown` and documented completed math delimiters, fallback behavior, and Mermaid coexistence in `docs/usage.md`.\n- Test changes: +10 `Deno.test` cases added, no tests removed; existing keybinding fake was updated for the public editor newline insertion path.\n- Verification passed: `deno task check`, `deno task language-policy:check`, `deno task seams:check`, all focused TUI/Markdown/MCP/session/chat/golden suites, OC1–OC6 commands, mutation checks for LaTeX disable, alt-screen mode, and pending final stop reason, and full `deno task ci`.\n- Manual `deno task cli` TUI smoke was not run because this API session has no interactive terminal; the equivalent behavior was covered by automated `MermaidMarkdown`, TUI regular-mode, and Golden TUI checks."
+workRecord:
+    status: "generated"
+    recordId: "f9ada355-3d09-4e27-9c13-1133a3e8b339"
+    path: "docs/work-records/2026-08-12-upgrade-pi-0-84-and-unicode-latex-rendering.md"
+    lastAttemptAt: "2026-08-12T04:19:37.656Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-12T04:19:27.436Z"

@@ -111,14 +111,16 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-08-12T02:56:43.761Z"
-status: "in_progress"
+updatedAt: "2026-08-12T04:22:49.683Z"
+status: "validated_ci"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 9
 dependencies:
     - "08-segment-manifest-and-legacy-migration"
+implementedAt: "2026-08-12T04:11:14.914Z"
 userVerifiedAt: null
+executionReport: "- Implemented schema v7 migration, sealed-segment evidence columns, migration execution, and legacy generation `current_segment_id` backfill.\n- Updated `sealSessionTranscriptSegment` to require supplied evidence, verify it against disk inside the transaction, and store sealed byte length/digest/terminal entry without leaving mismatched seals behind.\n- Added aggregate manifest projection with ordered manifest validation, sealed/current evidence verification, segment-namespaced replay IDs, cursor replay-from-start recovery, and per-process sealed digest caching keyed by segment/size/mtime.\n- Routed managed Session read/sync through `projectAggregateTranscript`; exposed segment APIs on `openOwnerCoordinationStore`; preserved current-segment-only writable/context behavior.\n- Added coverage for seal evidence, multi-segment projection, duplicate Pi entry IDs, missing/truncated/extended/byte-modified sealed segments, cursor resume/recovery, hash-once cache behavior via `Deno.utime`, TUI no-`session_replaced` dedupe, and ACP stable RunWield identity.\n- Updated `docs/domain-language.md` with Sealed Session Transcript Segment and Aggregate Transcript Projection terminology.\n- Verification passed: `deno task ci`; targeted plan suites also passed (`session-transcript-manifest`, `session-segment-evidence`, TUI segment/runtime-adapter, ACP segment/session-map).\n- Test count delta: added 4 test files; no tests removed or replaced."
 humanReviewMode: null
 humanReviewDecision: null
 executionMode: "worktree"
@@ -127,7 +129,9 @@ worktreeId: "60093a40"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-09-aggregate-transc-60093a40"
 worktreeBranch: "worktree/personal-remote-workspace-v1-09-aggregate-transc-60093a40"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationSemanticRounds: 1
 ---
 
 # Aggregate Transcript Projection and Segment-Aware Sync
