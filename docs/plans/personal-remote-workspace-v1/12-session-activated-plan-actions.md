@@ -26,14 +26,28 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T16:49:43.558Z"
+updatedAt: "2026-08-12T19:05:57.160Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 12
 dependencies:
     - "11-simplify-session-continuity"
+implementedAt: "2026-08-12T17:40:11.648Z"
+verifiedAt: "2026-08-12T19:05:57.160Z"
 userVerifiedAt: null
-status: "validated_reviewer"
+executionReport: "- Implemented shared Plan Action Evidence Check and executor in `src/shared/workflow/plan-actions.ts` with canonical Plan revision/status/worktree validation and typed refresh/recovery/invalid/activation results.\n- Added read-only Plan/worktree evidence helpers, owner coordination migration 8, bounded `plan_action` receipt result storage/replay, and receipt tests.\n- Wired `SessionRuntime.runPlanAction`, load-plan session surface/types, owner Workspace API route/service, and local Workspace lifecycle adapter through the shared executor while preserving local shared-Plan lock behavior.\n- Added focused behavioral tests: stale revision, replaced worktree, valid lifecycle action, exact duplicate replay, new request revalidation, request-ID hash conflict, and bounded receipt persistence.\n- Updated existing session architecture/policy tests for the new explicit fenced Runtime Plan-action method and approved owner Plan-action service.\n- Verification passed: objective grep/test checks OC1/OC2/OC3; focused suite `deno run -A scripts/run-tests.js src/shared/workflow/plan-action-evidence.test.ts src/shared/owner-coordination/session-activations.test.js src/shared/owner-coordination/database.test.js src/ui/workspace/owner-plan-actions.test.ts src/cmd/load-plan/index.integration.test.ts`; `deno task seams:check`; full `deno task ci`.\n- Test coverage added only; no tests were removed or replaced. New generated `src/shared/version.js` was created by `deno task ci`/`scripts/write-version.js` as required for verification."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "5ec09c6e3c7db3228455146d51b38fdf1df5f766"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "9171b151ec15991f2e3f8d4d3b8adf39878e2936"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Session-Activated Plan Actions
