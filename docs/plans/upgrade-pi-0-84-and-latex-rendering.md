@@ -133,7 +133,7 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
 validationCiAttempts: 0
 validationSemanticRounds: 0
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Upgrade Pi to 0.84 and Render LaTeX
