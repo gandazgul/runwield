@@ -40,97 +40,32 @@ objectiveChecks:
     - id: "OC7"
       command: "test -f src/shared/session/close-awaits-operation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/close-awaits-operation.test.ts"
       rationale: "Red today: the file does not exist. closeSessionWhenIdle currently awaits only the inner turn settlement, so a Session past TURN_END but before publication reports idle. Green requires close to await the outer operation through dehydration, sync, and publication, which no structural grep can prove."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-11T17:15:51.030Z"
-    head: "8f0703b0ce0468b2d3e7c354465e409105358b40"
-    results:
-        - id: "OC1"
-          command: "awk '/^export type ManagedOperationName/,/;$/' src/shared/session/managed-operation.ts | grep -q '\"local_shell\"'"
-          rationale: "Red today: the union is exactly `\"prompt\"`, so the literal is absent. Pins the operation-name vocabulary that OC2 and OC5 depend on, so a family cannot be converted under an unrelated ad-hoc name that the sweep never sees."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 18
-          output: "\n"
-        - id: "OC2"
-          command: "awk '/^    async runLocalShellCommand\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q '#runManagedOperation'"
-          rationale: "Red today: the 118-line body spawns the foreground shell directly with no executor reference and no managed rejection at all. Green requires the arbitrary shell spawn to route through the slice 7a executor. Deleting the method empties the awk range and still fails."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 17
-          output: "\n"
-        - id: "OC3"
-          command: "grep -q 'async persistSessionImage(' src/shared/session/session-runtime.js && ! awk '/^    async persistSessionImage\\(/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'persistImageAttachment'"
-          rationale: "Red today: the body calls persistImageAttachment directly, which is the pre-activation disk write that orphans a file when the submission loses the race. Green requires the write to leave this standalone entry point. The first clause blocks the cheap fake of deleting the method, and OC6 catches moving the write into another unfenced helper."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 20
-          output: "\n"
-        - id: "OC4"
-          command: "awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_operation_in_progress' && ! awk '/#rejectManagedPublicMutation\\(hostedSession, operation, capability = null\\) \\{/,/^    }$/' src/shared/session/session-runtime.js | grep -q 'managed_unsupported'"
-          rationale: "Red today on the second clause: the helper's fallback return is `managed_unsupported`, the slice 4 compatibility gate this slice removes. The first clause keeps the awk range anchored so a renamed signature cannot pass by yielding an empty range. Returning null instead would open unfenced mutation, which OC5 catches."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 25
-          output: "\n"
-        - id: "OC5"
-          command: "test -f src/shared/session/fenced-mutation-families.test.ts && grep -q 'SESSION_RUNTIME_METHOD_POLICY' src/shared/session/fenced-mutation-families.test.ts && grep -q 'fenced_standalone_mutation' src/shared/session/fenced-mutation-families.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-mutation-families.test.ts"
-          rationale: "Red today: the file does not exist, so the guard fails before the runner. This is the primary gate. Requiring the sweep to enumerate the policy map at run time and drive every fenced_standalone_mutation entry means a family left unconverted fails the test instead of being silently skipped, which is what a partial conversion would otherwise look like."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 11
-          output: "\n"
-        - id: "OC6"
-          command: "test -f src/shared/session/fenced-shell-and-image.test.ts && grep -q 'Deno.Command' src/shared/session/fenced-shell-and-image.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/fenced-shell-and-image.test.ts"
-          rationale: "Red today: the file does not exist. The Deno.Command clause forces process-creation instrumentation at the real primitive used by spawnForegroundShell rather than output inspection, so a blocked shell that still spawns is caught. It is also the behavioral backstop for OC2 and OC3: relocating the spawn or the image write into a private unfenced helper still fails here."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 12
-          output: "\n"
-        - id: "OC7"
-          command: "test -f src/shared/session/close-awaits-operation.test.ts && deno run -A scripts/run-tests.js -A --no-check src/shared/session/close-awaits-operation.test.ts"
-          rationale: "Red today: the file does not exist. closeSessionWhenIdle currently awaits only the inner turn settlement, so a Session past TURN_END but before publication reports idle. Green requires close to await the outer operation through dehydration, sync, and publication, which no structural grep can prove."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 11
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-11T17:49:48.856Z"
-status: "validated_ci"
+updatedAt: "2026-08-12T01:25:22.013Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 7
 dependencies:
     - "07b-non-mutating-managed-read-paths"
 implementedAt: "2026-08-11T17:28:19.074Z"
+verifiedAt: "2026-08-12T01:25:22.013Z"
 userVerifiedAt: null
 executionReport: "- Failed to complete the planned feature. The conversion is only partial.\n- Implemented partial descriptor support: expanded `ManagedOperationName`, generalized `#runManagedOperation`, and routed some rename/model/thinking/reload/compaction/shell/image/workflow paths through it.\n- Updated capability propagation in one isolated-agent path and exported the compaction settings helper needed by Runtime.\n- Verification passed: `deno task check`.\n- Verification failed: `deno run -A scripts/run-tests.js -A --no-check src/shared/session/session-runtime.test.js` has 6 failing legacy managed-session tests. Failures are from dormant managed mutations now requiring the activation protocol marker and from managed prompt/workflow expectations that no longer pass.\n- Verification failed: full `deno task ci` was attempted before type repairs and did not pass. It was not re-run after `deno task check` passed because targeted session tests still fail.\n- Not completed: required new focused tests (`fenced-mutation-families`, `fenced-shell-and-image`, `close-awaits-operation`) were not added, and several plan steps remain unimplemented."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "always"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-12T01:25:20.273Z"
 executionMode: "worktree"
-executionBaselineTree: "7856c25c030d1a0271cc7da6816b6ef06e74fbcb"
-worktreeId: "fc780504"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-07c-fenced-session--fc780504"
-worktreeBranch: "worktree/personal-remote-workspace-v1-07c-fenced-session--fc780504"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "95ce29ca31373fbfcd2bd49246212f1136263496"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "cb429151569e04325750dc60b43496ceab075505"
 validationCiAttempts: 0
-validationSemanticRounds: 0
+validationSemanticRounds: 2
 ---
 
 # Fenced Session Mutation Families

@@ -398,10 +398,10 @@ function validatePositiveIntegerSetting(value, label) {
  * Pi's SettingsManager exposes getters for these fields but only provides a
  * setter for enabled, so RunWield writes the same global compaction object.
  *
- * @param {"reserveTokens" | "keepRecentTokens"} key
- * @param {number} value
+ * @param {"enabled" | "reserveTokens" | "keepRecentTokens"} key
+ * @param {boolean | number} value
  */
-async function setGlobalCompactionSetting(key, value) {
+export async function setGlobalCompactionSetting(key, value) {
     if (!storageInstance) initSettings();
 
     // @ts-ignore storageInstance is definitely assigned here

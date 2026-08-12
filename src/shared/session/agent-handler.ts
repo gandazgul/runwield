@@ -71,6 +71,7 @@ export type AgentHandler = (
     userRequest: string,
     images: ImageAttachment[],
     sessionManager: SessionManager,
+    signal?: AbortSignal,
 ) => Promise<AgentHandlerTurnResult>;
 
 /**
@@ -123,14 +124,19 @@ async function requestMissingPrimaryPlanRetry(hostedSession: HostedSession, plan
     const message =
         `The Plan file "${planPath}" is missing from the main checkout. Restore it in the main checkout, then come back and pick Retry.`;
     emitSystemStatus(hostedSession, message, { level: "warning", header: "RunWield" });
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: message,
-        options: [
-            { value: "retry", label: "Retry" },
-            { value: "stop", label: "Stop" },
-        ],
-    });
+    const response = await requestHostedSessionInteraction(
+        hostedSession,
+        {
+            type: RuntimeInteractionTypes.SELECT,
+            prompt: message,
+            options: [
+                { value: "retry", label: "Retry" },
+                { value: "stop", label: "Stop" },
+            ],
+        },
+        undefined,
+        hostedSession.getManagedOperationCapability?.() || null,
+    );
     return response.outcome === "selected" && response.value === "retry";
 }
 
@@ -152,7 +158,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
     if (!options?.hostedSession) throw new Error("createAgentHandler: hostedSession is required");
     const { hostedSession, customTools } = options;
 
-    return async (userRequest, images, sessionManager) => {
+    return async (userRequest, images, sessionManager, signal) => {
         const projectRoot = hostedSession.cwd;
         const resumedWorkflow = hostedSession.getActiveExecutionWorkflow();
         if (
@@ -207,7 +213,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         }
         const messages: AgentMessage[] = taskCompletion
             ? []
-            : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools });
+            : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools, signal });
 
         const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
         if (routerHandoff) {

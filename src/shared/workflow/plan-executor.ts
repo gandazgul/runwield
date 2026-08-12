@@ -143,11 +143,16 @@ export async function executePlan({
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
-                    requestHostedSessionInteraction(hostedSession, {
-                        type: RuntimeInteractionTypes.PLAN_REVIEW,
-                        prompt: `Review plan "${planName}"`,
-                        _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
-                    }),
+                    requestHostedSessionInteraction(
+                        hostedSession,
+                        {
+                            type: RuntimeInteractionTypes.PLAN_REVIEW,
+                            prompt: `Review plan "${planName}"`,
+                            _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
+                        },
+                        undefined,
+                        hostedSession.getManagedOperationCapability?.() || null,
+                    ),
                 requestRetry: (details) =>
                     requestPlanReviewRetryConfirmation(hostedSession, requestHostedSessionInteraction, details),
                 onUnanswered: ({ reason }) => {

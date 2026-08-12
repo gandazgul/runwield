@@ -17,7 +17,6 @@ interface NameCommandOptions {
     sessionId?: string;
 }
 
-// deno-lint-ignore require-await
 export async function runNameCommand(argv: string[], options: NameCommandOptions = {}): Promise<void> {
     if (!options.uiAPI) {
         console.error("The /name command is only available inside an interactive session.");
@@ -41,7 +40,7 @@ export async function runNameCommand(argv: string[], options: NameCommandOptions
         return;
     }
 
-    const result = sessionRuntime.renameSession(sessionId, name);
+    const result = await sessionRuntime.renameSession(sessionId, name);
     if (!result.ok) {
         uiAPI.appendSystemMessage(theme.fg("dim", `Session name not changed: ${result.error || "unsupported"}`));
         return;

@@ -148,9 +148,20 @@ export function isApprovalAcceptedValue(request, value) {
  * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {RuntimeInteractionRequest} request
  * @param {AbortSignal} [signal]
+ * @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability]
  * @returns {Promise<RuntimeInteractionResponse>}
  */
-export async function requestHostedSessionInteraction(hostedSession, request, signal) {
+export async function requestHostedSessionInteraction(hostedSession, request, signal, capability = null) {
+    const currentCapability = hostedSession.getManagedOperationCapability?.() || null;
+    if (hostedSession.getManagedMetadata?.() && (!capability || currentCapability !== capability)) {
+        return {
+            outcome: RuntimeInteractionOutcomes.BLOCKED,
+            message: currentCapability
+                ? "Interaction request blocked: another managed operation is active."
+                : "Interaction request blocked: managed operation authority is required.",
+        };
+    }
+    capability?.assertLive?.();
     const id = request.id || createInteractionId();
     const interaction = { ...request, id };
     emitHostedSessionRuntimeEvent(hostedSession, {
@@ -176,14 +187,19 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     const abortController = new AbortController();
     /** @type {(() => void) | null} */
     let removeAbortListener = null;
-    if (signal) {
+    const operationSignal = capability?.signal || null;
+    if (signal || operationSignal) {
         const abort = () => abortController.abort();
-        signal.addEventListener("abort", abort, { once: true });
-        removeAbortListener = () => signal.removeEventListener("abort", abort);
+        signal?.addEventListener("abort", abort, { once: true });
+        operationSignal?.addEventListener("abort", abort, { once: true });
+        removeAbortListener = () => {
+            signal?.removeEventListener("abort", abort);
+            operationSignal?.removeEventListener("abort", abort);
+        };
     }
     hostedSession.addActiveInteraction?.(id, { request: interaction, abortController });
     try {
-        if (signal?.aborted || abortController.signal.aborted) {
+        if (signal?.aborted || operationSignal?.aborted || abortController.signal.aborted) {
             const response = { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
             emitHostedSessionRuntimeEvent(hostedSession, {
                 type: RuntimeEventTypes.INTERACTION_CANCELED,

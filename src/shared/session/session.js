@@ -2914,6 +2914,7 @@ export function attachSessionEventSubscribers(
  * @param {string} [opts.resolvedThinkingLevel]
  * @param {string} [opts.cwd]
  * @param {string} [opts.debugLogPath]
+ * @param {AbortSignal} [opts.signal]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -2929,6 +2930,7 @@ export async function runPrompt({
     resolvedThinkingLevel,
     cwd,
     debugLogPath,
+    signal,
 }) {
     subscriberState.resetTurn();
 
@@ -2977,18 +2979,30 @@ export async function runPrompt({
 
     /** @type {Error | null} */
     let promptError = null;
+    const abortPrompt = () => {
+        try {
+            session.abort();
+        } catch (_e) {
+            // Cancellation is best effort; the active prompt still observes the AbortSignal check below.
+        }
+    };
 
     try {
+        signal?.throwIfAborted();
+        signal?.addEventListener("abort", abortPrompt, { once: true });
         await compactBeforePromptIfNeeded(session, {
             text: preparedImages.text,
             images: preparedImages.images,
         }, agentName);
+        signal?.throwIfAborted();
         await session.prompt(preparedImages.text, requestOptions);
+        signal?.throwIfAborted();
         await session.agent.waitForIdle();
     } catch (error) {
         promptError = error instanceof Error ? error : new Error(String(error));
         throw error;
     } finally {
+        signal?.removeEventListener("abort", abortPrompt);
         // Defensive cleanup handles abort/error paths where thinking_end may never fire.
         subscriberState.endThinking();
 
@@ -3274,6 +3288,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {AbortSignal} [opts.signal]
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -3283,6 +3298,7 @@ export async function runRootTurn({
     userRequest,
     images,
     customTools,
+    signal,
     dispatchKind = "interactive",
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
@@ -3325,6 +3341,7 @@ export async function runRootTurn({
             messages = await session.session.runTurn({
                 userRequest: finalRequest,
                 images,
+                signal,
                 requestId: dispatch.requestId,
                 attemptId: dispatch.attemptId,
             });
@@ -3337,6 +3354,7 @@ export async function runRootTurn({
                 finalSystemPrompt: meta.promptState.text,
                 images,
                 subscriberState: meta.subscriberState,
+                signal,
             });
         }
         completeRequestDispatch(sessionManager, dispatch);
@@ -3473,7 +3491,10 @@ export async function runIsolatedAgentSession(opts) {
                 unsubscribe: () => {},
             }
             : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
-        hostedSession.addSubAgentSession(steeringTarget);
+        hostedSession.addSubAgentSession(
+            steeringTarget,
+            /** @type {any} */ (opts).managedOperationCapability || null,
+        );
         registeredSubAgent = true;
 
         const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
@@ -3515,6 +3536,7 @@ export async function runIsolatedAgentSession(opts) {
                     resolvedThinkingLevel,
                     cwd: opts.cwd || hostedSession.cwd,
                     debugLogPath: opts.debugLogPath,
+                    signal: opts.signal,
                 });
             }
             completeRequestDispatch(session.sessionManager, dispatch);
