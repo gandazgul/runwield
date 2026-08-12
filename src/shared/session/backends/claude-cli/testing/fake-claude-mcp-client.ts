@@ -209,7 +209,10 @@ async function main(): Promise<void> {
                 event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking } },
             }));
         }
-        for (const chunk of [text.slice(0, half), text.slice(half)]) {
+        const textChunks = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_CHARS")
+            ? Array.from(text)
+            : [text.slice(0, half), text.slice(half)];
+        for (const chunk of textChunks) {
             if (!chunk) continue;
             console.log(JSON.stringify({
                 type: "stream_event",

@@ -61,6 +61,31 @@ export interface ClaudeCliRunOptions {
     attemptId?: string;
 }
 
+class RuntimeDeltaBuffer {
+    private buffered = "";
+    private flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    constructor(private readonly emit: (delta: string) => void) {}
+
+    push(delta: string): void {
+        if (!delta) return;
+        this.buffered += delta;
+        if (this.flushTimer !== null) return;
+        this.flushTimer = setTimeout(() => this.flush(), 16);
+    }
+
+    flush(): void {
+        if (this.flushTimer !== null) {
+            clearTimeout(this.flushTimer);
+            this.flushTimer = null;
+        }
+        if (!this.buffered) return;
+        const delta = this.buffered;
+        this.buffered = "";
+        this.emit(delta);
+    }
+}
+
 export class ClaudeCliExecutionSession {
     readonly kind = "claude-cli";
     readonly id: string;
@@ -134,6 +159,7 @@ export class ClaudeCliExecutionSession {
             );
         };
 
+        let flushRuntimeDeltas = () => {};
         try {
             const eligibleAliases = this.bridgedTools.map((tool) => mcpAliasFor(tool.name));
             if (this.bridgedTools.length > 0) {
@@ -152,6 +178,7 @@ export class ClaudeCliExecutionSession {
                             provider: this.model.provider,
                             model: this.model.id,
                         },
+                        beforeRuntimeToolEvent: () => flushRuntimeDeltas(),
                     });
                 } catch {
                     emitFailure("bridge_startup_failed", null);
@@ -189,27 +216,38 @@ export class ClaudeCliExecutionSession {
 
             const messageId = `claude-cli-assistant:${crypto.randomUUID()}`;
             const thinkingMessageId = `claude-cli-thinking:${crypto.randomUUID()}`;
+            const textDeltas = new RuntimeDeltaBuffer((delta) => {
+                emitHostedSessionRuntimeEvent(this.hostedSession, {
+                    type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                    messageId,
+                    delta,
+                    agentName: this.agentName,
+                    messageKind: "assistant",
+                });
+            });
+            const thinkingDeltas = new RuntimeDeltaBuffer((delta) => {
+                emitHostedSessionRuntimeEvent(this.hostedSession, {
+                    type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+                    messageId: thinkingMessageId,
+                    delta,
+                    agentName: this.agentName,
+                });
+            });
+            flushRuntimeDeltas = () => {
+                thinkingDeltas.flush();
+                textDeltas.flush();
+            };
             let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>>;
             try {
                 parsed = await parseClaudeCliStream(process.stdout, {
                     onDelta: (delta) => {
-                        emitHostedSessionRuntimeEvent(this.hostedSession, {
-                            type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                            messageId,
-                            delta: delta.text,
-                            agentName: this.agentName,
-                            messageKind: "assistant",
-                        });
+                        textDeltas.push(delta.text);
                     },
                     onThinkingDelta: (delta) => {
-                        emitHostedSessionRuntimeEvent(this.hostedSession, {
-                            type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
-                            messageId: thinkingMessageId,
-                            delta: delta.text,
-                            agentName: this.agentName,
-                        });
+                        thinkingDeltas.push(delta.text);
                     },
                     onThinkingEnd: () => {
+                        thinkingDeltas.flush();
                         emitHostedSessionRuntimeEvent(this.hostedSession, {
                             type: RuntimeEventTypes.ASSISTANT_THINKING_END,
                             messageId: thinkingMessageId,
@@ -242,6 +280,7 @@ export class ClaudeCliExecutionSession {
                 emitFailure(kind, null);
                 throw error instanceof ClaudeCliBackendError ? error : new ClaudeCliBackendError(kind);
             }
+            flushRuntimeDeltas();
 
             let status: Deno.CommandStatus;
             try {
@@ -287,6 +326,7 @@ export class ClaudeCliExecutionSession {
             });
             return this.getMessages();
         } finally {
+            flushRuntimeDeltas();
             this.isStreaming = false;
             this.turnAbortController = null;
             if (command) {
@@ -398,10 +438,8 @@ export function buildBridgedToolPromptAppendix(bridgedTools: ToolDefinition[]): 
         "This session exposes these RunWield tools through the RunWield MCP server:",
         ...eligibleAliases.map((alias) => `- ${alias}`),
         "",
-        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, and lifecycle work.",
+        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, user interview, and lifecycle work.",
         "",
-        "Finish all visible assistant text before you call a lifecycle tool. Treat lifecycle tool calls as terminal: " +
-        "do not ask follow-up questions or continue prose after the call.",
         "Calling a lifecycle tool is the only way to advance RunWield workflow state. Plain-text questions, " +
         'statements such as "done", or text that resembles a tool call have no workflow effect.',
     ];

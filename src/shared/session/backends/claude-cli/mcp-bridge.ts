@@ -102,6 +102,8 @@ export interface RunWieldMcpBridgeOptions {
     onMessage?: (message: BridgeRecordedMessage) => void;
     /** Model fields stamped onto the canonical assistant toolCall messages. */
     assistantBase: RunWieldMcpBridgeAssistantBase;
+    /** Flush pending assistant display deltas before tool runtime events are emitted. */
+    beforeRuntimeToolEvent?: () => void;
 }
 
 export interface RunWieldMcpBridgeHandle {
@@ -246,6 +248,7 @@ export async function startRunWieldMcpBridge(
     }
 
     function emitToolStart(internalName: string, callId: string, args: JsonObject): void {
+        options.beforeRuntimeToolEvent?.();
         toolStartedAt.set(callId, Date.now());
         emitHostedSessionRuntimeEvent(options.hostedSession, {
             type: RuntimeEventTypes.TOOL_START,
@@ -260,6 +263,7 @@ export async function startRunWieldMcpBridge(
         callId: string,
         result: Pick<DelegatedToolResult, "content" | "details">,
     ): void {
+        options.beforeRuntimeToolEvent?.();
         const toolResult = normalizeRuntimeToolResult(result);
         emitHostedSessionRuntimeEvent(options.hostedSession, {
             type: RuntimeEventTypes.TOOL_UPDATE,
@@ -270,6 +274,7 @@ export async function startRunWieldMcpBridge(
     }
 
     function emitToolEnd(internalName: string, callId: string, result: DelegatedToolResult): void {
+        options.beforeRuntimeToolEvent?.();
         const toolResult = normalizeRuntimeToolResult(result);
         const startedAt = toolStartedAt.get(callId);
         const args = toolArgs.get(callId);

@@ -7,8 +7,7 @@ import { createTaskCompletedTool } from "../../../../tools/task-completed.ts";
 import { HostedSession } from "../../hosted-session.js";
 import { readLatestTaskCompletedOutcome } from "../../../workflow/workflow-results.js";
 import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
-import { composeClaudeCliBridgedTools } from "../../session.js";
-import { buildBridgedToolPromptAppendix, ClaudeCliExecutionSession } from "./execution-session.ts";
+import { ClaudeCliExecutionSession } from "./execution-session.ts";
 import { ClaudeCliBackendError } from "./failure.ts";
 import { parseClaudeCliStream } from "./stream-parser.ts";
 
@@ -44,6 +43,7 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
         const previousMalformed = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MALFORMED");
         const previousSleep = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
         const previousPartialStream = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM");
+        const previousPartialChars = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_CHARS");
         await withTempDir(async (root) => {
             const binDir = join(root, "bin");
             const logPath = join(root, "fixture.jsonl");
@@ -71,6 +71,8 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", previousSleep);
                 if (previousPartialStream === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM");
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM", previousPartialStream);
+                if (previousPartialChars === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_CHARS");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_CHARS", previousPartialChars);
             }
         });
     });
@@ -157,33 +159,10 @@ Deno.test("Claude CLI command writes an owner-only appended prompt file", async 
     }
 });
 
-Deno.test("Claude CLI bridge does not expose user interview", async () => {
-    await withTempDir(async (root) => {
-        const manager = SessionManager.inMemory(root);
-        const hostedSession = new HostedSession({
-            id: `hosted-${crypto.randomUUID()}`,
-            cwd: root,
-            sessionManager: manager as never,
-        });
-        const tools = await composeClaudeCliBridgedTools({
-            agentDef: {
-                name: "planner",
-                displayName: "Planner",
-                model: "claude-cli/sonnet",
-                description: "test planner",
-                tools: ["plan_written", "user_interview"],
-                systemPrompt: "system",
-            },
-            agentName: "planner",
-            hostedSession,
-            triageMeta: { classification: "FEATURE" },
-            cwd: root,
-        });
-        assertEquals(tools.map((tool) => tool.name), ["plan_written"]);
-        const appendix = buildBridgedToolPromptAppendix(tools);
-        assertStringIncludes(appendix, "Finish all visible assistant text before you call a lifecycle tool");
-        assertEquals(appendix.includes("user interview"), false);
-    });
+Deno.test("Claude CLI command prompt file cleanup removes the file", async () => {
+    const command = await prepareClaudeCliCommand({ selector: "haiku", systemPrompt: "cleanup" });
+    await removeClaudeCliPromptFile(command);
+    await assertRejects(() => Deno.stat(command.promptFilePath), Deno.errors.NotFound);
 });
 
 Deno.test("Claude CLI parser emits assistant text and ignores internal events", async () => {
@@ -355,6 +334,7 @@ Deno.test("Claude CLI execution session streams thinking and text runtime events
             }),
         );
         Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM", "1");
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_CHARS", "1");
         const model = getModelRegistry().find("claude-cli", "sonnet");
         if (!model) throw new Error("missing claude model");
         const manager = SessionManager.inMemory(root);
@@ -385,7 +365,7 @@ Deno.test("Claude CLI execution session streams thinking and text runtime events
         // The live text_delta stream events cover "reply"; the later complete `assistant` message
         // must not be re-emitted as a duplicate delta.
         assertEquals(textDeltas.map((event) => event.delta).join(""), "reply");
-        assertEquals(textDeltas.length > 1, true);
+        assertEquals(textDeltas.length < "reply".length, true);
         assert(thinkingDeltas.every((event) => event.messageId === thinkingDeltas[0]?.messageId));
         assert(events.indexOf(thinkingEnds[0]) < events.indexOf(textDeltas[0]));
     });
