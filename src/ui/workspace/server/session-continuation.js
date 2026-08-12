@@ -302,11 +302,12 @@ export class WorkspaceSessionContinuationService {
         if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
             throw new Error("Plan execution requires the exact committed generation.");
         }
+        if (!options.triageMeta) throw new Error("Plan execution handoff requires approval-time Plan action evidence.");
         const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
         try {
             return await this.runtime.executePlan(adopted.sessionId, {
                 planName: options.planName,
-                triageMeta: options.triageMeta || {},
+                triageMeta: options.triageMeta,
                 reviewFeedback: options.reviewFeedback,
                 reviewImages: options.reviewImages,
                 expectedGeneration: options.expectedGeneration,

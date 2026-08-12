@@ -343,6 +343,26 @@ export function shouldEmitProjectedAttention(summary, previousAttentionEventId) 
     return attentionEventId !== previousAttentionEventId;
 }
 
+/**
+ * @param {*} options
+ * @param {*} workflow
+ * @param {*} handoff
+ */
+function buildSemanticRepairCiState(options, workflow, handoff) {
+    const triageMeta = workflow?.triageMeta || options?.triageMeta || {};
+    const state = {
+        status: typeof triageMeta.status === "string" ? triageMeta.status : "",
+        validationCiAttempts: typeof triageMeta.validationCiAttempts === "number" ? triageMeta.validationCiAttempts : 0,
+        validationSemanticRounds: typeof triageMeta.validationSemanticRounds === "number"
+            ? triageMeta.validationSemanticRounds
+            : handoff.semanticRound,
+        semanticRound: handoff.semanticRound,
+        lastCompletedPhase: "ci",
+        currentPhase: "semantic_review",
+    };
+    return handoff.ciState ? { ...state, ...handoff.ciState } : state;
+}
+
 export class SessionRuntime {
     /** @type {SessionHost} */
     #sessionHost;
@@ -1239,7 +1259,15 @@ export class SessionRuntime {
             if (resolved.kind === "refresh_required" || resolved.kind === "recovery_required") {
                 throw new Error(resolved.message);
             }
-            if (resolved.continuation.kind !== "execution") return null;
+            if (resolved.continuation.kind === "semantic_repair") {
+                return await this.#runSemanticRepairContinuation(
+                    session.id,
+                    session,
+                    options,
+                    resolved.continuation,
+                    true,
+                );
+            }
             const { executePreparedPlanSegmentHandoff } = await import("../workflow/workflow.js");
             return await executePreparedPlanSegmentHandoff(
                 /** @type {any} */ ({
@@ -1291,6 +1319,8 @@ export class SessionRuntime {
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
+        const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
+        if (pendingResult) return pendingResult;
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
             const { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
             const { createGitPort } = await import("../git-port.ts");
@@ -1375,7 +1405,7 @@ export class SessionRuntime {
             repairBaselineTree: handoff.repairBaselineTree,
             lastRepairReport: handoff.lastRepairReport,
             executionState: { executionCwd: workflow.executionCwd, baselineTree: workflow.baselineTree },
-            ciState: {},
+            ciState: buildSemanticRepairCiState(options, workflow, handoff),
             priorRepairClaims: workflow.lastRepairReport ? [workflow.lastRepairReport] : [],
             diffText: handoff.diffText,
             findingsSection: handoff.findingsSection,
@@ -1386,7 +1416,22 @@ export class SessionRuntime {
             continuation,
             expectedGeneration: latestManaged.generation,
         });
-        const repairResult = await this.#runWorkflowOperation(session, "semanticRepairSegment", options, async () => {
+        return await this.#runSemanticRepairContinuation(sessionId, session, options, continuation);
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {*} options
+     * @param {*} continuation
+     * @param {boolean} alreadyManaged
+     * @returns {Promise<*>}
+     */
+    async #runSemanticRepairContinuation(sessionId, session, options, continuation, alreadyManaged = false) {
+        const workflow = continuation.activeWorkflow || {};
+        const projectRoot = workflow.projectRoot || session.cwd;
+        const executionCwd = workflow.executionCwd || session.cwd;
+        const runRepair = async () => {
             session.setActiveExecutionWorkflow(/** @type {any} */ (continuation.activeWorkflow));
             const { buildValidationRepairPrompt } = await import("../workflow/validation-repair-prompt.ts");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
@@ -1400,13 +1445,14 @@ export class SessionRuntime {
                 agentName: continuation.executionOwner,
                 userRequest: buildValidationRepairPrompt({
                     planName: continuation.plan.planName,
-                    projectRoot: workflow.projectRoot || session.cwd,
-                    executionCwd: workflow.executionCwd || session.cwd,
-                    repairCwd: workflow.executionCwd || session.cwd,
+                    projectRoot,
+                    executionCwd,
+                    repairCwd: executionCwd,
                     planContent: continuation.plan.markdown,
                     worktreeId: workflow.worktreeId,
                     worktreeBranch: workflow.worktreeBranch,
                     worktreeBaseBranch: workflow.worktreeBaseBranch,
+                    ciStateSummary: JSON.stringify(continuation.repair.ciState),
                     authorityNote: "A code reviewer found these issues. Fix every finding.",
                     repairsNeeded: [
                         "### Findings",
@@ -1417,7 +1463,7 @@ export class SessionRuntime {
                     ].join("\n"),
                     completionInstruction: "Report a disposition for every finding, then call task_completed.",
                 }),
-                cwd: workflow.executionCwd || session.cwd,
+                cwd: executionCwd,
                 allowReturnToRouter: false,
                 dispatchKind: "validation_repair",
                 customTools: [createReviewDiffTool({ full: continuation.repair.diffText })],
@@ -1433,20 +1479,25 @@ export class SessionRuntime {
             if (!completed) {
                 return {
                     kind: "paused",
-                    planName: options.planName,
-                    projectRoot: workflow.projectRoot || session.cwd,
+                    planName: continuation.plan.planName || options.planName,
+                    projectRoot,
                     reason: "Semantic repair segment paused before task_completed.",
                 };
             }
             return {
                 kind: "semantic_repair_completed",
-                planName: options.planName,
-                projectRoot: workflow.projectRoot || session.cwd,
+                planName: continuation.plan.planName || options.planName,
+                projectRoot,
             };
-        });
+        };
+        const repairResult = alreadyManaged
+            ? await runRepair()
+            : await this.#runWorkflowOperation(session, "semanticRepairSegment", options, runRepair);
         if (repairResult?.kind === "semantic_repair_completed") {
             return await this.runValidation(sessionId, {
                 ...options,
+                planName: continuation.plan.planName || options.planName,
+                planContent: continuation.plan.markdown || options.planContent,
                 executionContext: session.getActiveExecutionWorkflow?.(),
             });
         }

@@ -22,7 +22,7 @@ order: 13
 dependencies:
     - "12-session-activated-plan-actions"
 planId: "4f16e83d-f127-42cd-8ea3-39fbbfec35fb"
-status: "ready_for_work"
+status: "validated_reviewer"
 ---
 
 # Execution and Semantic Repair Segment Handoff Backend
