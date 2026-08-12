@@ -52,8 +52,9 @@ and Session Name, persists across Agent handoffs, and may contain multiple Agent
 HostedSession, Task, Work Item
 
 **Session Transcript**: The private raw message and event history of one Session. Its owner may resume or search it, but
-it is not shared project knowledge or a source for cross-Session Agent retrieval. _Avoid_: Work Record, planning memory,
-shared conversation
+it is not shared project knowledge or a source for cross-Session Agent retrieval. Pi persists completed tool calls and
+interaction results as committed transcript history; a live unanswered interaction is not committed history until its
+result is written. _Avoid_: Work Record, planning memory, shared conversation
 
 **Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession or
 Claude CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution Backend does not
@@ -73,8 +74,9 @@ owner-coordination segment row because the process stopped before the rollover t
 readers and discardable only while it contains no entries beyond its header, lineage marker, and continuation marker.
 _Avoid_: Partial segment, dangling Session, recovery segment
 
-**Session Control**: The right of one attached client to submit user messages or answer pending interactions for a live
-Session; observation does not require control. _Avoid_: Plan Workflow Lease, Session ownership, Agent ownership
+**Session Control**: The right of one attached client to submit user messages or answer process-local pending
+interactions for a live Session; observation does not require control. Session Control is not mutation authority without
+Session Activation. _Avoid_: Plan ownership, Session ownership, Agent ownership
 
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
@@ -225,9 +227,9 @@ _Avoid_: Phase, stage
 **Plan Event**: A recorded workflow fact that the Plan Lifecycle uses to transition a Plan. _Avoid_: Next step, status
 update
 
-**Plan Workflow Lease**: A durable claim permitting exactly one Session at a time to drive consequential Plan workflow
-actions; uncertain ownership requires explicit recovery or takeover. _Avoid_: Shared Plan Lock, worktree registry lock,
-mutex
+**Plan Action Evidence Check**: The action-time reload of canonical Plan status, Plan revision, and worktree registry
+evidence before a consequential Plan action runs under Session Activation. _Avoid_: Plan ownership, durable Plan lock,
+separate ownership record
 
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
@@ -550,8 +552,13 @@ length, digest, and terminal-entry evidence for its final JSONL contents. _Avoid
 closed file
 
 **Aggregate Transcript Projection**: A read-only projection that renders verified sealed segments plus the committed
-prefix of the current segment as one ordered Session timeline. _Avoid_: Concatenated transcript, merged session, segment
-hydration
+prefix of the current segment as one ordered Session timeline, including completed Pi tool calls and interaction
+results. _Avoid_: Concatenated transcript, merged session, segment hydration
+
+**Pending Structured Interaction**: A live in-process wait for a user answer, such as `user_interview` or Plan review
+input. Pending interactions are process-local. The interaction becomes durable only when Pi writes the completed tool
+result; if the owner process is lost first, the user asks the Agent to retry. _Avoid_: Durable prompt, recoverable
+continuation, database interaction record
 
 ## Relationships
 
@@ -590,9 +597,10 @@ hydration
 - **Work Kind** describes the nature of planned work independently from **Routing Intent** and **Plan Classification**.
 - A **Plan** has exactly one **Plan Status**, one **Origin**, and one **Front Matter** block.
 - A **Plan Event** is the only input that asks the **Plan Lifecycle** to change **Plan Status**.
-- A **Plan Workflow Lease** permits exactly one **Session** at a time to drive consequential workflow actions for one
-  Plan.
-- **Plan Workflow Lease** ownership belongs to the Session and is distinct from client-level **Session Control**.
+- A **Plan Action Evidence Check** reloads canonical **Plan Status**, Plan revision, and worktree evidence before any
+  consequential Plan action mutates lifecycle or worktree state.
+- **Session Control** may let a client submit an answer, but **Session Activation** is required before the owning
+  process mutates Session history.
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
 - **Approve & Run** authorizes the current Session to continue after readiness; **Approve for Later** stops at Ready For
   Work until a separate Run action.
@@ -618,15 +626,16 @@ hydration
 - A **Session Transcript** contains one or more ordered **Session Transcript Segments** while presenting one continuous
   user-visible history.
 - A root Agent Session receives model history from only the active Session Transcript Segment.
-- A live Session may have multiple observers but only one holder of **Session Control**.
+- A live Session may have multiple observers, one holder of **Session Control**, and only one active mutation owner
+  under **Session Activation**.
 - A Session Transcript is private to its owner and excluded from **Project Knowledge Search** and **Workspace
   Intelligence Search**.
 - A fresh Session receives prior conclusions through explicitly referenced durable artifacts, not another Session's
   transcript.
 - Starting from a PRD, Plan, or Work Record creates a fresh Session; **Resume** re-enters the existing Session.
 - Once a Session produces a Plan, the Plan becomes its primary durable workflow anchor.
-- **Approve & Run** activates a fresh execution Session Transcript Segment after readiness and preparation succeed;
-  **Approve for Later** creates no execution segment.
+- **Approve & Run** first passes **Plan Action Evidence Check**, readiness, and preparation, then activates a fresh
+  execution Session Transcript Segment; **Approve for Later** creates no execution segment.
 - The execution segment receives the approved Plan, approval annotations, and execution state without inheriting
   planning messages.
 - The Engineer remains the execution owner through Workflow Validation, repairs, recovery, and successful validation.

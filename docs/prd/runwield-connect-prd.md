@@ -104,7 +104,7 @@ RunWield Core remains the sole authority for:
 
 - canonical Plan files and Plan Lifecycle transitions;
 - approval and readiness decisions;
-- Plan workflow ownership and recovery evidence;
+- Plan Lifecycle authority and recovery evidence;
 - execution baselines, worktree registration, merge-back, and cleanup decisions;
 - Mechanical Validation and Workflow Validation outcomes;
 - canonical Work Records and their provenance;
@@ -166,8 +166,8 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 
 - The first Connect release does not require an always-running daemon or Session Host.
 - The host adapter may invoke local RunWield Core capabilities on demand.
-- Durable artifacts, workflow ownership, checkpoints, and recovery evidence must allow safe continuation after process
-  loss.
+- Durable artifacts, canonical Plan/worktree evidence, completed Pi interaction history, and recovery evidence must
+  allow safe continuation or explicit retry after process loss.
 - A persistent local service may be added later for performance or cross-client continuity, but it is not part of the
   acquisition prerequisite.
 
@@ -241,8 +241,8 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 13. Merge validated work back through RunWield's existing worktree safeguards and record the Plan as Verified only after
     merge-back succeeds.
 14. Generate the canonical Work Record and eligible memory outcome without importing the Claude transcript.
-15. Cancel, restart, or lose either host or Core processes at supported checkpoints and recover without blind replay or
-    silent lifecycle corruption.
+15. Cancel, restart, or lose either host or Core processes at supported boundaries and recover or retry without blind
+    replay or silent lifecycle corruption.
 16. Continue using the same Claude Code installation normally for requests that do not invoke RunWield.
 
 ### Review Experience
@@ -255,7 +255,7 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 
 ### Recovery Experience
 
-- Process loss must preserve Plans, worktrees, baselines, leases/checkpoints, and other durable recovery evidence.
+- Process loss must preserve Plans, worktrees, baselines, completed Pi results, and other durable recovery evidence.
 - RunWield must distinguish safe continuation from uncertain external side effects.
 - Recovery must ask the user when a host command, filesystem change, merge, or validation action may have partially
   completed.
@@ -424,8 +424,8 @@ product semantics. Later adapters must reuse the host-neutral Core contract rath
   semantics.
 - The Plan becomes Verified only after all existing verification requirements pass.
 - A Work Record is produced from structured evidence without copying the Claude transcript.
-- At least one interrupted planning/review checkpoint and one interrupted execution/validation checkpoint recover safely
-  in black-box tests.
+- At least one interrupted planning/review wait and one interrupted execution/validation boundary recover or require
+  explicit retry safely in black-box tests.
 - Disabling the Connect plugin leaves canonical Plans, Work Records, and recovery evidence intact while restoring
   ordinary host behavior.
 
@@ -460,8 +460,9 @@ and fail visibly when an invariant cannot be proven. Do not equate a prompt inst
 
 ### Split-Brain Workflow State
 
-The host and Core may both appear to track plans or completion. Core must remain the sole Plan Lifecycle authority, with
-Plan Workflow Leases and durable checkpoints preventing competing sessions or adapters from advancing the same Plan.
+The host and Core may both appear to track plans or completion. Core must remain the sole Plan Lifecycle authority.
+Session Activation plus action-time Plan status/revision and worktree checks prevent competing sessions or adapters from
+advancing stale Plan evidence.
 
 ### Untrusted Host Assertions
 
@@ -542,7 +543,7 @@ resolved product direction:
 
 - Which transport or combination of transports should expose the host-neutral Attached coordination boundary?
 - Which existing workflow services can become agent-neutral directly, and which need a model-invocation adapter seam?
-- How should host Session identity map to Attached Workflow ownership without importing the host transcript?
+- How should host Session identity map to an Attached Workflow without importing the host transcript?
 - How should each host enter, supervise, and recover a RunWield-owned worktree worker?
 - What structured contracts should carry Triage, completion, semantic review, repair, and recorder results?
 - How should one host-native installation acquire, version, update, diagnose, and remove compatible local Core

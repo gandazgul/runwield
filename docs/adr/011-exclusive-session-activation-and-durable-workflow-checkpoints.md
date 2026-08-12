@@ -2,33 +2,28 @@
 status: accepted
 ---
 
-# ADR-011: Exclusive Session Activation and Durable Workflow Checkpoints
+# ADR-011: Exclusive Session Activation and Pi-Native Session Continuity
 
 ## Context
 
 ADR-009 moved mutable runtime state into `HostedSession`, and ADR-010 established `SessionRuntime` as the shared
-contract consumed by sibling TUI and ACP adapters. Those decisions provide isolation among Hosted Sessions in one
-process, but do not make one JavaScript Runtime instance shareable across TUI, Workspace, and ACP processes.
+contract consumed by sibling TUI and ACP adapters. Those decisions isolate Hosted Sessions inside one process, but they
+do not make one JavaScript Runtime instance shareable across TUI, Workspace, and ACP processes.
 
-Personal Remote Workspace requires a user to move one durable Session among surfaces:
+Personal Remote Workspace requires the owner to move one stable RunWield Session among surfaces:
 
 - begin planning or ideation in the TUI;
-- review a Plan, answer an interaction, or continue the conversation from Workspace on a phone;
+- review a Plan, answer a live interaction, or continue the conversation from Workspace on a phone;
 - allow approved execution and validation to continue on the laptop;
-- return to an already-open TUI and see the browser or ACP changes without manually reopening the Session.
+- return to an already-open TUI and see committed browser or ACP changes without manually reopening the Session.
 
 The installed Pi `SessionManager` does not provide cross-process writer coordination. `SessionManager.open()` reads the
 JSONL tree and current leaf into process memory. Each process then appends from its own in-memory leaf, and some
 operations may rewrite the file. Two writable managers for the same persisted Session can therefore use stale context,
 create unintended branches, or lose updates.
 
-A Plan Workflow Lease alone is insufficient. Ordinary conversation turns also mutate Session JSONL, active-Agent
-markers, model and thinking state, workflow context, compaction records, and Session names.
-
-The original Personal Remote Workspace direction assumed that TUI and Workspace would attach simultaneously to one live
-authoritative Runtime. Product discovery established that simultaneous cross-process control and shared transient
-Runtime memory are not required. The required experience is exclusive mutation plus automatic synchronization and
-continuation at durable checkpoints.
+The owner does not need simultaneous cross-process control over one live Runtime. The required experience is exclusive
+mutation, committed-history synchronization, and conservative retry after process loss.
 
 ## Decision
 
@@ -41,150 +36,136 @@ A persistent Workspace process may host several live Sessions for browser client
 Sessions. Cross-process correctness comes from durable coordination below the adapters, not from routing TUI or ACP
 through Workspace application APIs.
 
-A stable RunWield Session ID is the durable product identity. It maps to the internal Pi Session Manager ID and JSONL
-path. The current Hosted Session ID remains an in-process identity and must not be used as the cross-process ownership
-key.
+A stable RunWield Session ID is the durable product identity. It maps to the internal Pi Session Manager identity and
+ordered JSONL segment manifest. The current Hosted Session ID remains an in-process identity and must not be used as the
+cross-process ownership key.
 
 ### Owner coordination store
 
 An owner-only SQLite database under `~/.wld/` coordinates Personal Workspace state. It is distinct from:
 
 - canonical repository Plans, PRDs, ADRs, Work Records, and source code;
-- private Session JSONL transcripts;
+- private Session JSONL transcript content;
 - derived Mnemosyne and Cymbal indexes;
 - public Shared Space ciphertext and capability storage.
 
-The owner database stores only the coordination records needed for registered Projects, stable Session identity,
-activation, workflow checkpoints, paired devices, attention projections, and related owner-local runtime state. Session
-content remains private and is not ingested into Workspace Intelligence.
+The owner database stores only coordination records needed for registered Projects, paired devices, stable Session
+identity, Session Activation, committed generations, ordered segment metadata, rebuildable attention projections, and
+bounded endpoint operation receipts. Session content remains private Pi JSONL history and is not ingested into Workspace
+Intelligence.
+
+The owner database is not a workflow-progress authority for Plans, interactions, or execution stacks. Canonical Plan
+files, Plan Lifecycle events, worktree registry evidence, and Pi transcript entries remain the authorities for their own
+domains.
 
 ### Session Activation Lease
 
-Before a process creates or mutates a writable Pi `SessionManager` for an existing Session, it must atomically acquire a
-**Session Activation Lease** keyed by stable RunWield Session ID.
+Before a process creates or mutates a writable Pi `SessionManager` for an existing stable Session, it must atomically
+acquire a **Session Activation Lease** keyed by stable RunWield Session ID.
 
 The lease records at least:
 
 - stable Session ID and Project ID;
 - activation owner identity and process kind;
 - lease generation or fencing token;
-- acquisition, heartbeat, and last committed checkpoint times;
+- acquisition and heartbeat times;
 - current activation phase;
-- the latest committed Session generation known to the owner.
+- expected committed Session generation; and
+- expected current Session Transcript Segment.
 
-The fencing token is required on writes to durable coordination state. An older owner that wakes after takeover must be
-unable to publish a checkpoint or interaction outcome.
+The fencing token is required on writes to owner coordination state. An older owner that wakes after takeover must be
+unable to publish a generation or segment update.
 
 The activation lease is held while:
 
 - an Agent turn is running;
-- execution, validation, compaction, cancellation settlement, or another mutable operation is active;
-- a live process is waiting for a durable interaction response that will resume its in-memory continuation;
-- the owner is committing the resulting checkpoint.
+- execution, validation, compaction, cancellation settlement, model/settings mutation, or another mutable operation is
+  active;
+- a live process is waiting for an in-memory interaction answer that will continue that process if it remains alive;
+- segment rollover or generation publication is committing.
 
-The lease is released when the Session reaches a safe idle checkpoint. A TUI window may remain open after release, but
-its cached Runtime is no longer writable. Before its next mutation it must reacquire the lease, compare Session
-generation, and rehydrate from canonical state if another process advanced the Session.
+A TUI window may remain open without activation, but its cached Runtime is no longer writable. Before its next mutation
+it must reacquire the lease, compare committed Session generation and current segment evidence, and rehydrate if another
+process advanced the Session.
 
-Lease timeout alone does not prove that an interrupted effect is safe to repeat. A stale activation enters interrupted
-or uncertain state. Settled transcript entries may be reloaded, but arbitrary model requests, commands, tools, or
-filesystem effects are never replayed automatically.
+Lease timeout alone does not prove that an interrupted effect is safe to repeat. Settled transcript entries may be
+reloaded, but arbitrary model requests, commands, tools, open subprocesses, filesystem effects, and pending Promises are
+never replayed automatically.
 
-### Plan Workflow Lease remains separate
+### Ordered Pi Session Transcript Segments
 
-A **Plan Workflow Lease** is keyed by Project and Plan and owned by a stable RunWield Session ID. It prevents a
-different Session from reviewing, executing, validating, recovering, or otherwise driving the same Plan workflow
-concurrently.
+One stable RunWield Session owns ordered **Session Transcript Segments** backed by separate Pi JSONL files. Prior
+segments are sealed; exactly one segment is current and writable. The committed segment manifest and generation evidence
+define the owner-visible Session timeline.
 
-Plan workflow ownership is independent of the process holding the Session Activation Lease. The same Session may move
-from TUI to Workspace while retaining Plan workflow ownership. A Plan Workflow Lease may outlive one activation and span
-multiple durable checkpoints.
+Readers validate a committed generation, complete sealed-segment evidence, and the committed current-segment prefix
+before emitting aggregate projection. They do not acquire Session Activation and do not construct a writable
+`SessionManager`.
 
-A stale or uncertain Plan Workflow Lease requires explicit Plan Recovery or takeover. It is never removed solely because
-a process heartbeat expired.
+Writable hydration uses only the current segment after activation. Planning-to-execution and semantic-repair rollovers
+create fresh current segments under the same stable Session so model context is bounded while owner-visible history
+remains continuous.
 
-### Durable workflow checkpoints
+### Interaction continuity
 
-Cross-process continuation occurs at a **Durable Workflow Checkpoint**, not by serializing an in-memory JavaScript call
-stack.
+Pi records completed tool calls and their results in Session JSONL. A completed `user_interview`, Plan review answer, or
+other structured interaction therefore survives restart as committed history and appears in aggregate projection.
 
-A checkpoint records the minimum typed continuation state required to determine what happens after an outcome:
+Pending interactions are process-local. A still-pending structured interaction is live process state. Workspace may
+display and answer it only through an authorized route to the active owner process. If that process stops before Pi
+writes the completed result, there is no separate durable interaction to consume. A later owner reloads committed
+Session history and the user asks the Agent to retry the question or action.
 
-- checkpoint ID and kind;
-- stable Session and Project IDs;
-- Plan ID when the workflow is Plan-centered;
-- expected Session generation, Plan status/revision, and Plan Workflow Lease generation;
-- interaction or decision being awaited;
-- current checkpoint state;
-- validated outcome when resolved;
-- a typed continuation policy;
-- timestamps and the activation fencing token that produced it.
+This deliberately accepts possible repeated questions rather than reconstructing arbitrary Runtime stacks. Browser
+disconnection does not by itself resolve or cancel a live wait; process loss makes the wait unavailable and requires
+retry.
 
-Checkpoint states support atomic, idempotent progression such as:
+### Canonical Plan actions
 
-```text
-pending -> resolved -> resuming -> consumed
-                \-> canceled
-                \-> uncertain
-```
+Canonical Plan Lifecycle owns statuses and transitions. Plan markdown owns revision-bearing content, and the worktree
+registry owns worktree evidence. Owner and remote Plan actions run under Session Activation and reload these authorities
+immediately before mutation.
 
-Resolution and consumption use compare-and-set semantics. Duplicate browser submissions, reconnect retries, or a stale
-process cannot apply an outcome twice.
+Changed Plan revision, changed status, missing worktree, replaced worktree evidence, or conflicting repository state
+blocks the action and returns refresh or recovery guidance. No stable Session gains persistent Plan ownership merely by
+viewing or acting on a Plan.
 
-Continuation policies are typed workflow behavior, not persisted function names or arbitrary executable payloads.
-Examples include:
-
-- continue a live waiting Runtime when its owning process is still valid;
-- begin a new Agent turn with a durable interaction outcome after safe rehydration;
-- apply a known Plan transition after validating the expected Plan and lease generations;
-- enter operator-confirmed Plan Recovery when prior side effects are uncertain.
-
-Plan review, review Feedback, **Approve & Run**, **Approve for Later**, Plan Recovery choices, human code review, and
-other cross-surface gates must use durable checkpoints. Generic interactions may also use checkpoints, but a crashed
-arbitrary Agent/tool continuation is not transparently replayed. Its outcome is preserved and the Session resumes from a
-new, explicit turn or recovery path.
-
-### Cross-surface interaction behavior
-
-Workspace may render and resolve a durable interaction for a Session whose Runtime currently lives in a TUI or ACP
-process. Resolving the interaction does not load a second writable Runtime.
-
-If the original owner is alive, it consumes the durable outcome and continues. If it is gone, a later owner reacquires
-the Session, validates the checkpoint, and follows its typed continuation policy. Browser disconnection does not cancel
-the waiting Runtime or delete the checkpoint.
+Endpoint operation receipts may make duplicate delivery of one HTTP request return the prior bounded endpoint response.
+A receipt cannot reserve a Plan, authorize a later request, or prove workflow progress.
 
 ### Automatic read synchronization
 
-Every safe Session checkpoint advances a durable Session generation only after the corresponding transcript and
-coordination state are committed.
+Every committed Session generation is published only after corresponding transcript or repository effects are durable.
 
 An open, idle, non-owning TUI monitors the stable Session record. When another Workspace or ACP process advances the
 Session generation, the TUI automatically:
 
-1. reads the newly committed transcript state through a read-only path that cannot migrate or rewrite the JSONL file;
-2. projects only unseen entries into semantic replay events using stable entry and message IDs;
-3. refreshes Plan, workflow, Agent, and attention summaries;
+1. reads newly committed transcript state through a read-only path that cannot migrate or rewrite JSONL;
+2. projects only unseen entries using stable entry and message IDs;
+3. refreshes Plan, workflow, Agent, and attention summaries from canonical sources;
 4. preserves unsent editor text and other local drafts;
 5. shows which surface currently owns activation when the Session is not writable locally.
 
-Read synchronization does not acquire the Session Activation Lease and does not construct a writable `SessionManager`.
-Runtime hydration happens only after lease acquisition.
+Read synchronization does not acquire the Session Activation Lease. Runtime hydration happens only after lease
+acquisition.
 
-Synchronization is checkpoint-based. A non-owner is not guaranteed every transient model token or tool-progress delta
-from another process. It receives committed messages, interaction state, workflow status, and outcomes automatically.
-The owning surface continues to render its full live semantic event stream.
+A non-owner is not guaranteed every transient model token or tool-progress delta from another process. It receives
+committed messages, completed interaction results, workflow status derived from canonical artifacts, and owner-visible
+attention updates. The owning surface continues to render its full live semantic event stream.
 
 ### Safe handoff behavior
 
-At an idle checkpoint, TUI, Workspace, or ACP may race to acquire activation; the database transaction chooses one
-owner. Other surfaces remain synchronized readers and can retry after the next checkpoint.
+At a safe idle boundary, TUI, Workspace, or ACP may race to acquire activation; the database transaction chooses one
+owner. Other surfaces remain synchronized readers and can retry after refresh.
 
 Mid-token, mid-command, mid-tool, and mid-filesystem-effect transfer is not supported. A user can nevertheless complete
 the intended journeys:
 
-- create a Plan in TUI, review and answer from a phone, and let the waiting owner continue;
+- create a Plan in TUI, review and answer from a phone while the owner process remains alive, and let that process
+  continue;
 - approve execution from Workspace and later see the committed implementation outcome in an already-open TUI;
-- finish an ideation turn in one surface, continue from another, and return without manually reopening the Session.
+- finish an ideation turn in one surface, continue from another, and return without manually reopening the Session;
+- after owner-process loss during a pending wait, reopen the stable Session and ask the Agent to retry.
 
 ## Consequences
 
@@ -193,17 +174,16 @@ the intended journeys:
   v1.
 - All writable Session opening paths must acquire an activation lease before calling Pi `SessionManager.open()` or
   otherwise mutating an existing transcript.
-- Session activation and Plan workflow ownership are separate concepts with separate generations and recovery rules.
-- Existing in-memory interaction promises and monolithic workflow call stacks must gain durable checkpoint seams at
-  cross-surface human gates.
-- Workspace can resolve interactions for TUI- or ACP-owned Runtimes without loading the Session itself.
+- Ordered Pi Session Transcript Segments are the continuity authority for completed conversation/tool history.
+- Existing in-memory interaction promises remain process-local. They are not reconstructed after process loss.
+- Workspace can answer a live interaction for another surface only by reaching the active owner process.
 - An already-open TUI automatically reflects committed browser or ACP changes while preserving local editor drafts.
 - Non-owning clients receive committed semantic state rather than guaranteed live token mirroring. Live cross-process
   event publication may be added later without changing exclusive mutation ownership.
-- The owner coordination database is authoritative for leases and checkpoints but not for repository artifacts or
-  transcript content.
+- The owner coordination database is authoritative for Session Activation, committed generations, segment metadata, and
+  endpoint request receipts, but not for repository artifacts, transcript content, Plan progress, or interaction waits.
 - Database loss cannot delete source, Plans, Work Records, worktrees, or transcripts. It does require rebuilding
-  registration/catalog state and treating ambiguous active workflows as recovery cases.
+  registration/catalog state and treating ambiguous active work as recovery cases.
 - Architecture tests should continue enforcing that TUI, Workspace, and ACP adapters do not import one another.
 
 ## Rejected Alternatives
@@ -219,12 +199,14 @@ not have.
 Pi Session Managers hold independent in-memory leaves and do not coordinate concurrent writes. Post-hoc synchronization
 cannot reliably recover stale prompts, unintended branches, file rewrites, or duplicated side effects.
 
-### Protect only Plan execution and review
+### Persist a generic workflow state machine
 
-Ordinary Session turns and configuration changes also mutate the append-only transcript and workflow context. A Plan
-lease cannot prevent two processes from corrupting or diverging one non-Plan Session.
+A second general-purpose state machine for arbitrary pending interactions, outcomes, and continuations would duplicate
+Pi completed-history storage and overstate what can be safely resumed. RunWield instead persists canonical artifacts,
+ordered transcript segments, lifecycle/worktree evidence, and the narrow rollover marker used by execution handoff.
 
-### Serialize and restore JavaScript continuations
+### Add persistent Plan ownership separate from Session Activation
 
-Function stacks, open subprocesses, network requests, and arbitrary tool effects are not portable or safely replayable.
-Typed durable checkpoints make continuation explicit and allow uncertainty to route to recovery.
+A separate long-lived Plan ownership record would create another authority to reconcile with canonical Plan markdown,
+Plan Lifecycle, and worktree registry state. Consequential Plan actions instead revalidate current canonical evidence
+under the active Session Activation Lease.

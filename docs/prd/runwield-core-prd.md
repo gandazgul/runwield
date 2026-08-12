@@ -473,19 +473,20 @@ Core requirements for that layer:
   an existing Session;
 - publish committed Session generations only after the corresponding transcript or repository effects are durable;
 - support transactional successor-segment rollover for planning-to-execution and semantic-repair context boundaries
-  without changing stable Session or Plan Workflow Lease ownership;
+  without changing stable Session identity or adding another persisted startup mechanism;
 - provide a genuinely non-mutating transcript reader for idle non-owners to project unseen stable entries without
   migrating or rewriting JSONL;
-- persist typed **Durable Workflow Checkpoints** for Plan review, Feedback, **Approve & Run**, **Approve for Later**,
-  Plan Recovery, human code review, and cross-surface structured interactions;
-- resolve and consume checkpoint outcomes through compare-and-set transitions so retries, stale owners, and duplicate
-  browser submissions cannot apply an outcome twice;
-- enforce a separate **Plan Workflow Lease** keyed by Project and Plan and owned by a stable RunWield Session ID;
-- treat stale activation, uncertain workflow leases, transcript/database reconciliation mismatches, and partial
-  filesystem effects as recovery cases rather than replaying arbitrary model, command, tool, or filesystem work.
+- rely on Pi JSONL for completed tool calls and interaction results, with pending structured interactions remaining
+  process-local until their result is committed;
+- after owner-process loss during a pending wait, reload committed Pi history and ask the user to retry rather than
+  reconstructing the lost wait;
+- revalidate canonical Plan status/revision and worktree evidence at the start of each consequential Plan action;
+- use endpoint operation receipts only to deduplicate bounded HTTP request delivery;
+- treat stale activation, transcript/database reconciliation mismatches, stale Plan evidence, and partial filesystem
+  effects as recovery cases rather than replaying arbitrary model, command, tool, or filesystem work.
 
-These requirements sit below adapters and above consequential transcript, lifecycle, checkpoint, and worktree effects.
-They must preserve existing local TUI, ACP, current-checkout Plan UI, Shared Plan, QUICK_FIX, non-Git, Plan Lifecycle,
+These requirements sit below adapters and above consequential transcript, lifecycle, Plan, and worktree effects. They
+must preserve existing local TUI, ACP, current-checkout Plan UI, Shared Plan, QUICK_FIX, non-Git, Plan Lifecycle,
 Workflow Validation, and RunWield worktree behavior where that behavior does not violate one-writer ownership.
 
 ## 11. Technical Stack
@@ -509,11 +510,11 @@ Current:
 Future/open:
 
 - Personal Remote Workspace owner coordination: stable Session catalog, activation leases, committed generations,
-  Durable Workflow Checkpoints, Plan Workflow Leases, and automatic synchronization.
+  ordered transcript segments, bounded endpoint receipts, and automatic synchronization.
 - Per-Project isolated OS worker processes or containers after the Personal Workspace Project Runtime boundary is
   proven.
 - Token-level cross-process mirroring of live model streams, tool output, or terminal bytes; current coordination should
-  rely on settled committed generations, checkpoints, attention state, and recoverable workflow facts.
+  rely on settled committed generations, transcript events, attention state, and canonical recovery evidence.
 - Hosted RunWield Workspace / Cloudflare D1 deployment for Shared Spaces and later SaaS composition.
 - Any RunWield-owned semantic index if Cymbal is not sufficient.
 
@@ -533,10 +534,10 @@ Future Core metrics:
 - All writable Session opening paths acquire activation before mutating an existing transcript.
 - Idle non-owning TUI, Workspace, and ACP surfaces synchronize from committed Session generations without constructing
   writable managers.
-- Durable Workflow Checkpoints resume or recover human-gated workflows exactly once across process loss and reconnect
-  retries.
-- Plan Workflow Leases prevent a different Session from driving one Plan concurrently across CLI, TUI, Workspace, ACP,
-  validation, and recovery paths.
+- Completed Pi interaction results remain visible after restart, while pending process-local waits require explicit
+  retry after owner-process loss.
+- Consequential Plan actions across CLI, TUI, Workspace, ACP, validation, and recovery paths reject stale activation,
+  Plan revision/status, or worktree evidence.
 - Owner coordination state can be reconstructed conservatively from canonical Projects, transcript catalogs, Plan files,
   and worktree evidence without deleting source, Plans, Work Records, worktrees, or Session Transcripts.
 
