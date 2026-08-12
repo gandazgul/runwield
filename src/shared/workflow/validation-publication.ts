@@ -3,10 +3,14 @@
  * The publication phase: merging the validated worktree into the target branch
  * inside the Direct Delivery transaction, settling the worktree registry, running
  * post-verification handoffs, and building the verified result.
+ *
+ * Ordering invariant: prepareEpicChildManualQaArtifact runs before checkpointExecutionWorktree
+ * so the durable Epic Manual QA artifact is sealed into child delivery.
  */
 
-import { isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
+import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { shouldCleanupMergedWorktrees } from "../settings.js";
 import { loadDirectDeliveryHierarchySnapshot } from "./validation-delivery-hierarchy.ts";
 import {
@@ -34,6 +38,7 @@ import type {
     ValidationLoopArgs,
     ValidationPhaseResult,
 } from "./validation-types.ts";
+import type { OpaqueToolDefinition } from "./validation-ports.ts";
 import { MAX_AGENT_MERGE_REPAIRS } from "./validation-types.ts";
 import {
     describeMergePause,
@@ -50,12 +55,83 @@ import { pauseForUserAction } from "./validation-interactions.ts";
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
 
+function firstMarkdownHeading(markdown: string, fallback: string): string {
+    const heading = markdown.split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
+    return heading ? heading.replace(/^#\s+/, "").trim() : fallback;
+}
+
+async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: string): Promise<void> {
+    const plan = await loadPlan(cwd, args.planName).catch(() => null);
+    const parentPlan = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim()
+        ? plan.attrs.parentPlan.trim()
+        : "";
+    if (!parentPlan) return;
+    const parent = await loadPlan(cwd, parentPlan).catch(() => null);
+    if (parent?.attrs.classification !== "PROJECT") return;
+
+    try {
+        args.session.emitStatus(`Preparing durable Manual QA checklist for ${args.planName}.`, "info");
+        const userRequest = [
+            "Prepare this Epic child's Manual QA checklist.",
+            `Name: ${args.planName}`,
+            "Classification: PLANNED_CHANGE",
+            "",
+            "Call qa_checklist_generated with the checklistMarkdown argument.",
+            "The checklistMarkdown must start with this exact heading:",
+            `Manual verification steps for ${args.planName}`,
+            "It must contain 1 to 6 unchecked checklist items.",
+            "Do not finish with ordinary text instead of the tool call.",
+            "",
+            "### Source context",
+            args.planContent,
+        ].join("\n");
+        const tool = createQaChecklistGeneratedTool({
+            projectRoot: cwd,
+            epicPlanName: parentPlan,
+            childPlanName: args.planName,
+            childHeading: firstMarkdownHeading(args.planContent, args.planName),
+        });
+        const outcome = await args.session.runIsolatedAgentSession({
+            kind: "manual_qa",
+            agentName: AGENTS.OPERATOR,
+            userRequest,
+            cwd,
+            customTools: [tool as unknown as OpaqueToolDefinition],
+            sessionManager: args.session.createInMemorySessionManager(cwd),
+        });
+        if (outcome.outcome === "recorded" || outcome.outcome === "already_present") {
+            args.session.emitStatus(
+                outcome.relativePath
+                    ? `Manual QA checklist ${
+                        outcome.outcome === "recorded" ? "recorded" : "already exists"
+                    }: ${outcome.relativePath}.`
+                    : "Manual QA checklist artifact is ready.",
+                "info",
+            );
+            return;
+        }
+        args.session.emitStatus(
+            `Automated verification passed, but the durable Manual QA checklist was not generated: ${
+                outcome.warning || outcome.outcome
+            }`,
+            "warning",
+        );
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        args.session.emitStatus(
+            `Automated verification passed, but the durable Manual QA checklist was not generated: ${reason}`,
+            "warning",
+        );
+    }
+}
+
 export async function runPublicationPhase(
     args: ValidationLoopArgs,
     context: PhaseContext,
     humanReviewMetadata: HumanReviewMetadata,
 ): Promise<PublicationOutcome> {
     if (context.nonGitInPlace || !context.worktreeBranch) {
+        await prepareEpicChildManualQaArtifact(args, context.executionCwd || context.projectRoot);
         const deliveryEvidence: DeliveryEvidence = context.nonGitInPlace
             ? { version: 1, mode: "non_git_in_place" }
             : null;
@@ -149,6 +225,7 @@ export async function runPublicationPhase(
     }
 
     async function publishOnce(): Promise<PublicationOutcome> {
+        if (!repairMergeWorktreePath) await prepareEpicChildManualQaArtifact(args, context.executionCwd);
         const repairedCandidate = repairMergeWorktreePath
             ? await readRepairedMergeCandidate(repairMergeWorktreePath)
             : null;

@@ -8,7 +8,7 @@ Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
     const promptDef = await loadManualQaPrompt();
     assertEquals(promptDef.name, "operator");
     assertEquals(promptDef.displayName, "Manual QA");
-    assertEquals(promptDef.tools, []);
+    assertEquals(promptDef.tools, ["qa_checklist_generated"]);
     assertStringIncludes(promptDef.systemPrompt, "Manual verification steps for <plan name>");
 });
 

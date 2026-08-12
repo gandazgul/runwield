@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import {
     makeRecordedSession,
     makeUi,
@@ -153,4 +153,79 @@ Deno.test("runValidationLoop publishes only from validated_reviewer after human 
     assertEquals(plan?.attrs.status, "verified");
     assertEquals(plan?.attrs.deliveryEvidence?.mode, "non_git_in_place");
     assertEquals(plan?.attrs.humanReviewDecision, "not_required");
+});
+
+Deno.test("Epic child delivery commits its Manual QA artifact with verified metadata", async () => {
+    const projectRoot = await makeValidationProjectRoot("epic/01-one", {
+        classification: "PLANNED_CHANGE",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    });
+    await savePlan(projectRoot, "epic", "# Epic", {
+        classification: "PROJECT",
+        status: "ready_for_work",
+        summary: "Epic",
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "epic/01-one",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "validated_reviewer",
+            parentPlan: "epic",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "epic/01-one",
+        planContent: "# One\n\nimplemented child",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "validated_reviewer",
+            parentPlan: "epic",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        semanticReviewPort: {
+            runIsolatedAgentSession: async (options) => {
+                const qaTool = options.customTools?.find((tool) => tool.name === "qa_checklist_generated");
+                if (!qaTool) throw new Error("qa_checklist_generated tool missing");
+                const toolResult = await qaTool.execute(
+                    "call",
+                    { checklistMarkdown: "Manual verification steps for epic/01-one\n\n- [ ] Check delivered child" },
+                    undefined,
+                    undefined,
+                    /** @type {import('@earendil-works/pi-coding-agent').ExtensionContext} */ ({}),
+                );
+                return [{
+                    role: "toolResult",
+                    toolCallId: "call",
+                    toolName: "qa_checklist_generated",
+                    content: toolResult.content,
+                    details: toolResult.details || {},
+                    isError: false,
+                    timestamp: Date.now(),
+                }];
+            },
+        },
+    });
+
+    assertEquals(result.kind, "verified");
+    assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "verified");
+    const artifact = await Deno.readTextFile(`${projectRoot}/docs/plans/epic/manual-qa.md`);
+    assertStringIncludes(artifact, "# Manual QA for epic");
+    assertStringIncludes(artifact, "This checklist is advisory. It does not change RunWield verification status.");
+    assertStringIncludes(artifact, '<!-- runwield:manual-qa:start child="epic/01-one" -->');
+    assertStringIncludes(artifact, "Manual verification steps for epic/01-one");
+    assertStringIncludes(artifact, "- [ ] Check delivered child");
+    assertStringIncludes(artifact, '<!-- runwield:manual-qa:end child="epic/01-one" -->');
 });

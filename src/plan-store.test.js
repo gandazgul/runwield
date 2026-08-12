@@ -2996,3 +2996,61 @@ Deno.test("legacy plans/ files are ignored, not migrated or accepted", async () 
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });
+
+testWithFs("manual-qa Epic Artifact is excluded from Plan loading and listing", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "plan-store-epic-artifact-" });
+    try {
+        await savePlan(cwd, "epic", "# Epic", { classification: "PROJECT", status: "ready_for_work" });
+        await Deno.mkdir(join(cwd, "docs", "plans", "epic"), { recursive: true });
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "epic", "manual-qa.md"), "not front matter");
+
+        assertEquals(await loadPlan(cwd, "epic/manual-qa"), null);
+        assertEquals((await listPlans(cwd)).some((plan) => plan.name === "epic/manual-qa"), false);
+
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "epic", "notes.md"), "not front matter");
+        assertEquals((await listPlans(cwd)).some((plan) => plan.name === "epic/notes"), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("reserved manual-qa child Plan writes are rejected", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "plan-store-reserved-artifact-" });
+    try {
+        await assertRejects(
+            () => savePlan(cwd, "epic/manual-qa", "# Manual QA", { classification: "PLANNED_CHANGE" }),
+            Error,
+            "reserved for an Epic Artifact",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archive and restore move Epic manual-qa artifact bytes", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "plan-store-artifact-archive-" });
+    try {
+        const artifactText = "# QA\n\n- [ ] Check\n";
+        await savePlan(cwd, "epic", "# Epic", { classification: "PROJECT", status: "verified" });
+        await Deno.mkdir(join(cwd, "docs", "plans", "epic"), { recursive: true });
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "epic", "manual-qa.md"), artifactText);
+
+        const archived = await archivePlan(cwd, "epic");
+        assertEquals(archived.artifacts?.[0].relativePath, "docs/plans/archived/epic/manual-qa.md");
+        assertEquals(
+            await Deno.readTextFile(join(cwd, "docs", "plans", "archived", "epic", "manual-qa.md")),
+            artifactText,
+        );
+        await assertRejects(() => Deno.stat(join(cwd, "docs", "plans", "epic", "manual-qa.md")), Deno.errors.NotFound);
+
+        const restored = await restoreArchivedPlan(cwd, "epic");
+        assertEquals(restored.artifacts?.[0].relativePath, "docs/plans/epic/manual-qa.md");
+        assertEquals(await Deno.readTextFile(join(cwd, "docs", "plans", "epic", "manual-qa.md")), artifactText);
+        await assertRejects(
+            () => Deno.stat(join(cwd, "docs", "plans", "archived", "epic", "manual-qa.md")),
+            Deno.errors.NotFound,
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});

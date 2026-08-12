@@ -22,6 +22,7 @@ import {
     resolvePlanExecutionPolicy,
     updatePlanFrontMatter,
 } from "../plan-store.js";
+import { assertNotReservedEpicArtifactPlanName } from "../shared/epic-artifacts.ts";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
@@ -383,6 +384,17 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 return textResult(
                     "plan_written: planName is empty. Provide the plan filename (without .md) and call again.",
                 );
+            }
+            try {
+                assertNotReservedEpicArtifactPlanName(planName);
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                return textResult(`plan_written: ${reason}`, {
+                    ...params,
+                    outcome: "repair_required",
+                    planName,
+                    reason: "reserved_epic_artifact",
+                }, false);
             }
 
             if (!cwd) throw new Error("plan_written: cwd or hostedSession cwd is required");

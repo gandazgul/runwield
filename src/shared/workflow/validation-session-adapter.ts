@@ -96,6 +96,36 @@ function clearPendingRepairManager(hostedSession: HostedSession, cwd: string, us
     pendingRepairManagers.get(hostedSession)?.delete(`${cwd}\u0000${userRequest}`);
 }
 
+function readLatestQaChecklistGeneratedOutcome(
+    messages: AgentMessage[],
+): Extract<IsolatedAgentSessionOutcome, { kind: "manual_qa" }> {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (!(message && "role" in message && message.role === "toolResult")) continue;
+        if (!("toolName" in message) || message.toolName !== "qa_checklist_generated") continue;
+        const details =
+            (message as { details?: { outcome?: unknown; relativePath?: unknown; reason?: unknown } }).details || {};
+        const outcome = details.outcome;
+        if (outcome === "recorded" || outcome === "already_present") {
+            return {
+                kind: "manual_qa",
+                outcome,
+                relativePath: typeof details.relativePath === "string" ? details.relativePath : undefined,
+            };
+        }
+        return {
+            kind: "manual_qa",
+            outcome: "rejected",
+            warning: typeof details.reason === "string" ? details.reason : "Manual QA checklist tool rejected output.",
+        };
+    }
+    return {
+        kind: "manual_qa",
+        outcome: "missing_tool_call",
+        warning: "Manual QA Agent did not call qa_checklist_generated.",
+    };
+}
+
 /**
  * Build the engine's session port over a real HostedSession.
  *
@@ -134,6 +164,22 @@ async function runIsolatedRequest(
             usedDiffTool: usedReviewDiffTool(messages),
             trustedClaudeMcpReview: hasTrustedClaudeMcpReview(messages),
         };
+    }
+    if (request.kind === "manual_qa") {
+        const manualQaManager = request.sessionManager
+            ? request.sessionManager as unknown as SessionManager
+            : SessionManager.inMemory(request.cwd);
+        const messages = await isolatedSessions.runIsolatedAgentSession({
+            hostedSession,
+            agentName: request.agentName,
+            userRequest: request.userRequest,
+            cwd: request.cwd,
+            subAgentDefinition: { id: SUBAGENTS.MANUAL_QA },
+            customTools: request.customTools as unknown as ToolDefinition[],
+            includeEditFallback: false,
+            sessionManager: manualQaManager,
+        });
+        return readLatestQaChecklistGeneratedOutcome(messages);
     }
     const repairManager = request.sessionManager
         ? request.sessionManager as unknown as SessionManager

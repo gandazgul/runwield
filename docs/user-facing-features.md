@@ -78,6 +78,8 @@
   - Use the interactive Slicer to discuss child feature boundaries.
   - Sequence child features and record sibling dependencies.
   - Materialize child `FEATURE` plan drafts under the Epic folder.
+  - Store advisory per-child Manual QA sections in `docs/plans/<epic>/manual-qa.md`.
+  - Keep Epic Manual QA artifacts out of Plan lifecycle state and Plan listings.
   - Finalize decomposition only after explicit confirmation.
   - Load an Epic to resume decomposition or choose child feature work.
   - Warn about unverified child feature dependencies.
@@ -101,7 +103,8 @@
   - Send validation failures back through repair attempts.
   - Preserve the original execution owner during validation repairs.
   - Optionally use a human code-review gate during validation when configured.
-  - Generate post-verification Manual QA checklist handoffs for supported plan completions.
+  - Generate post-verification Manual QA checklist handoffs for standalone plans and durable advisory Epic artifacts for
+    Epic children.
   - Record validation, review, and merge outcomes in plan lifecycle metadata.
 
 - **Plans CLI**

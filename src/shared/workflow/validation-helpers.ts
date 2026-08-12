@@ -9,6 +9,7 @@
 
 import { dirname, fromFileUrl } from "@std/path";
 import { AGENTS, isPlannedChangeClassification, SUBAGENTS } from "../../constants.js";
+import { loadPlan } from "../../plan-store.js";
 
 import { getAgentDisplayName } from "../session/agents.js";
 
@@ -266,11 +267,15 @@ export async function runFeaturePostVerificationHandoffs({
     projectRoot,
     mnemosynePort,
 }: RunFeaturePostVerificationHandoffsOptions) {
+    const plan = await loadPlan(projectRoot, planName).catch(() => null);
+    const isEpicChild = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim().length > 0;
     emitRunWieldSystemStatus(
         hostedSession,
-        "Preparing post-verification Manual QA checklist and Work Record generation.",
+        isEpicChild
+            ? "Preparing post-verification Work Record generation."
+            : "Preparing post-verification Manual QA checklist and Work Record generation.",
     );
-    const manualQaPromise = presentManualQaChecklist({
+    const manualQaPromise = isEpicChild ? Promise.resolve() : presentManualQaChecklist({
         hostedSession,
         name: planName,
         classification: "PLANNED_CHANGE",

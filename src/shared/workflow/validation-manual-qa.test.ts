@@ -2,6 +2,7 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runManualQaChecklistPrompt } from "./validation.ts";
 
@@ -49,5 +50,64 @@ Deno.test("Manual QA runs the bundled isolated Operator and persists its visible
             });
             hostedSession.dispose();
         },
+    );
+});
+import {
+    makeRecordedSession,
+    makeUi,
+    makeValidationProjectRoot,
+    runValidationLoop,
+} from "./validation-test-helpers.js";
+
+Deno.test("Epic child Manual QA failure does not block verified delivery or continuation", async () => {
+    const projectRoot = await makeValidationProjectRoot("epic/01-one", {
+        classification: "PLANNED_CHANGE",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    });
+    await savePlan(projectRoot, "epic", "# Epic", {
+        classification: "PROJECT",
+        status: "ready_for_work",
+        summary: "Epic",
+    });
+    const uiAPI = makeUi();
+    const hostedSession = makeRecordedSession("manual-qa-failure", uiAPI);
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "epic/01-one",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "validated_reviewer",
+            parentPlan: "epic",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "epic/01-one",
+        planContent: "# One\n\nimplemented child",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            status: "validated_reviewer",
+            parentPlan: "epic",
+            humanReviewMode: "none",
+            humanReviewDecision: "not_required",
+        },
+        semanticReviewPort: { runIsolatedAgentSession: () => Promise.resolve([]) },
+    });
+
+    assertEquals(result.kind, "verified");
+    assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "verified");
+    assert(
+        uiAPI.systemCalls.some((call: { level: string; message: string }) =>
+            call.level === "warning" && call.message.toLowerCase().includes("manual qa checklist")
+        ),
     );
 });
