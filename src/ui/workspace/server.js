@@ -758,12 +758,12 @@ async function renderOwnerProjectBoard(ctx, view) {
         url,
         staticRender: true,
         staticRenderNotice:
-            "Owner Workspace Plan Boards are read-only in this slice; lifecycle moves and edits are disabled until Plan Workflow Lease enforcement can authorize them safely.",
+            "Owner Workspace Plan Boards are read-only in this slice; lifecycle moves and edits are disabled until Session Activation and canonical Plan evidence checks can authorize them safely.",
         draggableCards: false,
     });
     const boardId = `status-board-${componentView}`;
     const searchIndex = buildPlanBoardSearchIndex(board.screens[componentView]);
-    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Plan Workflow Lease enforcement enables remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
+    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Session Activation and canonical Plan evidence checks enable remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
         ownerPlanBoardSearchScript(boardId, searchIndex)
     }`;
 }
@@ -799,7 +799,7 @@ async function renderOwnerPlanDetail(ctx) {
         editIntent: false,
         staticRender: true,
     });
-    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Lifecycle and body editing are intentionally disabled in this slice so later Plan Workflow Lease enforcement can cover consequential actions.</p></aside>`;
+    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Lifecycle and body editing are intentionally disabled in this slice so later Session Activation and canonical Plan evidence checks can cover consequential actions.</p></aside>`;
 }
 
 /** @param {any} ctx */

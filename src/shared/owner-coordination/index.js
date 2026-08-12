@@ -5,8 +5,8 @@
  * Slice boundaries:
  * - Workspace UI consumes these Project and Session catalog services for registration,
  *   health, restoration, relinking, and repair actions.
- * - Later activation/generation, checkpoint, Plan Workflow Lease, and attention
- *   slices add their own migrations and APIs here.
+ * - Activation/generation, segment rollover, bounded operation receipts, and
+ *   attention slices add their own migrations and APIs here.
  * - Runtime adapters and browser services must call shared APIs rather than
  *   issuing owner-database SQL directly.
  */
