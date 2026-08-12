@@ -1,4 +1,5 @@
 ---
+planId: "29ebfa42-f20b-4287-812e-220b3681f381"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -30,11 +31,24 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T11:06:12-04:00"
-updatedAt: "2026-08-12T15:19:00.554Z"
+updatedAt: "2026-08-12T17:34:19.627Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-12T16:32:00.073Z"
+verifiedAt: "2026-08-12T17:34:19.627Z"
 userVerifiedAt: null
-planId: "29ebfa42-f20b-4287-812e-220b3681f381"
-status: "validated_reviewer"
+executionReport: "- Implemented approved Plan-declared and Recorder-proposed Work Record supersession, including strict persisted proposals and all completion modes.\n- Added token-owned locking, heartbeats, atomic canonical writes, rollback evidence, idempotency/conflict checks, and fresh best-effort index projection.\n- Added TUI, hosted validation, backfill, headless guidance, and `wld wr supersede` list/confirm/reject flows.\n- Updated Planner/Recorder contracts, command help, domain language, and PRD.\n- Verification passed: objective supersession proof, focused tests, `deno task seams:check`, `deno task check`, formatting, and `deno task ci` (280 test files passed).\n- Test delta: 24 new named tests total (15 added in existing files plus 10 in the new supersession suite, with 1 existing handoff test rewritten against the new proposal shape); no behavior coverage was deleted."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "86418258242c27e56861d5c22e8ac47784c8ece7"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "df2977ca7b476bc3a4b456cd6c4379b3b7bde6b2"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Implement Work Record Supersession
