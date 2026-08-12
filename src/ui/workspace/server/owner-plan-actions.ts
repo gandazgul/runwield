@@ -49,6 +49,7 @@ type OwnerCoordinationStore = {
         resultHttpStatus?: number | null;
         resultBody?: { result?: PlanActionResult } | null;
         resultGeneration?: number | null;
+        wasCreated?: boolean;
     };
     updateOperationReceipt: (
         operationId: string,
@@ -88,6 +89,10 @@ function activationUnavailable(message: string): PlanActionResult {
     return { kind: "activation_unavailable", message };
 }
 
+function receiptRecoveryRequired(message: string): PlanActionResult {
+    return { kind: "recovery_required", message, entryIds: [] };
+}
+
 function completedResultFromReceipt(
     receipt: { resultHttpStatus?: number | null; resultBody?: { result?: PlanActionResult } | null },
 ): OwnerPlanActionHttpResult | null {
@@ -105,23 +110,40 @@ export async function runOwnerPlanAction(
         return { status: 404, body: { result: { kind: "invalid_action", message: "Session not found for Project." } } };
     }
     const root = requireOwnerProjectRoot(store, request.projectId);
-    const receipt = store.createOrGetOperationReceipt({
-        deviceId: request.deviceId,
-        requestId: request.requestId,
-        requestHash: request.requestHash,
-        runwieldSessionId: request.runwieldSessionId,
-        projectId: request.projectId,
-        expectedGeneration: request.expectedGeneration,
-        kind: "plan_action",
-    });
+    let receipt: ReturnType<OwnerCoordinationStore["createOrGetOperationReceipt"]>;
+    try {
+        receipt = store.createOrGetOperationReceipt({
+            deviceId: request.deviceId,
+            requestId: request.requestId,
+            requestHash: request.requestHash,
+            runwieldSessionId: request.runwieldSessionId,
+            projectId: request.projectId,
+            expectedGeneration: request.expectedGeneration,
+            kind: "plan_action",
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("request id was reused with different input")) {
+            return {
+                status: 409,
+                body: {
+                    result: {
+                        kind: "invalid_action",
+                        message: "Plan action request ID was reused with different input.",
+                    },
+                },
+            };
+        }
+        throw error;
+    }
     if (receipt.status === "completed") {
         const stored = completedResultFromReceipt(receipt);
         if (stored) return stored;
-        const result = activationUnavailable("Previous Plan action result is unavailable; refresh before retrying.");
+        const result = receiptRecoveryRequired("Previous Plan action result is unavailable; recover before retrying.");
         return { status: 409, body: { result } };
     }
-    if (receipt.status !== "accepted") {
-        const result = activationUnavailable("Plan action request is already in progress or needs recovery.");
+    if (!receipt.wasCreated || receipt.status !== "accepted") {
+        const result = receiptRecoveryRequired("Plan action request has no completed result; recover before retrying.");
         return { status: 409, body: { result } };
     }
     store.updateOperationReceipt(receipt.operationId, { status: "running" });

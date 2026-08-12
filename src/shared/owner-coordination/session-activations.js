@@ -733,7 +733,7 @@ export function createOrGetOperationReceipt(database, options) {
             if (existing.request_hash !== options.requestHash) {
                 throw new Error("Operation request id was reused with different input");
             }
-            return operationFromRow(existing);
+            return { ...operationFromRow(existing), wasCreated: false };
         }
         const id = newId(options.idFactory);
         const operationId = options.operationId || newId(options.idFactory);
@@ -754,7 +754,10 @@ export function createOrGetOperationReceipt(database, options) {
             now,
             now,
         );
-        return operationFromRow(ownerDb.handle.prepare("SELECT * FROM owner_session_operations WHERE id = ?").get(id));
+        const created = operationFromRow(
+            ownerDb.handle.prepare("SELECT * FROM owner_session_operations WHERE id = ?").get(id),
+        );
+        return { ...created, wasCreated: true };
     });
 }
 

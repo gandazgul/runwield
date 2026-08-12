@@ -44,7 +44,7 @@ function makeStore(root: string) {
                 if (existing.requestHash !== options.requestHash) {
                     throw new Error("Operation request id was reused with different input");
                 }
-                return existing;
+                return { ...existing, wasCreated: false };
             }
             const receipt: Receipt = {
                 operationId: `op-${options.requestId}`,
@@ -55,7 +55,10 @@ function makeStore(root: string) {
                 resultGeneration: null,
             };
             receipts.set(options.requestId, receipt);
-            return receipt;
+            return { ...receipt, wasCreated: true };
+        },
+        seedOperationReceipt(requestId: string, receipt: Receipt) {
+            receipts.set(requestId, receipt);
         },
         updateOperationReceipt(
             operationId: string,
@@ -130,6 +133,37 @@ Deno.test("returns the stored result for an exact duplicate request", async () =
     assertEquals(current?.attrs.status, "on_hold");
 });
 
+Deno.test("returns recovery guidance for an accepted duplicate without replaying", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-owner-plan-action-" });
+    await savePlan(root, "demo", "# Demo\n", { planId: "plan-demo", status: "draft", classification: "FEATURE" });
+    const store = makeStore(root);
+    const action = await makeAction(root);
+    store.seedOperationReceipt("req-accepted", {
+        operationId: "op-accepted",
+        status: "accepted",
+        requestHash: "hash-accepted",
+        resultHttpStatus: null,
+        resultBody: null,
+        resultGeneration: null,
+    });
+
+    const duplicate = await runOwnerPlanAction(store, {
+        projectId: "project-1",
+        runwieldSessionId: "session-1",
+        deviceId: "device-1",
+        requestId: "req-accepted",
+        requestHash: "hash-accepted",
+        expectedGeneration: 0,
+        action,
+    });
+
+    assertEquals(duplicate.status, 409);
+    assertEquals(duplicate.body.result.kind, "recovery_required");
+    assertEquals(store.acquireCount, 0);
+    const current = await loadPlan(root, "demo");
+    assertEquals(current?.attrs.status, "draft");
+});
+
 Deno.test("revalidates canonical evidence for a new request id", async () => {
     const root = await Deno.makeTempDir({ prefix: "runwield-owner-plan-action-" });
     await savePlan(root, "demo", "# Demo\n", { planId: "plan-demo", status: "draft", classification: "FEATURE" });
@@ -175,19 +209,16 @@ Deno.test("conflicts when a request id is reused with different input", async ()
         action,
     });
 
-    let message = "";
-    try {
-        await runOwnerPlanAction(store, {
-            projectId: "project-1",
-            runwieldSessionId: "session-1",
-            deviceId: "device-1",
-            requestId: "req-3",
-            requestHash: "changed",
-            expectedGeneration: 0,
-            action,
-        });
-    } catch (error) {
-        message = error instanceof Error ? error.message : String(error);
-    }
-    assertEquals(message, "Operation request id was reused with different input");
+    const conflict = await runOwnerPlanAction(store, {
+        projectId: "project-1",
+        runwieldSessionId: "session-1",
+        deviceId: "device-1",
+        requestId: "req-3",
+        requestHash: "changed",
+        expectedGeneration: 0,
+        action,
+    });
+
+    assertEquals(conflict.status, 409);
+    assertEquals(conflict.body.result.kind, "invalid_action");
 });

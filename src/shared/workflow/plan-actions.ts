@@ -65,6 +65,16 @@ type WorktreeEntry = {
 };
 
 const SETTLED_WORKTREE_STATUSES = new Set(["merged", "abandoned", "none"]);
+const NONTERMINAL_WORKTREE_STATUSES = new Set([
+    "active",
+    "completed",
+    "execution_failed",
+    "validation_failed",
+    "merge_conflict",
+]);
+
+type WorktreeEvidenceResult = Awaited<ReturnType<typeof readPlanActionWorktreeEvidence>>;
+type WorktreeEvidenceOk = Extract<WorktreeEvidenceResult, { kind: "ok" }>;
 
 function sanitizeMessage(message: string): string {
     if (message.includes("remote-canonical") || message.includes("wld plans pull")) return message;
@@ -99,10 +109,90 @@ function currentStatus(attrs: PlanFrontMatter): PlanStatus {
     return (String(attrs.status || "draft") as PlanStatus);
 }
 
+function recordedWorktreeId(attrs: PlanFrontMatter): string | null {
+    return typeof attrs.worktreeId === "string" && attrs.worktreeId.trim() ? attrs.worktreeId.trim() : null;
+}
+
+function expectedRegistryOptions(attrs: PlanFrontMatter): { expectedWorktreeId?: string | null } {
+    return { expectedWorktreeId: recordedWorktreeId(attrs) };
+}
+
+function validatePlanRegistryIdentity(
+    attrs: PlanFrontMatter,
+    registry: WorktreeEvidenceOk,
+): { message: string; entryIds: string[] } | null {
+    const planWorktreeId = recordedWorktreeId(attrs);
+    const planWorktreeStatus = typeof attrs.worktreeStatus === "string" && attrs.worktreeStatus.trim()
+        ? attrs.worktreeStatus.trim()
+        : "none";
+    const planWorktreeBranch = typeof attrs.worktreeBranch === "string" ? attrs.worktreeBranch : null;
+    const planWorktreeBaseBranch = typeof attrs.worktreeBaseBranch === "string" ? attrs.worktreeBaseBranch : null;
+    const recordedEntry = planWorktreeId ? registry.entries.find((entry) => entry.id === planWorktreeId) : null;
+
+    if (planWorktreeId && !recordedEntry) {
+        return {
+            message:
+                "The Plan records a worktree attempt that is missing from the registry. Review recovery before mutating the Plan.",
+            entryIds: [planWorktreeId],
+        };
+    }
+    if (recordedEntry) {
+        if (recordedEntry.status !== planWorktreeStatus) {
+            return {
+                message:
+                    "The Plan worktree status does not match the registry. Review recovery before mutating the Plan.",
+                entryIds: [recordedEntry.id],
+            };
+        }
+        if (planWorktreeBranch !== null && recordedEntry.branch !== planWorktreeBranch) {
+            return {
+                message:
+                    "The Plan worktree branch does not match the registry. Review recovery before mutating the Plan.",
+                entryIds: [recordedEntry.id],
+            };
+        }
+        if (planWorktreeBaseBranch !== null && recordedEntry.baseBranch !== planWorktreeBaseBranch) {
+            return {
+                message:
+                    "The Plan worktree base branch does not match the registry. Review recovery before mutating the Plan.",
+                entryIds: [recordedEntry.id],
+            };
+        }
+    }
+    if (registry.live) {
+        if (!planWorktreeId) {
+            return {
+                message:
+                    "The registry records a live worktree attempt that the Plan does not record. Review recovery before mutating the Plan.",
+                entryIds: [registry.live.id],
+            };
+        }
+        if (registry.live.id !== planWorktreeId || !NONTERMINAL_WORKTREE_STATUSES.has(planWorktreeStatus)) {
+            return {
+                message:
+                    "The Plan live worktree identity does not match the registry. Review recovery before mutating the Plan.",
+                entryIds: [registry.live.id, planWorktreeId],
+            };
+        }
+    }
+    if (!registry.live && NONTERMINAL_WORKTREE_STATUSES.has(planWorktreeStatus)) {
+        return {
+            message:
+                "The Plan records a live worktree attempt that is not live in the registry. Review recovery before mutating the Plan.",
+            entryIds: planWorktreeId ? [planWorktreeId] : [],
+        };
+    }
+    return null;
+}
+
 export async function loadPlanActionEvidence(projectRoot: string, planId: string): Promise<PlanActionResult> {
     try {
         const plan = await findPlanEvidenceById(projectRoot, planId);
-        const registry = await readPlanActionWorktreeEvidence(projectRoot, plan.planId);
+        const registry = await readPlanActionWorktreeEvidence(
+            projectRoot,
+            plan.planId,
+            expectedRegistryOptions(plan.attrs),
+        );
         if (registry.kind !== "ok") {
             return {
                 kind: "recovery_required",
@@ -110,6 +200,8 @@ export async function loadPlanActionEvidence(projectRoot: string, planId: string
                 entryIds: registry.entryIds,
             };
         }
+        const identityIssue = validatePlanRegistryIdentity(plan.attrs, registry);
+        if (identityIssue) return { kind: "recovery_required", ...identityIssue };
         const revision = plan.revision || await getPlanRevisionForText(plan.markdown);
         return {
             kind: "success",
@@ -239,10 +331,16 @@ export async function executePlanAction(projectRoot: string, request: PlanAction
             evidence: currentEvidence,
         };
     }
-    const registry = await readPlanActionWorktreeEvidence(projectRoot, plan.planId);
+    const registry = await readPlanActionWorktreeEvidence(
+        projectRoot,
+        plan.planId,
+        expectedRegistryOptions(plan.attrs),
+    );
     if (registry.kind !== "ok") {
         return { kind: "recovery_required", message: sanitizeMessage(registry.message), entryIds: registry.entryIds };
     }
+    const identityIssue = validatePlanRegistryIdentity(plan.attrs, registry);
+    if (identityIssue) return { kind: "recovery_required", ...identityIssue };
     const live = registry.live;
     currentEvidence.worktree = live ? toAttemptExpectation(live) : { kind: "none" };
     if (request.expectedWorktree.kind === "none" && live) {

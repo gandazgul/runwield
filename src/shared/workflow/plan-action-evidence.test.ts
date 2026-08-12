@@ -105,3 +105,79 @@ Deno.test("applies a valid lifecycle action and returns new evidence", async () 
     const current = await loadPlan(root, "demo");
     assertEquals(current?.attrs.status, "on_hold");
 });
+
+Deno.test("rejects Plan and registry worktree identity mismatches before returning evidence", async () => {
+    const { root, revision } = await makeProject();
+    await savePlan(root, "demo", "# Demo\n\nBody\n", {
+        planId: "plan-demo",
+        status: "in_progress",
+        classification: "FEATURE",
+        worktreeId: "attempt-one",
+        worktreeStatus: "active",
+        worktreeBranch: "rw/demo-1",
+        worktreeBaseBranch: "main",
+    }, { expectedRevision: revision });
+    await writeRegistry(root, [{
+        id: "attempt-one",
+        planName: "demo",
+        planId: "plan-demo",
+        baseBranch: "main",
+        baseRef: "main",
+        baseCommit: "111",
+        branch: "rw/demo-1",
+        path: "redacted",
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    }]);
+
+    const evidence = await loadPlanActionEvidence(root, "plan-demo");
+
+    assertEquals(evidence.kind, "recovery_required");
+});
+
+Deno.test("rejects ambiguous registry integrity issues before lifecycle mutation", async () => {
+    const { root } = await makeProject();
+    const evidence = await loadPlanActionEvidence(root, "plan-demo");
+    if (evidence.kind !== "success") throw new Error(evidence.message);
+    await writeRegistry(root, [
+        {
+            id: "duplicate",
+            planName: "demo",
+            planId: "plan-demo",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: "111",
+            branch: "rw/demo-1",
+            path: "redacted",
+            status: "merged",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+            id: "duplicate",
+            planName: "other",
+            planId: "plan-other",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: "222",
+            branch: "rw/other",
+            path: "redacted",
+            status: "merged",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+    ]);
+
+    const result = await executePlanAction(root, {
+        planId: "plan-demo",
+        expectedRevision: evidence.evidence.revision,
+        expectedStatus: evidence.evidence.status,
+        expectedWorktree: evidence.evidence.worktree,
+        action: "put_on_hold",
+    });
+
+    assertEquals(result.kind, "recovery_required");
+    const current = await loadPlan(root, "demo");
+    assertEquals(current?.attrs.status, "draft");
+});
