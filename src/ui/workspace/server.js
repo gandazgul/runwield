@@ -64,6 +64,9 @@ import {
     ownerProjectSessionsApi,
     ownerSessionBootstrapApi,
     ownerSessionContinuationStartApi,
+    ownerSessionCreateApi,
+    ownerSessionForceRecoverApi,
+    ownerSessionInteractionAnswerApi,
     ownerSessionOperationStatusApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
@@ -267,9 +270,15 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
     app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
+    app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
+    app.post(
+        "/api/owner/session-operations/:operationId/interactions/:interactionId/answer",
+        ownerSessionInteractionAnswerApi,
+    );
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);
     app.get("/api/owner/devices", devicesApi);
     app.post("/api/owner/devices/:deviceId/revoke", revokeDeviceApi);

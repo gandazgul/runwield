@@ -276,6 +276,12 @@ function deadlineFrom(iso) {
     return new Date(Date.parse(iso) + 30_000).toISOString();
 }
 
+/** @param {string | null | undefined} timestamp @param {string} now */
+function isDeadlineExpired(timestamp, now) {
+    if (!timestamp) return false;
+    return Date.parse(timestamp) <= Date.parse(now);
+}
+
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {{ runwieldSessionId: string, projectId: string, ownerInstanceId: string, ownerProcessKind: 'workspace' | 'tui' | 'acp' | 'test', operationId?: string, expectedGeneration?: number | null, expectedCurrentSegmentId?: string | null, phase?: SessionActivationPhase, idFactory?: () => string, now?: () => string }} options
@@ -502,6 +508,83 @@ export function publishGenerationAndRelease(database, proof, evidence, options =
         insertCommittedGenerationRow(ownerDb, proof, evidence, currentSegmentId, now);
         releaseActivationAfterGeneration(ownerDb, proof, evidence.generation, now);
         return inspectSessionActivation(ownerDb, proof.runwieldSessionId);
+    });
+}
+
+/**
+ * @param {import('./database.js').OwnerCoordinationDatabase} database
+ * @param {{ runwieldSessionId: string, projectId: string, expectedFence: number, expectedGeneration: number | null, expectedCurrentSegmentId?: string | null, ownerInstanceId: string, ownerProcessKind: 'workspace' | 'tui' | 'acp' | 'test', operationId?: string, transcriptEvidence: GenerationEvidence, now?: () => string, idFactory?: () => string }} options
+ */
+export function recoverExpiredSessionControl(database, options) {
+    const ownerDb = requireDatabase(database);
+    const now = isoNow(options.now);
+    return ownerDb.transaction(() => {
+        const current = activationFromRow(
+            ownerDb.handle.prepare(
+                "SELECT * FROM session_activation_state WHERE runwield_session_id = ? AND project_id = ?",
+            ).get(options.runwieldSessionId, options.projectId),
+        );
+        if (!current) throw new Error("Activation state not found");
+        if (current.fence !== options.expectedFence) throw new Error("Session control recovery fence was stale");
+        if (current.latestGeneration !== options.expectedGeneration) {
+            throw new Error("Session control recovery generation was stale");
+        }
+        const expectedCurrentSegmentId = options.expectedCurrentSegmentId === undefined
+            ? current.currentSegmentId ?? null
+            : options.expectedCurrentSegmentId;
+        if (expectedCurrentSegmentId !== (current.currentSegmentId ?? null)) {
+            throw new Error("Session control recovery current segment was stale");
+        }
+        if (current.state === "active" && !isDeadlineExpired(current.heartbeatDeadlineAt, now)) {
+            throw new Error("Session control is still renewing");
+        }
+        if (current.state !== "active" && current.state !== "uncertain") {
+            throw new Error(`Session control recovery is not available: ${current.state}`);
+        }
+        const evidence = options.transcriptEvidence;
+        const latestGeneration = current.latestGeneration;
+        const exactGeneration = latestGeneration ?? 0;
+        const transcriptAheadGeneration = latestGeneration === null ? 0 : latestGeneration + 1;
+        const adoptsTranscriptAhead = evidence.generation === transcriptAheadGeneration &&
+            evidence.generation !== latestGeneration;
+        const acceptsExact = evidence.generation === latestGeneration ||
+            (latestGeneration === null && evidence.generation === exactGeneration);
+        if (!acceptsExact && !adoptsTranscriptAhead) {
+            throw new Error("Session control recovery transcript generation is not the next valid generation");
+        }
+        const nextFence = current.fence + 1;
+        /** @type {ActivationProof} */
+        const proof = {
+            runwieldSessionId: options.runwieldSessionId,
+            projectId: options.projectId,
+            ownerInstanceId: options.ownerInstanceId,
+            ownerProcessKind: options.ownerProcessKind,
+            operationId: options.operationId || newId(options.idFactory),
+            fence: nextFence,
+            phase: "checkpointing",
+            expectedGeneration: current.latestGeneration,
+            expectedCurrentSegmentId,
+        };
+        if (adoptsTranscriptAhead) {
+            insertCommittedGenerationRow(ownerDb, proof, evidence, expectedCurrentSegmentId, now);
+        }
+        const result = ownerDb.handle.prepare(
+            `UPDATE session_activation_state
+                SET state = 'idle', phase = NULL, latest_generation = ?, fence = ?, owner_instance_id = NULL,
+                    owner_process_kind = NULL, operation_id = NULL, expected_generation = NULL,
+                    expected_current_segment_id = NULL, acquired_at = NULL, heartbeat_at = NULL,
+                    heartbeat_deadline_at = NULL, updated_at = ?, blocked_reason = NULL
+              WHERE runwield_session_id = ? AND project_id = ? AND fence = ? AND state IN ('active', 'uncertain')`,
+        ).run(
+            adoptsTranscriptAhead || acceptsExact ? evidence.generation : current.latestGeneration,
+            nextFence,
+            now,
+            options.runwieldSessionId,
+            options.projectId,
+            current.fence,
+        );
+        if (result.changes !== 1) throw new Error("Session control recovery race lost");
+        return inspectSessionActivation(ownerDb, options.runwieldSessionId);
     });
 }
 

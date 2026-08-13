@@ -99,6 +99,24 @@ export async function ownerSessionBootstrapApi(ctx) {
 }
 
 /** @param {any} ctx */
+export async function ownerSessionCreateApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.createSession({
+            deviceId: ctx.state.ownerDevice?.deviceId || null,
+            projectId: ctx.params.projectId,
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
+            text: requireBoundedString(body.text, "text", 32_000),
+        });
+        return ownerJson(result, 202);
+    } catch (error) {
+        const message = sanitizeOwnerError(error);
+        return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+    }
+}
+
+/** @param {any} ctx */
 export async function ownerSessionContinuationStartApi(ctx) {
     try {
         const body = await readJson(ctx.req);
@@ -115,6 +133,41 @@ export async function ownerSessionContinuationStartApi(ctx) {
     } catch (error) {
         const message = sanitizeOwnerError(error);
         return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerSessionForceRecoverApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.forceRecoverSessionControl({
+            projectId: ctx.params.projectId,
+            runwieldSessionId: ctx.params.runwieldSessionId,
+            expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
+            expectedCurrentSegmentId: typeof body.expectedCurrentSegmentId === "string"
+                ? requireBoundedString(body.expectedCurrentSegmentId, "expectedCurrentSegmentId", 128)
+                : null,
+        });
+        return ownerJson({ status: "recovered", generation: result.generation?.generation ?? null });
+    } catch (error) {
+        const message = sanitizeOwnerError(error);
+        return ownerJson({ error: message }, /still renewing|not available/.test(message) ? 409 : 503);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerSessionInteractionAnswerApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        const result = ctx.state.sessionContinuation.answerInteraction({
+            operationId: ctx.params.operationId,
+            interactionId: ctx.params.interactionId,
+            response: body.response,
+        });
+        return ownerJson(result, 202);
+    } catch (error) {
+        return ownerErrorJson(error, 409);
     }
 }
 

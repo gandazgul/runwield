@@ -2,25 +2,17 @@
 
 import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
-import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
+import {
+    createSessionRuntime,
+    deriveManagedSessionContinuationDecision,
+} from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import {
     captureTranscriptEvidence,
     getCommittedTranscriptAuthorityFacts,
+    validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
-
-const WORKSPACE_IDEATOR_CONVERSATION_TOOLS = [
-    "read",
-    "grep",
-    "find",
-    "ls",
-    "code_search",
-    "code_show",
-    "code_outline",
-    "code_refs",
-    "code_structure",
-];
 
 /** @param {unknown} value */
 function stableHash(value) {
@@ -54,8 +46,10 @@ export class WorkspaceSessionContinuationService {
             ownerProcessKind: "workspace",
             ownerInstanceId: this.ownerInstanceId,
         });
-        /** @type {Map<string, { status: string, events: unknown[], error?: string, generation?: number | null }>} */
+        /** @type {Map<string, { status: string, events: unknown[], error?: string, generation?: number | null, runwieldSessionId?: string | null, liveInteraction?: { interactionId: string, request: Record<string, unknown> }, answer?: { resolve: (value: unknown) => void, reject: (error: Error) => void } | null }>} */
         this.operations = new Map();
+        /** @type {Map<string, { requestHash: string, operationId: string }>} */
+        this.createRequests = new Map();
     }
 
     close() {
@@ -80,6 +74,14 @@ export class WorkspaceSessionContinuationService {
                     activeSurface: inspected.activation?.state === "active"
                         ? inspected.activation.ownerProcessKind
                         : null,
+                    controlRenewing:
+                        inspected.activation?.state === "active" && Boolean(inspected.activation.heartbeatDeadlineAt)
+                            ? Date.parse(inspected.activation.heartbeatDeadlineAt) > Date.now()
+                            : false,
+                    forceAvailableAt: inspected.activation?.heartbeatDeadlineAt || null,
+                    recoveryCategory: inspected.activation?.state === "active"
+                        ? "wait_for_owner"
+                        : inspected.activation?.state || "idle",
                     bootstrapRequired: inspected.activation?.state === "uninitialized",
                 };
             }),
@@ -98,8 +100,22 @@ export class WorkspaceSessionContinuationService {
         const inspected = this.store.inspectSessionActivation(runwieldSessionId);
         const state = inspected.activation?.state || "uninitialized";
         const activeSurface = state === "active" ? inspected.activation?.ownerProcessKind || null : null;
+        const controlRenewing = state === "active" && inspected.activation?.heartbeatDeadlineAt
+            ? Date.parse(inspected.activation.heartbeatDeadlineAt) > Date.now()
+            : false;
+        const forceAvailableAt = inspected.activation?.heartbeatDeadlineAt || null;
         if (!inspected.generation) {
-            return { state, activeSurface, bootstrapRequired: true, generation: null, complete: true, events: [] };
+            return {
+                state,
+                activeSurface,
+                controlRenewing,
+                forceAvailableAt,
+                recoveryCategory: state,
+                bootstrapRequired: true,
+                generation: null,
+                complete: true,
+                events: [],
+            };
         }
         const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,
@@ -110,7 +126,15 @@ export class WorkspaceSessionContinuationService {
             cursorEventId: options.cursorEventId,
             limit: options.limit,
         });
-        return { state: state || "idle", activeSurface, bootstrapRequired: false, ...projection };
+        return {
+            state: state || "idle",
+            activeSurface,
+            controlRenewing,
+            forceAvailableAt,
+            recoveryCategory: state || "idle",
+            bootstrapRequired: false,
+            ...projection,
+        };
     }
 
     /**
@@ -176,6 +200,128 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
+     * @param {{ operationId: string }} options
+     */
+    createInteractionAdapter(options) {
+        return {
+            supportsInteraction: () => true,
+            /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
+            requestInteraction: (request) => {
+                const interactionId = String(request.id || crypto.randomUUID());
+                return new Promise((resolve, reject) => {
+                    const current = this.operations.get(options.operationId);
+                    if (!current || current.status !== "running") {
+                        reject(new Error("Workspace operation is not running."));
+                        return;
+                    }
+                    this.operations.set(options.operationId, {
+                        ...current,
+                        liveInteraction: {
+                            interactionId,
+                            request: {
+                                id: interactionId,
+                                type: request.type,
+                                prompt: request.prompt,
+                                options: Array.isArray(request.options)
+                                    ? request.options.map(
+                                        /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionOption} option */ (
+                                            option,
+                                        ) => ({
+                                            value: option.value,
+                                            label: option.label,
+                                            description: option.description,
+                                        }),
+                                    )
+                                    : [],
+                                defaultValue: request.defaultValue,
+                                placeholder: request.placeholder,
+                                allowEmpty: request.allowEmpty === true,
+                            },
+                        },
+                        answer: { resolve, reject },
+                    });
+                });
+            },
+            cancelAll: () => {
+                const current = this.operations.get(options.operationId);
+                current?.answer?.reject(new Error("Interaction canceled."));
+            },
+        };
+    }
+
+    /**
+     * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string }} options
+     */
+    async createSession(options) {
+        if (!options.text || typeof options.text !== "string") throw new Error("User Request is required.");
+        await Promise.resolve();
+        const project = this.store.getProjectById(options.projectId);
+        if (!project || project.lifecycle !== "enabled") throw new Error("Project not found.");
+        const requestHash = stableHash({ kind: "create", projectId: options.projectId, text: options.text });
+        const createKey = `${options.deviceId || ""}:${options.projectId}:${options.requestId}`;
+        const existing = this.createRequests.get(createKey);
+        if (existing) {
+            if (existing.requestHash !== requestHash) {
+                throw new Error("Operation request id was reused with different input");
+            }
+            const operation = this.operations.get(existing.operationId);
+            return {
+                operationId: existing.operationId,
+                status: operation?.status || "running",
+                runwieldSessionId: operation?.runwieldSessionId || null,
+                generation: operation?.generation ?? null,
+            };
+        }
+        this.store.requireActivationProtocolEnabled();
+        const operationId = crypto.randomUUID();
+        this.createRequests.set(createKey, { requestHash, operationId });
+        this.operations.set(operationId, { status: "running", events: [], runwieldSessionId: null });
+        queueMicrotask(async () => {
+            let sessionId = "";
+            let unsubscribe = () => {};
+            try {
+                const created = await this.runtime.createInteractiveSession({
+                    cwd: project.currentRoot,
+                    mode: "new",
+                    enableManagedActivation: true,
+                    deferManagedActivationUntilAgentReady: true,
+                });
+                sessionId = created.sessionId;
+                this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
+                unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
+                    const record = this.operations.get(operationId);
+                    if (record && record.events.length < 500) record.events.push(event);
+                });
+                const result = await this.runtime.promptUserTurn(sessionId, {
+                    initialRequest: options.text,
+                    initialImages: [],
+                    agentName: AGENTS.ROUTER,
+                });
+                const snapshot = this.runtime.getSessionSnapshot(sessionId);
+                const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
+                const generation = snapshot?.managed?.generation ?? (result.ok ? 1 : 0);
+                this.operations.set(operationId, {
+                    ...(this.operations.get(operationId) || { events: [] }),
+                    status: result.ok ? "completed" : "failed",
+                    generation,
+                    runwieldSessionId,
+                    error: result.error,
+                });
+            } catch (error) {
+                this.operations.set(operationId, {
+                    ...(this.operations.get(operationId) || { events: [] }),
+                    status: "failed",
+                    error: codeFromError(error),
+                });
+            } finally {
+                unsubscribe();
+                if (sessionId) this.runtime.closeSessionWhenIdle(sessionId);
+            }
+        });
+        return { operationId, status: "running", runwieldSessionId: null, generation: null };
+    }
+
+    /**
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string }} options
      */
     async startContinuation(options) {
@@ -219,9 +365,13 @@ export class WorkspaceSessionContinuationService {
         });
         if (!projection.ok) throw new Error(projection.message);
         const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
-        if (committedFacts.activeAgent !== AGENTS.IDEATOR || committedFacts.workflowContext) {
-            throw new Error("Workspace continuation is only supported for idle Ideator conversation Sessions.");
-        }
+        const decision = deriveManagedSessionContinuationDecision({
+            activation: inspected.activation,
+            generation: inspected.generation,
+            projection,
+            expectedGeneration: options.expectedGeneration,
+        });
+        if (!decision.ok) throw new Error(decision.message);
         const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
@@ -242,22 +392,31 @@ export class WorkspaceSessionContinuationService {
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
         this.operations.set(receipt.operationId, { status: "running", events: [] });
-        const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
+        const adopted = this.runtime.adoptManagedSession({
+            session,
+            generation: options.expectedGeneration,
+            activeAgent: committedFacts.activeAgent,
+            model: committedFacts.model,
+            provider: committedFacts.provider,
+            thinkingLevel: committedFacts.thinkingLevel,
+            workflowContext:
+                /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
+                    .workflowContext || null),
+        });
+        this.runtime.setInteractionAdapter(
+            adopted.sessionId,
+            this.createInteractionAdapter({ operationId: receipt.operationId }),
+        );
         const unsubscribe = this.runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
             const record = this.operations.get(receipt.operationId);
             if (record && record.events.length < 500) record.events.push(event);
         });
         queueMicrotask(async () => {
             try {
-                const result = await this.runtime.promptManagedSession(adopted.sessionId, {
+                const result = await this.runtime.promptUserTurn(adopted.sessionId, {
                     initialRequest: options.text,
                     initialImages: [],
-                    expectedGeneration: options.expectedGeneration,
-                    agentName: AGENTS.IDEATOR,
-                    toolNames: WORKSPACE_IDEATOR_CONVERSATION_TOOLS,
-                    customTools: [],
-                    allowReturnToRouter: false,
-                    includeEditFallback: false,
+                    agentName: decision.agentName,
                 });
                 const generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
                 const status = result.ok ? "completed" : "failed";
@@ -293,6 +452,60 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
+     * @param {{ operationId: string, interactionId: string, response: unknown }} options
+     */
+    answerInteraction(options) {
+        const operation = this.operations.get(options.operationId);
+        if (!operation || operation.status !== "running" || !operation.liveInteraction || !operation.answer) {
+            throw new Error("Live Workspace interaction is not available.");
+        }
+        if (operation.liveInteraction.interactionId !== options.interactionId) {
+            throw new Error("Interaction id does not match the live Workspace operation.");
+        }
+        operation.answer.resolve(options.response);
+        this.operations.set(options.operationId, { ...operation, liveInteraction: undefined, answer: null });
+        return { status: "accepted" };
+    }
+
+    /**
+     * @param {{ projectId: string, runwieldSessionId: string, expectedGeneration: number, expectedCurrentSegmentId?: string | null }} options
+     */
+    async forceRecoverSessionControl(options) {
+        this.store.requireActivationProtocolEnabled();
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (!inspected.generation) throw new Error("Committed generation is required before recovery.");
+        const projection = await projectAggregateTranscript({
+            cwd: session.transcriptCwd,
+            sessionDir: getRunWieldSessionDir(session.transcriptCwd),
+            runwieldSessionId: options.runwieldSessionId,
+            generation: inspected.generation,
+            segments: this.store.listSessionTranscriptSegments(options.runwieldSessionId),
+            limit: 1,
+        });
+        if (!projection.ok) throw new Error(projection.message);
+        const currentSegment = this.store.listSessionTranscriptSegments(options.runwieldSessionId)
+            .find((segment) => segment.segmentId === inspected.generation?.currentSegmentId);
+        if (!currentSegment) throw new Error("Current transcript segment is missing.");
+        const evidence = await validateExpiredControlTranscriptEvidence({
+            transcriptPath: currentSegment.transcriptPath,
+            transcriptCwd: currentSegment.transcriptCwd,
+            committedGeneration: inspected.generation,
+        });
+        return this.store.recoverExpiredSessionControl({
+            runwieldSessionId: options.runwieldSessionId,
+            projectId: options.projectId,
+            expectedFence: inspected.activation?.fence ?? 0,
+            expectedGeneration: options.expectedGeneration,
+            expectedCurrentSegmentId: options.expectedCurrentSegmentId ?? inspected.generation.currentSegmentId,
+            ownerInstanceId: this.ownerInstanceId,
+            ownerProcessKind: "workspace",
+            transcriptEvidence: { ...evidence, currentSegmentId: inspected.generation.currentSegmentId },
+        });
+    }
+
+    /**
      * @param {{ runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
      */
     async startPlanExecutionHandoff(options) {
@@ -321,7 +534,7 @@ export class WorkspaceSessionContinuationService {
     getOperation(operationId) {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
-        if (!durable) return live || { status: "unknown", events: [] };
+        if (!durable) return live ? { operationId, ...live } : { operationId, status: "unknown", events: [] };
         if (!live && (durable.status === "accepted" || durable.status === "running")) {
             return {
                 operationId,
@@ -337,6 +550,7 @@ export class WorkspaceSessionContinuationService {
             generation: durable.resultGeneration,
             error: durable.errorCode,
             events: live?.events || [],
+            liveInteraction: live?.liveInteraction || null,
         };
     }
 }
