@@ -16,19 +16,21 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.379Z"
-updatedAt: "2026-07-26T20:48:25.379Z"
+updatedAt: "2026-08-13T00:24:38-04:00"
 status: "draft"
 origin: "internal"
-parentPlan: "personal-remote-workspace-v1"
-order: 19
+parentPlan: "personal-remote-workspace-v2"
+order: 3
 dependencies:
-    - "18-workspace-artifact-and-cymbal-search"
+    - "02-workspace-artifact-and-cymbal-search"
 planId: "04e3bd75-d4c5-4278-885f-c9c80fbaa115"
 ---
 
 # Subordinate Code Surface Supervision and Deep Links
 
 ## Context
+
+Deferred from Personal Remote Workspace v1 on 2026-08-13; not part of the core review/approve loop.
 
 Personal Workspace should let the owner inspect or manually edit a registered Project's main checkout from the remote
 browser. code-server is a subordinate process and separate trust seam, not the Workspace shell and not a RunWield
@@ -52,7 +54,7 @@ Build Code Surface supervision so that:
 
 Add a Workspace server service that supervises code-server as a child process with explicit Project-root authorization
 and lifecycle state. Keep its authentication/proxying separate from RunWield Session/Plan workflow ownership. Add
-browser UI for starting/stopping/opening Code Surface and connect search results from slice 18 only after verifying
+browser UI for starting/stopping/opening Code Surface and connect search results from slice 02 only after verifying
 registered main-checkout containment.
 
 ## Files to Modify
@@ -72,7 +74,7 @@ registered main-checkout containment.
 Existing functions, modules, or patterns to reuse:
 
 - Owner Project registry and root evidence APIs — authorize registered main checkout roots.
-- Search result metadata from slice 18 — build deep links only for eligible main-checkout files.
+- Search result metadata from slice 02 — build deep links only for eligible main-checkout files.
 - Workspace server auth/device pairing middleware — protect owner-only Code Surface routes without reusing public Shared
   Space capabilities.
 - `src/ui/design-system/` — use existing Workspace panel, badge, button, and degraded-state patterns.

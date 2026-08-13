@@ -531,7 +531,9 @@ async function commitDirtyWorktreeState(
             : allowedDirtyPaths;
         await runGit(worktreePath, ["add", "-A", "--", ...pathspecs]);
     } else {
-        await runGit(worktreePath, ["add", "-A", "--", ".", ...runwieldOwnedPathspecExclusions]);
+        const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+        const dirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
+        if (dirtyPaths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...dirtyPaths]);
     }
     if (mergeTargetRef) await untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);

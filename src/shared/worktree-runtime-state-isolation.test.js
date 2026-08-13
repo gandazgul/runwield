@@ -45,6 +45,26 @@ Deno.test("execution runtime state does not enter the merge when primary .wld is
     }
 });
 
+Deno.test("checkpoint ignores gitignored RunWield runtime state", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "ignored-runtime-side");
+    try {
+        await Deno.writeTextFile(join(worktreePath, ".gitignore"), ".wld/plan-locks\n");
+        await Deno.mkdir(join(worktreePath, ".wld", "plan-locks"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "plan-locks", "x.json"), "{}\n");
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");
+
+        await checkpointExecutionWorktree({ worktreePath, branch: "ignored-runtime-side" });
+
+        const committedPaths = await git(worktreePath, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        assertEquals(committedPaths.includes("feature.txt"), true);
+        assertEquals(committedPaths.includes(".wld/plan-locks/x.json"), false);
+    } finally {
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("previously committed runtime state is removed before merge", async () => {
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-committed-side");

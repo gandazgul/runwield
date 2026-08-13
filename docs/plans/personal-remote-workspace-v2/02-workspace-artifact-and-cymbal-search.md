@@ -16,13 +16,13 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.379Z"
-updatedAt: "2026-07-26T20:48:25.379Z"
+updatedAt: "2026-08-13T00:24:38-04:00"
 status: "draft"
 origin: "internal"
-parentPlan: "personal-remote-workspace-v1"
-order: 18
+parentPlan: "personal-remote-workspace-v2"
+order: 2
 dependencies:
-    - "15-attention-dashboard-and-multi-project-projections"
+    - "01-attention-dashboard-and-multi-project-projections"
 planId: "836b78f6-8d04-4e7e-9b2d-20a04f99ad87"
 ---
 
@@ -30,10 +30,12 @@ planId: "836b78f6-8d04-4e7e-9b2d-20a04f99ad87"
 
 ## Context
 
+Deferred from Personal Remote Workspace v1 on 2026-08-13; not part of the core review/approve loop.
+
 Personal Workspace should let the owner search eligible durable artifacts across registered Projects and perform
 explicitly scoped human Cymbal code search. Search must hydrate visible results from canonical sources and enforce
 privacy before subprocess launch where possible. Code Surface supervision and deep links are a separate trust seam
-handled in the next slice.
+handled in the next slice (now slice 03 of this Epic).
 
 ## Objective
 
@@ -53,7 +55,7 @@ Build owner-only search capabilities so that:
 Generalize the existing Work Record search pattern: indexes select candidates, but canonical artifact readers and access
 policy determine what can be shown. Add a human-only search coordinator near `src/extensions/cymbal/` or Workspace
 server services for bounded Cymbal JSON fan-out. Build browser UI for artifact/code modes, Project selection, partial
-failure reporting, and grouped results. Leave code-server lifecycle and deep links for slice 19.
+failure reporting, and grouped results. Leave code-server lifecycle and deep links for slice 03.
 
 ## Files to Modify
 

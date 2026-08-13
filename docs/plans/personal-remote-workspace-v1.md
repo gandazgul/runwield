@@ -1,8 +1,9 @@
 ---
 planId: "71193aae-92b3-4123-9ac4-ed6cae9b0aa1"
 classification: "PROJECT"
+workKind: "MAINTENANCE"
 complexity: "HIGH"
-summary: "Evolve RunWield Workspace into a secure personal multi-Project environment with activated segmented Sessions, canonical Plan actions, remote browser access, search, and a subordinate Code Surface."
+summary: "Evolve RunWield Workspace into a secure personal environment with activated segmented Sessions, canonical Plan actions, and a remote browser core loop: see a Session, review a Plan, send Feedback, approve, and watch it run."
 affectedPaths:
     - "docs/prd/runwield-workspace-prd.md"
     - "docs/prd/runwield-core-prd.md"
@@ -13,35 +14,36 @@ affectedPaths:
     - "src/shared/session/"
     - "src/shared/workflow/"
     - "src/shared/worktree-registry.js"
-    - "src/shared/work-records/"
     - "src/ui/workspace/"
     - "src/ui/tui/"
     - "src/acp/"
     - "src/cmd/"
-    - "src/extensions/cymbal/"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T22:32:43-04:00"
-updatedAt: "2026-07-27T19:30:00.000Z"
+updatedAt: "2026-08-13T04:31:59.249Z"
 status: "ready_for_work"
 origin: "internal"
+userVerifiedAt: null
 humanReviewMode: null
 humanReviewDecision: null
 worktreeStatus: "abandoned"
+routingIntent: "PLANNED_CHANGE"
+sessionName: "slim remote workspace epic"
 ---
 
 # Personal Remote Workspace v1
 
-Recommendation: use SQLite FTS5 as the default durable-artifact index, with canonical Markdown hydration remaining the
-source of truth. Keep Typesense behind a replaceable artifact-search provider seam for later adoption if product needs
-justify another server process.
+Scope cut on 2026-08-13: v1 now ends at the smallest usable web surface for the core loop. The Attention Dashboard,
+Workspace artifact/Cymbal search, and the subordinate code-server Code Surface moved unchanged to the
+`personal-remote-workspace-v2` Epic.
 
 ## Context
 
 RunWield Workspace is a strong single-checkout Plan surface but not yet the persistent personal environment described by
-the Workspace PRD. The owner cannot yet register several trusted Projects, continue one stable Session across TUI,
-Workspace, and ACP, see attention across Projects, or search eligible artifacts and source code remotely.
+the Workspace PRD. The owner cannot yet browse Projects and Sessions remotely, continue one stable Session across TUI,
+Workspace, and ACP, or run the Plan review/approve loop from a phone.
 
 Existing foundations include sibling TUI and ACP consumers of `SessionRuntime`, Pi JSONL model history, Plan Lifecycle,
 worktree evidence, Work Records, Workspace Plan/Plannotator surfaces, Mnemosyne retrieval, Cymbal code intelligence, and
@@ -68,7 +70,8 @@ pairing. TUI, Workspace, and ACP remain sibling Runtime consumers rather than cl
 Deliver Personal Remote Workspace v1 so the owner can:
 
 - register and safely operate several local Projects;
-- find running, waiting, ready, failed, degraded, and recently completed work;
+- find their Projects, Sessions, and Plans through a plain project → Session list (the richer Attention Dashboard is
+  v2);
 - start or continue one stable segmented Session from TUI, Workspace, or ACP without concurrent writers;
 - review a TUI-created Plan by phone, send Feedback, approve for later or immediate execution, and return to a
   synchronized TUI;
@@ -76,10 +79,10 @@ Deliver Personal Remote Workspace v1 so the owner can:
 - keep Planner history owner-visible while starting Engineer in a fresh execution segment containing only approved Plan
   inputs and current execution state;
 - start each semantic repair in a fresh bounded repair segment under the same stable Session and execution worktree;
-- continue browser-owned work while its process lives, and retry a pending interaction after owner-process loss;
-- recover conservatively from transcript, process, Plan, worktree, or coordination failures;
-- search eligible durable artifacts and explicitly scoped Project code;
-- inspect or edit a registered Project main checkout through a subordinate code-server surface; and
+- continue browser-owned work while its process lives, and after owner-process loss see a plain interruption line and
+  ask the Agent to continue;
+- recover conservatively from transcript, process, Plan, worktree, or coordination failures (browser recovery-action UI
+  arrives in the hardening child; until then the browser shows the error and deeper recovery happens in the TUI); and
 - preserve existing QUICK_FIX, non-Git, Shared Plan, TUI, ACP, validation, and worktree behavior where compatible.
 
 ADR-011 controls cross-process Session activation and continuity. ADR-012 controls transcript segmentation and the
@@ -162,25 +165,19 @@ it cannot reserve a Plan, authorize another request, or prove that work remains 
 ## Workspace Application and Trust
 
 Workspace application services own registered Project lifecycle and path authorization, paired devices, HTTP/WebSocket
-security, Project health, attention projections, search, Cymbal fan-out, and code-server supervision. Device pairing
-uses short-lived locally approved bootstrap material and revocable hashed credentials. Private-network access still
-requires a secure TLS browser boundary.
+security, and Project health (attention projections, search, Cymbal fan-out, and code-server supervision move to the v2
+Epic). Device pairing uses short-lived locally approved bootstrap material and revocable hashed credentials.
+Private-network access still requires a secure TLS browser boundary.
 
 Owner Workspace storage and routes remain separate from public Shared Space ciphertext/capability storage. Shared Plan
 review and owner Plan actions may reuse visual components but never authorization grants.
 
-## Attention, Search, and Code Surface
+## Deferred to v2
 
-Attention is a rebuildable display projection derived from Session activation/generations/transcript events, canonical
-Plans/worktrees, validation evidence, and Project health. It never authorizes or advances work.
-
-Workspace artifact search hydrates canonical eligible artifacts after an index selects candidates. Session Transcripts
-remain owner-private and human-searchable, excluded from Workspace Intelligence and cross-Session Agent retrieval. Human
-code search fans bounded Cymbal queries across explicitly selected registered main checkouts. Results preserve Project
-identity, expose partial failures, and exclude Plan worktrees.
-
-code-server is subordinate to Workspace and opens only a registered Project main checkout. It cannot claim RunWield
-worktrees or mutation authority. Manual edits may stale a Plan or create conflicts that canonical checks must surface.
+The Attention Dashboard, Workspace artifact/Transcript/Cymbal search, and the subordinate code-server Code Surface are
+out of v1 scope and live in the `personal-remote-workspace-v2` Epic. Their binding invariants (display projections never
+authorize work; Transcripts stay excluded from Workspace Intelligence and Agent retrieval; code-server never claims Plan
+worktrees) travel with those children.
 
 ## Migration and Coexistence
 
@@ -205,11 +202,15 @@ Verified historical children 01–10 remain unchanged. Remaining execution follo
 3. `13-execution-segment-handoff-backend` implements execution and repair rollover using the current marker.
 4. `14-cross-surface-workflow-invariant-hardening` tests activation, generations/segments, projection, canonical checks,
    and context boundaries.
-5. `15-attention-dashboard-and-multi-project-projections` derives rebuildable attention across Projects.
-6. `16-complete-workspace-session-navigation-and-timeline-ux` renders aggregate committed Pi history and live waits.
-7. `17-workspace-plan-review-approve-and-recovery-ui` delivers owner Plan actions with bounded request idempotency.
-8. `18-workspace-artifact-and-cymbal-search` completes canonical artifact and scoped code search.
-9. `19-subordinate-code-surface-supervision-and-deep-links` adds the constrained code-server integration.
+5. `15-complete-workspace-session-navigation-and-timeline-ux` renders project/Session navigation, aggregate committed Pi
+   history, live waits, and take-over from a plain list entry point.
+6. `16-workspace-plan-review-and-approve-ui` delivers Feedback, Approve for Later, and Approve & Run over the verified
+   slice 12/13 services.
+7. `17-workspace-ux-hardening-pass` adds the deferred recovery-action UI, attachments, progress view, filters, and
+   richer state presentation — re-scoped with the owner after real usage of 15 and 16.
+
+Former children 15 (attention dashboard), 18 (search), and 19 (code-server) moved to the `personal-remote-workspace-v2`
+Epic.
 
 ## Files to Modify
 
@@ -223,8 +224,7 @@ Verified historical children 01–10 remain unchanged. Remaining execution follo
   execution/repair handoff, validation, and recovery.
 - `src/ui/tui/`, `src/acp/`, and `src/cmd/` — stable Session mapping, activation-aware mutation, read synchronization,
   and compatible entry points.
-- `src/ui/workspace/` — secure owner APIs, Attention Dashboard, Session timeline, Plan review, search, and Code Surface.
-- `src/shared/work-records/` and `src/extensions/cymbal/` — canonical artifact hydration and bounded code federation.
+- `src/ui/workspace/` — secure owner APIs, project/Session navigation, Session timeline, and Plan review/approval.
 - Design-system and deployment documentation where required by executable frontend and operations slices.
 
 ## Reuse Opportunities
@@ -235,8 +235,6 @@ Verified historical children 01–10 remain unchanged. Remaining execution follo
 - `workflow-context-session.js` for the existing current-segment startup marker.
 - `plan-lifecycle.js`, `plan-store.js`, and `worktree-registry.js` as canonical Plan authorities.
 - Existing Workspace Plan/Plannotator UI and RunWield Design System.
-- Work Record candidate-index plus canonical-hydration patterns.
-- Cymbal's installed CLI/JSON contract.
 - Shared Space modules only behind their separate trust boundary.
 
 ## Verification Plan
@@ -253,10 +251,8 @@ Verified historical children 01–10 remain unchanged. Remaining execution follo
 - Prove pending process-local interactions are not recreated after owner loss and completed Pi calls remain visible.
 - Prove idle TUI/ACP/Workspace readers synchronize aggregate generations without writable hydration or lost drafts.
 - Verify Project registration, pairing/revocation, CSRF/Origin policy, root containment, and Shared Space separation.
-- Verify attention rebuilds from authority, artifact search canonically hydrates results, Cymbal scope is bounded, and
-  code-server targets only registered main checkouts.
-- Perform headed phone/desktop journeys for dashboard, Session timeline, Plan review/execution/recovery, search,
-  pairing, and Code Surface.
+- Perform headed phone/desktop journeys for the project/Session list, Session timeline, Plan review, Feedback, Approve &
+  Run, execution observation, and pairing.
 
 ## Edge Cases & Considerations
 
@@ -276,6 +272,5 @@ Verified historical children 01–10 remain unchanged. Remaining execution follo
 - **Legacy writers:** Unsupported writers cannot be fenced retroactively; conflicts block managed mutation.
 - **Projection authority:** Dashboard and Session summaries are display caches and never workflow truth.
 - **Security:** Pairing is authorization, not encryption; owner routes require a secure private browser boundary.
-- **Search privacy:** Apply Project selection and opt-out before subprocess launch or result hydration.
 - **Frontend quality:** Follow `docs/design-system.md`, shared primitives, semantic `--rw-*` tokens, accessibility, and
   responsive phone behavior.

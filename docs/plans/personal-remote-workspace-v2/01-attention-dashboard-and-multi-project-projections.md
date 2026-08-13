@@ -17,19 +17,22 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-07-26T20:48:25.378Z"
+updatedAt: "2026-08-13T00:24:38-04:00"
 status: "draft"
 origin: "internal"
-parentPlan: "personal-remote-workspace-v1"
-order: 15
-dependencies:
-    - "14-cross-surface-workflow-invariant-hardening"
+parentPlan: "personal-remote-workspace-v2"
+order: 1
+dependencies: []
 planId: "544343e5-ad41-4698-8183-eae0cd3983b2"
 ---
 
 # Attention Dashboard and Multi-Project Projections
 
 ## Context
+
+Deferred from Personal Remote Workspace v1 on 2026-08-13. The v1 Epic ships the core loop (session timeline,
+Plan review, approval) with a plain project → session list as the entry point. This dashboard replaces that plain
+list when v2 starts. Requires the v1 Epic (through its hardening child) to be complete.
 
 The owner needs one remote surface for running, waiting, ready, failed, degraded, and recently completed work across
 Projects. Display state must remain a rebuildable projection rather than a workflow authority.

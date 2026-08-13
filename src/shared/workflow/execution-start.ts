@@ -361,6 +361,7 @@ export async function startActiveExecutionWorkflow(
         : targetBranch;
     if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
     const attemptId = reusable?.id || triageMeta.worktreeId || crypto.randomUUID().slice(0, 8);
+    const continuingReusableWorktree = Boolean(reusable) && currentStatus === "in_progress";
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
     const transition = await runExecutionPreparationTransition({
@@ -370,6 +371,7 @@ export async function startActiveExecutionWorkflow(
         worktreeId: attemptId,
         targetRef: resolvedTargetBranch || targetBranch || undefined,
         expectedRevision: canonicalPlanForRevision?.revision,
+        expectedPlanEvent: !continuingReusableWorktree,
         prepare: async ({ beforePlan, markEffect, registerRollback }) => {
             const canonicalPlanSource = await loadCanonicalPlanSource(projectRoot, planName);
             if (canonicalPlanSource.kind !== "loaded") {
@@ -405,7 +407,7 @@ export async function startActiveExecutionWorkflow(
             const reusedWorktree = Boolean(reusable);
             /** @type {any} */
             let worktree;
-            let objectiveChecksBaselined = false;
+            let objectiveChecksBaselined = continuingReusableWorktree;
             if (reusable) {
                 worktree = reusable;
                 emitReusingExecutionWorktree(hostedSession, {
@@ -570,23 +572,29 @@ export async function startActiveExecutionWorkflow(
                     executionBaselineTree: baselineTree,
                 });
             }
-            emitUpdatingPlanStatusToInProgress(hostedSession);
-            await recordPlanEvent({
-                cwd: projectRoot,
-                planName,
-                event: "execution_started",
-                currentStatus,
-                details: {
-                    triageMeta: effectiveTriageMeta,
-                    executionBaselineTree: baselineTree,
+            if (!continuingReusableWorktree) {
+                emitUpdatingPlanStatusToInProgress(hostedSession);
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName,
+                    event: "execution_started",
+                    currentStatus,
+                    details: {
+                        triageMeta: effectiveTriageMeta,
+                        executionBaselineTree: baselineTree,
+                        worktreeId: worktree.id,
+                        worktreePath: worktree.path,
+                        worktreeBranch: worktree.branch,
+                        worktreeBaseBranch,
+                        worktreeStatus: "active",
+                    },
+                });
+                await markEffect("plan_event_recorded", {
+                    planName,
+                    event: "execution_started",
                     worktreeId: worktree.id,
-                    worktreePath: worktree.path,
-                    worktreeBranch: worktree.branch,
-                    worktreeBaseBranch,
-                    worktreeStatus: "active",
-                },
-            });
-            await markEffect("plan_event_recorded", { planName, event: "execution_started", worktreeId: worktree.id });
+                });
+            }
             const activeWorkflow = { ...workflow, executionStarted: true, executionAttemptStartedAtMs: now() };
             await recordWorkflowMetricFn({
                 category: "execution",

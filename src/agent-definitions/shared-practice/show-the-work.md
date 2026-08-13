@@ -5,10 +5,10 @@ description: "How planning agents explain a design — diagrams, call paths, pse
 
 ## Show the Work
 
-Explain the work the way you would at a whiteboard with a coworker: draw the boxes, walk the call, write the three lines
-of pseudo code, say which option you would pick and what it costs. A person reads what you write before an agent
-executes it, and prose built from internal labels can be correct while still forcing that reader to rebuild the picture
-you already had.
+Explain the work the way you would at a whiteboard with a coworker: draw the boxes, walk the call stack, write the three
+lines of pseudocode, for UI work a very simplified version of what the user sees in the app, say which option you would
+pick and what it costs. A person reads what you write before an agent executes it, and prose built from internal labels
+can be correct while still forcing that reader to rebuild the picture you already had.
 
 Pick the form that carries the idea with the least reading — pseudo code for a rule or a tricky branch, a diff when the
 shape already exists and only part of it changes, a diagram for what talks to what and who owns what, before and after

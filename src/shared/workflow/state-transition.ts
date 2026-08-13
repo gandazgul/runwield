@@ -816,9 +816,11 @@ export async function runExecutionPreparationTransition<T>(
         worktreeId,
         targetRef,
         expectedRevision,
+        expectedPlanEvent = true,
         prepare,
         verifyPreparation,
     }: TransitionOptionsBase & {
+        expectedPlanEvent?: boolean;
         prepare: (ctx: RollbackTransitionContext) => Promise<T>;
         verifyPreparation?: (value: T, ctx: BaseTransitionContext) => Promise<unknown> | unknown;
     },
@@ -832,7 +834,7 @@ export async function runExecutionPreparationTransition<T>(
         operation: "execution_preparation",
         resources,
         expectedRevision,
-        expectedEffects: ["plan_event_recorded"],
+        expectedEffects: expectedPlanEvent ? ["plan_event_recorded"] : [],
         apply: async (ctx) => {
             const value = await prepare(ctx);
             const preparationProof = verifyPreparation ? await verifyPreparation(value, ctx) : { planName };

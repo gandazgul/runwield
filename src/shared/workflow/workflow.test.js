@@ -230,6 +230,36 @@ Deno.test("re-baselines Objective-Failing Checks when head or command set change
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "stale-baseline-plan");
 });
 
+Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks when continuing an in-progress worktree", async () => {
+    const projectRoot = await makeWorkflowProject([{
+        name: "continued-plan",
+        status: "in_progress",
+        attrs: {
+            objectiveChecks: [{ id: "OC_ALREADY_GREEN", command: "true" }],
+        },
+    }]);
+    const hostedSession = makeHostedSession("continued-workflow", projectRoot);
+    const recorded = await settleWorktreeAttempt(
+        projectRoot,
+        await createWorktreeGitArtifacts({ projectRoot, planName: "continued-plan", planId: PLAN_UNDER_TEST }),
+    );
+
+    const workflow = await startActiveExecutionWorkflow({
+        planName: "continued-plan",
+        triageMeta: { planId: PLAN_UNDER_TEST, worktreeId: recorded.id },
+        currentStatus: "in_progress",
+        hostedSession,
+        ports: createExecutionStartPorts(),
+    });
+
+    assertEquals(workflow.worktreeId, recorded.id);
+    assertEquals(workflow.executionCwd, recorded.path);
+    const plan = await loadPlan(projectRoot, "continued-plan");
+    assertEquals(plan?.attrs.status, "in_progress");
+    assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "continued-plan");
+});
+
 Deno.test("startActiveExecutionWorkflow indexes a newly created execution worktree", async () => {
     await withProcessGlobalTestLock(async () => {
         const projectRoot = await makeWorkflowProject([{ name: "indexed-plan", status: "ready_for_work" }]);
