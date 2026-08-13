@@ -47,12 +47,12 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T16:42:13-04:00"
 updatedAt: "2026-08-12T20:47:48.801Z"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "durable epic manual QA artifact"
 planId: "a9cbda90-990e-44cb-a03d-c3bdb2836bac"
+status: "validated_reviewer"
 ---
 
 # Durable Epic Manual QA Artifact

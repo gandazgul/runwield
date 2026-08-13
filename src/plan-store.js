@@ -39,6 +39,8 @@ import {
     moveEpicArtifactsToArchive,
 } from "./shared/epic-artifacts.ts";
 
+/** @typedef {import("./shared/epic-artifacts.ts").MoveEpicArtifactResult} MoveEpicArtifactResult */
+
 export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
 /**
@@ -1922,7 +1924,8 @@ export function getKnownFrontMatterRevision(revision) {
  * @returns {Promise<Awaited<ReturnType<typeof loadPlanFileStrict>>>}
  */
 export async function loadPlanStrict(cwd, planName) {
-    const { filePath } = getStoredPlanLocation(cwd, planName);
+    const { name, filePath } = getStoredPlanLocation(cwd, planName);
+    if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
     return await loadPlanFileStrict(filePath);
 }
 
@@ -2893,10 +2896,12 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
             }
             await Deno.mkdir(join(getArchivedPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
             await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
-            const movedArtifacts = source.attrs.classification === "PROJECT" && source.name.split("/").length === 1
-                ? await moveEpicArtifactsToArchive(cwd, source.name)
-                : [];
+            /** @type {MoveEpicArtifactResult[]} */
+            let movedArtifacts = [];
             try {
+                movedArtifacts = source.attrs.classification === "PROJECT" && source.name.split("/").length === 1
+                    ? await moveEpicArtifactsToArchive(cwd, source.name)
+                    : [];
                 await Deno.remove(source.path);
                 await syncDirectory(dirname(source.path));
                 await syncDirectory(dirname(destination.filePath));
@@ -3151,10 +3156,12 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
             }
             await Deno.mkdir(join(getPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
             await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
-            const movedArtifacts = archived.attrs.classification === "PROJECT" && archived.name.split("/").length === 1
-                ? await moveEpicArtifactsFromArchive(cwd, archived.name)
-                : [];
+            /** @type {MoveEpicArtifactResult[]} */
+            let movedArtifacts = [];
             try {
+                movedArtifacts = archived.attrs.classification === "PROJECT" && archived.name.split("/").length === 1
+                    ? await moveEpicArtifactsFromArchive(cwd, archived.name)
+                    : [];
                 await Deno.remove(archived.path);
                 await syncDirectory(dirname(archived.path));
                 await syncDirectory(dirname(destination.filePath));

@@ -116,3 +116,49 @@ Deno.test("Epic Artifact moves to archive and back without becoming a Plan", asy
         await Deno.remove(projectRoot, { recursive: true });
     }
 });
+
+Deno.test("Epic Artifact archive move collision leaves both files unchanged", async () => {
+    const projectRoot = await makeEpicFixture();
+    try {
+        const activePath = getEpicArtifactPath(projectRoot, "epic", "manual-qa.md");
+        const archivedPath = join(projectRoot, "docs", "plans", "archived", "epic", "manual-qa.md");
+        await Deno.mkdir(join(projectRoot, "docs", "plans", "epic"), { recursive: true });
+        await Deno.mkdir(join(projectRoot, "docs", "plans", "archived", "epic"), { recursive: true });
+        await Deno.writeTextFile(activePath, "active artifact");
+        await Deno.writeTextFile(archivedPath, "archived artifact");
+
+        await assertRejects(
+            () => moveEpicArtifactsToArchive(projectRoot, "epic"),
+            Error,
+            "Epic Artifact already exists",
+        );
+
+        assertEquals(await Deno.readTextFile(activePath), "active artifact");
+        assertEquals(await Deno.readTextFile(archivedPath), "archived artifact");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("Epic Artifact restore move collision leaves both files unchanged", async () => {
+    const projectRoot = await makeEpicFixture();
+    try {
+        const activePath = getEpicArtifactPath(projectRoot, "epic", "manual-qa.md");
+        const archivedPath = join(projectRoot, "docs", "plans", "archived", "epic", "manual-qa.md");
+        await Deno.mkdir(join(projectRoot, "docs", "plans", "epic"), { recursive: true });
+        await Deno.mkdir(join(projectRoot, "docs", "plans", "archived", "epic"), { recursive: true });
+        await Deno.writeTextFile(activePath, "active artifact");
+        await Deno.writeTextFile(archivedPath, "archived artifact");
+
+        await assertRejects(
+            () => moveEpicArtifactsFromArchive(projectRoot, "epic"),
+            Error,
+            "Epic Artifact already exists",
+        );
+
+        assertEquals(await Deno.readTextFile(activePath), "active artifact");
+        assertEquals(await Deno.readTextFile(archivedPath), "archived artifact");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
