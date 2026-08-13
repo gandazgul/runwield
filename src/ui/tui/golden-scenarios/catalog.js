@@ -10,6 +10,7 @@ import { plannedChangeWorkflowScenarios } from "./planned-change-workflow.js";
 import { presentationAndTerminalScenarios } from "./presentation-and-terminal.js";
 import { projectWorkflowScenarios } from "./project-workflow.js";
 import { roleJourneyScenarios } from "./role-journeys.js";
+import { validationWorkflowTreeScenarios } from "./validation-workflow-tree.ts";
 
 export const goldenTuiPortfolioScenarios = [
     ...initialGoldenScenarios,
@@ -17,6 +18,7 @@ export const goldenTuiPortfolioScenarios = [
     ...plannedChangeWorkflowScenarios,
     ...projectWorkflowScenarios,
     ...loadPlanWorkflowScenarios,
+    ...validationWorkflowTreeScenarios,
     ...concurrentWorkflowScenarios,
     ...presentationAndTerminalScenarios,
 ];

@@ -13,6 +13,14 @@
  */
 
 /**
+ * @typedef {Object} ScriptedHumanReviewDecision
+ * @property {boolean} [approved]
+ * @property {string} [feedback]
+ * @property {boolean} [canceled]
+ * @property {boolean} [exit]
+ * @property {Array<{ file?: string, path?: string, filePath?: string, line?: number, text?: string, comment?: string }>} [annotations]
+ * @property {Array<{ path: string, name: string }>} [images]
+ *
  * @typedef {Object} ScriptedRuntimeInteraction
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
@@ -51,6 +59,39 @@ export class ScriptedReviewSurface {
 
     assertComplete() {
         if (this.decisions.length) throw new Error(`Unused scripted review decisions: ${this.decisions.length}`);
+    }
+}
+
+export class ScriptedHumanReviewSurface {
+    /** @param {ScriptedHumanReviewDecision[]} decisions */
+    constructor(decisions) {
+        /** @type {ScriptedHumanReviewDecision[]} */
+        this.decisions = decisions.map((decision) => ({ ...decision }));
+        /** @type {Array<{ request: Record<string, unknown>, decision: ScriptedHumanReviewDecision }>} */
+        this.consumed = [];
+    }
+
+    /** @param {Record<string, unknown>} request */
+    submit(request) {
+        if (!this.decisions.length) {
+            throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+        }
+        const decision = this.decisions.shift();
+        if (!decision) throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+        this.consumed.push({ request, decision });
+        return {
+            approved: decision.approved === true,
+            feedback: decision.feedback || "",
+            canceled: decision.canceled === true,
+            exit: decision.exit === true,
+            annotations: decision.annotations || [],
+            images: decision.images || [],
+            reviewType: "code",
+        };
+    }
+
+    assertComplete() {
+        if (this.decisions.length) throw new Error(`Unused scripted human review decisions: ${this.decisions.length}`);
     }
 }
 

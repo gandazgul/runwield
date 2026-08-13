@@ -20,7 +20,11 @@ import {
     GOLDEN_FAUX_PROVIDER,
     writeGoldenModelConfig,
 } from "./isolated-environment.js";
-import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-review-surface.js";
+import {
+    ScriptedHumanReviewSurface,
+    ScriptedInteractionSurface,
+    ScriptedReviewSurface,
+} from "./scripted-review-surface.js";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { createWorkRecordMnemosyneFixture } from "../../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 import { isRunWieldOwnedRuntimePath } from "../../../shared/runwield-owned-paths.ts";
@@ -37,15 +41,38 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * Keep the browser external while driving the real review launcher, server,
  * token check, and decision transport.
  *
- * @param {ScriptedReviewSurface} reviewSurface
+ * @param {ScriptedReviewSurface | null} reviewSurface
+ * @param {ScriptedHumanReviewSurface | null} humanReviewSurface
  * @param {Record<string, unknown>} request
  * @param {unknown} reviewedPlan
  * @param {(response: ReturnType<ScriptedReviewSurface['submit']>) => void} [onDecision]
+ * @param {(response: ReturnType<ScriptedHumanReviewSurface['submit']>) => void} [onHumanReviewDecision]
  */
-function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan, onDecision) {
+function createGoldenReviewBrowser(
+    reviewSurface,
+    humanReviewSurface,
+    request,
+    reviewedPlan,
+    onDecision,
+    onHumanReviewDecision,
+) {
     return {
         /** @param {string} url */
         async open(url) {
+            if (url.includes("/review/code")) {
+                if (!humanReviewSurface) throw new Error("Unexpected Local Human Code Review interaction.");
+                const response = humanReviewSurface.submit({ url });
+                const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "feedback", {
+                    approved: response.approved,
+                    feedback: response.feedback,
+                    annotations: response.annotations,
+                    images: response.images,
+                    reviewType: "code",
+                }).browser.open(url);
+                onHumanReviewDecision?.(response);
+                return opened;
+            }
+            if (!reviewSurface) throw new Error("Unexpected Plan Review interaction.");
             const response = reviewSurface.submit(request);
             const editedPlan = typeof reviewedPlan === "string"
                 ? reviewedPlan
@@ -106,6 +133,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {Array<{ interactionType: string, decision?: string }>} [interactions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedRuntimeInteraction>} [scriptedInteractions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedReviewDecision>} [reviewDecisions]
+ * @property {Array<import('./scripted-review-surface.js').ScriptedHumanReviewDecision>} [humanReviewDecisions]
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {string} [initialAgentName]
  * @property {unknown} [reviewedPlan]
@@ -395,6 +423,7 @@ export async function runGoldenScenario(scenario, options = {}) {
                             triageMeta,
                             browser: createGoldenReviewBrowser(
                                 reviewSurface,
+                                null,
                                 { cwd: planDir, planName: "plan", planPath, triageMeta },
                                 typed.reviewedPlan,
                             ),
@@ -621,6 +650,21 @@ async function runComposedTuiScenario(scenario, options) {
             events.push(event);
             pendingReviewLifecycleObservations.push(response);
         };
+        const humanReviewSurface = scenario.humanReviewDecisions
+            ? new ScriptedHumanReviewSurface(/** @type {any[]} */ (scenario.humanReviewDecisions))
+            : null;
+        /** @type {Array<ReturnType<ScriptedHumanReviewSurface['submit']>>} */
+        const consumedHumanReviews = [];
+        /** @param {ReturnType<ScriptedHumanReviewSurface['submit']>} response */
+        const observeHumanReviewDecision = (response) => {
+            events.push(
+                `interaction:CODE_REVIEW:${
+                    response.approved ? "approved" : response.canceled ? "canceled" : "feedback"
+                }`,
+            );
+            events.push("human-review:captured");
+            consumedHumanReviews.push(response);
+        };
         const interactionSurface = scenario.scriptedInteractions
             ? new ScriptedInteractionSurface(/** @type {any[]} */ (scenario.scriptedInteractions))
             : null;
@@ -800,8 +844,15 @@ async function runComposedTuiScenario(scenario, options) {
                 initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? undefined
                     : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
-                browser: reviewSurface
-                    ? createGoldenReviewBrowser(reviewSurface, {}, scenario.reviewedPlan, observeReviewDecision)
+                browser: reviewSurface || humanReviewSurface
+                    ? createGoldenReviewBrowser(
+                        reviewSurface,
+                        humanReviewSurface,
+                        {},
+                        scenario.reviewedPlan,
+                        observeReviewDecision,
+                        observeHumanReviewDecision,
+                    )
                     : NO_OPEN_BROWSER_PORT,
             });
             composition = await compositionPromise;
@@ -1594,6 +1645,13 @@ async function runComposedTuiScenario(scenario, options) {
             if (interactionSurface) {
                 interactionSurface.assertComplete();
                 state.scriptedInteractions = interactionSurface.consumed;
+            }
+            if (humanReviewSurface) {
+                humanReviewSurface.assertComplete();
+                state.humanReviews = {
+                    consumed: humanReviewSurface.consumed,
+                    decisions: consumedHumanReviews,
+                };
             }
             if (reviewSurface) {
                 assert(
