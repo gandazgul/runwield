@@ -87,7 +87,9 @@ Deno.test("owner Workspace redirects unpaired browsers and serves pairing code b
 Deno.test("owner Workspace requires CSRF for Project mutation and resolves Project Plan Board by registered Project", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-project-" });
     const projectRoot = `${dir}/project`;
+    const otherProjectRoot = `${dir}/other-project`;
     await Deno.mkdir(projectRoot);
+    await Deno.mkdir(otherProjectRoot);
     await savePlan(projectRoot, "owner-plan", "# Owner Plan\n\nBody", {
         planId: "owner-plan-id",
         classification: "FEATURE",
@@ -114,6 +116,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             csrfFactory: () => "csrf-secret",
         });
         const project = store.registerProject({ root: projectRoot, displayName: "Owner Project" });
+        const otherProject = store.registerProject({ root: otherProjectRoot, displayName: "Other Project" });
         let closedConnections = 0;
         const appObject = /** @type {any} */ (createOwnerWorkspaceApp({
             mode: "owner",
@@ -271,6 +274,71 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertStringIncludes(sessionsText, "[local path]");
         assertEquals(sessionsText.includes(projectRoot), false);
         assertEquals(sessionsText.includes("sessionPath"), false);
+
+        appObject.sessionContinuation.timeline = () =>
+            Promise.resolve({
+                ok: true,
+                generation: 1,
+                events: [],
+                complete: true,
+                segments: [{ byteLength: 123, terminalEntryId: "entry-secret" }],
+            });
+        const timelineApi = await app(
+            new Request(
+                `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/sessions/session-owned/timeline`,
+                {
+                    headers: { cookie: cookiePair(claimed.credential) },
+                },
+            ),
+        );
+        assertEquals(timelineApi.status, 200);
+        const timelineText = JSON.stringify(await timelineApi.json());
+        assertEquals(timelineText.includes("segments"), false);
+        assertEquals(timelineText.includes("byteLength"), false);
+        assertEquals(timelineText.includes("terminalEntryId"), false);
+
+        let answered = false;
+        appObject.sessionContinuation.operations.set("operation-owned", {
+            status: "running",
+            projectId: project.projectId,
+            events: [],
+            liveInteraction: { interactionId: "interaction-owned", request: { prompt: "Pick" } },
+            answer: { resolve: () => answered = true, reject: () => {} },
+        });
+        const wrongProjectAnswer = await app(
+            new Request(
+                `http://127.0.0.1:8787/api/owner/projects/${otherProject.projectId}/session-operations/operation-owned/interactions/interaction-owned/answer`,
+                {
+                    method: "POST",
+                    headers: {
+                        origin: "http://127.0.0.1:8787",
+                        cookie: cookiePair(claimed.credential),
+                        "x-runwield-csrf": "csrf-secret",
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({ response: "yes" }),
+                },
+            ),
+        );
+        assertEquals(wrongProjectAnswer.status, 409);
+        assertEquals(answered, false);
+        const answerApi = await app(
+            new Request(
+                `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/session-operations/operation-owned/interactions/interaction-owned/answer`,
+                {
+                    method: "POST",
+                    headers: {
+                        origin: "http://127.0.0.1:8787",
+                        cookie: cookiePair(claimed.credential),
+                        "x-runwield-csrf": "csrf-secret",
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({ response: "yes" }),
+                },
+            ),
+        );
+        assertEquals(answerApi.status, 202);
+        assertEquals(answered, true);
 
         const sessionsPage = await app(
             new Request(`http://127.0.0.1:8787/projects/${project.projectId}/sessions`, {

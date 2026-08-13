@@ -66,6 +66,7 @@ import {
     markSessionReconcileRequiredWithProof,
     markSessionUncertain,
     publishGenerationAndRelease,
+    recoverExpiredSessionControl,
     releaseUnchangedActivation,
     updateOperationReceipt,
 } from "./session-activations.js";
@@ -119,6 +120,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(proof: Parameters<typeof publishGenerationAndRelease>[1], evidence: Parameters<typeof publishGenerationAndRelease>[2], options?: Parameters<typeof publishGenerationAndRelease>[3]) => ReturnType<typeof publishGenerationAndRelease>} publishGenerationAndRelease
  * @property {(proof: Parameters<typeof commitSegmentRolloverAndPublish>[1], options: Parameters<typeof commitSegmentRolloverAndPublish>[2]) => ReturnType<typeof commitSegmentRolloverAndPublish>} commitSegmentRolloverAndPublish
  * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
+ * @property {(options: Parameters<typeof recoverExpiredSessionControl>[1]) => ReturnType<typeof recoverExpiredSessionControl>} recoverExpiredSessionControl
  * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
  * @property {(proof: Parameters<typeof markSessionReconcileRequiredWithProof>[1], options?: Parameters<typeof markSessionReconcileRequiredWithProof>[2]) => ReturnType<typeof markSessionReconcileRequiredWithProof>} markSessionReconcileRequiredWithProof
  * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
@@ -192,6 +194,7 @@ export function openOwnerCoordinationStore(options = {}) {
             commitSegmentRolloverAndPublish(database, proof, rolloverOptions),
         releaseUnchangedActivation: (proof, activationOptions) =>
             releaseUnchangedActivation(database, proof, activationOptions),
+        recoverExpiredSessionControl: (recoveryOptions) => recoverExpiredSessionControl(database, recoveryOptions),
         markSessionReconcileRequired: (session, activationOptions) =>
             markSessionReconcileRequired(database, session, activationOptions),
         markSessionReconcileRequiredWithProof: (proof, activationOptions) =>

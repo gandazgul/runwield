@@ -78,6 +78,11 @@ _Avoid_: Partial segment, dangling Session, recovery segment
 interactions for a live Session; observation does not require control. Session Control is not mutation authority without
 Session Activation. _Avoid_: Plan ownership, Session ownership, Agent ownership
 
+**Forced Session Control Recovery**: An explicit owner action after a Session Activation heartbeat deadline. It
+validates ordered transcript evidence, fences the old owner, and returns a valid exact or transcript-ahead Session to
+idle. It does not replay a request or prove that external side effects stopped. _Avoid_: Automatic takeover, lease
+steal, replay recovery
+
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
 

@@ -13,8 +13,18 @@ function safeDiagnosticText(value) {
     return [record.code, record.message].filter((part) => typeof part === "string" && part).join(": ");
 }
 
-/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, onRetry?: () => void }} props */
-export function SessionList({ projectId, data, loading = false, error = "", onRetry }) {
+/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, newSessionText?: string, creating?: boolean, onNewSessionTextChange?: (value: string) => void, onCreateSession?: () => void, onRetry?: () => void }} props */
+export function SessionList({
+    projectId,
+    data,
+    loading = false,
+    error = "",
+    newSessionText = "",
+    creating = false,
+    onNewSessionTextChange,
+    onCreateSession,
+    onRetry,
+}) {
     const sessions = Array.isArray(data?.sessions) ? [...data.sessions] : [];
     sessions.sort((a, b) => {
         const aa = deriveSessionAvailability({
@@ -50,17 +60,49 @@ export function SessionList({ projectId, data, loading = false, error = "", onRe
             </section>
         );
     }
+    const createForm = onCreateSession
+        ? (
+            <form
+                className="owner-card session-create-card"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    onCreateSession();
+                }}
+            >
+                <p className="kicker">New Session</p>
+                <h2>Start with Router</h2>
+                <label htmlFor="new-session-request">First User Request</label>
+                <textarea
+                    id="new-session-request"
+                    rows={4}
+                    value={newSessionText}
+                    onChange={(event) => onNewSessionTextChange?.(event.currentTarget.value)}
+                    placeholder="Ask RunWield what you want to do next…"
+                    disabled={creating}
+                />
+                <div className="card-actions">
+                    <RunWieldButton type="submit" variant="primary" disabled={creating || !newSessionText.trim()}>
+                        {creating ? "Starting…" : "Start Session"}
+                    </RunWieldButton>
+                </div>
+            </form>
+        )
+        : null;
     if (!sessions.length) {
         return (
-            <section className="owner-card empty-state session-list-state">
-                <h2>No Sessions cataloged</h2>
-                <p>Run a full Session rescan from the Project card, then return here.</p>
+            <section className="session-list-surface" aria-label="Project Sessions">
+                {createForm}
+                <section className="owner-card empty-state session-list-state">
+                    <h2>No Sessions cataloged</h2>
+                    <p>Start a new Router-led Session or run a full Session rescan from the Project card.</p>
+                </section>
             </section>
         );
     }
     const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
     return (
         <section className="session-list-surface" aria-label="Project Sessions">
+            {createForm}
             {data?.protocol
                 ? (
                     <p className="notice session-protocol-notice">

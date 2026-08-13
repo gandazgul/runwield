@@ -3900,3 +3900,35 @@ export function createSessionRuntime(options = {}) {
         ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
     });
 }
+
+/**
+ * @param {{ activation?: { state?: string | null } | null, generation?: { generation?: number | null } | null, projection?: { ok?: boolean, complete?: boolean, snapshot?: { activeAgent?: string | null, workflowContext?: unknown, activeExecutionWorkflow?: unknown } | null } | null, expectedGeneration?: number | null }} facts
+ */
+export function deriveManagedSessionContinuationDecision(facts) {
+    if (facts.activation?.state !== "idle") {
+        return { ok: false, code: "active_owner", message: "This Session is not idle." };
+    }
+    const generation = facts.generation?.generation ?? null;
+    if (generation === null || generation !== facts.expectedGeneration) {
+        return { ok: false, code: "stale_generation", message: "Refresh the Session before continuing." };
+    }
+    if (!facts.projection?.ok || facts.projection.complete === false) {
+        return { ok: false, code: "incomplete_projection", message: "The committed timeline is not complete." };
+    }
+    const snapshot = facts.projection.snapshot || {};
+    if (snapshot.workflowContext || snapshot.activeExecutionWorkflow) {
+        return {
+            ok: false,
+            code: "active_workflow_read_only",
+            message: "This workflow Session is read-only until Workspace Plan actions are available.",
+        };
+    }
+    return {
+        ok: true,
+        code: "continue",
+        agentName: typeof snapshot.activeAgent === "string" && snapshot.activeAgent
+            ? snapshot.activeAgent
+            : AGENTS.ROUTER,
+        message: "This idle conversational Session can continue.",
+    };
+}

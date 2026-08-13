@@ -76,6 +76,16 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+### Session timeline and control patterns
+
+Session detail surfaces use one ordered timeline for committed history. Live Workspace-owned waits appear as temporary
+items and must look different from committed transcript entries. If the server process loses that wait, show the plain
+interruption line: “The agent was interrupted. Ask it to continue.” Do not style it as transcript history.
+
+Mobile Session composers stay in the normal surface stack, use a visible label, preserve drafts, and keep the primary
+button touch-sized. The **Take control** action is a high-risk confirmation. Show it only after the heartbeat deadline,
+and state that an old command or process can still finish.
+
 ## Token model
 
 Workspace already exposes semantic CSS custom properties using the `--rw-*` prefix. Keep this as the public browser UI
