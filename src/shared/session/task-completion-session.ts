@@ -23,6 +23,7 @@ type AcceptedTaskCompletionEvent = {
     timestampMs: number;
     owner: "root";
     workflow: ActiveExecutionWorkflow;
+    validationGeneration?: string;
     brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
@@ -55,6 +56,7 @@ export type PendingTaskCompletionClaim = {
     owningSession: OwningSession;
     workflow: ActiveExecutionWorkflow | null;
     durable: boolean;
+    validationGeneration?: string;
     brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
@@ -88,6 +90,7 @@ function hasValidBrokenObjectiveChecks(event: AcceptedTaskCompletionEvent): bool
 
 function isAcceptedEvent(event: TaskCompletionJournalEvent | null | undefined): event is AcceptedTaskCompletionEvent {
     return event?.version === 1 && event.state === "accepted" && typeof event.completionId === "string" &&
+        (event.validationGeneration === undefined || typeof event.validationGeneration === "string") &&
         typeof event.agentName === "string" && typeof event.report === "string" &&
         typeof event.timestampMs === "number" && event.owner === "root" &&
         typeof event.workflow?.planName === "string" &&
@@ -123,6 +126,10 @@ function workflowAttemptKey(workflow: ActiveExecutionWorkflow): string {
 
 function matchesActiveWorkflow(event: AcceptedTaskCompletionEvent, activeWorkflow: ActiveExecutionWorkflow): boolean {
     if (event.workflow.planName !== activeWorkflow.planName) return false;
+    if (
+        event.validationGeneration && activeWorkflow.validationGeneration &&
+        event.validationGeneration !== activeWorkflow.validationGeneration
+    ) return false;
     if (Boolean(event.workflow.validationContinuation) !== Boolean(activeWorkflow.validationContinuation)) return false;
     const acceptedAttempt = workflowAttemptKey(event.workflow);
     const activeAttempt = workflowAttemptKey(activeWorkflow);
@@ -171,6 +178,7 @@ export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): st
             timestampMs,
             owner: "root",
             workflow: { ...workflow },
+            validationGeneration: workflow.validationGeneration || workflowAttemptKey(workflow),
             ...(brokenObjectiveChecks?.length ? { brokenObjectiveChecks } : {}),
         });
     }
@@ -210,6 +218,7 @@ export function claimPendingTaskCompletion(
             owningSession,
             workflow: { ...accepted.workflow },
             durable: true,
+            validationGeneration: accepted.validationGeneration,
             ...(accepted.brokenObjectiveChecks?.length
                 ? { brokenObjectiveChecks: accepted.brokenObjectiveChecks }
                 : {}),
@@ -226,6 +235,7 @@ export function claimPendingTaskCompletion(
         owningSession,
         workflow: activeWorkflow ? { ...activeWorkflow } : null,
         durable: false,
+        validationGeneration: activeWorkflow?.validationGeneration,
         ...(volatile.brokenObjectiveChecks?.length ? { brokenObjectiveChecks: volatile.brokenObjectiveChecks } : {}),
     };
 }
@@ -240,20 +250,12 @@ export function acknowledgeTaskCompletion(
     if (!sessionManager?.appendCustomEntry) {
         throw new Error("Cannot acknowledge durable task completion without a writable root SessionManager.");
     }
-    const completionWorkflow = completion.workflow;
-    const completionIds = completionWorkflow
-        ? readUnconsumedAcceptedEvents(sessionManager)
-            .filter((event) => matchesActiveWorkflow(event, completionWorkflow))
-            .map((event) => event.completionId)
-        : [completion.completionId];
-    for (const completionId of new Set(completionIds)) {
-        sessionManager.appendCustomEntry(TASK_COMPLETION_CUSTOM_TYPE, {
-            version: 1,
-            state: "consumed",
-            completionId,
-            timestampMs,
-        });
-    }
+    sessionManager.appendCustomEntry(TASK_COMPLETION_CUSTOM_TYPE, {
+        version: 1,
+        state: "consumed",
+        completionId: completion.completionId,
+        timestampMs,
+    });
 }
 
 export function listPendingTaskCompletions(hostedSession: HostedSession): PendingTaskCompletionClaim[] {
@@ -266,6 +268,7 @@ export function listPendingTaskCompletions(hostedSession: HostedSession): Pendin
         owningSession,
         workflow: { ...event.workflow },
         durable: true,
+        validationGeneration: event.validationGeneration,
         ...(event.brokenObjectiveChecks?.length ? { brokenObjectiveChecks: event.brokenObjectiveChecks } : {}),
     }));
 }

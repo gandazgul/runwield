@@ -51,6 +51,7 @@ import {
 import { recordLifecycleEvent } from "./validation-context.ts";
 import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction } from "./validation-interactions.ts";
+import { validationUserMessage } from "./validation-user-messages.ts";
 
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -110,18 +111,11 @@ async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: s
             );
             return;
         }
-        args.session.emitStatus(
-            `Automated verification passed, but the durable Manual QA checklist was not generated: ${
-                outcome.warning || outcome.outcome
-            }`,
-            "warning",
-        );
+        console.error("[RunWield] Test note was not generated", outcome.warning || outcome.outcome);
+        args.session.emitStatus(validationUserMessage("publication_note_failed"), "warning");
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        args.session.emitStatus(
-            `Automated verification passed, but the durable Manual QA checklist was not generated: ${reason}`,
-            "warning",
-        );
+        console.error("[RunWield] Test note generation failed", error);
+        args.session.emitStatus(validationUserMessage("publication_note_failed"), "warning");
     }
 }
 

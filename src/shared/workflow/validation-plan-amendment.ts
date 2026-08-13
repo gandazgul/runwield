@@ -4,13 +4,7 @@
  */
 
 import { join } from "@std/path";
-import {
-    buildPlanDefinitionProjection,
-    loadPlan,
-    PLAN_AMENDMENT_DEFINITION_KEYS,
-    PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS,
-    savePlan,
-} from "../../plan-store.js";
+import { buildPlanDefinitionProjection, loadPlan, PLAN_AMENDMENT_DEFINITION_KEYS, savePlan } from "../../plan-store.js";
 import {
     classifyObjectiveChecksBaseline,
     type ObjectiveCheck,
@@ -76,15 +70,6 @@ async function assertPlanFileSafe(plan: LoadedPlan, label: string): Promise<void
     if (info.isSymlink) throw new Error(`${label} Plan file is a symlink and cannot be amended safely: ${plan.path}`);
 }
 
-function blockedExecutionShapingChanges(primary: LoadedPlan, execution: LoadedPlan): string[] {
-    return PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS.filter((key) =>
-        !sameJson(
-            primary.attrs[key as keyof PlanFrontMatter],
-            execution.attrs[key as keyof PlanFrontMatter],
-        )
-    );
-}
-
 export async function detectValidationPlanAmendment(
     projectRoot: string,
     executionCwd: string,
@@ -96,20 +81,6 @@ export async function detectValidationPlanAmendment(
     if (!primary || !execution) return null;
     await assertPlanFileSafe(primary, "Primary");
     await assertPlanFileSafe(execution, "Execution-worktree");
-    if (primary.attrs.planId && execution.attrs.planId && primary.attrs.planId !== execution.attrs.planId) {
-        throw new Error(
-            `Execution-worktree Plan identity does not match the primary Plan for ${planName}; user review is required.`,
-        );
-    }
-    const blocked = blockedExecutionShapingChanges(primary, execution);
-    if (blocked.length) {
-        throw new Error(
-            `Execution-worktree Plan changed execution-shaping field(s) ${
-                blocked.join(", ")
-            }; fresh Plan review is required.`,
-        );
-    }
-
     const diffs: PlanAmendmentDiff[] = [];
     if (primary.body !== execution.body) {
         diffs.push({ field: "body", before: primary.body, after: execution.body });

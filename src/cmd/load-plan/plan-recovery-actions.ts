@@ -1,7 +1,9 @@
 import { updatePlanFrontMatter } from "../../plan-store.js";
+import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import {
     closeTransitionRecordByAttestation,
     getTransitionJournalDir,
+    runPlanFrontMatterTransition,
     runRecoveryTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
@@ -61,7 +63,39 @@ export type RecoveryActionName =
     | "review"
     | "reset"
     | "restore_record"
+    | "stop_lost"
     | "merge";
+
+export async function stopLostRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
+    const { projectRoot, plan } = context;
+    const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
+        triageMeta: plan.attrs,
+    });
+    const transition = await runPlanFrontMatterTransition({
+        projectRoot,
+        planName: plan.planName,
+        operation: "recovery_stop_lost",
+        expectedRevision: plan.revision,
+        updates: {
+            ...resetUpdates,
+            status: "ready_for_work",
+            executionMode: null,
+            executionBaselineTree: null,
+            worktreeId: null,
+            worktreePath: null,
+            worktreeBranch: null,
+            worktreeBaseBranch: null,
+            worktreeStatus: "abandoned",
+        },
+        recoveryAttrs: {},
+    });
+    if (transition.status !== "committed") {
+        throw transitionFailureError(transition, `Could not stop recovery for ${plan.planName}.`);
+    }
+    context.uiAPI.appendSystemMessage("Stopped here. The Plan is ready for work.", false, "RunWield");
+    await context.recordRecoveryResult("stop_lost", "ready_for_work");
+    return { kind: "handled" };
+}
 
 export async function restoreRecoveryWorktreeRecord(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI, worktreeContext } = context;
@@ -268,7 +302,7 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
         agentName: context.agentName,
         uiAPI: context.uiAPI,
         executePlan: context.session.executePlan,
-        runValidationLoop: context.session.runValidation,
+        continueWorkflowValidation: context.session.runValidation,
         session: context.session,
     });
     await context.recordRecoveryResult("continue", "handled");

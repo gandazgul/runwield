@@ -16,6 +16,7 @@ import { loadPlan } from "../../plan-store.js";
 import { PLAN_STATUSES, VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
 import { getProjectRoot, recordLifecycleEvent } from "./validation-context.ts";
 import { emitStatus } from "./validation-emit.ts";
+import { validationPhaseForStatus } from "./validation-checkpoint.ts";
 import { runMechanicalValidationPhase } from "./validation-mechanical.ts";
 import { runSemanticReviewPhase, runValidatedReviewerPhase } from "./validation-semantic.ts";
 import type { ValidationPhaseName } from "./validation-ports.ts";
@@ -156,7 +157,16 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // stopped without a word.
         phaseArgs = { ...phaseArgs, executionContext: undefined };
     }
-    return result!;
+    const plan = await loadPlan(projectRoot, args.planName);
+    const phase = validationPhaseForStatus(plan?.attrs.status);
+    args.session.emitStatus("Validation needs more time. Your work is safe. Run it again.", "warning");
+    return {
+        kind: "paused",
+        planName: args.planName,
+        projectRoot,
+        classification: plan?.attrs.classification,
+        reason: phase ? `Validation paused before ${phase}.` : "Validation paused.",
+    };
 }
 
 export async function loadCanonicalValidationPlan(

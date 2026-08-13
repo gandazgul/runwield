@@ -219,7 +219,7 @@ Deno.test("resolveValidationExecutionContext prefers registry baseline over dupl
     }
 });
 
-Deno.test("resolveValidationExecutionContext blocks contradictory explicit and active workflow context", async () => {
+Deno.test("resolveValidationExecutionContext ignores stale caller and session context", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "p", "# Plan", { classification: "FEATURE", status: "implemented" });
@@ -230,13 +230,13 @@ Deno.test("resolveValidationExecutionContext blocks contradictory explicit and a
             activeWorkflow: { planName: "p", executionMode: "worktree", executionCwd: "/worktree-b" },
         });
         assertEquals(result.kind, "blocked");
-        if (result.kind === "blocked") assertEquals(result.reason, "execution_context_mismatch");
+        if (result.kind === "blocked") assertEquals(result.reason, "incomplete_worktree_identity");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
 });
 
-Deno.test("resolveValidationExecutionContext blocks contradictory explicit mode", async () => {
+Deno.test("resolveValidationExecutionContext uses the Plan mode instead of stale caller mode", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "p", "# Plan", {
@@ -255,7 +255,7 @@ Deno.test("resolveValidationExecutionContext blocks contradictory explicit mode"
             explicitContext: { planName: "p", nonGitInPlace: true },
         });
         assertEquals(result.kind, "blocked");
-        if (result.kind === "blocked") assertEquals(result.reason, "execution_mode_mismatch");
+        if (result.kind === "blocked") assertEquals(result.reason, "missing_registry_entry");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -438,7 +438,7 @@ Deno.test("a damaged worktree registry blocks with commands instead of a stack t
     }
 });
 
-Deno.test("resolveValidationExecutionContext blocks selected path differing from Plan path", async () => {
+Deno.test("resolveValidationExecutionContext replaces a stale caller path with the saved worktree path", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
@@ -486,8 +486,8 @@ Deno.test("resolveValidationExecutionContext blocks selected path differing from
                 worktreeBaseBranch: "main",
             },
         });
-        assertEquals(result.kind, "blocked");
-        if (result.kind === "blocked") assertEquals(result.reason, "plan_worktree_path_mismatch");
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});

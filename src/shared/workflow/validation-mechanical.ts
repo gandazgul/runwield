@@ -34,6 +34,7 @@ import {
     detectValidationPlanAmendment,
     validateAmendedObjectiveChecksAgainstBaseline,
 } from "./validation-plan-amendment.ts";
+import { validationUserMessage } from "./validation-user-messages.ts";
 
 const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
     { value: "engineer_follow_up", label: "Engineer follow-up" },
@@ -54,11 +55,12 @@ async function resolveValidationPlanAmendment(
             proposal.changedObjectiveChecks,
         );
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        emitStatus(args, `Plan amendment needs follow-up before validation can continue.\n\n${reason}`, "warning");
+        console.error("[RunWield] Plan change check failed", error);
+        const message = validationUserMessage("amendment_check_failed");
+        emitStatus(args, message, "warning");
         const response = await requestInteraction(args, {
             type: ValidationInteractionTypes.SELECT,
-            prompt: `${proposal.summary}\n\n${reason}\n\nWhat should RunWield do?`,
+            prompt: `${message}\n\nWhat should RunWield do?`,
             options: [
                 { value: "engineer_follow_up", label: "Engineer follow-up" },
                 { value: "stop", label: "Stop" },

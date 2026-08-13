@@ -155,7 +155,7 @@ export async function resetRecoveryPlan(
         agentName: context.agentName,
         uiAPI,
         executePlan: context.session.executePlan,
-        runValidationLoop: context.session.runValidation,
+        continueWorkflowValidation: context.session.runValidation,
         session: context.session,
     });
     await context.recordRecoveryResult("reset", "handled");

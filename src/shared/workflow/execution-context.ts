@@ -222,61 +222,15 @@ export async function resolveValidationExecutionContext({
         );
     }
 
-    if (explicitContext?.planName && activeWorkflow?.planName) {
-        for (
-            const [key, explicitValue, activeValue] of [
-                [
-                    "planName",
-                    normalizePlanIdentity(explicitContext.planName),
-                    normalizePlanIdentity(activeWorkflow.planName),
-                ],
-                [
-                    "executionMode",
-                    normalizeExecutionMode(explicitContext.executionMode),
-                    normalizeExecutionMode(activeWorkflow.executionMode),
-                ],
-                ["executionCwd", asString(explicitContext.executionCwd), asString(activeWorkflow.executionCwd)],
-                ["worktreeId", asString(explicitContext.worktreeId), asString(activeWorkflow.worktreeId)],
-                ["worktreeBranch", asString(explicitContext.worktreeBranch), asString(activeWorkflow.worktreeBranch)],
-                [
-                    "worktreeBaseBranch",
-                    asString(explicitContext.worktreeBaseBranch),
-                    asString(activeWorkflow.worktreeBaseBranch),
-                ],
-                ["baselineTree", asString(explicitContext.baselineTree), asString(activeWorkflow.baselineTree)],
-                [
-                    "worktreeBaseRef",
-                    asString(explicitContext.worktreeBaseRef),
-                    asString(activeWorkflow.worktreeBaseRef),
-                ],
-                [
-                    "worktreeBaseCommit",
-                    asString(explicitContext.worktreeBaseCommit),
-                    asString(activeWorkflow.worktreeBaseCommit),
-                ],
-            ]
-        ) {
-            if (explicitValue && activeValue && explicitValue !== activeValue) {
-                return blocked(
-                    "execution_context_mismatch",
-                    `Explicit execution context ${key} contradicts the active execution workflow.`,
-                );
-            }
-        }
-    }
-
+    // Session and caller data fill only facts the durable records do not have.
+    // Registry and Git facts below always override them, so stale process state
+    // cannot veto a proven attempt.
     const selected = selectCandidateContext({ explicitContext, activeWorkflow });
     const candidate = selected.context || {};
     const candidateMode = candidate.nonGitInPlace === true ? "non_git_in_place" : candidate.executionMode;
     const normalizedCandidateMode = normalizeExecutionMode(candidateMode);
     const durableMode = normalizeExecutionMode(attrs.executionMode);
-    if (normalizedCandidateMode && durableMode && normalizedCandidateMode !== durableMode) {
-        return blocked(
-            "execution_mode_mismatch",
-            `Execution context mode ${normalizedCandidateMode} contradicts Plan metadata mode ${durableMode}.`,
-        );
-    }
-    const candidateWorktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
+    const candidateWorktreeId = asString(attrs.worktreeId) || asString(candidate.worktreeId);
     const canonicalPlanId = asString(attrs.planId);
     let recoveredRegistryEntry: Awaited<ReturnType<typeof findWorktreeRegistryEntryById>>;
     try {
@@ -293,7 +247,7 @@ export async function resolveValidationExecutionContext({
         if (!described) throw error;
         return blocked("worktree_registry_ambiguous", described);
     }
-    const executionMode = normalizedCandidateMode || durableMode || (recoveredRegistryEntry ? "worktree" : undefined);
+    const executionMode = durableMode || (recoveredRegistryEntry ? "worktree" : undefined) || normalizedCandidateMode;
     if (!executionMode) {
         const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;
         if (!hasCompleteLegacyWorktree) {
@@ -380,17 +334,6 @@ export async function resolveValidationExecutionContext({
             `Reconciled a stale in-session Plan ID for ${planName} to the canonical ${attrs.planId}. Continuing Workflow Validation.`,
         );
     }
-    if (candidateWorktreePath && recoveredRegistryEntry?.path) {
-        const canonicalCandidatePath = await realPath(candidateWorktreePath);
-        const canonicalRegistryPath = await realPath(recoveredRegistryEntry.path);
-        if (!canonicalCandidatePath || !canonicalRegistryPath || canonicalCandidatePath !== canonicalRegistryPath) {
-            return blocked(
-                "plan_worktree_path_mismatch",
-                `Execution worktree path does not match the worktree registry for ${worktreeId}.`,
-            );
-        }
-    }
-
     let registryEntry = recoveredRegistryEntry || await findWorktreeRegistryEntryById(projectRoot, worktreeId);
     if (!registryEntry) {
         const restored = await restoreEntryFromPlanEvidence(projectRoot, {
@@ -431,12 +374,6 @@ export async function resolveValidationExecutionContext({
             `Worktree registry entry ${worktreeId} is ${registryEntry.status}, not validation-eligible.`,
         );
     }
-    if (candidate.worktreeBranch && registryEntry.branch !== candidate.worktreeBranch) {
-        return blocked("registry_identity_mismatch", `Execution branch does not match the worktree registry.`);
-    }
-    if (candidate.worktreeBaseBranch && registryEntry.baseBranch !== candidate.worktreeBaseBranch) {
-        return blocked("registry_identity_mismatch", `Execution target branch does not match the worktree registry.`);
-    }
     // Every pairing check above has passed, so this entry is the attempt the
     // canonical Plan names. A registry planId that disagrees is therefore a
     // twice-minted id, and leaving it in place would make recovery-by-planId miss
@@ -459,26 +396,8 @@ export async function resolveValidationExecutionContext({
         }
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
-    if (registryEntry.executionBaselineTree && baselineTree && registryEntry.executionBaselineTree !== baselineTree) {
-        return blocked(
-            "registry_base_tree_mismatch",
-            `Worktree registry execution baseline for ${worktreeId} does not match Plan metadata.`,
-        );
-    }
     const candidateBaseCommit = asString(candidate.worktreeBaseCommit) || asString(candidate.baseCommit);
-    if (candidateBaseCommit && registryEntry.baseCommit && registryEntry.baseCommit !== candidateBaseCommit) {
-        return blocked(
-            "registry_base_commit_mismatch",
-            `Worktree registry base commit for ${worktreeId} does not match execution context.`,
-        );
-    }
     const candidateBaseRef = asString(candidate.worktreeBaseRef) || asString(candidate.baseRef);
-    if (candidateBaseRef && registryEntry.baseRef && registryEntry.baseRef !== candidateBaseRef) {
-        return blocked(
-            "registry_base_ref_mismatch",
-            `Worktree registry base ref for ${worktreeId} does not match execution context.`,
-        );
-    }
     if (!baselineTree) {
         const baselineRef = candidateBaseCommit || asString(registryEntry.baseCommit) || candidateBaseRef ||
             asString(registryEntry.baseRef);
@@ -497,8 +416,22 @@ export async function resolveValidationExecutionContext({
             `RunWield found the worktree for "${planName}", but it cannot recover the execution baseline needed for validation. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
-    const canonicalRegistryPath = await realPath(registryEntry.path);
-    const canonicalWorktreePath = await realPath(worktreePath);
+    let canonicalRegistryPath = await realPath(registryEntry.path);
+    let canonicalWorktreePath = await realPath(worktreePath);
+    if (!canonicalRegistryPath && !canonicalWorktreePath) {
+        const branchExists = await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${worktreeBranch}`])
+            .then(() => true)
+            .catch(() => false);
+        if (branchExists) {
+            // The folder is derived from the branch. Pruning an absent worktree's
+            // Git admin record removes no files and lets Git attach it again.
+            await runGit(projectRoot, ["worktree", "prune"]);
+            await runGit(projectRoot, ["worktree", "add", worktreePath, worktreeBranch]);
+            canonicalRegistryPath = await realPath(registryEntry.path);
+            canonicalWorktreePath = await realPath(worktreePath);
+            selfHealNotices.push(`Restored the worktree for ${planName} from branch ${worktreeBranch}.`);
+        }
+    }
     if (!canonicalRegistryPath || !canonicalWorktreePath || canonicalRegistryPath !== canonicalWorktreePath) {
         return blocked(
             "worktree_path_mismatch",
@@ -519,7 +452,15 @@ export async function resolveValidationExecutionContext({
             `Execution worktree ${worktreeId} is not attached to the Project repository.`,
         );
     }
-    const checkedOutBranch = await runGit(canonicalWorktreePath, ["branch", "--show-current"]);
+    let checkedOutBranch = await runGit(canonicalWorktreePath, ["branch", "--show-current"]);
+    const recordedBranchExists = await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${worktreeBranch}`])
+        .then(() => true)
+        .catch(() => false);
+    if (!recordedBranchExists) {
+        await runGit(canonicalWorktreePath, ["switch", "-c", worktreeBranch]);
+        checkedOutBranch = worktreeBranch;
+        selfHealNotices.push(`Restored branch ${worktreeBranch} from the worktree for ${planName}.`);
+    }
     if (checkedOutBranch !== worktreeBranch) {
         return blocked(
             "worktree_branch_mismatch",

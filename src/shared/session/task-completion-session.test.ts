@@ -214,7 +214,7 @@ Deno.test("durable completion does not cross into a different active workflow", 
     assertEquals(listPendingTaskCompletions(resumed).length, 1);
 });
 
-Deno.test("acknowledging the latest completion retires duplicates for the same workflow attempt", async () => {
+Deno.test("acknowledging one completion consumes only that completion", async () => {
     const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "duplicate-completion-original",
@@ -256,5 +256,7 @@ Deno.test("acknowledging the latest completion retires duplicates for the same w
 
     acknowledgeTaskCompletion(resumed, completion);
 
-    assertEquals(listPendingTaskCompletions(resumed), []);
+    const pending = listPendingTaskCompletions(resumed);
+    assertEquals(pending.length, 1);
+    assertEquals(pending[0].report, "- First completion.");
 });

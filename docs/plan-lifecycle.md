@@ -4,10 +4,15 @@ Plan status is the durable state machine for saved Plans. Workflow code records 
 Lifecycle decides the next status and front matter updates.
 
 Plan lifecycle metadata is canonical in the primary project checkout even when implementation runs in a linked execution
-worktree. During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition
-fields. RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies.
-Worktree paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records
-remain RunWield-owned lifecycle state.
+worktree. Validation reads facts in this order: the primary Plan owns identity, policy, and status; the worktree record
+owns the path, branch, target, and baseline; Git proves the files, refs, commits, and ancestry. Session and caller data
+are rebuilt from those facts and cannot block a proven attempt. A versioned `validationCheckpoint` records the current
+owner and next step across process loss. It is not a second status state machine.
+
+During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition fields.
+RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies. Worktree
+paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records remain
+RunWield-owned lifecycle state.
 
 Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
 Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point

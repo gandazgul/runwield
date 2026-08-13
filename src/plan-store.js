@@ -252,6 +252,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
  * @property {string|null} [validationMergeRepairWorktree] - Detached merge worktree path for status-preserving Direct Delivery repair continuation.
+ * @property {import('./shared/workflow/validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint] - Durable validation continuation facts for the current attempt.
  * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
  * @property {number} [validationSemanticRounds] - Semantic Code Review repair rounds spent for the current implementation.
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
@@ -537,6 +538,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewedAt, fm.humanReviewedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationMergeRepairWorktree, fm.validationMergeRepairWorktree);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationCheckpoint, fm.validationCheckpoint);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughSummary, fm.epicDoneEnoughSummary);
@@ -1249,6 +1251,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         ),
         humanReviewedAt: optionalFrontMatterValue(overrides, existingFm, "humanReviewedAt"),
         validationMergeRepairWorktree: optionalFrontMatterValue(overrides, existingFm, "validationMergeRepairWorktree"),
+        validationCheckpoint: Object.hasOwn(overrides, "validationCheckpoint")
+            ? overrides.validationCheckpoint
+            : existingFm.validationCheckpoint,
         epicCompletionMode: /** @type {"done_enough" | null | undefined} */ (
             optionalFrontMatterValue(overrides, existingFm, "epicCompletionMode") === "done_enough"
                 ? "done_enough"
@@ -1378,6 +1383,11 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             validationMergeRepairWorktree: typeof attrs.validationMergeRepairWorktree === "string"
                 ? attrs.validationMergeRepairWorktree
                 : attrs.validationMergeRepairWorktree === null
+                ? null
+                : undefined,
+            validationCheckpoint: attrs.validationCheckpoint && typeof attrs.validationCheckpoint === "object"
+                ? attrs.validationCheckpoint
+                : attrs.validationCheckpoint === null
                 ? null
                 : undefined,
             epicCompletionMode: attrs.epicCompletionMode === "done_enough" ? attrs.epicCompletionMode : undefined,

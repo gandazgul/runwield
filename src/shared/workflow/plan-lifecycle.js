@@ -450,8 +450,12 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     const clearsValidationMergeRepairWorktree = event === "validation_passed" || targetStatus === "implemented" ||
         event === "execution_started" || event === "recovery_reset" || event === "recovery_continue" ||
         event === "review_reopened" || event === "hold_reset_to_draft" || event === "manual_user_verified" ||
-        event === "epic_done_enough";
-    if (clearsValidationMergeRepairWorktree) updates.validationMergeRepairWorktree = null;
+        event === "manual_closed_without_verification" || event === "epic_done_enough" ||
+        (event === "manual_status_change" && isTerminalPlanStatus(targetStatus));
+    if (clearsValidationMergeRepairWorktree) {
+        updates.validationMergeRepairWorktree = null;
+        updates.validationCheckpoint = null;
+    }
 
     if (
         targetStatus === "implemented" && event !== "mechanical_validation_failed" &&

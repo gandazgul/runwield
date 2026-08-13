@@ -292,7 +292,7 @@ plansTest("plans read serves real fixture markdown through the artifact surface"
 
 plansTest("plans doctor and UI help use their real command implementations", async () => {
     const doctor = await captureOutput(() => runPlansCommand(["doctor"]));
-    assertStringIncludes(doctor.join("\n"), "Plans doctor found no lifecycle/worktree drift");
+    assertStringIncludes(doctor.join("\n"), "Your Plans look good");
 
     const uiHelp = await captureOutput(() => runPlansCommand(["ui", "--help"]));
     assertStringIncludes(uiHelp.join("\n"), "Usage: wld plans ui");

@@ -63,7 +63,7 @@ export interface ValidatePostExecutionDecisionOptions {
     executionDecision: WorkflowDecision;
     executionResult: unknown;
     fallbackPlanContent: string;
-    runValidationLoop: PlanSessionSurface["runValidation"];
+    continueWorkflowValidation: PlanSessionSurface["runValidation"];
     session: PlanSessionSurface;
     uiAPI?: UiAPI;
 }
@@ -73,7 +73,7 @@ export interface ExecutePostPlanningDecisionOptions {
     fallbackPlanContent: string;
     uiAPI: UiAPI;
     executePlan: PlanSessionSurface["executePlan"];
-    runValidationLoop: PlanSessionSurface["runValidation"];
+    continueWorkflowValidation: PlanSessionSurface["runValidation"];
     runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
     session: PlanSessionSurface;
 }
@@ -84,7 +84,7 @@ export interface ExecuteReadyPlanOptions {
     agentName: string;
     uiAPI: UiAPI;
     executePlan: PlanSessionSurface["executePlan"];
-    runValidationLoop: PlanSessionSurface["runValidation"];
+    continueWorkflowValidation: PlanSessionSurface["runValidation"];
     session: PlanSessionSurface;
 }
 
@@ -161,7 +161,7 @@ export async function confirmAffectedPathChangesBeforeExecution({
  * @param {string} planName
  * @param {string} fallbackPlanContent
  * @param {import('../../plan-store.js').PlanFrontMatter} triageMeta
- * @param {PlanSessionSurface["runValidation"]} runValidationLoop
+ * @param {PlanSessionSurface["runValidation"]} continueWorkflowValidation
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
@@ -172,7 +172,7 @@ export async function validateCompletedExecution(
     planName: string,
     fallbackPlanContent: string,
     triageMeta: PlanFrontMatter,
-    runValidationLoop: PlanSessionSurface["runValidation"],
+    continueWorkflowValidation: PlanSessionSurface["runValidation"],
     worktreeContext: RecoveryWorktreeContext | null,
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
@@ -305,7 +305,7 @@ export async function validateCompletedExecution(
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
     session.setActiveExecutionWorkflow(workflow);
-    await runValidationLoop({
+    await continueWorkflowValidation({
         planName,
         planContent,
         triageMeta: effectiveMeta,
@@ -316,7 +316,7 @@ export async function validateCompletedExecution(
         if (!latestPlan) break;
         const latestStatus = latestPlan.attrs?.status;
         if (latestStatus !== "validated_ci" && latestStatus !== "validated_reviewer") break;
-        await runValidationLoop({
+        await continueWorkflowValidation({
             planName,
             planContent: latestPlan.markdown || latestPlan.body || planContent,
             triageMeta: { ...effectiveMeta, ...latestPlan.attrs },
@@ -331,7 +331,7 @@ export async function validateCompletedExecution(
  * @param {import('../../shared/workflow/decisions.js').WorkflowDecision} opts.executionDecision
  * @param {unknown} opts.executionResult
  * @param {string} opts.fallbackPlanContent
- * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface} opts.session
  * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
  * @returns {Promise<void>}
@@ -340,7 +340,7 @@ export async function validatePostExecutionDecision({
     executionDecision,
     executionResult,
     fallbackPlanContent,
-    runValidationLoop,
+    continueWorkflowValidation,
     session,
     uiAPI,
 }: ValidatePostExecutionDecisionOptions): Promise<void> {
@@ -354,7 +354,7 @@ export async function validatePostExecutionDecision({
         planName,
         fallbackPlanContent,
         triageMeta,
-        runValidationLoop,
+        continueWorkflowValidation,
         null,
         session,
         uiAPI,
@@ -370,7 +370,7 @@ export async function validatePostExecutionDecision({
  * @param {string} opts.fallbackPlanContent
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["executePlan"]} opts.executePlan
- * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
  * @param {PlanSessionSurface} opts.session
  * @returns {Promise<boolean>}
@@ -380,7 +380,7 @@ export async function executePostPlanningDecision({
     fallbackPlanContent,
     uiAPI,
     executePlan,
-    runValidationLoop,
+    continueWorkflowValidation,
     runSlicerAgent,
     session,
 }: ExecutePostPlanningDecisionOptions): Promise<boolean> {
@@ -426,7 +426,7 @@ export async function executePostPlanningDecision({
         executionDecision,
         executionResult: execRes,
         fallbackPlanContent,
-        runValidationLoop,
+        continueWorkflowValidation,
         session,
         uiAPI,
     });
@@ -507,7 +507,7 @@ export async function prepareApprovedPlanForWork(
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["executePlan"]} opts.executePlan
  * @param {PlanSessionSurface["runPlanningAgent"]} opts.runPlanningAgent
- * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
+ * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface} opts.session
  * @returns {Promise<void>}
  */
@@ -516,7 +516,7 @@ export async function executeReadyPlanWithRepair({
     plan,
     agentName,
     executePlan,
-    runValidationLoop,
+    continueWorkflowValidation,
     session,
     uiAPI,
 }: ExecuteReadyPlanOptions): Promise<void> {
@@ -543,7 +543,7 @@ export async function executeReadyPlanWithRepair({
         executionDecision,
         executionResult: execRes,
         fallbackPlanContent: plan.markdown || plan.body || "",
-        runValidationLoop,
+        continueWorkflowValidation,
         session,
         uiAPI,
     });

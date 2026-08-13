@@ -50,18 +50,14 @@ import {
     runSlicerAgent,
 } from "./workflow.js";
 import { buildReturnToRouterPrompt, readLatestReturnToRouterOutcome } from "./workflow-results.js";
-import {
-    runMechanicalValidation,
-    runValidationLoop,
-    shouldRunWorkflowValidation,
-    SYSTEM_SEMANTIC_REVIEW_PORT,
-} from "./validation.ts";
+import { runMechanicalValidation, shouldRunWorkflowValidation, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
+import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 
-export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.ts";
+export { runLocalCI, runMechanicalValidation } from "./validation.ts";
 
 type RoutingIntent = "INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "PLANNED_CHANGE" | "PROJECT";
 type PlanClassification = "PLANNED_CHANGE" | "FEATURE" | "PROJECT";
@@ -300,7 +296,7 @@ export async function dispatchPostTriage({
     sessionManager,
     localCI,
 }: DispatchPostTriageArgs): Promise<
-    RouterHandoff | Awaited<ReturnType<typeof runValidationLoop>> | undefined
+    RouterHandoff | Awaited<ReturnType<typeof continueWorkflowValidation>> | undefined
 > {
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
@@ -638,7 +634,7 @@ export async function dispatchPostTriage({
         if (executionDecision.kind === "run_validation") {
             const plan = await loadPlan(projectRoot, planName);
             if (shouldRunWorkflowValidation(decisionTriageMeta)) {
-                const validationResult = await runValidationLoop({
+                const validationResult = await continueWorkflowValidation({
                     hostedSession,
                     planName,
                     planContent: plan?.markdown || "",

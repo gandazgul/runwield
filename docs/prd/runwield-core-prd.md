@@ -211,6 +211,12 @@ Execution requirements:
 
 Workflow Validation requirements:
 
+- enter and resume planned validation through one supervisor
+- repair safe RunWield state before asking the user to act
+- use the primary Plan, worktree record, and Git as the authority, in that order
+- keep a durable validation checkpoint so one owner resumes once after process loss
+- show short plain messages and keep raw errors in logs
+- ask before deleting an unmerged worktree or resetting working changes; do not refuse other proven safe repairs
 - run the configured local validation command
 - compute the workflow diff from the execution baseline
 - run semantic review against the approved Plan

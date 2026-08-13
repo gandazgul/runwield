@@ -22,11 +22,11 @@ import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } fr
 import { recordWorkflowMetric } from "../workflow/metrics.js";
 import {
     runMechanicalValidation,
-    runValidationLoop,
     shouldRunWorkflowValidation,
     SYSTEM_SEMANTIC_REVIEW_PORT,
     type WorkflowValidationResult,
 } from "../workflow/validation.ts";
+import { continueWorkflowValidation } from "../workflow/validation-supervisor.ts";
 import { switchActiveAgent } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
 import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
@@ -380,7 +380,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     planName,
                     details: { transition: "run_validation", decisionKind: executionDecision.kind },
                 });
-                const validationResult = await runValidationLoop({
+                const validationResult = await continueWorkflowValidation({
                     hostedSession,
                     planName,
                     planContent,
@@ -551,7 +551,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     }
                 }
 
-                const validationResult = await runValidationLoop({
+                const validationResult = await continueWorkflowValidation({
                     hostedSession,
                     planName: workflow.planName,
                     planContent,

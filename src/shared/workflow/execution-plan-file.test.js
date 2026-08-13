@@ -30,7 +30,7 @@ Deno.test("prepareExecutionPlanFile restores absent top-level and nested executi
     assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "epic", "child.md")), markdown);
 });
 
-Deno.test("prepareExecutionPlanFile preserves valid legacy execution Plan without Plan ID", async () => {
+Deno.test("prepareExecutionPlanFile fills a missing Plan ID from the primary Plan", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
     await Deno.writeTextFile(
@@ -42,8 +42,10 @@ Deno.test("prepareExecutionPlanFile preserves valid legacy execution Plan withou
 
     const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
 
-    assertEquals(result.kind, "present");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), legacy);
+    assertEquals(result.kind, "reconciled");
+    const healed = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")));
+    assertEquals(healed.attrs.planId, "plan-1");
+    assertEquals(healed.body, "# Legacy");
 });
 
 Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without replacing its Plan body", async () => {
@@ -55,12 +57,16 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
             planId: "plan-1",
             classification: "PLANNED_CHANGE",
             status: "ready_for_work",
+            executionAgent: "engineer",
+            collaborationRecommendation: "autonomous",
         }),
     );
     const executionMarkdown = injectFrontMatter("# Worktree body\n\nPreserve this exact prose.", {
         planId: "plan-1",
         classification: "QUICK_FIX",
         status: "approved",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
         summary: "keep-me",
     });
     await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), executionMarkdown);
@@ -71,6 +77,8 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
     const reconciled = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")));
     assertEquals(reconciled.attrs.classification, "PLANNED_CHANGE");
     assertEquals(reconciled.attrs.status, "ready_for_work");
+    assertEquals(reconciled.attrs.executionAgent, "engineer");
+    assertEquals(reconciled.attrs.collaborationRecommendation, "autonomous");
     assertEquals(reconciled.attrs.summary, "keep-me");
     assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.");
 });

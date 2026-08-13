@@ -30,6 +30,14 @@ function isPlanId(value) {
  * @param {unknown} canonicalPlanId
  * @param {unknown} executionPlanId
  */
+function mustReconcilePlanId(canonicalPlanId, executionPlanId) {
+    return isPlanId(canonicalPlanId) && canonicalPlanId !== executionPlanId;
+}
+
+/**
+ * @param {unknown} canonicalPlanId
+ * @param {unknown} executionPlanId
+ */
 function hasPlanIdConflict(canonicalPlanId, executionPlanId) {
     return isPlanId(canonicalPlanId) && isPlanId(executionPlanId) && canonicalPlanId !== executionPlanId;
 }
@@ -52,15 +60,25 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
     if (executionAttrs.status !== canonicalAttrs.status) {
         overrides.status = canonicalAttrs.status;
     }
-    // A diverged planId is reconciled toward the canonical Plan rather than
-    // blocking execution. The execution copy is derived from the canonical Plan by
-    // definition — the plan name is the store key, so a copy at the same path in a
-    // worktree RunWield created for this Plan is this Plan, and a divergence means
-    // identity was minted twice, never that two different Plans met. Healing is
-    // one-directional (canonical wins, never the worktree) and loses nothing: the
-    // superseded id stays in the worktree branch's Git history.
-    if (hasPlanIdConflict(canonicalAttrs.planId, executionAttrs.planId)) {
+    // These values are policy and identity facts from the locked primary Plan.
+    // The execution copy is derived storage, so stale or missing values always
+    // move in this direction. User-owned body and definition fields stay intact.
+    if (mustReconcilePlanId(canonicalAttrs.planId, executionAttrs.planId)) {
         overrides.planId = canonicalAttrs.planId;
+    }
+    /** @type {(keyof import('../../plan-store.js').PlanFrontMatter)[]} */
+    const primaryOwnedKeys = [
+        "executionAgent",
+        "collaborationRecommendation",
+        "origin",
+        "parentPlan",
+        "order",
+        "dependencies",
+    ];
+    for (const key of primaryOwnedKeys) {
+        if (JSON.stringify(canonicalAttrs[key]) !== JSON.stringify(executionAttrs[key])) {
+            Object.assign(overrides, { [key]: canonicalAttrs[key] });
+        }
     }
     return overrides;
 }

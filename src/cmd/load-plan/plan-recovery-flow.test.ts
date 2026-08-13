@@ -305,8 +305,6 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
 
     const abandonDecline = await runRecovery(["abandon", "cancel", null], {
         worktreeId: "worktree-1",
-        worktreePath: "/tmp/worktree",
-        worktreeBranch: "rw/test",
     });
     assertEquals(abandonDecline.result, "handled");
     assertEquals(abandonDecline.plan.attrs.worktreeId, "worktree-1");
@@ -464,4 +462,25 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     });
     assertEquals(mergeAttemptFailure.result, "handled");
     assertEquals(mergeAttemptFailure.ui.messages.length > 0, true);
+});
+
+Deno.test("lost worktree recovery offers three choices and Stop here leaves ready for work", async () => {
+    const project = await makeRealRecoveryProject({
+        executionMode: "worktree",
+        worktreeId: "lost-worktree",
+        worktreePath: `${await Deno.makeTempDir()}/gone`,
+        worktreeBranch: "rw/gone",
+        worktreeBaseBranch: "main",
+    });
+    const ui = makeUi(["stop_lost"]);
+    const options = makeOptions(project.plan, ui);
+    options.projectRoot = project.projectRoot;
+    options.session.cwd = project.projectRoot;
+
+    assertEquals(await handlePlanRecovery(options), "handled");
+    assertEquals(
+        ui.prompts[0],
+        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,review,stop_lost",
+    );
+    assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
 });
