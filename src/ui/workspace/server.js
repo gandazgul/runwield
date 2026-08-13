@@ -276,7 +276,7 @@ export function createOwnerWorkspaceApp(options) {
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
     app.post(
-        "/api/owner/session-operations/:operationId/interactions/:interactionId/answer",
+        "/api/owner/projects/:projectId/session-operations/:operationId/interactions/:interactionId/answer",
         ownerSessionInteractionAnswerApi,
     );
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);

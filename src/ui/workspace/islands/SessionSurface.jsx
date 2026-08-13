@@ -443,9 +443,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     async function answerInteraction(operationId, interactionId, response) {
         try {
             await ownerFetch(
-                `/api/owner/session-operations/${encodeURIComponent(operationId)}/interactions/${
-                    encodeURIComponent(interactionId)
-                }/answer`,
+                `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+                    encodeURIComponent(operationId)
+                }/interactions/${encodeURIComponent(interactionId)}/answer`,
                 { method: "POST", body: JSON.stringify({ response }) },
             );
             setMessage("Interaction answer sent.");
@@ -455,7 +455,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     async function forceRecovery() {
-        if (!timeline?.generation || !timeline?.forceAvailableAt) return;
+        if (timeline?.generation == null || !timeline?.forceAvailableAt) return;
         const warning =
             "Take control only if the other process stopped renewing. A prior command or process may still finish. RunWield fences later writes, but it cannot undo external effects.";
         if (!globalThis.confirm(`${warning}\n\nTake control of this Session?`)) return;

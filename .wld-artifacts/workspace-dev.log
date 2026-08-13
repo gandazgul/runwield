@@ -251,3 +251,148 @@ Check the render method of `PlanBoard`. See https://react.dev/link/warning-keys 
 15:44:36 [200] /logo.svg 1ms
 15:44:36 [503] /api/owner/projects/test-project/sessions 0ms
 15:44:36 [200] /logo.svg 0ms
+15:47:58 [watch] /components/SessionTimeline.jsx
+15:47:58 [watch] /islands/SessionSurface.jsx
+15:47:58 [vite] hmr invalidate /components/SessionTimeline.jsx Could not Fast Refresh ("reduceSessionEvents" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+15:47:58 [watch] /islands/SessionSurface.jsx
+15:47:58 [vite] hmr invalidate /islands/SessionSurface.jsx Could not Fast Refresh ("deriveSessionModelDisclosure" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+15:47:58 [watch] islands/SessionSurface.jsx
+15:47:58 [503] /api/owner/projects/test-project/sessions 0ms
+15:47:58 [503] /api/owner/projects/test-project/sessions 0ms
+15:47:58 [200] /projects/test-project/sessions 5ms
+15:47:58 [200] /projects/test-project/sessions 5ms
+15:47:58 [200] /logo.svg 3ms
+15:47:58 [200] /logo.svg 3ms
+15:47:58 [200] /tokens.css 4ms
+15:47:58 [200] /tokens.css 4ms
+15:47:58 [200] /components.css 4ms
+15:47:58 [200] /components.css 4ms
+15:47:59 [200] /theme.css 717ms
+15:47:59 [200] /theme.css 717ms
+15:47:59 [200] /logo.svg 2ms
+15:47:59 [200] /logo.svg 0ms
+15:47:59 [200] /logo.svg 1ms
+15:47:59 [200] /logo.svg 1ms
+15:47:59 [503] /api/owner/projects/test-project/sessions 0ms
+15:47:59 [503] /api/owner/projects/test-project/sessions 0ms
+15:47:59 [200] /logo.svg 0ms
+15:47:59 [200] /logo.svg 0ms
+15:51:17 [200] /projects/demo/sessions 10ms
+15:51:17 [200] /logo.svg 1ms
+15:51:18 [200] /tokens.css 11ms
+15:51:18 [200] /components.css 11ms
+15:51:18 [200] /theme.css 549ms
+15:51:18 [200] /logo.svg 1ms
+15:51:18 [200] /logo.svg 3ms
+15:51:18 [503] /api/owner/projects/demo/sessions 0ms
+15:51:18 [200] /logo.svg 0ms
+15:51:48 [200] /projects/demo/sessions 3ms
+15:51:48 [200] /logo.svg 1ms
+15:51:48 [200] /components.css 1ms
+15:51:48 [200] /tokens.css 0ms
+15:51:48 [200] /theme.css 413ms
+15:51:48 [200] /logo.svg 0ms
+15:51:48 [503] /api/owner/projects/demo/sessions 0ms
+15:51:48 [200] /logo.svg 0ms
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `PlanBoard`. See https://react.dev/link/warning-keys for more information.
+16:00:47 [200] / 39ms
+16:00:47 [200] /tokens.css 1ms
+16:00:47 [200] /components.css 1ms
+16:00:47 [200] /logo.svg 0ms
+16:00:47 [200] /theme.css 446ms
+16:00:47 [200] /logo.svg 0ms
+16:00:47 [200] /logo.svg 0ms
+16:00:48 [200] /logo.svg 0ms
+16:05:31 [watch] /islands/SessionSurface.jsx
+16:05:32 [vite] hmr invalidate /islands/SessionSurface.jsx Could not Fast Refresh ("deriveSessionModelDisclosure" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+16:05:32 [watch] islands/SessionSurface.jsx
+16:05:32 [200] /projects/test-project/sessions 17ms
+16:05:32 [200] /projects/test-project/sessions 20ms
+16:05:32 [200] /projects/demo/sessions 20ms
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `PlanBoard`. See https://react.dev/link/warning-keys for more information.
+16:05:32 [200] / 87ms
+16:05:32 [200] /logo.svg 12ms
+16:05:32 [200] /logo.svg 13ms
+16:05:32 [200] /logo.svg 12ms
+16:05:32 [200] /logo.svg 13ms
+16:05:32 [200] /tokens.css 6ms
+16:05:32 [200] /tokens.css 7ms
+16:05:32 [200] /tokens.css 7ms
+16:05:32 [200] /tokens.css 7ms
+16:05:32 [200] /components.css 7ms
+16:05:32 [200] /components.css 8ms
+16:05:32 [200] /components.css 8ms
+16:05:32 [200] /components.css 8ms
+16:05:34 [200] /theme.css 2230ms
+16:05:34 [200] /theme.css 2238ms
+16:05:34 [200] /theme.css 2246ms
+16:05:34 [200] /logo.svg 0ms
+16:05:34 [200] /logo.svg 1ms
+16:05:34 [200] /logo.svg 9ms
+16:05:34 [200] /logo.svg 9ms
+16:05:34 [200] /logo.svg 6ms
+16:05:34 [503] /api/owner/projects/demo/sessions 0ms
+16:05:34 [200] /theme.css 2368ms
+16:05:34 [503] /api/owner/projects/test-project/sessions 11ms
+16:05:34 [200] /logo.svg 26ms
+16:05:34 [200] /logo.svg 10ms
+16:05:34 [200] /logo.svg 3ms
+16:05:34 [503] /api/owner/projects/test-project/sessions 0ms
+16:05:35 [200] /logo.svg 1ms
+16:05:35 [200] /logo.svg 1ms
+16:05:35 [200] /logo.svg 2ms
+16:05:35 [200] /logo.svg 2ms
+16:16:04 [watch] /islands/SessionSurface.jsx
+16:16:04 [vite] hmr invalidate /islands/SessionSurface.jsx Could not Fast Refresh ("deriveSessionModelDisclosure" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+16:16:04 [watch] islands/SessionSurface.jsx
+16:16:04 [200] /projects/test-project/sessions 6ms
+16:16:04 [200] /projects/test-project/sessions 6ms
+16:16:04 [200] /projects/demo/sessions 6ms
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `PlanBoard`. See https://react.dev/link/warning-keys for more information.
+16:16:04 [200] / 35ms
+16:16:04 [200] /logo.svg 1ms
+16:16:04 [200] /logo.svg 2ms
+16:16:04 [200] /logo.svg 2ms
+16:16:04 [200] /logo.svg 0ms
+16:16:04 [200] /tokens.css 4ms
+16:16:04 [200] /tokens.css 4ms
+16:16:04 [200] /tokens.css 4ms
+16:16:04 [200] /tokens.css 4ms
+16:16:04 [200] /components.css 3ms
+16:16:04 [200] /components.css 3ms
+16:16:04 [200] /components.css 3ms
+16:16:04 [200] /components.css 3ms
+16:16:05 [200] /theme.css 862ms
+16:16:05 [200] /theme.css 863ms
+16:16:05 [200] /theme.css 863ms
+16:16:05 [200] /theme.css 863ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 5ms
+16:16:05 [200] /logo.svg 5ms
+16:16:05 [200] /logo.svg 1ms
+16:16:05 [503] /api/owner/projects/test-project/sessions 0ms
+16:16:05 [503] /api/owner/projects/demo/sessions 0ms
+16:16:05 [503] /api/owner/projects/test-project/sessions 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:05 [200] /logo.svg 0ms
+16:16:06 [200] /logo.svg 0ms
+16:24:01 [200] /projects/test-project/sessions 8ms
+16:24:01 [200] /logo.svg 0ms
+16:24:01 [200] /components.css 7ms
+16:24:01 [200] /tokens.css 7ms
+16:24:01 [200] /theme.css 501ms
+16:24:01 [200] /logo.svg 0ms
+16:24:01 [200] /logo.svg 1ms
+16:24:01 [503] /api/owner/projects/test-project/sessions 0ms
+16:24:02 [200] /logo.svg 5ms

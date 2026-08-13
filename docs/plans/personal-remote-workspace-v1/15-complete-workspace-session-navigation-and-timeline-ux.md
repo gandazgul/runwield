@@ -36,13 +36,13 @@ devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
 updatedAt: "2026-08-13T15:56:11.464Z"
-status: "ready_for_work"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 15
 dependencies:
     - "14-cross-surface-workflow-invariant-hardening"
 userVerifiedAt: null
+status: "validated_reviewer"
 ---
 
 # Complete Workspace Session Navigation and Timeline UX

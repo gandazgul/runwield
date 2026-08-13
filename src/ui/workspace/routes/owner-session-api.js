@@ -49,6 +49,13 @@ function safeDiagnostic(value) {
     };
 }
 
+/** @param {Record<string, unknown>} result */
+function safeTimelineResult(result) {
+    const safe = { ...result };
+    delete safe.segments;
+    return safe;
+}
+
 /** @param {any} ctx */
 export async function ownerProjectSessionsApi(ctx) {
     try {
@@ -73,7 +80,7 @@ export async function ownerSessionTimelineApi(ctx) {
             cursorEventId,
             limit,
         });
-        return ownerJson({ ...result, events: (result.events || []).map(safeEvent) });
+        return ownerJson({ ...safeTimelineResult(result), events: (result.events || []).map(safeEvent) });
     } catch (error) {
         const message = sanitizeOwnerError(error);
         return ownerJson({ error: message }, /reconcile|uncertain|disabled/.test(message) ? 503 : 409);
@@ -160,7 +167,9 @@ export async function ownerSessionForceRecoverApi(ctx) {
 export async function ownerSessionInteractionAnswerApi(ctx) {
     try {
         const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const result = ctx.state.sessionContinuation.answerInteraction({
+            projectId: ctx.params.projectId,
             operationId: ctx.params.operationId,
             interactionId: ctx.params.interactionId,
             response: body.response,

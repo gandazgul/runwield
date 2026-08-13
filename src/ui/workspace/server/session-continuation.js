@@ -34,6 +34,25 @@ function requireReceipt(receipt) {
     return receipt;
 }
 
+/** @param {{ ok: boolean, segments?: unknown[] }} projection */
+function browserTimelineProjection(projection) {
+    if (!projection.ok) return projection;
+    const { segments: _segments, ...safeProjection } = projection;
+    return safeProjection;
+}
+
+/**
+ * @typedef {Object} WorkspaceOperationRecord
+ * @property {string} status
+ * @property {string} projectId
+ * @property {unknown[]} events
+ * @property {string} [error]
+ * @property {number | null} [generation]
+ * @property {string | null} [runwieldSessionId]
+ * @property {{ interactionId: string, request: Record<string, unknown> }} [liveInteraction]
+ * @property {{ resolve: (value: unknown) => void, reject: (error: Error) => void } | null} [answer]
+ */
+
 export class WorkspaceSessionContinuationService {
     /**
      * @param {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore }} options
@@ -46,7 +65,7 @@ export class WorkspaceSessionContinuationService {
             ownerProcessKind: "workspace",
             ownerInstanceId: this.ownerInstanceId,
         });
-        /** @type {Map<string, { status: string, events: unknown[], error?: string, generation?: number | null, runwieldSessionId?: string | null, liveInteraction?: { interactionId: string, request: Record<string, unknown> }, answer?: { resolve: (value: unknown) => void, reject: (error: Error) => void } | null }>} */
+        /** @type {Map<string, WorkspaceOperationRecord>} */
         this.operations = new Map();
         /** @type {Map<string, { requestHash: string, operationId: string }>} */
         this.createRequests = new Map();
@@ -133,7 +152,7 @@ export class WorkspaceSessionContinuationService {
             forceAvailableAt,
             recoveryCategory: state || "idle",
             bootstrapRequired: false,
-            ...projection,
+            ...browserTimelineProjection(projection),
         };
     }
 
@@ -275,7 +294,12 @@ export class WorkspaceSessionContinuationService {
         this.store.requireActivationProtocolEnabled();
         const operationId = crypto.randomUUID();
         this.createRequests.set(createKey, { requestHash, operationId });
-        this.operations.set(operationId, { status: "running", events: [], runwieldSessionId: null });
+        this.operations.set(operationId, {
+            status: "running",
+            projectId: options.projectId,
+            events: [],
+            runwieldSessionId: null,
+        });
         queueMicrotask(async () => {
             let sessionId = "";
             let unsubscribe = () => {};
@@ -301,7 +325,7 @@ export class WorkspaceSessionContinuationService {
                 const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
                 const generation = snapshot?.managed?.generation ?? (result.ok ? 1 : 0);
                 this.operations.set(operationId, {
-                    ...(this.operations.get(operationId) || { events: [] }),
+                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: result.ok ? "completed" : "failed",
                     generation,
                     runwieldSessionId,
@@ -309,7 +333,7 @@ export class WorkspaceSessionContinuationService {
                 });
             } catch (error) {
                 this.operations.set(operationId, {
-                    ...(this.operations.get(operationId) || { events: [] }),
+                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "failed",
                     error: codeFromError(error),
                 });
@@ -391,7 +415,7 @@ export class WorkspaceSessionContinuationService {
             return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
-        this.operations.set(receipt.operationId, { status: "running", events: [] });
+        this.operations.set(receipt.operationId, { status: "running", projectId: options.projectId, events: [] });
         const adopted = this.runtime.adoptManagedSession({
             session,
             generation: options.expectedGeneration,
@@ -426,7 +450,7 @@ export class WorkspaceSessionContinuationService {
                     errorCode: result.error || null,
                 });
                 this.operations.set(receipt.operationId, {
-                    ...(this.operations.get(receipt.operationId) || { events: [] }),
+                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
                     status,
                     generation,
                     error: result.error,
@@ -439,7 +463,7 @@ export class WorkspaceSessionContinuationService {
                     errorMessage: error instanceof Error ? error.message : String(error),
                 });
                 this.operations.set(receipt.operationId, {
-                    ...(this.operations.get(receipt.operationId) || { events: [] }),
+                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
                     status: "failed",
                     error: errorCode,
                 });
@@ -452,10 +476,15 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ operationId: string, interactionId: string, response: unknown }} options
+     * @param {{ projectId: string, operationId: string, interactionId: string, response: unknown }} options
      */
     answerInteraction(options) {
         const operation = this.operations.get(options.operationId);
+        const durable = this.store.getOperationReceipt(options.operationId);
+        const operationProjectId = operation?.projectId || durable?.projectId || null;
+        if (operationProjectId !== options.projectId) {
+            throw new Error("Live Workspace interaction is not available for this Project.");
+        }
         if (!operation || operation.status !== "running" || !operation.liveInteraction || !operation.answer) {
             throw new Error("Live Workspace interaction is not available.");
         }
