@@ -29,20 +29,41 @@ objectiveChecks:
     - id: "OC3"
       command: "test -f src/ui/workspace/workspace-session-ux.test.tsx && grep -Fq \"Session surface preserves drafts and replaces a lost live wait with one interruption line\" src/ui/workspace/workspace-session-ux.test.tsx && grep -Fq \"Take control\" src/ui/workspace/islands/SessionSurface.jsx && grep -Fq \"The agent was interrupted. Ask it to continue.\" src/ui/workspace/components/SessionTimeline.jsx && grep -Fq 'app.post(\"/api/owner/session-operations/:operationId/interactions/:interactionId/answer\"' src/ui/workspace/server.js && deno run -A scripts/run-tests.js src/ui/workspace/workspace-session-ux.test.tsx"
       rationale: "The current Session surface has no force-control confirmation, interruption item, or live interaction-answer route. This requires those production paths and runs the UI state behavior suite."
+objectiveCheckWaivers:
+    - id: "OC3"
+      command: "test -f src/ui/workspace/workspace-session-ux.test.tsx && grep -Fq \"Session surface preserves drafts and replaces a lost live wait with one interruption line\" src/ui/workspace/workspace-session-ux.test.tsx && grep -Fq \"Take control\" src/ui/workspace/islands/SessionSurface.jsx && grep -Fq \"The agent was interrupted. Ask it to continue.\" src/ui/workspace/components/SessionTimeline.jsx && grep -Fq 'app.post(\"/api/owner/session-operations/:operationId/interactions/:interactionId/answer\"' src/ui/workspace/server.js && deno run -A scripts/run-tests.js src/ui/workspace/workspace-session-ux.test.tsx"
+      source: "engineer_report"
+      explanation: "The check is defective. It proves the wrong route shape: it requires an unproject-bound interaction-answer route in server.js. The approved Plan requires Project-bound owner APIs. The implementation registers `app.post(\"/api/owner/projects/:projectId/session-operations/:operationId/interactions/:interactionId/answer\", ownerSessionInteractionAnswerApi)` in `src/ui/workspace/server.js`, `SessionSurface.jsx` posts to the same Project-bound route, and `owner-workspace.test.js` covers wrong-project rejection plus successful same-project answer. The rest of OC3 passes: the UX test file and named test exist, `Take control` exists in `SessionSurface.jsx`, the interruption line exists in `SessionTimeline.jsx`, and `deno run -A scripts/run-tests.js src/ui/workspace/workspace-session-ux.test.tsx` passes."
+      userNote: "OC3 diagnosed as a defective check, not an implementation defect: it greps for an unproject-bound interaction-answer route, but the Plan requires Project-bound APIs and    the implementation uses the Project-bound route"
+      waivedAt: "2026-08-13T20:34:34.025Z"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-13T15:56:11.464Z"
+updatedAt: "2026-08-13T20:36:04.202Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 15
 dependencies:
     - "14-cross-surface-workflow-invariant-hardening"
+implementedAt: "2026-08-13T19:47:58.477Z"
+verifiedAt: "2026-08-13T20:36:04.202Z"
 userVerifiedAt: null
-status: "validated_reviewer"
+executionReport: "- Implemented Workspace Session slice: Router-led Session creation service path, shared Runtime continuation policy, live Workspace interaction answering/lost-wait interruption handling, forced expired-control recovery, sanitized owner APIs, list/detail Session UI, responsive timeline/composer/status styling, and ADR/PRD/domain/design-system docs.\n- Fixed the observed `workspace:dev` 404: added dev-only Astro owner API fallback at `/api/owner/...` so hot-module visual work now shows a clear 503 message instead of Astro’s 404; updated Session list copy to remove old Ideator-only wording.\n- Tests changed: added new behavioral coverage in `expired-activation-takeover.integration.test.ts`, `session-navigation.integration.test.ts`, and `workspace-session-ux.test.tsx`; expanded owner-coordination/workspace tests; no tests were deleted.\n- Verification passed: focused suite `deno run -A scripts/run-tests.js src/shared/owner-coordination/session-activations.test.js src/shared/session/expired-activation-takeover.integration.test.ts src/ui/workspace/session-navigation.integration.test.ts src/ui/workspace/owner-workspace.test.js src/ui/workspace/workspace-session-ux.test.tsx`; `deno task workspace:check`; `deno task workspace:test`; `deno task workspace:build`; `deno task seams:check`; `deno task ci`.\n- Browser check passed for Astro dev at `http://127.0.0.1:5173/projects/test-project/sessions`, mobile viewport 390×844: page renders, copy is updated, no Astro 404; visible evidence shows clear owner API unavailable message for dev-only API access.\n- Browser check passed for real paired owner server at `http://127.0.0.1:8789/projects/11ed4e56-2514-467e-8cee-a70f2feb3f9b/sessions`, desktop and 390×844: paired browser, registered sandbox Project, opened Sessions route, saw New Session form and empty state; no failed fetches captured.\n- Manual live Router creation/interaction, TUI cross-surface takeover, and damaged-transcript corruption drills were not exercised in the headed browser because that would require live model/API execution and disposable transcript side effects; automated integration coverage covers these paths."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "493aeea395cc642bf842f0ee64fee4acab67e775"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "9063575348b3c14e3a005e6bda0c761ad2cc6c98"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Complete Workspace Session Navigation and Timeline UX
