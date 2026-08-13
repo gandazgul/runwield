@@ -96,8 +96,10 @@ Typical flow:
    dependencies, MVP scope, and deferred work with the user.
 5. After explicit user confirmation, Slicer writes draft child FEATURE plans under `docs/plans/<epic-name>/`.
 6. Slicer finalizes decomposition, moving the Epic to `ready_for_work` for child selection.
-7. RunWield advances through child FEATURE plans in Epic order. After a child verifies, Manual QA and Work Record
-   handoffs finish in the old Session; then RunWield creates a fresh Session and starts the next child automatically.
+7. RunWield advances through child FEATURE plans in Epic order. After a child verifies, RunWield records that child's
+   advisory Manual QA section in `docs/plans/<epic-name>/manual-qa.md` before delivery when possible. Work Record
+   handoff then finishes in the old Session, and RunWield creates a fresh Session and starts the next child
+   automatically.
 
 Child FEATURE plans are ordinary FEATURE plans with `parentPlan: <epic-name>` and optional sibling `dependencies`. They
 carry their own lifecycle, worktree, review, validation, and merge history. The parent Epic can later be marked "done
@@ -194,9 +196,15 @@ Supported automatic hooks:
 - `wld load-plan`: after the `epic_done_enough` lifecycle event succeeds;
 - Workspace: after a canonical close-without-verification action succeeds.
 
-For verified FEATURE plans, Manual QA checklist generation and Recorder Work Record generation start together after the
-Plan is terminal. Manual QA uses the hosted session prompt; Recorder uses a separate non-interactive session, so the two
-handoffs can overlap safely. RunWield waits for both before printing the Work Record result.
+For verified standalone FEATURE plans, Manual QA checklist generation and Recorder Work Record generation start together
+after the Plan is terminal. Manual QA uses the hosted session prompt; Recorder uses a separate non-interactive session,
+so the two handoffs can overlap safely. RunWield waits for both before printing the Work Record result.
+
+For verified Epic children, Manual QA is different. RunWield asks the Manual QA Agent to call `qa_checklist_generated`
+before publication. A valid call appends one section to `docs/plans/<epic-name>/manual-qa.md`, and that file is
+delivered with the child and verified Plan metadata. If the Agent omits the tool, gives invalid content, or the write
+fails, RunWield warns and continues. The checklist is advisory and does not affect verification, delivery, dependencies,
+Work Records, Epic completion, or continuation.
 
 Automatic generation is best-effort and non-authoritative. A Recorder, Markdown, backlink, or index failure is reported
 on the calling surface but does not undo `verified`, `done_enough`, or `closed_without_verification`, or

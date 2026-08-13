@@ -124,7 +124,7 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         displayNameFallback: "Manual QA",
         loadMode: "barePrompt",
         file: MANUAL_QA_PROMPT_FILE,
-        toolFree: true,
+        allowedTools: Object.freeze(["qa_checklist_generated"]),
     }),
     [SUBAGENTS.REVIEWER]: Object.freeze({
         id: SUBAGENTS.REVIEWER,

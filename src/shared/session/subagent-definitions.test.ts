@@ -104,7 +104,7 @@ Deno.test("bare-prompt subagents receive canonical tool ceilings without the sha
         "write",
         "multi_file_edit",
     ]);
-    assertEquals(manualQa.tools, []);
+    assertEquals(manualQa.tools, ["qa_checklist_generated"]);
     assertEquals(reviewer.tools, ["read", "grep", "find", "ls", "review_diff", "review_complete"]);
     assertEquals(delegated.systemPrompt.includes("## Available tools"), false);
     assertEquals(manualQa.systemPrompt.includes("{{SKILLS}}"), false);

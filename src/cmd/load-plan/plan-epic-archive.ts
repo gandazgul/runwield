@@ -39,6 +39,7 @@ interface ListedPlanForArchive {
 interface ArchivedPlanResult {
     name: string;
     relativePath: string;
+    artifacts?: Array<{ fileName: string; relativePath: string }>;
 }
 
 function relativeProjectPath(projectRoot: string, path: string): string {
@@ -69,7 +70,7 @@ async function archiveOnePlan(
         expectedRevision: loaded.revision,
         move: async () => {
             const result = await archivePlan(projectRoot, planName, force ? { force: true, now } : { now });
-            archived = { name: result.name, relativePath: result.relativePath };
+            archived = { name: result.name, relativePath: result.relativePath, artifacts: result.artifacts };
             return result.relativePath;
         },
     });
@@ -160,8 +161,14 @@ export async function archiveEpicWithChildren(
     await removeActiveEpicChildDirectory(projectRoot, epicChildDirectory, uiAPI);
 
     const archivedList = archived.map((entry) => `- ${entry.name}: ${entry.relativePath}`).join("\n");
+    const archivedArtifacts = archived.flatMap((entry) => entry.artifacts || []);
+    const artifactList = archivedArtifacts.length > 0
+        ? `\nMoved Epic Artifact(s):\n${
+            archivedArtifacts.map((entry) => `- ${entry.fileName}: ${entry.relativePath}`).join("\n")
+        }`
+        : "";
     uiAPI.appendSystemMessage(
-        `Archived Epic and child Plans:\n${archivedList}\nRestore with: ${CLI_BIN} plans archive restore <name>`,
+        `Archived Epic and child Plans:\n${archivedList}${artifactList}\nRestore with: ${CLI_BIN} plans archive restore <name>`,
         false,
         "RunWield",
     );

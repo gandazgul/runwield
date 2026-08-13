@@ -177,6 +177,14 @@ export type IsolatedAgentSessionRequest =
         images?: Array<{ base64: string; mimeType: string }>;
         customTools: OpaqueToolDefinition[];
         sessionManager?: SessionManagerHandle;
+    }
+    | {
+        kind: "manual_qa";
+        agentName: string;
+        userRequest: string;
+        cwd: string;
+        customTools: OpaqueToolDefinition[];
+        sessionManager?: SessionManagerHandle;
     };
 
 /**
@@ -197,6 +205,13 @@ export type IsolatedAgentSessionOutcome =
     | {
         kind: "feedback_engineer";
         taskReport: AgentTurnOutcome;
+        executionError?: string;
+    }
+    | {
+        kind: "manual_qa";
+        outcome: "recorded" | "already_present" | "missing_tool_call" | "rejected";
+        relativePath?: string;
+        warning?: string;
         executionError?: string;
     };
 

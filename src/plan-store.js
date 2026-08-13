@@ -32,6 +32,14 @@ import {
     COLLABORATION_STATE_REMOTE_CANONICAL,
     normalizeCollaborationFrontMatter,
 } from "./shared/collaboration/lock.js";
+import {
+    assertNotReservedEpicArtifactPlanName,
+    isEpicArtifactPlanName,
+    moveEpicArtifactsFromArchive,
+    moveEpicArtifactsToArchive,
+} from "./shared/epic-artifacts.ts";
+
+/** @typedef {import("./shared/epic-artifacts.ts").MoveEpicArtifactResult} MoveEpicArtifactResult */
 
 export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
@@ -1916,7 +1924,8 @@ export function getKnownFrontMatterRevision(revision) {
  * @returns {Promise<Awaited<ReturnType<typeof loadPlanFileStrict>>>}
  */
 export async function loadPlanStrict(cwd, planName) {
-    const { filePath } = getStoredPlanLocation(cwd, planName);
+    const { name, filePath } = getStoredPlanLocation(cwd, planName);
+    if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
     return await loadPlanFileStrict(filePath);
 }
 
@@ -2308,6 +2317,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
  * @returns {Promise<string>} The full path where the plan was saved
  */
 export async function savePlan(cwd, planName, content, fmOverrides = {}, options = {}) {
+    assertNotReservedEpicArtifactPlanName(planName);
     return await withPlanCatalogLock(cwd, async () =>
         await withPlanLock(cwd, planName, async () => {
             const dir = await ensurePlansDir(cwd);
@@ -2375,6 +2385,7 @@ export async function createPulledCollaborationPlan(cwd, options) {
  * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision?: string, frontMatterRevision?: string, hasFrontMatter?: boolean } | null>}
  */
 export async function loadPlan(cwd, planName) {
+    if (isEpicArtifactPlanName(planName)) return null;
     const result = await loadPlanStrict(cwd, planName);
     if (result.kind === "not_found") return null;
     if (result.kind === "loaded") {
@@ -2628,6 +2639,7 @@ async function collectPlans(dir, prefix, results, parseIssues) {
             continue;
         }
         if (!entry.name.endsWith(".md")) continue;
+        if (isEpicArtifactPlanName(name)) continue;
         if (!entry.isFile) {
             parseIssues?.push({
                 name,
@@ -2836,7 +2848,7 @@ async function resolveArchivedPlanNameOrId(cwd, archivedPlanNameOrId) {
  * @param {string} cwd
  * @param {string} planNameOrId
  * @param {ArchivePlanOptions} [options]
- * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter }>}
+ * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter, artifacts?: Array<{ fileName: string, relativePath: string }> }>}
  */
 export async function archivePlan(cwd, planNameOrId, options = {}) {
     const source = await resolveActivePlanNameOrId(cwd, planNameOrId);
@@ -2884,11 +2896,20 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
             }
             await Deno.mkdir(join(getArchivedPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
             await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
+            /** @type {MoveEpicArtifactResult[]} */
+            let movedArtifacts = [];
             try {
+                movedArtifacts = source.attrs.classification === "PROJECT" && source.name.split("/").length === 1
+                    ? await moveEpicArtifactsToArchive(cwd, source.name)
+                    : [];
                 await Deno.remove(source.path);
                 await syncDirectory(dirname(source.path));
                 await syncDirectory(dirname(destination.filePath));
+                for (const artifact of movedArtifacts) await syncDirectory(dirname(artifact.toPath));
             } catch (error) {
+                for (const artifact of movedArtifacts.toReversed()) {
+                    await Deno.rename(artifact.toPath, artifact.fromPath).catch(() => {});
+                }
                 await Deno.remove(destination.filePath).catch(() => {});
                 throw error;
             }
@@ -2898,6 +2919,10 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
                 toPath: destination.filePath,
                 relativePath: projectRelativePath(cwd, destination.filePath),
                 attrs: parsePlanFrontMatter(markdown).attrs,
+                artifacts: movedArtifacts.map((artifact) => ({
+                    fileName: artifact.fileName,
+                    relativePath: artifact.relativePath,
+                })),
             };
         }));
 }
@@ -3092,7 +3117,7 @@ export async function updateArchivedPlanFrontMatter(cwd, archivedPlanNameOrId, u
  * @param {string} cwd
  * @param {string} archivedPlanNameOrId
  * @param {{ to?: string, now?: string }} [options]
- * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter }>}
+ * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter, artifacts?: Array<{ fileName: string, relativePath: string }> }>}
  */
 export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {}) {
     const archived = await resolveArchivedPlanNameOrId(cwd, archivedPlanNameOrId);
@@ -3131,11 +3156,20 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
             }
             await Deno.mkdir(join(getPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
             await atomicWriteTextFileIfAbsent(destination.filePath, markdown);
+            /** @type {MoveEpicArtifactResult[]} */
+            let movedArtifacts = [];
             try {
+                movedArtifacts = archived.attrs.classification === "PROJECT" && archived.name.split("/").length === 1
+                    ? await moveEpicArtifactsFromArchive(cwd, archived.name)
+                    : [];
                 await Deno.remove(archived.path);
                 await syncDirectory(dirname(archived.path));
                 await syncDirectory(dirname(destination.filePath));
+                for (const artifact of movedArtifacts) await syncDirectory(dirname(artifact.toPath));
             } catch (error) {
+                for (const artifact of movedArtifacts.toReversed()) {
+                    await Deno.rename(artifact.toPath, artifact.fromPath).catch(() => {});
+                }
                 await Deno.remove(destination.filePath).catch(() => {});
                 throw error;
             }
@@ -3145,6 +3179,10 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
                 toPath: destination.filePath,
                 relativePath: projectRelativePath(cwd, destination.filePath),
                 attrs: parsePlanFrontMatter(markdown).attrs,
+                artifacts: movedArtifacts.map((artifact) => ({
+                    fileName: artifact.fileName,
+                    relativePath: artifact.relativePath,
+                })),
             };
         }));
 }

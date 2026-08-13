@@ -36,6 +36,7 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "triage_report",
     "plan_written",
     "review_complete",
+    "qa_checklist_generated",
     "task_completed",
     "return_to_router",
     "user_interview",

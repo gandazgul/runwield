@@ -453,6 +453,10 @@ executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subt
 **Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to an Epic through `parentPlan`. _Avoid_: Child
 FEATURE Plan, subtask, ticket, DAG node
 
+**Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic
+Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
+verification, dependency, delivery, or Epic completion authority. _Avoid_: QA tracker, child Plan, artifact lifecycle
+
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
 

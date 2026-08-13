@@ -123,11 +123,16 @@ execution, validation, and recovery flow.
 
 After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. Verification now
 requires explicit execution mode and delivery evidence: worktree-backed children must prove their sealed implementation
-commit and verified metadata reached the target branch before Work Records or Epic continuation run. It finishes the old
-Session's Manual QA and Work Record output, then starts a fresh persisted Session for the next child. Draft and feedback
-children open Planner; approved and ready-for-work children execute automatically. The chain stops at the first
-remaining child when it is blocked by a hold, recovery state, unmet dependency, unsupported status, or unverifiable
-worktree publication context.
+commit and verified metadata reached the target branch before Work Records or Epic continuation run. For Epic children,
+Manual QA is written as an advisory Epic Artifact at `docs/plans/<epic-name>/manual-qa.md` before delivery when
+possible, not left as a transient old-Session checklist. RunWield then finishes Work Record output and starts a fresh
+persisted Session for the next child. Draft and feedback children open Planner; approved and ready-for-work children
+execute automatically. The chain stops at the first remaining child when it is blocked by a hold, recovery state, unmet
+dependency, unsupported status, or unverifiable worktree publication context.
+
+The `manual-qa.md` Epic Artifact is not a Plan. RunWield reserves that exact nested name, excludes it from Plan lists,
+and moves it with the Epic during archive and restore. You own checkbox state like any other repository Markdown. If
+checklist generation fails, RunWield warns and continues; verification and Epic continuation do not depend on it.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
