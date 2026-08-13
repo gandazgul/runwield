@@ -47,12 +47,17 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T16:42:13-04:00"
-updatedAt: "2026-08-13T03:41:15.443Z"
+updatedAt: "2026-08-13T03:41:29.878Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-13T03:02:44.655Z"
 verifiedAt: "2026-08-13T03:41:15.443Z"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "525d3fb4-b9a7-4775-a87a-0c4707cdfa77"
+    path: "docs/work-records/2026-08-13-durable-epic-manual-qa-artifacts.md"
+    lastAttemptAt: "2026-08-13T03:41:21.395Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 executionMode: "worktree"
