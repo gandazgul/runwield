@@ -1,4 +1,5 @@
 ---
+planId: "a9cbda90-990e-44cb-a03d-c3bdb2836bac"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -46,13 +47,26 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T16:42:13-04:00"
-updatedAt: "2026-08-12T20:47:48.801Z"
+updatedAt: "2026-08-13T03:41:15.443Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-08-13T03:02:44.655Z"
+verifiedAt: "2026-08-13T03:41:15.443Z"
 userVerifiedAt: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "86dff48c655b554f731fe3f3b2b8e942c2f2a3b0"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "7352a5eb1989cc1f2155a29488a2fda59f71e8c7"
+planName: "durable-epic-manual-qa-artifact"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "durable epic manual QA artifact"
-planId: "a9cbda90-990e-44cb-a03d-c3bdb2836bac"
-status: "validated_reviewer"
+validationCiAttempts: 0
+validationSemanticRounds: 2
 ---
 
 # Durable Epic Manual QA Artifact
