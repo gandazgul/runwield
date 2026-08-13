@@ -32,7 +32,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-08-12T02:30:02.286Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -54,6 +53,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "92d9e138b3f97f278b1e83d3351c49ee6005e122"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-13T03:07:31.394Z"
+archivedAt: "2026-08-13T03:07:31.394Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/08-segment-manifest-and-legacy-migration.md"
 ---
 
 # Segment Manifest and Legacy Migration

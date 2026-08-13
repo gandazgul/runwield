@@ -1295,6 +1295,32 @@ Deno.test("recordPlanEvent rejects invalid transitions before writing", async ()
     }
 });
 
+Deno.test("recordPlanEvent explains stale Plan status with a validation action", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Feature", { status: "implemented" });
+
+        const error = await assertRejects(
+            () =>
+                recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "feature",
+                    event: "semantic_review_passed",
+                    currentStatus: "validated_ci",
+                }),
+            Error,
+        );
+
+        assertStringIncludes(error.message, "RunWield had old status data for Plan feature.");
+        assertStringIncludes(error.message, "It thought the Plan was at validated_ci (the checks passed)");
+        assertStringIncludes(error.message, "the saved Plan is at implemented (the work is done)");
+        assertStringIncludes(error.message, "run validation again for this Plan");
+        assertStringIncludes(error.message, "Do not reset your worktree.");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("getPlanLifecycleActionMetadata keeps protected states behind dedicated actions", () => {
     const draft = getPlanLifecycleActionMetadata("draft", { classification: "FEATURE" });
     assertEquals(draft.allowedManualTargetStatuses.includes("verified"), false);

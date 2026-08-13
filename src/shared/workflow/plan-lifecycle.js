@@ -39,6 +39,49 @@ export class PlanLifecycleTransitionError extends Error {
  * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
  */
 
+/** @type {Record<PlanStatus, string>} */
+const PLAN_STATUS_HELP_TEXT = {
+    draft: "it is still a draft",
+    feedback: "it needs changes",
+    approved: "it is approved",
+    ready_for_decomposition: "it is ready to split into smaller work",
+    ready_for_work: "it is ready for work",
+    in_progress: "work has started",
+    failed: "it failed",
+    implemented: "the work is done",
+    validated_ci: "the checks passed",
+    validated_reviewer: "code review passed",
+    verified: "validation is done",
+    user_verified: "you approved it",
+    closed_without_verification: "it was closed without validation",
+    on_hold: "it is on hold",
+};
+
+/**
+ * @param {PlanStatus} status
+ * @returns {string}
+ */
+function describePlanStatus(status) {
+    return PLAN_STATUS_HELP_TEXT[status] || status;
+}
+
+/**
+ * @param {string} planName
+ * @param {PlanStatus} currentStatus
+ * @param {PlanStatus} canonicalStatus
+ * @returns {string}
+ */
+function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
+    return [
+        `RunWield had old status data for Plan ${planName}.`,
+        `It thought the Plan was at ${currentStatus} (${
+            describePlanStatus(currentStatus)
+        }), but the saved Plan is at ${canonicalStatus} (${describePlanStatus(canonicalStatus)}).`,
+        "What to do: run validation again for this Plan. RunWield will read the saved Plan and keep going.",
+        "Do not reset your worktree.",
+    ].join(" ");
+}
+
 /**
  * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
@@ -831,9 +874,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
         if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
         const canonicalStatus = beforePlan.attrs.status;
         if (currentStatus && currentStatus !== canonicalStatus) {
-            throw new Error(
-                `Stale Plan lifecycle precondition for ${planName}: caller saw ${currentStatus}, canonical status is ${canonicalStatus}.`,
-            );
+            throw new Error(buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus));
         }
         const canonicalDetails = {
             ...details,
@@ -905,9 +946,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                     if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
                     const canonicalStatus = beforePlan.attrs.status;
                     if (currentStatus && currentStatus !== canonicalStatus) {
-                        throw new Error(
-                            `Stale Plan lifecycle precondition for ${planName}: caller saw ${currentStatus}, canonical status is ${canonicalStatus}.`,
-                        );
+                        throw new Error(buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus));
                     }
                     const canonicalDetails = {
                         ...details,
